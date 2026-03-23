@@ -2831,36 +2831,46 @@
 <h2 id="ip-allowblock-logic">IP Allow/Block Logic<a class="headerlink" href="#ip-allowblock-logic" title="Permanent link">&para;</a></h2>
 <p>The function <code>is_ip_allowed()</code> in <code>guard_core.utils</code> implements the global IP evaluation chain. It is called by <code>IpSecurityCheck</code> for requests without route-level overrides.</p>
 <h3 id="evaluation-order">Evaluation Order<a class="headerlink" href="#evaluation-order" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>is_ip_allowed(ip, config, geo_ip_handler)
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  |
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  1. Blacklist check -&gt; if ip in blacklist: return False
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  2. Whitelist check -&gt; if whitelist exists and ip not in whitelist: return False
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  3. Country check   -&gt; if blocked_countries and country is blocked: return False
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  4. Cloud check     -&gt; if block_cloud_providers and ip is cloud: return False
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  5. return True
-</span></code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    START["is_ip_allowed()"]
+    BL{"1. IP in blacklist?"}
+    WL{"2. IP not in whitelist?"}
+    CC{"3. Country blocked?"}
+    CL{"4. Cloud provider blocked?"}
+    ALLOW["return True"]
+    DENY["return False"]
+
+    START --&gt; BL
+    BL -- Yes --&gt; DENY
+    BL -- No --&gt; WL
+    WL -- Yes --&gt; DENY
+    WL -- No --&gt; CC
+    CC -- Yes --&gt; DENY
+    CC -- No --&gt; CL
+    CL -- Yes --&gt; DENY
+    CL -- No --&gt; ALLOW</code></pre>
 <h3 id="blacklist-check">Blacklist Check<a class="headerlink" href="#blacklist-check" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_blacklist</span><span class="p">(</span><span class="n">ip_addr</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="k">for</span> <span class="n">blocked</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">blacklist</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>        <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">blocked</span><span class="p">:</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>            <span class="k">if</span> <span class="n">ip_addr</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">blocked</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>                <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># blocked</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="k">elif</span> <span class="n">ip</span> <span class="o">==</span> <span class="n">blocked</span><span class="p">:</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>            <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># blocked</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="k">return</span> <span class="kc">True</span>  <span class="c1"># not blocked</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_blacklist</span><span class="p">(</span><span class="n">ip_addr</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="k">for</span> <span class="n">blocked</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">blacklist</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">blocked</span><span class="p">:</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>            <span class="k">if</span> <span class="n">ip_addr</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">blocked</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>                <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># blocked</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        <span class="k">elif</span> <span class="n">ip</span> <span class="o">==</span> <span class="n">blocked</span><span class="p">:</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>            <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># blocked</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">return</span> <span class="kc">True</span>  <span class="c1"># not blocked</span>
 </span></code></pre></div>
 <p>Supports both individual IPs and CIDR ranges (e.g., <code>10.0.0.0/8</code>).</p>
 <h3 id="whitelist-check">Whitelist Check<a class="headerlink" href="#whitelist-check" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_whitelist</span><span class="p">(</span><span class="n">ip_addr</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">whitelist</span><span class="p">:</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="k">for</span> <span class="n">allowed</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">whitelist</span><span class="p">:</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>            <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">allowed</span><span class="p">:</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>                <span class="k">if</span> <span class="n">ip_addr</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">allowed</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>                    <span class="k">return</span> <span class="kc">True</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>            <span class="k">elif</span> <span class="n">ip</span> <span class="o">==</span> <span class="n">allowed</span><span class="p">:</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>                <span class="k">return</span> <span class="kc">True</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>        <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># whitelist exists but IP not in it</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="k">return</span> <span class="kc">True</span>  <span class="c1"># no whitelist, all allowed</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_check_whitelist</span><span class="p">(</span><span class="n">ip_addr</span><span class="p">,</span> <span class="n">ip</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">whitelist</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>        <span class="k">for</span> <span class="n">allowed</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">whitelist</span><span class="p">:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>            <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">allowed</span><span class="p">:</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>                <span class="k">if</span> <span class="n">ip_addr</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">allowed</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                    <span class="k">return</span> <span class="kc">True</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>            <span class="k">elif</span> <span class="n">ip</span> <span class="o">==</span> <span class="n">allowed</span><span class="p">:</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                <span class="k">return</span> <span class="kc">True</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>        <span class="k">return</span> <span class="kc">False</span>  <span class="c1"># whitelist exists but IP not in it</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">return</span> <span class="kc">True</span>  <span class="c1"># no whitelist, all allowed</span>
 </span></code></pre></div>
 <div class="admonition info">
 <p class="admonition-title">Whitelist Semantics</p>
@@ -2872,11 +2882,11 @@
 <p>Delegates to <code>CloudManager.is_cloud_ip()</code> to check if the IP belongs to a blocked cloud provider.</p>
 <hr />
 <h2 id="client-ip-extraction">Client IP Extraction<a class="headerlink" href="#client-ip-extraction" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">extract_client_ip</span><span class="p">(</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">request</span><span class="p">:</span> <span class="n">GuardRequest</span><span class="p">,</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">SecurityConfig</span><span class="p">,</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">agent_handler</span><span class="p">:</span> <span class="n">AgentHandlerProtocol</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">extract_client_ip</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">request</span><span class="p">:</span> <span class="n">GuardRequest</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">SecurityConfig</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">agent_handler</span><span class="p">:</span> <span class="n">AgentHandlerProtocol</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </span></code></pre></div>
 <h3 id="logic">Logic<a class="headerlink" href="#logic" title="Permanent link">&para;</a></h3>
 <ol>
@@ -2888,21 +2898,21 @@
 <li>If the connecting IP is a trusted proxy, extract the client IP from <code>X-Forwarded-For</code> at position <code>0</code> (leftmost), respecting <code>config.trusted_proxy_depth</code>.</li>
 </ol>
 <h3 id="trusted-proxy-evaluation">Trusted Proxy Evaluation<a class="headerlink" href="#trusted-proxy-evaluation" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_is_trusted_proxy</span><span class="p">(</span><span class="n">connecting_ip</span><span class="p">,</span> <span class="n">trusted_proxies</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="k">for</span> <span class="n">proxy</span> <span class="ow">in</span> <span class="n">trusted_proxies</span><span class="p">:</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>        <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">proxy</span><span class="p">:</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>            <span class="k">if</span> <span class="n">ip_address</span><span class="p">(</span><span class="n">connecting_ip</span><span class="p">)</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>                <span class="k">return</span> <span class="kc">True</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>        <span class="k">elif</span> <span class="n">connecting_ip</span> <span class="o">==</span> <span class="n">proxy</span><span class="p">:</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>            <span class="k">return</span> <span class="kc">True</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="k">return</span> <span class="kc">False</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_is_trusted_proxy</span><span class="p">(</span><span class="n">connecting_ip</span><span class="p">,</span> <span class="n">trusted_proxies</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="k">for</span> <span class="n">proxy</span> <span class="ow">in</span> <span class="n">trusted_proxies</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>        <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="n">proxy</span><span class="p">:</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>            <span class="k">if</span> <span class="n">ip_address</span><span class="p">(</span><span class="n">connecting_ip</span><span class="p">)</span> <span class="ow">in</span> <span class="n">ip_network</span><span class="p">(</span><span class="n">proxy</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>                <span class="k">return</span> <span class="kc">True</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        <span class="k">elif</span> <span class="n">connecting_ip</span> <span class="o">==</span> <span class="n">proxy</span><span class="p">:</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>            <span class="k">return</span> <span class="kc">True</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="k">return</span> <span class="kc">False</span>
 </span></code></pre></div>
 <h3 id="spoofing-detection">Spoofing Detection<a class="headerlink" href="#spoofing-detection" title="Permanent link">&para;</a></h3>
 <p>When an <code>X-Forwarded-For</code> header is received from an untrusted source, guard-core logs a warning and fires an agent event with <code>event_type="suspicious_request"</code> and <code>action_taken="spoofing_detected"</code>. The request is still processed using the connecting IP.</p>
 <hr />
 <h2 id="route-level-ip-access">Route-Level IP Access<a class="headerlink" href="#route-level-ip-access" title="Permanent link">&para;</a></h2>
 <p>The <code>check_route_ip_access()</code> helper in <code>guard_core.core.checks.helpers</code> evaluates IP access for decorator-configured routes:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_route_ip_access</span><span class="p">(</span><span class="n">client_ip</span><span class="p">,</span> <span class="n">route_config</span><span class="p">,</span> <span class="n">middleware</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_route_ip_access</span><span class="p">(</span><span class="n">client_ip</span><span class="p">,</span> <span class="n">route_config</span><span class="p">,</span> <span class="n">middleware</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 </span></code></pre></div>
 <p><strong>Returns</strong>:</p>
 <ul>

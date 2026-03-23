@@ -3372,23 +3372,30 @@
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_check_names</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span> <span class="o">...</span>
 </span></code></pre></div>
 <h3 id="execution-flow">Execution Flow<a class="headerlink" href="#execution-flow" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>execute(request)
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  |
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  for each check in self.checks:
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  |   try:
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  |     response = await check.check(request)
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  |     if response is not None:
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  |       LOG &quot;Request blocked by {check_name}&quot;
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  |       return response
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  |   except Exception:
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  |     LOG error
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  |     if config.fail_secure:
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  |       return 500 error response
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>  |     else:
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>  |       continue
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>  |
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>  return None  (all checks passed)
-</span></code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    START["execute(request)"]
+    LOOP{"Next check?"}
+    RUN["await check.check(request)"]
+    RESP{"Response returned?"}
+    LOG_BLOCK["Log: blocked by check"]
+    RETURN_RESP["Return response"]
+    EXCEPTION{"Exception raised?"}
+    LOG_ERR["Log error"]
+    FAIL_SECURE{"fail_secure enabled?"}
+    RETURN_500["Return 500 error"]
+    CONTINUE["Continue to next check"]
+    ALL_PASSED["Return None"]
+
+    START --&gt; LOOP
+    LOOP -- Yes --&gt; RUN
+    RUN --&gt; EXCEPTION
+    EXCEPTION -- No --&gt; RESP
+    RESP -- Yes --&gt; LOG_BLOCK --&gt; RETURN_RESP
+    RESP -- No --&gt; LOOP
+    EXCEPTION -- Yes --&gt; LOG_ERR --&gt; FAIL_SECURE
+    FAIL_SECURE -- Yes --&gt; RETURN_500
+    FAIL_SECURE -- No --&gt; CONTINUE --&gt; LOOP
+    LOOP -- "No more checks" --&gt; ALL_PASSED</code></pre>
 <h3 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h3>
 <p>When a check raises an exception:</p>
 <ul>
