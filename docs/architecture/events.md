@@ -12,7 +12,7 @@ guard-core's event system provides two components: `SecurityEventBus` for dispat
 
 **Location**: `guard_core/core/events/`
 
----
+___
 
 SecurityEventBus
 ----------------
@@ -122,7 +122,7 @@ Each event sent to the agent is a `SecurityEvent` object (from `guard_agent`) wi
 | `method` | `str` | `request.method` |
 | `metadata` | `dict` | All additional `**kwargs` |
 
----
+___
 
 MetricsCollector
 ----------------
@@ -173,7 +173,7 @@ Called by `ErrorResponseFactory.process_response()` after the request handler co
 | `request_count` | `1.0` | `endpoint`, `method` |
 | `error_rate` | `1.0` (only for 4xx/5xx) | `endpoint`, `method`, `status` |
 
----
+___
 
 How Adapters Hook Into Events
 -----------------------------

@@ -5,9 +5,11 @@ description: How guard-core's decorator system provides per-route security confi
 keywords: guard-core, decorators, RouteConfig, SecurityDecorator, per-route security, access control, rate limiting, behavioral rules
 ---
 
-# Decorator System
+Decorator System
+================
 
-## Overview
+Overview
+--------
 
 Guard-core's decorator system allows users to apply per-route security settings using Python decorators. The system is built on three layers:
 
@@ -16,7 +18,8 @@ Guard-core's decorator system allows users to apply per-route security settings 
 3. **Mixin classes** -- provide decorator methods grouped by concern (access control, rate limiting, authentication, etc.).
 4. **`SecurityDecorator`** -- the final class combining all mixins, ready for use.
 
-## RouteConfig
+RouteConfig
+-----------
 
 Defined in `guard_core/decorators/base.py`, `RouteConfig` holds every per-route override:
 
@@ -49,7 +52,8 @@ class RouteConfig:
 
 When a decorator is applied to a route function, it creates or updates a `RouteConfig` and associates it with that function's route ID.
 
-## BaseSecurityDecorator
+BaseSecurityDecorator
+---------------------
 
 The base class manages the decorator lifecycle:
 
@@ -89,7 +93,8 @@ Key points:
 - **`_guard_route_id`** is stamped onto the function object. The routing system uses this attribute to look up the `RouteConfig` at request time.
 - **`_ensure_route_config`** creates a `RouteConfig` on first access and reuses it for stacked decorators on the same function.
 
-## Mixin Classes
+Mixin Classes
+-------------
 
 Guard-core provides six mixin classes, each adding a category of decorators:
 
@@ -122,7 +127,8 @@ class AccessControlMixin(BaseSecurityMixin):
         return decorator
 ```
 
-## SecurityDecorator
+SecurityDecorator
+-----------------
 
 The final class combines everything via multiple inheritance:
 
@@ -139,7 +145,8 @@ class SecurityDecorator(
     pass
 ```
 
-## How Adapters Expose Decorators
+How Adapters Expose Decorators
+------------------------------
 
 Your adapter creates a `SecurityDecorator` instance and makes it available to users. The typical pattern:
 
@@ -186,7 +193,8 @@ async def admin_panel():
 
 Multiple decorators stack. Each one calls `_ensure_route_config()` which returns the same `RouteConfig` instance for the function, so all settings accumulate.
 
-## Route Resolution at Request Time
+Route Resolution at Request Time
+--------------------------------
 
 When a request arrives, the pipeline needs to find the `RouteConfig` for the matched route. This happens in two places:
 
@@ -248,7 +256,8 @@ Your adapter must ensure that:
 
 For ASGI frameworks (Starlette, FastAPI), this is automatic. For WSGI frameworks (Flask, Django), you must populate the scope dict in your `GuardRequest` wrapper.
 
-## The send_decorator_event Mechanism
+The send_decorator_event Mechanism
+----------------------------------
 
 When a security check blocks a request due to a decorator setting, it can emit an event through the decorator's event system. `BaseSecurityDecorator` provides several event methods:
 
@@ -276,7 +285,8 @@ Convenience methods built on top:
 
 These events flow to the Guard Agent platform when `enable_agent` is `True`. The event bus at the middleware level (`SecurityEventBus`) handles middleware-level events, while `BaseSecurityDecorator` handles decorator-level events. Both ultimately send to the same agent handler.
 
-## Extending the Decorator System
+Extending the Decorator System
+------------------------------
 
 If your framework needs additional decorator methods, create a new mixin and combine it:
 
@@ -300,7 +310,8 @@ class MyFrameworkDecorator(SecurityDecorator, MyFrameworkMixin):
 
 Then use `MyFrameworkDecorator` instead of `SecurityDecorator` in your adapter.
 
-## Initializing the Decorator
+Initializing the Decorator
+--------------------------
 
 The decorator needs async initialization for behavior tracking and agent integration. Call these during your middleware's `initialize()`:
 

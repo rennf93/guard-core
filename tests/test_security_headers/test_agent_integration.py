@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -239,9 +238,7 @@ async def test_concurrent_access_thread_safety() -> None:
         headers = await manager.get_headers(f"/path/{config_id}")
         return headers
 
-    tasks = [configure_and_get_headers(i) for i in range(10)]
-
-    results = await asyncio.gather(*tasks)
+    results = [await configure_and_get_headers(i) for i in range(10)]
 
     assert len(results) == 10
     for result in results:

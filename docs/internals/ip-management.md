@@ -5,13 +5,13 @@ description: IPBanManager internals, IP allow/block logic, CIDR support, and cou
 keywords: ip banning, ip management, blacklist, whitelist, cidr, guard-core
 ---
 
-# IP Management
+IP Management
+=============
 
 Guard-core provides layered IP access control through the `IPBanManager` handler and utility functions in `guard_core.utils`. This page covers the internal mechanics that adapter developers need to understand.
 
-## IPBanManager
-
-::: guard_core.handlers.ipban_handler.IPBanManager
+IPBanManager
+------------
 
 `IPBanManager` is a singleton that manages a set of banned IPs using a dual-layer storage strategy: a local `TTLCache` for fast lookups, and optional Redis for distributed state.
 
@@ -70,9 +70,10 @@ await ip_ban_manager.initialize_agent(agent_handler)
 
 Both are optional. Without Redis, bans are local to the process. Without an agent handler, ban/unban events are not sent.
 
----
+___
 
-## IP Allow/Block Logic
+IP Allow/Block Logic
+--------------------
 
 The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. It is called by `IpSecurityCheck` for requests without route-level overrides.
 
@@ -140,9 +141,10 @@ Uses the `GeoIPHandler` protocol to resolve the country code for an IP, then che
 
 Delegates to `CloudManager.is_cloud_ip()` to check if the IP belongs to a blocked cloud provider.
 
----
+___
 
-## Client IP Extraction
+Client IP Extraction
+--------------------
 
 ```python
 async def extract_client_ip(
@@ -178,9 +180,10 @@ def _is_trusted_proxy(connecting_ip, trusted_proxies) -> bool:
 
 When an `X-Forwarded-For` header is received from an untrusted source, guard-core logs a warning and fires an agent event with `event_type="suspicious_request"` and `action_taken="spoofing_detected"`. The request is still processed using the connecting IP.
 
----
+___
 
-## Route-Level IP Access
+Route-Level IP Access
+---------------------
 
 The `check_route_ip_access()` helper in `guard_core.core.checks.helpers` evaluates IP access for decorator-configured routes:
 

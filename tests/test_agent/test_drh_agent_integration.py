@@ -207,7 +207,7 @@ async def test_rule_update_loop_handles_exceptions(
 
 
 @pytest.mark.asyncio
-async def test_rule_update_loop_cancellation_logged(
+async def test_rule_update_loop_cancellation_logged(  # async-only
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
     DynamicRuleManager._instance = None
@@ -1327,7 +1327,7 @@ async def test_force_update(
 
 
 @pytest.mark.asyncio
-async def test_stop_with_task(
+async def test_stop_with_task(  # async-only
     config: SecurityConfig,
     mock_agent_handler: AsyncMock,
     caplog: pytest.LogCaptureFixture,

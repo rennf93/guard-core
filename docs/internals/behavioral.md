@@ -5,11 +5,13 @@ description: BehaviorTracker and BehavioralProcessor internals for usage monitor
 keywords: behavioral analysis, behavior tracking, usage rules, return patterns, guard-core
 ---
 
-# Behavioral Analysis
+Behavioral Analysis
+===================
 
 Guard-core provides behavioral analysis through two components: the `BehaviorTracker` handler that stores and evaluates behavioral data, and the `BehavioralProcessor` core module that integrates tracking into the middleware pipeline.
 
-## BehaviorRule
+BehaviorRule
+------------
 
 ```python
 class BehaviorRule:
@@ -48,11 +50,10 @@ class BehaviorRule:
 | `regex:{pattern}`| `regex:error.*failed`         | Regex match against response body (case-insensitive) |
 | Plain string     | `unauthorized`                | Substring match in response body (case-insensitive) |
 
----
+___
 
-## BehaviorTracker
-
-::: guard_core.handlers.behavior_handler.BehaviorTracker
+BehaviorTracker
+---------------
 
 ### Storage
 
@@ -88,11 +89,10 @@ await tracker.apply_action(rule, client_ip, endpoint_id, details)
 
 **Passive mode**: All actions are logged with a `[PASSIVE MODE]` prefix instead of being executed.
 
----
+___
 
-## BehavioralProcessor
-
-::: guard_core.core.behavioral.processor.BehavioralProcessor
+BehavioralProcessor
+-------------------
 
 The processor integrates behavioral tracking into the middleware pipeline. It is called at two points in the request lifecycle:
 
@@ -118,14 +118,15 @@ Iterates over rules where `rule_type` is `"return_pattern"`. Checks if the respo
 def get_endpoint_id(self, request: GuardRequest) -> str
 ```
 
-Resolves the endpoint identifier from the request scope:
+Resolves the endpoint identifier from the request:
 
-1. If `request.scope["route"].endpoint` exists, returns `"{module}.{qualname}"`.
+1. If `request.state.guard_endpoint_id` exists, returns that value directly.
 2. Otherwise, falls back to `"{method}:{url_path}"`.
 
----
+___
 
-## Configuration via Decorators
+Configuration via Decorators
+-----------------------------
 
 Behavioral rules are attached to routes through the `SecurityDecorator`:
 

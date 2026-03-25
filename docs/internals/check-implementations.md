@@ -5,11 +5,13 @@ description: All 17 built-in security checks in guard-core, their execution orde
 keywords: security checks, implementations, execution order, guard-core, pipeline
 ---
 
-# Check Implementations
+Check Implementations
+=====================
 
 Guard-core ships with 17 security checks that execute in a fixed order inside the `SecurityCheckPipeline`. Each check is a subclass of `SecurityCheck` located in `guard_core.core.checks.implementations`.
 
-## Execution Order
+Execution Order
+---------------
 
 | #  | Check Name              | Class                     | Blocks? | Passive-Aware? |
 |----|-------------------------|---------------------------|---------|----------------|
@@ -33,9 +35,10 @@ Guard-core ships with 17 security checks that execute in a fixed order inside th
 
 **Passive-Aware** means the check respects `SecurityConfig.passive_mode` -- it logs and emits events but does not return a blocking response.
 
----
+___
 
-## 1. RouteConfigCheck
+1. RouteConfigCheck
+-------------------
 
 **Purpose**: Populates `request.state` with route configuration and client IP for all subsequent checks.
 
@@ -50,9 +53,10 @@ Guard-core ships with 17 security checks that execute in a fixed order inside th
 !!! important "Must Run First"
     Every other check reads `request.state.route_config` and `request.state.client_ip`. Removing or reordering this check will break the pipeline.
 
----
+___
 
-## 2. EmergencyModeCheck
+2. EmergencyModeCheck
+---------------------
 
 **Purpose**: Lockdown mode that blocks all traffic except whitelisted IPs.
 
@@ -67,9 +71,10 @@ Guard-core ships with 17 security checks that execute in a fixed order inside th
 | `emergency_mode`      | `bool`      | `False`  |
 | `emergency_whitelist` | `list[str]` | `[]`     |
 
----
+___
 
-## 3. HttpsEnforcementCheck
+3. HttpsEnforcementCheck
+------------------------
 
 **Purpose**: Redirects HTTP requests to HTTPS.
 
@@ -92,9 +97,10 @@ Guard-core ships with 17 security checks that execute in a fixed order inside th
 
 Per-route: `RouteConfig.require_https`.
 
----
+___
 
-## 4. RequestLoggingCheck
+4. RequestLoggingCheck
+----------------------
 
 **Purpose**: Logs every incoming request.
 
@@ -102,9 +108,10 @@ Per-route: `RouteConfig.require_https`.
 
 **Configuration**: `config.log_request_level` controls the log level. Set to `None` to disable.
 
----
+___
 
-## 5. RequestSizeContentCheck
+5. RequestSizeContentCheck
+--------------------------
 
 **Purpose**: Validates request size and content type against route-level limits.
 
@@ -115,9 +122,10 @@ Per-route: `RouteConfig.require_https`.
 
 **Configuration**: Set via decorators on `RouteConfig`.
 
----
+___
 
-## 6. RequiredHeadersCheck
+6. RequiredHeadersCheck
+-----------------------
 
 **Purpose**: Validates that required headers are present.
 
@@ -125,9 +133,10 @@ Per-route: `RouteConfig.require_https`.
 
 **Response**: `400 Missing required header: {name}`
 
----
+___
 
-## 7. AuthenticationCheck
+7. AuthenticationCheck
+----------------------
 
 **Purpose**: Validates the `Authorization` header format.
 
@@ -138,9 +147,10 @@ Per-route: `RouteConfig.require_https`.
 !!! note "Token Validation Not Included"
     This check only validates the header format, not the token itself. Actual token validation should be done in a custom validator or application logic.
 
----
+___
 
-## 8. ReferrerCheck
+8. ReferrerCheck
+----------------
 
 **Purpose**: Validates the `Referer` header against allowed domains.
 
@@ -148,9 +158,10 @@ Per-route: `RouteConfig.require_https`.
 
 **Response**: `403 Referrer required` or `403 Invalid referrer`
 
----
+___
 
-## 9. CustomValidatorsCheck
+9. CustomValidatorsCheck
+------------------------
 
 **Purpose**: Runs user-defined async validator functions.
 
@@ -158,9 +169,10 @@ Per-route: `RouteConfig.require_https`.
 
 **Configuration**: Validators are `Callable[[GuardRequest], Awaitable[GuardResponse | None]]` functions registered via decorators.
 
----
+___
 
-## 10. TimeWindowCheck
+10. TimeWindowCheck
+-------------------
 
 **Purpose**: Restricts access to specific time windows.
 
@@ -180,9 +192,10 @@ Per-route: `RouteConfig.require_https`.
 
 Supports overnight ranges (e.g., `start: "22:00"`, `end: "06:00"`).
 
----
+___
 
-## 11. CloudIpRefreshCheck
+11. CloudIpRefreshCheck
+-----------------------
 
 **Purpose**: Periodically refreshes cloud provider IP ranges.
 
@@ -190,9 +203,10 @@ Supports overnight ranges (e.g., `start: "22:00"`, `end: "06:00"`).
 
 **Triggers when**: `config.block_cloud_providers` is set and `cloud_ip_refresh_interval` seconds have elapsed since the last refresh.
 
----
+___
 
-## 12. IpSecurityCheck
+12. IpSecurityCheck
+-------------------
 
 **Purpose**: Enforces IP-based access control at multiple levels.
 
@@ -204,9 +218,10 @@ Supports overnight ranges (e.g., `start: "22:00"`, `end: "06:00"`).
 
 Also sets `request.state.is_whitelisted` for downstream checks (rate limiting and suspicious activity skip whitelisted IPs).
 
----
+___
 
-## 13. CloudProviderCheck
+13. CloudProviderCheck
+----------------------
 
 **Purpose**: Blocks requests originating from cloud provider IP ranges (AWS, GCP, Azure).
 
@@ -216,9 +231,10 @@ Also sets `request.state.is_whitelisted` for downstream checks (rate limiting an
 
 **Skips**: Whitelisted IPs (`request.state.is_whitelisted`).
 
----
+___
 
-## 14. UserAgentCheck
+14. UserAgentCheck
+------------------
 
 **Purpose**: Blocks requests from matching user agents.
 
@@ -228,9 +244,10 @@ Also sets `request.state.is_whitelisted` for downstream checks (rate limiting an
 
 **Skips**: Whitelisted IPs.
 
----
+___
 
-## 15. RateLimitCheck
+15. RateLimitCheck
+------------------
 
 **Purpose**: Enforces request rate limits using a sliding window algorithm.
 
@@ -245,9 +262,10 @@ Also sets `request.state.is_whitelisted` for downstream checks (rate limiting an
 
 **Skips**: Whitelisted IPs and bypassed routes.
 
----
+___
 
-## 16. SuspiciousActivityCheck
+16. SuspiciousActivityCheck
+---------------------------
 
 **Purpose**: Detects penetration attempts (SQLi, XSS, command injection, path traversal, etc.).
 
@@ -261,9 +279,10 @@ Also sets `request.state.is_whitelisted` for downstream checks (rate limiting an
 
 **Skips**: Whitelisted IPs and routes with detection disabled via decorator.
 
----
+___
 
-## 17. CustomRequestCheck
+17. CustomRequestCheck
+----------------------
 
 **Purpose**: Runs a global user-defined request check function.
 
@@ -271,9 +290,10 @@ Also sets `request.state.is_whitelisted` for downstream checks (rate limiting an
 
 **Configuration**: `SecurityConfig.custom_request_check` is a `Callable[[GuardRequest], Awaitable[GuardResponse | None]]`.
 
----
+___
 
-## Implementing a Custom Check
+Implementing a Custom Check
+---------------------------
 
 To add a new check, create a subclass of `SecurityCheck`:
 
@@ -293,7 +313,6 @@ class GeoFenceCheck(SecurityCheck):
         if not client_ip:
             return None
 
-        # Your geofencing logic here
         if self._is_outside_fence(client_ip):
             if self.is_passive_mode():
                 self.logger.warning(f"Geo-fence violation: {client_ip}")

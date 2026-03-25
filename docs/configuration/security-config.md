@@ -5,11 +5,13 @@ description: Complete reference for every SecurityConfig field in guard-core, gr
 keywords: security config, configuration, pydantic, guard-core
 ---
 
-# SecurityConfig Reference
+SecurityConfig Reference
+========================
 
 `SecurityConfig` is a Pydantic `BaseModel` that controls all guard-core behavior. Adapter developers should expose relevant fields to their users while keeping internal fields (agent, dynamic rules) as implementation details.
 
-## Core Settings
+Core Settings
+-------------
 
 | Field                     | Type                        | Default  | Description                                            |
 |---------------------------|-----------------------------|----------|--------------------------------------------------------|
@@ -25,9 +27,10 @@ keywords: security config, configuration, pydantic, guard-core
 !!! tip "Adapter Exposure"
     All core settings should be exposed to end users. `passive_mode` is particularly useful for deployment rollouts.
 
----
+___
 
-## Proxy Configuration
+Proxy Configuration
+-------------------
 
 | Field                     | Type         | Default  | Description                                            |
 |---------------------------|-------------|----------|--------------------------------------------------------|
@@ -40,9 +43,10 @@ keywords: security config, configuration, pydantic, guard-core
 - `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range.
 - `trusted_proxy_depth`: Must be >= 1.
 
----
+___
 
-## IP Management
+IP Management
+-------------
 
 | Field                | Type              | Default           | Description                                    |
 |----------------------|-------------------|-------------------|------------------------------------------------|
@@ -62,9 +66,10 @@ keywords: security config, configuration, pydantic, guard-core
 !!! warning "Whitelist Semantics"
     `whitelist=None` means "no whitelist" (all IPs pass). `whitelist=[]` means "empty whitelist" (no IPs pass). Adapter developers should document this distinction.
 
----
+___
 
-## Geolocation
+Geolocation
+-----------
 
 | Field              | Type              | Default | Description                                         |
 |--------------------|-------------------|---------|-----------------------------------------------------|
@@ -74,9 +79,10 @@ keywords: security config, configuration, pydantic, guard-core
 
 **Model validator**: If `blocked_countries` or `whitelist_countries` are set, `geo_ip_handler` must be provided (or `ipinfo_token` for backward compatibility). Raises `ValueError` otherwise.
 
----
+___
 
-## Rate Limiting
+Rate Limiting
+-------------
 
 | Field                 | Type             | Default | Description                                        |
 |-----------------------|------------------|---------|---------------------------------------------------|
@@ -85,9 +91,10 @@ keywords: security config, configuration, pydantic, guard-core
 | `rate_limit_window`   | `int`            | `60`    | Window duration in seconds (global).               |
 | `endpoint_rate_limits`| `dict[str, tuple[int, int]]` | `{}` | Per-endpoint overrides `{path: (limit, window)}`. |
 
----
+___
 
-## Cloud Provider Blocking
+Cloud Provider Blocking
+-----------------------
 
 | Field                      | Type             | Default | Description                              |
 |----------------------------|------------------|---------|------------------------------------------|
@@ -96,9 +103,10 @@ keywords: security config, configuration, pydantic, guard-core
 
 **Validator**: `block_cloud_providers` is filtered to only include valid values `{"AWS", "GCP", "Azure"}`.
 
----
+___
 
-## Security Headers
+Security Headers
+----------------
 
 | Field              | Type                   | Default      | Description                          |
 |--------------------|------------------------|--------------|--------------------------------------|
@@ -120,9 +128,10 @@ keywords: security config, configuration, pydantic, guard-core
 }
 ```
 
----
+___
 
-## CORS
+CORS
+----
 
 | Field                    | Type         | Default               | Description                            |
 |--------------------------|-------------|----------------------|----------------------------------------|
@@ -134,9 +143,10 @@ keywords: security config, configuration, pydantic, guard-core
 | `cors_expose_headers`    | `list[str]` | `[]`                 | Headers exposed in CORS responses.     |
 | `cors_max_age`           | `int`       | `600`                | Preflight cache duration in seconds.   |
 
----
+___
 
-## Redis
+Redis
+-----
 
 | Field          | Type          | Default                   | Description                           |
 |----------------|---------------|---------------------------|---------------------------------------|
@@ -144,9 +154,10 @@ keywords: security config, configuration, pydantic, guard-core
 | `redis_url`    | `str \| None` | `"redis://localhost:6379"`| Redis connection URL.                 |
 | `redis_prefix` | `str`         | `"guard_core:"`           | Key prefix for namespace isolation.   |
 
----
+___
 
-## Detection Engine
+Detection Engine
+----------------
 
 | Field                               | Type    | Default | Range         | Description                                  |
 |-------------------------------------|---------|---------|---------------|----------------------------------------------|
@@ -160,9 +171,10 @@ keywords: security config, configuration, pydantic, guard-core
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
 
----
+___
 
-## Logging
+Logging
+-------
 
 | Field                 | Type                                            | Default    | Description                              |
 |-----------------------|-------------------------------------------------|------------|------------------------------------------|
@@ -171,9 +183,10 @@ keywords: security config, configuration, pydantic, guard-core
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
 
----
+___
 
-## Agent / Telemetry
+Agent / Telemetry
+-----------------
 
 !!! note "Internal Configuration"
     Agent fields are typically not exposed to end users. They are used for Guard Agent SaaS integration.
@@ -193,9 +206,10 @@ keywords: security config, configuration, pydantic, guard-core
 
 **Validator**: `agent_api_key` is required when `enable_agent` is `True`.
 
----
+___
 
-## Dynamic Rules
+Dynamic Rules
+-------------
 
 | Field                   | Type   | Default | Description                                     |
 |-------------------------|--------|---------|-------------------------------------------------|
@@ -206,9 +220,10 @@ keywords: security config, configuration, pydantic, guard-core
 
 **Validator**: `enable_agent` must be `True` when `enable_dynamic_rules` is `True`.
 
----
+___
 
-## Validators
+Validators
+----------
 
 `SecurityConfig` includes Pydantic validators that run on instantiation:
 

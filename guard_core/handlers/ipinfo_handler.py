@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
+import aiohttp
 import maxminddb
 from maxminddb import Reader
 
@@ -114,13 +114,14 @@ class IPInfoManager:
         retries = 3
         backoff = 1
 
-        async with httpx.AsyncClient() as session:
+        async with aiohttp.ClientSession() as session:
             for attempt in range(retries):
                 try:
-                    response = await session.get(url, follow_redirects=True)
+                    response = await session.get(url)
                     response.raise_for_status()
+                    content = await response.read()
                     with open(self.db_path, "wb") as f:
-                        f.write(response.content)
+                        f.write(content)
 
                     if self.redis_handler is not None:
                         with open(self.db_path, "rb") as f:

@@ -1,0 +1,27 @@
+from collections.abc import Callable
+from typing import Any
+
+from guard_core.sync.decorators.base import BaseSecurityMixin
+
+
+class RateLimitingMixin(BaseSecurityMixin):
+    def rate_limit(
+        self, requests: int, window: int = 60
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            route_config = self._ensure_route_config(func)
+            route_config.rate_limit = requests
+            route_config.rate_limit_window = window
+            return self._apply_route_config(func)
+
+        return decorator
+
+    def geo_rate_limit(
+        self, limits: dict[str, tuple[int, int]]
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            route_config = self._ensure_route_config(func)
+            route_config.geo_rate_limits = limits
+            return self._apply_route_config(func)
+
+        return decorator

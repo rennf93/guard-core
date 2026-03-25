@@ -5,9 +5,11 @@ description: How to build a framework-specific adapter library on top of guard-c
 keywords: guard-core, adapter development, framework integration, protocol implementation, middleware, security engine
 ---
 
-# Building Adapters
+Building Adapters
+=================
 
-## What Is an Adapter?
+What Is an Adapter?
+-------------------
 
 An adapter is a thin library that translates a web framework's native request/response types into the `GuardRequest` and `GuardResponse` protocols defined by `guard-core`. The adapter provides the glue between your framework (FastAPI, Flask, Django, or any other) and the security engine. All detection logic, rate limiting, IP management, behavioral tracking, cloud provider blocking, and pipeline orchestration live in `guard-core`. The adapter's only job is type translation and middleware wiring.
 
@@ -21,7 +23,8 @@ graph TD
     ADAPTER --> CORE
 ```
 
-## Minimal Adapter Structure
+Minimal Adapter Structure
+-------------------------
 
 A complete adapter package follows this layout:
 
@@ -56,7 +59,8 @@ Not every directory is required. If `guard-core`'s default implementation works 
 - `request.py` (or inline wrapper)
 - `response.py` (or inline wrapper)
 
-## What You Must Implement
+What You Must Implement
+-----------------------
 
 ### 1. GuardRequest Wrapper
 
@@ -111,7 +115,8 @@ The middleware class that plugs into your framework's middleware stack and orche
 - Run the `SecurityCheckPipeline`
 - Return framework-native responses
 
-## What You Get for Free
+What You Get for Free
+---------------------
 
 Everything inside `guard-core` works out of the box once you implement the four components above:
 
@@ -127,7 +132,8 @@ Everything inside `guard-core` works out of the box once you implement the four 
 - **Dynamic rule management** via the Guard Agent platform
 - **Passive mode** for logging without blocking
 
-## Next Steps
+Next Steps
+----------
 
 | Page | What You Will Learn |
 |---|---|

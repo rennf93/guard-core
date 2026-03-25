@@ -183,7 +183,11 @@ extract_client_ip
 -----------------
 
 ```python
-def extract_client_ip(request: GuardRequest, config: SecurityConfig) -> str:
+async def extract_client_ip(
+    request: GuardRequest,
+    config: Any,
+    agent_handler: AgentHandlerProtocol | None = None,
+) -> str:
     """
     Securely extract the client IP address from the request, considering trusted proxies.
 
@@ -192,11 +196,18 @@ def extract_client_ip(request: GuardRequest, config: SecurityConfig) -> str:
     """
 ```
 
+Parameters:
+
+- `request`: The request object implementing `GuardRequest`
+- `config`: The security configuration (must have `trusted_proxies` and `trusted_proxy_depth` attributes)
+- `agent_handler`: Optional agent handler for sending IP spoofing telemetry events
+
 This function provides a secure way to extract client IPs by:
 
 1. Only trusting X-Forwarded-For headers from configured trusted proxies
 2. Using the connecting IP when not from a trusted proxy
 3. Properly handling proxy chains based on configured depth
+4. Detecting and reporting IP spoofing attempts via the agent handler
 
 ___
 

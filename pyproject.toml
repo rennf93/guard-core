@@ -1,6 +1,6 @@
 [project]
 name = "guard-core"
-version = "0.1.0"
+version = "1.0.0"
 description = "Framework-agnostic security engine for the Guard ecosystem."
 authors = [
     {name = "Renzo Franceschini", email = "rennf93@users.noreply.github.com"}
@@ -21,8 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
+    "aiohttp",
     "cachetools",
-    "httpx",
     "maxminddb",
     "pydantic",
     "redis",
@@ -38,7 +38,6 @@ dev = [
     "bandit[toml]",
     "deptry",
     "fastapi-guard-agent",
-    "httpx",
     "mkdocs",
     "mkdocstrings",
     "mkdocstrings-python",
@@ -124,6 +123,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "guard_agent.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "guard_core.sync.*"
+disable_error_code = ["arg-type", "return-value", "assignment"]
 
 [tool.pymarkdown.plugins.md003]
 enabled = false

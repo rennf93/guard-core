@@ -12,7 +12,7 @@ guard-core defines its boundaries through `typing.Protocol` classes. Adapter dev
 
 All protocols are decorated with `@runtime_checkable`, meaning you can verify conformance at runtime with `isinstance()`.
 
----
+___
 
 GuardRequest
 ------------
@@ -96,7 +96,7 @@ This table shows what each property maps to in common frameworks:
 !!! warning "The `scope` dict"
     Route resolution depends on `request.scope["app"]` having a `.routes` attribute and `request.scope["app"].state.guard_decorator` for decorator lookup. For non-ASGI frameworks, you will need to synthesize this scope dict with at least the `"app"` key pointing to an object that exposes `.routes` and `.state`.
 
----
+___
 
 GuardResponse
 -------------
@@ -139,7 +139,7 @@ class GuardResponse(Protocol):
 !!! important "MutableMapping requirement"
     The `headers` property must return a `MutableMapping[str, str]`. guard-core's `ErrorResponseFactory` writes security headers directly into `response.headers[header_name] = header_value`. If your framework's response headers are immutable, you must wrap them.
 
----
+___
 
 GuardResponseFactory
 --------------------
@@ -183,7 +183,7 @@ class StarletteResponseFactory:
 
 The factory instance is passed to `ResponseContext.response_factory` and used by `ErrorResponseFactory` internally.
 
----
+___
 
 GuardMiddlewareProtocol
 -----------------------
@@ -262,7 +262,7 @@ class GuardMiddlewareProtocol(Protocol):
 !!! note "Security checks access the middleware"
     Every `SecurityCheck` subclass receives a `GuardMiddlewareProtocol` reference in its constructor. Checks use `self.middleware.event_bus`, `self.middleware.route_resolver`, `self.middleware.rate_limit_handler`, etc. to access shared services.
 
----
+___
 
 Additional Protocols
 --------------------

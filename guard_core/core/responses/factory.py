@@ -18,7 +18,7 @@ class ErrorResponseFactory:
         custom_message = self.context.config.custom_error_responses.get(
             status_code, default_message
         )
-        response = self.context.response_factory.create_response(
+        response: GuardResponse = self.context.response_factory.create_response(
             custom_message, status_code
         )
 
@@ -60,7 +60,10 @@ class ErrorResponseFactory:
 
     async def apply_modifier(self, response: GuardResponse) -> GuardResponse:
         if self.context.config.custom_response_modifier:
-            return await self.context.config.custom_response_modifier(response)
+            result: GuardResponse = await self.context.config.custom_response_modifier(
+                response
+            )
+            return result
         return response
 
     async def process_response(

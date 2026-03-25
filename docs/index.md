@@ -31,7 +31,7 @@ graph TD
 
 Adapter developers implement three protocols -- `GuardRequest`, `GuardResponse`, and `GuardResponseFactory` -- to bridge their framework's native objects into `guard-core`'s security pipeline. Everything else (17 security checks, the detection engine, Redis state management, event telemetry) works out of the box.
 
----
+___
 
 Key Design Properties
 ---------------------
@@ -44,7 +44,7 @@ Key Design Properties
 - **Redis-backed distributed state**: Rate limits, IP bans, cloud IP ranges, and suspicious pattern counts persist across instances when Redis is enabled. Falls back to in-memory storage automatically.
 - **Event system**: `SecurityEventBus` dispatches security events and `MetricsCollector` tracks request metrics, both feeding into the optional guard-agent telemetry platform.
 
----
+___
 
 Install
 -------
@@ -56,7 +56,7 @@ pip install guard-core
 !!! info "Python 3.10+"
     guard-core requires Python 3.10 or higher.
 
----
+___
 
 Documentation
 -------------

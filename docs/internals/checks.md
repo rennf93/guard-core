@@ -5,13 +5,13 @@ description: SecurityCheck base class, SecurityCheckPipeline, and helper functio
 keywords: security checks, pipeline, chain of responsibility, guard-core, adapter development
 ---
 
-# Security Checks Framework
+Security Checks Framework
+=========================
 
 The security checks framework is the backbone of guard-core's request processing. It implements a Chain of Responsibility pattern where each check runs in sequence, and the first check to return a non-`None` response terminates the pipeline.
 
-## SecurityCheck Base Class
-
-::: guard_core.core.checks.base.SecurityCheck
+SecurityCheck Base Class
+------------------------
 
 All security checks inherit from the abstract `SecurityCheck` class, which provides a consistent interface and shared utilities.
 
@@ -79,9 +79,8 @@ Delegates to `middleware.create_error_response()`. The middleware implementation
 
 Returns `self.config.passive_mode`. When passive mode is active, checks should log and emit events but not block requests.
 
-## SecurityCheckPipeline
-
-::: guard_core.core.checks.pipeline.SecurityCheckPipeline
+SecurityCheckPipeline
+---------------------
 
 The pipeline holds an ordered list of `SecurityCheck` instances and executes them sequentially.
 
@@ -147,9 +146,8 @@ Adapters can modify the pipeline after construction:
 !!! warning "Order Matters"
     Inserting checks at the wrong position can break assumptions. For example, `RouteConfigCheck` must run first because all subsequent checks read `request.state.route_config` and `request.state.client_ip`, which it populates.
 
-## Helper Functions
-
-::: guard_core.core.checks.helpers
+Helper Functions
+----------------
 
 Helper functions are stateless utilities shared across check implementations.
 
@@ -173,7 +171,7 @@ Combines blacklist, whitelist, and country checks for a route-level IP evaluatio
 
 ### User Agent Helpers
 
-**`check_user_agent_allowed(user_agent, route_config, config) -> bool`**
+**`check_user_agent_allowed(user_agent, route_config, config) -> bool`** (async)
 
 Checks the user agent against both route-level `blocked_user_agents` and the global `config.blocked_user_agents` list. Uses case-insensitive regex matching.
 

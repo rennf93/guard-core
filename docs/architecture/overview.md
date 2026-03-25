@@ -12,7 +12,7 @@ guard-core is a framework-agnostic security engine. Adapter libraries (fastapi-g
 
 This document covers the ecosystem architecture, module map, request lifecycle, and the design principles that govern how everything fits together.
 
----
+___
 
 Ecosystem Architecture
 ----------------------
@@ -31,7 +31,7 @@ graph TD
 
 The adapter is the **only layer** that knows about the web framework. guard-core never imports FastAPI, Flask, Django, or any other framework.
 
----
+___
 
 Module Map
 ----------
@@ -93,7 +93,7 @@ Regex-based and semantic attack pattern detection. Configurable through `Securit
 
 `SecurityConfig` (Pydantic `BaseModel`) is the single configuration object for the entire engine. `DynamicRules` defines the shape of runtime rule updates from the guard-agent platform.
 
----
+___
 
 Request Lifecycle
 -----------------
@@ -129,7 +129,7 @@ flowchart TD
 !!! important "The adapter orchestrates this flow"
     guard-core provides all the components listed above, but the **adapter's middleware class** is responsible for calling them in the correct order. guard-core does not impose a middleware base class -- it provides building blocks.
 
----
+___
 
 Design Principles
 -----------------

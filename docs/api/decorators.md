@@ -6,14 +6,14 @@ keywords: security decorators, guard-core, route config, access control, authent
 ---
 
 Security Decorators
-======================
+===================
 
 The decorators module provides route-level security controls that can be applied to individual endpoints. These decorators offer fine-grained control over security policies on a per-route basis, complementing the global security pipeline. Framework adapters expose these decorators to their users through their own decorator interfaces.
 
 ___
 
 Overview
----------------
+--------
 
 Security decorators allow you to:
 
@@ -25,12 +25,9 @@ Security decorators allow you to:
 ___
 
 Main Decorator Class
----------------
+--------------------
 
-. SecurityDecorator
-----------------------------
-
-::: guard_core.decorators.SecurityDecorator
+### SecurityDecorator
 
 The main decorator class that combines all security capabilities. This is the primary class you'll use in your application.
 
@@ -56,17 +53,11 @@ ___
 Base Classes
 ------------
 
-. BaseSecurityDecorator
----------------------
-
-::: guard_core.decorators.base.BaseSecurityDecorator
+### BaseSecurityDecorator
 
 Base class providing core decorator functionality and route configuration management.
 
-. RouteConfig
----------------------
-
-::: guard_core.decorators.base.RouteConfig
+### RouteConfig
 
 Configuration class that stores security settings for individual routes.
 
@@ -77,10 +68,7 @@ Mixin Classes
 
 The decorator system uses mixins to organize different types of security features:
 
-. AccessControlMixin
----------------------
-
-::: guard_core.decorators.access_control.AccessControlMixin
+### AccessControlMixin
 
 Provides IP-based and geographic access control decorators.
 
@@ -92,10 +80,7 @@ Provides IP-based and geographic access control decorators.
 - `@guard_deco.block_clouds(providers=[])` - Block cloud provider IPs
 - `@guard_deco.bypass(checks=[])` - Bypass specific security checks
 
-. AuthenticationMixin
----------------------
-
-::: guard_core.decorators.authentication.AuthenticationMixin
+### AuthenticationMixin
 
 Provides authentication and authorization decorators.
 
@@ -106,10 +91,7 @@ Provides authentication and authorization decorators.
 - `@guard_deco.api_key_auth(header_name="X-API-Key")` - API key authentication
 - `@guard_deco.require_headers(headers={})` - Require specific headers
 
-. RateLimitingMixin
----------------------
-
-::: guard_core.decorators.rate_limiting.RateLimitingMixin
+### RateLimitingMixin
 
 Provides rate limiting decorators.
 
@@ -118,10 +100,7 @@ Provides rate limiting decorators.
 - `@guard_deco.rate_limit(requests=10, window=60)` - Basic rate limiting
 - `@guard_deco.geo_rate_limit(limits={})` - Geographic rate limiting
 
-. BehavioralMixin
----------------------
-
-::: guard_core.decorators.behavioral.BehavioralMixin
+### BehavioralMixin
 
 Provides behavioral analysis and monitoring decorators.
 
@@ -132,10 +111,7 @@ Provides behavioral analysis and monitoring decorators.
 - `@guard_deco.behavior_analysis(rules=[])` - Apply multiple behavioral rules
 - `@guard_deco.suspicious_frequency(max_frequency, window, action)` - Detect suspicious frequency
 
-. ContentFilteringMixin
----------------------
-
-::: guard_core.decorators.content_filtering.ContentFilteringMixin
+### ContentFilteringMixin
 
 Provides content and request filtering decorators.
 
@@ -147,10 +123,7 @@ Provides content and request filtering decorators.
 - `@guard_deco.require_referrer(allowed_domains=[])` - Require specific referrers
 - `@guard_deco.custom_validation(validator)` - Add custom validation logic
 
-. AdvancedMixin
--------------
-
-::: guard_core.decorators.advanced.AdvancedMixin
+### AdvancedMixin
 
 Provides advanced detection and time-based decorators.
 
@@ -165,12 +138,17 @@ ___
 Utility Functions
 -----------------
 
-. get_route_decorator_config
----------------------------
+### get_route_decorator_config
 
-::: guard_core.decorators.base.get_route_decorator_config
-
-Extract route security configuration from the current FastAPI request.
+```python
+def get_route_decorator_config(
+    request: GuardRequest,
+    decorator_handler: BaseSecurityDecorator,
+) -> RouteConfig | None:
+    """
+    Extract route security configuration from the current request.
+    """
+```
 
 ___
 
@@ -186,7 +164,7 @@ The decorators work in conjunction with the SecurityMiddleware to provide compre
 **Example Integration:**
 
 ```python
-from guard_core import SecurityMiddleware, SecurityConfig
+from guard_core import SecurityConfig
 from guard_core.decorators import SecurityDecorator
 
 config = SecurityConfig(
@@ -196,24 +174,17 @@ config = SecurityConfig(
     rate_limit_window=3600
 )
 
-# Create decorator instance
 guard_deco = SecurityDecorator(config)
 
-# Apply decorators to routes
-@guard_deco.rate_limit(requests=10, window=300)  # Override: 10 requests/5min
+@guard_deco.rate_limit(requests=10, window=300)
 @app.get("/api/limited")
 def limited_endpoint():
-    # Uses decorator-specific rate limiting
     return {"data": "limited"}
 
 @app.get("/api/public")
 def public_endpoint():
-    # Uses global rate limiting (100 requests/hour)
     return {"data": "public"}
 
-# Add global middleware
-
-# Set decorator handler on app state (required for integration)
 app.state.guard_decorator = guard_deco
 ```
 
@@ -222,24 +193,22 @@ ___
 Best Practices
 --------------
 
-. Decorator Order
----------------------
+### Decorator Order
 
 Apply decorators in logical order, with more specific restrictions first:
 
 ```python
 @app.post("/api/admin/sensitive")
-@guard_deco.require_https()                        # Security requirement
-@guard_deco.require_auth(type="bearer")            # Authentication
-@guard_deco.require_ip(whitelist=["10.0.0.0/8"])   # Access control
-@guard_deco.rate_limit(requests=5, window=3600)    # Rate limiting
-@guard_deco.suspicious_detection(enabled=True)     # Monitoring
+@guard_deco.require_https()
+@guard_deco.require_auth(type="bearer")
+@guard_deco.require_ip(whitelist=["10.0.0.0/8"])
+@guard_deco.rate_limit(requests=5, window=3600)
+@guard_deco.suspicious_detection(enabled=True)
 def admin_endpoint():
     return {"status": "admin action"}
 ```
 
-. Combining Behavioral Analysis
----------------------
+### Combining Behavioral Analysis
 
 Use multiple behavioral decorators for comprehensive monitoring:
 
@@ -252,28 +221,26 @@ def rewards_endpoint():
     return {"reward": "rare_item", "value": 1000}
 ```
 
-. Geographic and Cloud Controls
----------------------
+### Geographic and Cloud Controls
 
 Combine geographic and cloud provider controls:
 
 ```python
 @app.get("/api/restricted")
-@guard_deco.allow_countries(["US", "CA", "GB"])  # Allow specific countries
-@guard_deco.block_clouds(["AWS", "GCP"])         # Block cloud providers
+@guard_deco.allow_countries(["US", "CA", "GB"])
+@guard_deco.block_clouds(["AWS", "GCP"])
 def restricted_endpoint():
     return {"data": "geo-restricted"}
 ```
 
-. Content Filtering
----------------------
+### Content Filtering
 
 Apply content filtering for upload endpoints:
 
 ```python
 @app.post("/api/upload")
 @guard_deco.content_type_filter(["image/jpeg", "image/png"])
-@guard_deco.max_request_size(5 * 1024 * 1024)  # 5MB limit
+@guard_deco.max_request_size(5 * 1024 * 1024)
 @guard_deco.require_referrer(["myapp.com"])
 def upload_endpoint():
     return {"status": "uploaded"}
@@ -286,30 +253,26 @@ Error Handling
 
 Decorators integrate with the middleware's error handling system. When decorator conditions are not met, appropriate HTTP responses are returned:
 
-. 403 Forbidden
----------------------
+### 403 Forbidden
 
 IP restrictions, country blocks, authentication failures
 
-. 429 Too Many Requests
----------------------
+### 429 Too Many Requests
 
 Rate limiting violations
 
-. 400 Bad Request
----------------------
+### 400 Bad Request
 
 Content type mismatches, missing headers
 
-. 413 Payload Too Large
----------------------
+### 413 Payload Too Large
 
 Request size limits exceeded
 
 ___
 
 Configuration Priority
---------------
+----------------------
 
 Security settings are applied in the following priority order:
 

@@ -5,9 +5,11 @@ description: How to test guard-core adapters using mock objects, check-level uni
 keywords: guard-core, testing, MockGuardRequest, MockGuardResponse, adapter testing, security checks, integration tests
 ---
 
-# Testing Adapters
+Testing Adapters
+================
 
-## Mock Objects from guard-core
+Mock Objects from guard-core
+----------------------------
 
 Guard-core ships mock implementations of both protocols in `tests/conftest.py`. Use them as references for your own test fixtures, or import them directly in your adapter's test suite.
 
@@ -190,7 +192,8 @@ def reset_headers_manager() -> None:
 
 These cleanup fixtures are critical. `IPBanManager`, `SusPatternsManager`, and `SecurityHeadersManager` are singletons. Without resetting them between tests, state leaks across test cases.
 
-## Testing Individual Security Checks
+Testing Individual Security Checks
+----------------------------------
 
 Each security check can be tested in isolation by creating a mock middleware object and passing it to the check:
 
@@ -244,7 +247,8 @@ async def test_ip_blacklist_blocks():
     assert response.status_code == 403
 ```
 
-## Testing Your Adapter's Request Wrapper
+Testing Your Adapter's Request Wrapper
+--------------------------------------
 
 Verify that your wrapper correctly implements every `GuardRequest` property:
 
@@ -363,7 +367,8 @@ def test_url_replace_scheme():
     assert replaced.startswith("https://")
 ```
 
-## Testing Your Response Wrapper
+Testing Your Response Wrapper
+-----------------------------
 
 ```python
 from your_guard.response import StarletteGuardResponse, StarletteResponseFactory
@@ -404,7 +409,8 @@ def test_create_redirect():
     assert response.headers["Location"] == "https://example.com"
 ```
 
-## Testing the Pipeline
+Testing the Pipeline
+--------------------
 
 Test the full security pipeline using mock objects:
 
@@ -456,7 +462,8 @@ async def test_pipeline_blocks_on_first_failure():
     assert result.status_code == 403
 ```
 
-## Integration Testing Patterns
+Integration Testing Patterns
+----------------------------
 
 ### Full Middleware Test (FastAPI Example)
 
@@ -571,7 +578,8 @@ def redis_config():
     )
 ```
 
-## Test Configuration
+Test Configuration
+------------------
 
 Guard-core uses `asyncio_mode = "auto"` in `pyproject.toml`. Your adapter should do the same:
 

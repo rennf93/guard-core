@@ -5,9 +5,11 @@ description: How to wrap your framework's request object to satisfy the GuardReq
 keywords: guard-core, GuardRequest, request protocol, adapter development, request wrapper, protocol implementation
 ---
 
-# Implementing GuardRequest
+Implementing GuardRequest
+=========================
 
-## Protocol Definition
+Protocol Definition
+-------------------
 
 The `GuardRequest` protocol lives at `guard_core/protocols/request_protocol.py`:
 
@@ -42,7 +44,8 @@ class GuardRequest(Protocol):
 
 The protocol is `runtime_checkable`, so you can verify your implementation at runtime with `isinstance(your_request, GuardRequest)`.
 
-## Property Mapping Table
+Property Mapping Table
+----------------------
 
 This table shows how each `GuardRequest` property maps to the native request object in different frameworks:
 
@@ -60,7 +63,8 @@ This table shows how each `GuardRequest` property maps to the native request obj
 | `state` | `request.state` | Custom `SimpleNamespace` | Custom `SimpleNamespace` |
 | `scope` | `request.scope` | Build dict with `app`, `route` | Build dict with `app`, `route` |
 
-## Full Implementation Example: FastAPI / Starlette
+Full Implementation Example: FastAPI / Starlette
+-------------------------------------------------
 
 Starlette's `Request` object is close to the `GuardRequest` protocol but does not match it exactly. Here is a complete wrapper:
 
@@ -122,7 +126,8 @@ class StarletteGuardRequest:
         return self._request.scope
 ```
 
-## Full Implementation Example: Flask
+Full Implementation Example: Flask
+----------------------------------
 
 Flask requests are synchronous. The adapter must bridge that gap. Wrap the body retrieval to work with `async def`:
 
@@ -193,7 +198,8 @@ class FlaskGuardRequest:
         return self._scope
 ```
 
-## Full Implementation Example: Django
+Full Implementation Example: Django
+-----------------------------------
 
 Django's `HttpRequest` requires the most translation work:
 
@@ -271,7 +277,8 @@ class DjangoGuardRequest:
         return scope
 ```
 
-## The `state` Property
+The `state` Property
+--------------------
 
 The `state` property is a mutable namespace that security checks use to pass data between pipeline stages. For example, the `RouteConfigCheck` stores the resolved `RouteConfig` and `client_ip` on `request.state` so downstream checks can access them without recomputing:
 
@@ -288,7 +295,8 @@ from types import SimpleNamespace
 self._state = SimpleNamespace()
 ```
 
-## The `scope` Dictionary
+The `scope` Dictionary
+----------------------
 
 The `scope` dictionary must contain at least two keys for full guard-core functionality:
 
@@ -297,7 +305,8 @@ The `scope` dictionary must contain at least two keys for full guard-core functi
 
 If your framework does not natively provide ASGI scope, build it in your wrapper. If route-level decorator support is not needed, an empty dict suffices -- global-level `SecurityConfig` settings will still apply.
 
-## Runtime Verification
+Runtime Verification
+--------------------
 
 Because `GuardRequest` is `@runtime_checkable`, you can assert correctness in your adapter's initialization or tests:
 
@@ -310,7 +319,8 @@ assert isinstance(wrapped, GuardRequest)
 
 This checks structural compatibility at runtime. It does not verify return types of each method, so always pair this with proper unit tests for each property.
 
-## Async/Sync Bridging
+Async/Sync Bridging
+-------------------
 
 The `body()` method is defined as `async def body(self) -> bytes`. For **async frameworks** (FastAPI/Starlette), this maps directly to `await request.body()`. For **sync frameworks** (Flask, Django), wrap the synchronous body access in an async function:
 

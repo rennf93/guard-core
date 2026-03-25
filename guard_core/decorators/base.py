@@ -192,9 +192,7 @@ class BaseSecurityDecorator:
 def get_route_decorator_config(
     request: GuardRequest, decorator_handler: BaseSecurityDecorator
 ) -> RouteConfig | None:
-    if hasattr(request, "scope") and "route" in request.scope:
-        route = request.scope["route"]
-        if hasattr(route, "endpoint") and hasattr(route.endpoint, "_guard_route_id"):
-            route_id = route.endpoint._guard_route_id
-            return decorator_handler.get_route_config(route_id)
+    route_id = getattr(request.state, "guard_route_id", None)
+    if route_id:
+        return decorator_handler.get_route_config(route_id)
     return None

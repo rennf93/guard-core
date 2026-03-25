@@ -167,7 +167,7 @@ async def test_get_country_exception_with_agent(
     assert "Geographic lookup failed: Database corrupted" in sent_event.reason
 
 
-def test_get_country_exception_create_task_fails(
+def test_get_country_exception_create_task_fails(  # async-only
     cleanup_ipinfo_singleton: None,
 ) -> None:
     manager = IPInfoManager(token="test-token")

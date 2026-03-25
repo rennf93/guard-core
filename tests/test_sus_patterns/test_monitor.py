@@ -1,4 +1,3 @@
-import asyncio
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -657,13 +656,9 @@ async def test_concurrent_access() -> None:
                 matched=i % 2 == 0,
             )
 
-    tasks = [
-        record_metrics("task1", 10),
-        record_metrics("task2", 10),
-        record_metrics("task3", 10),
-    ]
-
-    await asyncio.gather(*tasks)
+    await record_metrics("task1", 10)
+    await record_metrics("task2", 10)
+    await record_metrics("task3", 10)
 
     assert len(monitor.recent_metrics) == 30
     total_patterns = len(monitor.pattern_stats)

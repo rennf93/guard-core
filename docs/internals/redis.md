@@ -5,13 +5,13 @@ description: RedisManager internals for connection pooling, auto-reconnection, s
 keywords: redis, connection pooling, distributed state, key namespacing, guard-core
 ---
 
-# Redis Integration
+Redis Integration
+=================
 
 Guard-core uses Redis for distributed state management across multiple application instances. The `RedisManager` handler provides connection management, namespaced key operations, and fault-tolerant wrappers.
 
-## RedisManager
-
-::: guard_core.handlers.redis_handler.RedisManager
+RedisManager
+------------
 
 ### Construction
 
@@ -68,9 +68,10 @@ async def safe_operation(self, func, *args, **kwargs) -> Any
 
 Wraps any async function that takes a Redis connection as its first argument. Returns `None` if Redis is disabled. Raises `GuardRedisError` on failure.
 
----
+___
 
-## Key Namespacing
+Key Namespacing
+---------------
 
 All keys are prefixed with `config.redis_prefix` (default: `"guard_core:"`) and organized by namespace:
 
@@ -103,9 +104,10 @@ All keys are prefixed with `config.redis_prefix` (default: `"guard_core:"`) and 
 
 All methods return `None` when Redis is disabled (`config.enable_redis = False`), allowing callers to fall back to local state without error handling.
 
----
+___
 
-## Fault Tolerance
+Fault Tolerance
+---------------
 
 ### Graceful Degradation
 
@@ -132,9 +134,10 @@ class GuardRedisError(GuardCoreError):
 
 Adapters should catch `GuardRedisError` during initialization and handle it according to their framework's error model.
 
----
+___
 
-## Configuration
+Configuration
+-------------
 
 | Field          | Type          | Default                   | Description                              |
 |----------------|---------------|---------------------------|------------------------------------------|

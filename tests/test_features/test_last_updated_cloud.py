@@ -21,13 +21,14 @@ def test_last_updated_initialized_to_none() -> None:
     assert cloud_handler.last_updated["Azure"] is None
 
 
-def test_last_updated_after_sync_refresh() -> None:
+async def test_last_updated_after_refresh() -> None:
     test_ranges = {ipaddress.ip_network("10.0.0.0/8")}
     with patch(
         "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
         return_value=test_ranges,
     ):
-        cloud_handler._refresh_sync({"AWS"})
+        await cloud_handler._refresh_providers({"AWS"})
 
     assert cloud_handler.last_updated["AWS"] is not None
     assert isinstance(cloud_handler.last_updated["AWS"], datetime)
@@ -45,6 +46,7 @@ async def test_last_updated_after_async_refresh() -> None:
     test_ranges = {ipaddress.ip_network("10.0.0.0/8")}
     with patch(
         "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
         return_value=test_ranges,
     ):
         await cloud_handler.refresh_async({"AWS"})
@@ -54,12 +56,13 @@ async def test_last_updated_after_async_refresh() -> None:
     assert cloud_handler.last_updated["AWS"].tzinfo == timezone.utc
 
 
-def test_failed_refresh_leaves_last_updated_unchanged() -> None:
+async def test_failed_refresh_leaves_last_updated_unchanged() -> None:
     with patch(
         "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
         return_value=set(),
     ):
-        cloud_handler._refresh_sync({"AWS"})
+        await cloud_handler._refresh_providers({"AWS"})
 
     assert cloud_handler.last_updated["AWS"] is None
 
@@ -72,6 +75,7 @@ async def test_failed_async_refresh_leaves_last_updated_unchanged() -> None:
 
     with patch(
         "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+        new_callable=AsyncMock,
         return_value=set(),
     ):
         await cloud_handler.refresh_async({"GCP"})

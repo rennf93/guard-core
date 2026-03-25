@@ -4,7 +4,7 @@
     </a>
 </p>
 
----
+___
 
 <p align="center">
     <strong>guard-core is the framework-agnostic security engine that powers the Guard ecosystem. It provides IP control, rate limiting, penetration detection, security headers, and behavioral analysis through a protocol-based architecture. Framework-specific adapters (fastapi-guard, flaskapi-guard, djapi-guard) consume this library.</strong>
@@ -46,7 +46,7 @@
     </a>
 </p>
 
----
+___
 
 Documentation
 =============
@@ -62,7 +62,7 @@ Ecosystem
 
 Guard Core is the engine. Framework adapters are thin wrappers that translate native request/response types into Guard Core's protocols:
 
-```
+```text
 guard-core (this library)
 ├── fastapi-guard      ← ASGI adapter for FastAPI/Starlette
 ├── flaskapi-guard     ← WSGI adapter for Flask

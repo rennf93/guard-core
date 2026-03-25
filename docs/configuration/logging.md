@@ -5,11 +5,13 @@ description: Configuring log levels, formats, file output, and the JsonFormatter
 keywords: logging, json formatter, log levels, security events, guard-core
 ---
 
-# Logging Configuration
+Logging Configuration
+=====================
 
 Guard-core uses Python's standard `logging` module with configurable levels, formats, and output destinations.
 
-## Log Level Fields
+Log Level Fields
+----------------
 
 ### `log_suspicious_level`
 
@@ -29,9 +31,10 @@ Controls the log level for all incoming requests (the `RequestLoggingCheck`). Di
 
 Set to `"INFO"` or `"DEBUG"` for development or audit requirements.
 
----
+___
 
-## Log Format
+Log Format
+----------
 
 ### `log_format`
 
@@ -68,9 +71,10 @@ class JsonFormatter(logging.Formatter):
 
 Adapters can use this formatter directly for custom logging handlers.
 
----
+___
 
-## Custom Log File
+Custom Log File
+---------------
 
 ### `custom_log_file`
 
@@ -88,9 +92,10 @@ SecurityConfig(
 
 When set, guard-core creates both a console handler and a file handler with the configured formatter.
 
----
+___
 
-## Log Setup
+Log Setup
+---------
 
 The `setup_custom_logging()` function initializes the guard-core logger:
 
@@ -109,9 +114,10 @@ This is called internally by the middleware during initialization. It:
 4. Optionally adds a `FileHandler` if `log_file` is specified.
 5. Sets the logger level to `INFO`.
 
----
+___
 
-## Log Activity Function
+Log Activity Function
+---------------------
 
 The core logging function is `log_activity()` in `guard_core.utils`:
 
@@ -139,9 +145,10 @@ async def log_activity(
 
 **Level `None`**: When `level` is `None`, the function returns immediately without logging.
 
----
+___
 
-## Security Event Logging
+Security Event Logging
+----------------------
 
 Guard-core logs security events at specific levels:
 
@@ -158,9 +165,10 @@ Guard-core logs security events at specific levels:
 | Pattern timeout          | `WARNING`    | `SusPatternsManager`      |
 | Cloud IP range update    | `INFO`       | `CloudManager`            |
 
----
+___
 
-## Log Sanitization
+Log Sanitization
+----------------
 
 User-supplied values in log messages are sanitized by `_sanitize_for_log()`:
 

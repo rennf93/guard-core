@@ -1,6 +1,8 @@
-# Security Policy for Guard Core
+Security Policy for Guard Core
+===============================
 
-## Supported Versions
+Supported Versions
+------------------
 
 We currently provide security updates for the following versions of Guard Core:
 
@@ -9,7 +11,8 @@ We currently provide security updates for the following versions of Guard Core:
 | 1.0.x   | :white_check_mark: |
 | < 1.0   | :x:                |
 
-## Reporting a Vulnerability
+Reporting a Vulnerability
+-------------------------
 
 We take the security of Guard Core seriously. If you believe you've found a security vulnerability, please follow these steps:
 
@@ -30,7 +33,8 @@ We take the security of Guard Core seriously. If you believe you've found a secu
 
 The maintainers will acknowledge your report within 48 hours and provide a detailed response within 7 days, including the next steps in handling the vulnerability.
 
-## Security Best Practices
+Security Best Practices
+-----------------------
 
 When using Guard Core in your applications, consider the following security best practices:
 
@@ -70,7 +74,8 @@ If using Redis for distributed state management:
 1. Regularly update Guard Core and its dependencies to the latest versions
 2. Use a dependency scanning tool to identify and address vulnerabilities in your dependency tree
 
-## Security Features
+Security Features
+-----------------
 
 Guard Core provides several security features to protect your FastAPI applications:
 
@@ -84,7 +89,8 @@ Guard Core provides several security features to protect your FastAPI applicatio
 
 For detailed information on configuring these features, refer to the [documentation](https://rennf93.github.io/guard-core).
 
-## Threat Model
+Threat Model
+------------
 
 Guard Core is designed to protect against common web application threats, including:
 
@@ -96,11 +102,13 @@ Guard Core is designed to protect against common web application threats, includ
 
 Note that Guard Core is a defense-in-depth measure and should be used alongside other security controls such as proper authentication, authorization, input validation, and output encoding.
 
-## Security Updates
+Security Updates
+----------------
 
 Security updates will be released as needed. We recommend subscribing to GitHub releases or regularly checking for updates to ensure you're using the most secure version.
 
-## Responsible Disclosure
+Responsible Disclosure
+----------------------
 
 We follow responsible disclosure principles. If you report a vulnerability to us:
 
@@ -109,6 +117,7 @@ We follow responsible disclosure principles. If you report a vulnerability to us
 3. We will notify you when the vulnerability is fixed
 4. We will publicly acknowledge your responsible disclosure (unless you prefer to remain anonymous)
 
-## License
+License
+-------
 
 Guard Core is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

@@ -2,6 +2,16 @@ PYTHON_VERSIONS = 3.10 3.11 3.12 3.13 3.14
 DEFAULT_PYTHON = 3.10
 
 
+.PHONY: sync
+sync:
+	@python scripts/unasync.py
+
+
+.PHONY: check-sync
+check-sync:
+	@python scripts/unasync.py --check
+
+
 .PHONY: install
 install:
 	@uv sync

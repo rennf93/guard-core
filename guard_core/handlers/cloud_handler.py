@@ -5,16 +5,18 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
+import aiohttp
 
 
-def fetch_aws_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+async def fetch_aws_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     try:
-        response = requests.get(
-            "https://ip-ranges.amazonaws.com/ip-ranges.json", timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                "https://ip-ranges.amazonaws.com/ip-ranges.json",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            data = await response.json(content_type=None)
         return {
             ipaddress.ip_network(ip_range["ip_prefix"])
             for ip_range in data["prefixes"]
@@ -25,13 +27,15 @@ def fetch_aws_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
         return set()
 
 
-def fetch_gcp_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+async def fetch_gcp_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     try:
-        response = requests.get(
-            "https://www.gstatic.com/ipranges/cloud.json", timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                "https://www.gstatic.com/ipranges/cloud.json",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            data = await response.json(content_type=None)
         networks: set[ipaddress.IPv4Network | ipaddress.IPv6Network] = set()
         for ip_range in data["prefixes"]:
             if "ipv4Prefix" in ip_range:
@@ -44,7 +48,7 @@ def fetch_gcp_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
         return set()
 
 
-def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -52,12 +56,16 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
             "Chrome/91.0.4472.124 Safari/537.36"
         }
         route = "/download/details.aspx?id=56519"
-        response = requests.get(
-            f"https://www.microsoft.com/en-us{route}", headers=headers, timeout=10
-        )
-        response.raise_for_status()
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                f"https://www.microsoft.com/en-us{route}",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            page_text = await response.text()
 
-        decoded_html = html.unescape(response.text)
+        decoded_html = html.unescape(page_text)
         pattern = r'href=["\'](https://download\.microsoft\.com/.{1,500}?\.json)["\']'
         match = re.search(pattern, decoded_html)
 
@@ -65,9 +73,12 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
             raise ValueError("Could not find Azure IP ranges download URL")
 
         download_url = match.group(1)
-        response = requests.get(download_url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                download_url, timeout=aiohttp.ClientTimeout(total=10)
+            )
+            response.raise_for_status()
+            data = await response.json(content_type=None)
 
         return {
             ipaddress.ip_network(ip_range)
@@ -120,10 +131,10 @@ class CloudManager:
                 f"+{len(added)} added, -{len(removed)} removed"
             )
 
-    def _refresh_sync(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+    async def _refresh_providers(self, providers: set[str] = _ALL_PROVIDERS) -> None:
         for provider in providers:
             try:
-                ranges = {
+                ranges = await {
                     "AWS": fetch_aws_ip_ranges,
                     "GCP": fetch_gcp_ip_ranges,
                     "Azure": fetch_azure_ip_ranges,
@@ -149,17 +160,16 @@ class CloudManager:
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
 
-    def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
-        if self.redis_handler is None:
-            self._refresh_sync(providers)
-        else:
-            raise RuntimeError("Use async refresh() when Redis is enabled")
+    async def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+        if self.redis_handler is not None:
+            raise RuntimeError("Use refresh_async() when Redis is enabled")
+        await self._refresh_providers(providers)
 
     async def refresh_async(
         self, providers: set[str] = _ALL_PROVIDERS, ttl: int = 3600
     ) -> None:
         if self.redis_handler is None:
-            self._refresh_sync(providers)
+            await self._refresh_providers(providers)
             return
 
         for provider in providers:
@@ -179,7 +189,7 @@ class CloudManager:
                     "Azure": fetch_azure_ip_ranges,
                 }[provider]
 
-                ranges = fetch_func()
+                ranges = await fetch_func()
                 if ranges:
                     old_ranges = self.ip_ranges.get(provider, set())
                     self._log_range_changes(provider, old_ranges, ranges)

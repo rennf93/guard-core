@@ -5,13 +5,13 @@ description: RateLimitManager internals, sliding window algorithm, Redis Lua scr
 keywords: rate limiting, sliding window, redis, lua script, guard-core
 ---
 
-# Rate Limiting
+Rate Limiting
+=============
 
 Guard-core implements rate limiting using a sliding window algorithm with dual backends: in-memory for single-instance deployments and Redis for distributed deployments. The `RateLimitManager` handler orchestrates both.
 
-## RateLimitManager
-
-::: guard_core.handlers.ratelimit_handler.RateLimitManager
+RateLimitManager
+----------------
 
 ### Singleton Pattern
 
@@ -60,9 +60,10 @@ async def check_rate_limit(
 
 **Returns**: `None` if under the limit, or a `429` response if exceeded.
 
----
+___
 
-## Sliding Window Algorithm
+Sliding Window Algorithm
+------------------------
 
 ### In-Memory Backend
 
@@ -73,7 +74,6 @@ def _get_in_memory_request_count(
     self, client_ip, window_start, current_time, endpoint_path=""
 ) -> int:
     key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
-    # Evict expired timestamps
     while self.request_timestamps[key] and self.request_timestamps[key][0] <= window_start:
         self.request_timestamps[key].popleft()
     request_count = len(self.request_timestamps[key])
@@ -98,9 +98,10 @@ Each request:
 3. Counts remaining entries (`ZCARD`).
 4. Sets a TTL of `window * 2` to prevent key leakage.
 
----
+___
 
-## Lua Script for Atomic Operations
+Lua Script for Atomic Operations
+---------------------------------
 
 When Redis is available, guard-core loads a Lua script at initialization for atomic rate limit operations:
 
@@ -142,9 +143,10 @@ results = await pipeline.execute()
 
 If Redis fails entirely (connection error), the system falls back to in-memory rate limiting with a log warning.
 
----
+___
 
-## Per-Endpoint Rate Limits
+Per-Endpoint Rate Limits
+------------------------
 
 The `RateLimitCheck` pipeline check evaluates rate limits in priority order:
 
@@ -165,9 +167,10 @@ When `RouteConfig.geo_rate_limits` is configured, the check resolves the client'
 2. Wildcard fallback (`"*"`).
 3. If no match, skips to the next tier.
 
----
+___
 
-## Initialization
+Initialization
+--------------
 
 ```python
 rate_limit_manager = RateLimitManager(config)
@@ -177,9 +180,10 @@ await rate_limit_manager.initialize_agent(agent_handler)
 
 Redis initialization triggers the Lua script load. If it fails, the manager logs an error and proceeds with the pipeline fallback.
 
----
+___
 
-## Reset
+Reset
+-----
 
 ```python
 await rate_limit_manager.reset()

@@ -91,7 +91,8 @@ def test_geo_ip_handler_validation() -> None:
 
 def test_geo_ip_handler_deprecated_fallback() -> None:
     config = SecurityConfig(ipinfo_token="test", whitelist_countries=["US"])
-    assert isinstance(config.geo_ip_handler, IPInfoManager)
+    assert config.geo_ip_handler is not None
+    assert type(config.geo_ip_handler).__name__ == "IPInfoManager"
 
 
 async def test_geo_ip_handler_async_methods() -> None:

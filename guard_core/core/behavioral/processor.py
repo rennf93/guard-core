@@ -88,8 +88,7 @@ class BehavioralProcessor:
                     )
 
     def get_endpoint_id(self, request: GuardRequest) -> str:
-        if hasattr(request, "scope") and "route" in request.scope:
-            route = request.scope["route"]
-            if hasattr(route, "endpoint"):
-                return f"{route.endpoint.__module__}.{route.endpoint.__qualname__}"
+        endpoint_id: str | None = getattr(request.state, "guard_endpoint_id", None)
+        if endpoint_id:
+            return endpoint_id
         return f"{request.method}:{request.url_path}"

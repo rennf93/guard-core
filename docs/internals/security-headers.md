@@ -5,13 +5,13 @@ description: SecurityHeadersManager internals for CSP, HSTS, CORS, and default s
 keywords: security headers, csp, hsts, cors, owasp, guard-core
 ---
 
-# Security Headers
+Security Headers
+================
 
 The `SecurityHeadersManager` applies HTTP security headers to responses following OWASP best practices. It supports Content Security Policy (CSP), HTTP Strict Transport Security (HSTS), CORS, and a comprehensive set of default headers.
 
-## SecurityHeadersManager
-
-::: guard_core.handlers.security_headers_handler.SecurityHeadersManager
+SecurityHeadersManager
+----------------------
 
 ### Singleton
 

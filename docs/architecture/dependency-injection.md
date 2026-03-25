@@ -10,7 +10,7 @@ Dependency Injection
 
 guard-core uses a dependency injection pattern based on **typed context dataclasses**. Each core module receives its dependencies through a single context object, making dependencies explicit, testable, and decoupled from module internals.
 
----
+___
 
 Context Objects
 ---------------
@@ -177,7 +177,7 @@ class BehavioralContext:
 | `event_bus` | Yes | For emitting `decorator_violation` events on behavioral threshold breaches |
 | `guard_decorator` | No | Required for behavioral tracking to function. When `None`, all behavioral processing is skipped |
 
----
+___
 
 Context Dependency Graph
 ------------------------
@@ -254,7 +254,7 @@ behavioral_ctx = BehavioralContext(config, logger, event_bus, guard_decorator)
 behavioral_processor = BehavioralProcessor(behavioral_ctx)
 ```
 
----
+___
 
 HandlerInitializer
 ------------------
@@ -344,7 +344,7 @@ Sets up the `DynamicRuleManager` for polling rule updates from the agent platfor
 2. Wires the agent into it
 3. Wires Redis into it (if available)
 
----
+___
 
 Singleton Handlers and Their Lifecycle
 --------------------------------------
@@ -389,7 +389,7 @@ Handlers manage shared state (ban lists, rate counters, cloud IP caches) that mu
 !!! warning "Multi-process deployments"
     Singletons are per-process. In multi-worker deployments (e.g. Gunicorn with multiple workers), each worker has its own singleton instances. Redis is required for cross-process state consistency.
 
----
+___
 
 Putting It All Together
 -----------------------

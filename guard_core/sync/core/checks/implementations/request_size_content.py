@@ -1,0 +1,103 @@
+from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+from guard_core.sync.utils import log_activity
+
+
+class RequestSizeContentCheck(SecurityCheck):
+    @property
+    def check_name(self) -> str:
+        return "request_size_content"
+
+    def _check_request_size_limit(
+        self, request: SyncGuardRequest, route_config: RouteConfig
+    ) -> GuardResponse | None:
+        if not route_config.max_request_size:
+            return None
+
+        content_length = request.headers.get("content-length")
+        if not content_length or int(content_length) <= route_config.max_request_size:
+            return None
+
+        message = f"Request size {content_length} exceeds limit"
+
+        log_activity(
+            request,
+            self.logger,
+            log_type="suspicious",
+            reason=f"{message}: {route_config.max_request_size}",
+            level=self.config.log_suspicious_level,
+            passive_mode=self.config.passive_mode,
+        )
+
+        self.middleware.event_bus.send_middleware_event(
+            event_type="content_filtered",
+            request=request,
+            action_taken="request_blocked"
+            if not self.config.passive_mode
+            else "logged_only",
+            reason=f"{message}: {route_config.max_request_size}",
+            decorator_type="content_filtering",
+            violation_type="max_request_size",
+        )
+
+        if not self.config.passive_mode:
+            return self.middleware.create_error_response(
+                status_code=413,
+                default_message="Request too large",
+            )
+
+        return None
+
+    def _check_content_type_allowed(
+        self, request: SyncGuardRequest, route_config: RouteConfig
+    ) -> GuardResponse | None:
+        if not route_config.allowed_content_types:
+            return None
+
+        content_type = request.headers.get("content-type", "").split(";")[0]
+        if content_type in route_config.allowed_content_types:
+            return None
+
+        log_activity(
+            request,
+            self.logger,
+            log_type="suspicious",
+            reason=f"Invalid content type: {content_type}",
+            level=self.config.log_suspicious_level,
+            passive_mode=self.config.passive_mode,
+        )
+
+        message = f"Content type {content_type} not in allowed types"
+
+        self.middleware.event_bus.send_middleware_event(
+            event_type="content_filtered",
+            request=request,
+            action_taken="request_blocked"
+            if not self.config.passive_mode
+            else "logged_only",
+            reason=f"{message}: {route_config.allowed_content_types}",
+            decorator_type="content_filtering",
+            violation_type="content_type",
+        )
+
+        if not self.config.passive_mode:
+            return self.middleware.create_error_response(
+                status_code=415,
+                default_message="Unsupported content type",
+            )
+
+        return None
+
+    def check(self, request: SyncGuardRequest) -> GuardResponse | None:
+        route_config = getattr(request.state, "route_config", None)
+
+        if not route_config:
+            return None
+
+        size_response = self._check_request_size_limit(request, route_config)
+        if size_response:
+            return size_response
+
+        return self._check_content_type_allowed(request, route_config)

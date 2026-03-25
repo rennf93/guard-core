@@ -10,7 +10,7 @@ Security Pipeline
 
 The security pipeline is the heart of guard-core. It implements the **chain of responsibility** pattern: an ordered list of `SecurityCheck` instances, executed sequentially for every request. The first check that returns a non-`None` response short-circuits the pipeline and blocks the request.
 
----
+___
 
 SecurityCheckPipeline
 ---------------------
@@ -83,7 +83,7 @@ class SecurityCheckPipeline:
 | `get_check_names` | `() -> list[str]` | List all check names in execution order |
 | `__len__` | `() -> int` | Number of checks in the pipeline |
 
----
+___
 
 SecurityCheck Base Class
 ------------------------
@@ -151,7 +151,7 @@ class SecurityCheck(ABC):
 | `create_error_response(status_code, message)` | Shortcut for `self.middleware.create_error_response(...)` |
 | `is_passive_mode()` | Whether the engine is in passive (log-only) mode |
 
----
+___
 
 All 17 Checks in Execution Order
 ---------------------------------
@@ -319,7 +319,7 @@ This check runs first because all subsequent checks depend on `request.state.cli
 | **Purpose** | Executes the `config.custom_request_check` callable if provided |
 | **Blocks?** | Returns whatever the custom check callable returns |
 
----
+___
 
 Fail-Open vs Fail-Secure
 -------------------------
@@ -344,7 +344,7 @@ The pipeline checks for `config.fail_secure` using `hasattr` — this attribute 
 !!! tip "Choosing a failure mode"
     Use fail-open (the default) in most production environments to avoid availability issues from check bugs. Use fail-secure in high-security environments where blocking a request is preferable to allowing an unchecked one through.
 
----
+___
 
 Passive Mode
 ------------
@@ -363,7 +363,7 @@ return None
 
 Each check is responsible for honoring passive mode. The base class provides `is_passive_mode()` as a convenience method.
 
----
+___
 
 Adding a Custom Security Check
 -------------------------------

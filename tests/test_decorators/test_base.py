@@ -94,31 +94,17 @@ async def test_get_route_decorator_config() -> None:
     security_config = SecurityConfig()
     decorator = BaseSecurityDecorator(security_config)
 
-    mock_request = MockGuardRequest(scope={})
-
-    result = get_route_decorator_config(mock_request, decorator)
-    assert result is None
-
-    mock_request = MockGuardRequest(scope={"route": Mock()})
-    mock_request._scope["route"].endpoint = None
-
-    result = get_route_decorator_config(mock_request, decorator)
-    assert result is None
-
-    mock_endpoint = Mock()
-    mock_request._scope["route"].endpoint = mock_endpoint
-
+    mock_request = MockGuardRequest()
     result = get_route_decorator_config(mock_request, decorator)
     assert result is None
 
     route_id = "test.route.id"
-    mock_endpoint._guard_route_id = route_id
-
     route_config = decorator._ensure_route_config(
         Mock(__module__="test", __qualname__="route")
     )
     decorator._route_configs[route_id] = route_config
 
+    mock_request._state.guard_route_id = route_id
     result = get_route_decorator_config(mock_request, decorator)
     assert result is route_config
 

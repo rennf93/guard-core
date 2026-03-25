@@ -5,11 +5,13 @@ description: Guide to tuning guard-core's detection engine for optimal sensitivi
 keywords: detection tuning, sensitivity, performance, false positives, guard-core
 ---
 
-# Detection Tuning
+Detection Tuning
+================
 
 The detection engine's behavior is controlled by several `SecurityConfig` fields prefixed with `detection_`. This guide explains each field and how to tune them for different deployment scenarios.
 
-## Configuration Fields
+Configuration Fields
+--------------------
 
 ### `detection_compiler_timeout`
 
@@ -86,9 +88,10 @@ Number of recent performance metrics retained in the `PerformanceMonitor`. Large
 
 Maximum number of unique patterns tracked by the performance monitor. When exceeded, the oldest pattern's stats are evicted. Also controls the `PatternCompiler` cache size.
 
----
+___
 
-## Tuning Profiles
+Tuning Profiles
+---------------
 
 ### High Security
 
@@ -155,9 +158,10 @@ async def health_check():
     return {"status": "ok"}
 ```
 
----
+___
 
-## Diagnostics
+Diagnostics
+-----------
 
 The `SusPatternsManager` provides runtime diagnostics:
 

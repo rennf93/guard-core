@@ -5,15 +5,15 @@ description: The protocol interfaces that adapters must implement to integrate g
 keywords: protocols, guard request, guard response, middleware protocol, adapter development, guard-core
 ---
 
-# Protocols
+Protocols
+=========
 
 Protocols are the most important API surface for adapter developers. Guard-core uses Python `Protocol` classes (PEP 544) to define the contracts that adapters must satisfy. All protocols are `@runtime_checkable`.
 
----
+___
 
-## GuardRequest
-
-::: guard_core.protocols.request_protocol.GuardRequest
+GuardRequest
+------------
 
 The request protocol defines how guard-core reads incoming request data. Adapters must wrap their framework's request object to satisfy this interface.
 
@@ -74,11 +74,10 @@ The adapter's `state` object must support dynamic attribute assignment (e.g., a 
 
 **`headers`**: Must be iterable via `.items()` for header scanning. Guard-core reads headers case-insensitively in many places (e.g., `headers.get("User-Agent")`), but the mapping itself does not need to be case-insensitive.
 
----
+___
 
-## GuardResponse
-
-::: guard_core.protocols.response_protocol.GuardResponse
+GuardResponse
+-------------
 
 The response protocol defines how guard-core reads and modifies outgoing responses.
 
@@ -101,11 +100,10 @@ class GuardResponse(Protocol):
 | `headers`     | `MutableMapping[str, str]`| Response headers. Must be mutable for security header injection. |
 | `body`        | `bytes \| None`          | Response body bytes. Used by behavioral return pattern matching. |
 
----
+___
 
-## GuardResponseFactory
-
-::: guard_core.protocols.response_protocol.GuardResponseFactory
+GuardResponseFactory
+--------------------
 
 Adapters must provide a factory that creates framework-native response objects.
 
@@ -121,11 +119,10 @@ class GuardResponseFactory(Protocol):
 | `create_response`         | Creates a plain text/JSON error response.                  |
 | `create_redirect_response`| Creates an HTTP redirect (used for HTTPS enforcement).     |
 
----
+___
 
-## GuardMiddlewareProtocol
-
-::: guard_core.protocols.middleware_protocol.GuardMiddlewareProtocol
+GuardMiddlewareProtocol
+-----------------------
 
 Defines the interface that the adapter's middleware class must expose to the security check pipeline.
 
@@ -154,7 +151,7 @@ class GuardMiddlewareProtocol(Protocol):
 
     async def create_error_response(
         self, status_code: int, default_message: str
-    ) -> Any: ...
+    ) -> GuardResponse: ...
 
     async def refresh_cloud_ip_ranges(self) -> None: ...
 ```
@@ -180,11 +177,10 @@ class GuardMiddlewareProtocol(Protocol):
 | `geo_ip_handler`        | `GeoIPHandler` or `None`.                               |
 | `guard_response_factory`| `GuardResponseFactory` from the adapter.                |
 
----
+___
 
-## GeoIPHandler
-
-::: guard_core.protocols.geo_ip_protocol.GeoIPHandler
+GeoIPHandler
+------------
 
 Protocol for geolocation services. Adapters can provide any implementation (MaxMind, IPInfo, custom).
 
@@ -205,11 +201,10 @@ class GeoIPHandler(Protocol):
 | `initialize()`    | Perform async initialization (e.g., download DB).   |
 | `get_country(ip)` | Return ISO country code for the IP, or `None`.      |
 
----
+___
 
-## RedisHandlerProtocol
-
-::: guard_core.protocols.redis_protocol.RedisHandlerProtocol
+RedisHandlerProtocol
+--------------------
 
 Protocol for Redis operations. Matches the `RedisManager` interface.
 
@@ -224,11 +219,10 @@ class RedisHandlerProtocol(Protocol):
     def get_connection(self) -> AsyncContextManager[Any]: ...
 ```
 
----
+___
 
-## AgentHandlerProtocol
-
-::: guard_core.protocols.agent_protocol.AgentHandlerProtocol
+AgentHandlerProtocol
+--------------------
 
 Protocol for the Guard Agent telemetry system.
 

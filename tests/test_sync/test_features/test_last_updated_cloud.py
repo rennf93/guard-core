@@ -1,0 +1,77 @@
+import ipaddress
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from guard_core.sync.handlers.cloud_handler import cloud_handler
+
+
+@pytest.fixture(autouse=True)
+def reset_cloud_handler() -> None:
+    cloud_handler.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
+    cloud_handler.last_updated = {"AWS": None, "GCP": None, "Azure": None}
+    cloud_handler.redis_handler = None
+    cloud_handler.agent_handler = None
+
+
+def test_last_updated_initialized_to_none() -> None:
+    assert cloud_handler.last_updated["AWS"] is None
+    assert cloud_handler.last_updated["GCP"] is None
+    assert cloud_handler.last_updated["Azure"] is None
+
+
+def test_last_updated_after_refresh() -> None:
+    test_ranges = {ipaddress.ip_network("10.0.0.0/8")}
+    with patch(
+        "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges",
+        return_value=test_ranges,
+    ):
+        cloud_handler._refresh_providers({"AWS"})
+
+    assert cloud_handler.last_updated["AWS"] is not None
+    assert isinstance(cloud_handler.last_updated["AWS"], datetime)
+    assert cloud_handler.last_updated["AWS"].tzinfo == timezone.utc
+    assert cloud_handler.last_updated["GCP"] is None
+
+
+def test_last_updated_after_async_refresh() -> None:
+    mock_redis = MagicMock()
+    mock_redis.get_key = MagicMock(return_value=None)
+    mock_redis.set_key = MagicMock()
+    cloud_handler.redis_handler = mock_redis
+
+    test_ranges = {ipaddress.ip_network("10.0.0.0/8")}
+    with patch(
+        "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges",
+        return_value=test_ranges,
+    ):
+        cloud_handler.refresh_async({"AWS"})
+
+    assert cloud_handler.last_updated["AWS"] is not None
+    assert isinstance(cloud_handler.last_updated["AWS"], datetime)
+    assert cloud_handler.last_updated["AWS"].tzinfo == timezone.utc
+
+
+def test_failed_refresh_leaves_last_updated_unchanged() -> None:
+    with patch(
+        "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges",
+        return_value=set(),
+    ):
+        cloud_handler._refresh_providers({"AWS"})
+
+    assert cloud_handler.last_updated["AWS"] is None
+
+
+def test_failed_async_refresh_leaves_last_updated_unchanged() -> None:
+    mock_redis = MagicMock()
+    mock_redis.get_key = MagicMock(return_value=None)
+    cloud_handler.redis_handler = mock_redis
+
+    with patch(
+        "guard_core.sync.handlers.cloud_handler.fetch_gcp_ip_ranges",
+        return_value=set(),
+    ):
+        cloud_handler.refresh_async({"GCP"})
+
+    assert cloud_handler.last_updated["GCP"] is None

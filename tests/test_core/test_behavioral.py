@@ -55,9 +55,9 @@ def mock_request() -> Mock:
     request = Mock()
     request.method = "GET"
     request.url_path = "/test"
-    request.scope = {"route": Mock(endpoint=lambda: None)}
-    request.scope["route"].endpoint.__module__ = "test_module"
-    request.scope["route"].endpoint.__qualname__ = "test_function"
+    request.state = Mock()
+    request.state.guard_endpoint_id = "test_module.test_function"
+    request.state.guard_route_id = None
     return request
 
 
@@ -235,21 +235,22 @@ def test_get_endpoint_id_with_route(processor: Mock, mock_request: Mock) -> None
     assert endpoint_id == "test_module.test_function"
 
 
-def test_get_endpoint_id_no_route(processor: BehavioralProcessor) -> None:
+def test_get_endpoint_id_no_guard_endpoint(processor: BehavioralProcessor) -> None:
     request = Mock()
     request.method = "POST"
     request.url_path = "/api/test"
-    request.scope = {}
+    request.state = Mock(spec=[])
 
     endpoint_id = processor.get_endpoint_id(request)
     assert endpoint_id == "POST:/api/test"
 
 
-def test_get_endpoint_id_no_endpoint_attr(processor: Mock) -> None:
+def test_get_endpoint_id_none_state(processor: Mock) -> None:
     request = Mock()
     request.method = "GET"
     request.url_path = "/test"
-    request.scope = {"route": Mock(spec=[])}
+    request.state = Mock()
+    request.state.guard_endpoint_id = None
 
     endpoint_id = processor.get_endpoint_id(request)
     assert endpoint_id == "GET:/test"

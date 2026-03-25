@@ -10,10 +10,10 @@ Installation
 
 guard-core is consumed as a **library dependency** by framework-specific adapters. This page covers two scenarios: depending on guard-core from your adapter's package, and setting up a local development environment to contribute to guard-core itself.
 
----
+___
 
 Add guard-core as an Adapter Dependency
----------------------------------------
+----------------------------------------
 
 In your adapter's `pyproject.toml`, add guard-core as a core dependency:
 
@@ -75,7 +75,7 @@ guard-core has optional dependencies that your adapter may want to pull in:
 | `maxminddb` | GeoIP database reading | When using `IPInfoManager` for country filtering |
 | `httpx` | Async HTTP client for cloud IP range fetching | When `block_cloud_providers` is configured |
 
----
+___
 
 Contributor Development Setup
 -----------------------------
@@ -141,7 +141,7 @@ uv run pre-commit install
 
 This installs hooks that run `ruff format`, `ruff check`, and `mypy` before every commit.
 
----
+___
 
 Project Layout
 --------------

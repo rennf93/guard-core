@@ -5,13 +5,13 @@ description: CloudManager internals for fetching, caching, and checking AWS, GCP
 keywords: cloud providers, AWS, GCP, Azure, IP ranges, cloud blocking, guard-core
 ---
 
-# Cloud Providers
+Cloud Providers
+===============
 
 Guard-core can block requests originating from cloud provider IP ranges (AWS, GCP, Azure). The `CloudManager` handler fetches the official IP range lists, caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline.
 
-## CloudManager
-
-::: guard_core.handlers.cloud_handler.CloudManager
+CloudManager
+------------
 
 ### Singleton Pattern
 
@@ -33,22 +33,26 @@ class CloudManager:
 
 A module-level instance `cloud_handler` is the canonical access point used throughout guard-core.
 
----
+___
 
-## IP Range Fetching
+IP Range Fetching
+-----------------
 
-Each provider has a dedicated fetch function that returns a `set[IPv4Network | IPv6Network]`.
+Each provider has a dedicated async fetch function that returns a `set[IPv4Network | IPv6Network]`.
 
 ### AWS
 
 ```python
-def fetch_aws_ip_ranges() -> set[IPv4Network | IPv6Network]:
-    response = requests.get(
-        "https://ip-ranges.amazonaws.com/ip-ranges.json", timeout=10
-    )
+async def fetch_aws_ip_ranges() -> set[IPv4Network | IPv6Network]:
+    async with aiohttp.ClientSession() as session:
+        response = await session.get(
+            "https://ip-ranges.amazonaws.com/ip-ranges.json",
+            timeout=aiohttp.ClientTimeout(total=10),
+        )
+        data = await response.json(content_type=None)
     return {
         ipaddress.ip_network(r["ip_prefix"])
-        for r in response.json()["prefixes"]
+        for r in data["prefixes"]
         if r["service"] == "AMAZON"
     }
 ```
@@ -58,11 +62,13 @@ Filters to `service == "AMAZON"` prefixes only, which covers all AWS services.
 ### GCP
 
 ```python
-def fetch_gcp_ip_ranges() -> set[IPv4Network | IPv6Network]:
-    response = requests.get(
-        "https://www.gstatic.com/ipranges/cloud.json", timeout=10
-    )
-    # Handles both ipv4Prefix and ipv6Prefix keys
+async def fetch_gcp_ip_ranges() -> set[IPv4Network | IPv6Network]:
+    async with aiohttp.ClientSession() as session:
+        response = await session.get(
+            "https://www.gstatic.com/ipranges/cloud.json",
+            timeout=aiohttp.ClientTimeout(total=10),
+        )
+        data = await response.json(content_type=None)
 ```
 
 GCP publishes IPv4 and IPv6 ranges under different keys in the same JSON file. The function merges both into a single set.
@@ -81,9 +87,10 @@ A browser-like `User-Agent` header is required to avoid being blocked by Microso
 
 Every fetch function catches all exceptions, logs the error, and returns an empty set. This prevents a single provider outage from breaking the entire refresh cycle.
 
----
+___
 
-## Caching Strategy
+Caching Strategy
+----------------
 
 ### In-Memory Cache
 
@@ -105,7 +112,7 @@ async def refresh_async(
             }
             continue
 
-        ranges = fetch_func()
+        ranges = await fetch_func()
         if ranges:
             self.ip_ranges[provider] = ranges
             await self.redis_handler.set_key(
@@ -126,14 +133,15 @@ Redis keys follow the pattern `{prefix}cloud_ranges:{provider}` (e.g., `guard:cl
 
 | Method          | Redis Required | Usage                                    |
 |-----------------|----------------|------------------------------------------|
-| `refresh()`     | No             | Synchronous in-memory-only refresh       |
+| `refresh()`     | No             | Async in-memory-only refresh             |
 | `refresh_async()` | Optional    | Async refresh with optional Redis cache  |
 
-Calling `refresh()` when Redis is enabled raises `RuntimeError` to prevent blocking the event loop.
+Calling `refresh()` when Redis is enabled raises `RuntimeError` to enforce using `refresh_async()` instead.
 
----
+___
 
-## IP Checking
+IP Checking
+-----------
 
 ### `is_cloud_ip()`
 
@@ -159,9 +167,10 @@ def get_cloud_provider_details(
 
 Same logic as `is_cloud_ip()` but returns a `(provider, network)` tuple on match, or `None`. This is used by the event system to include the matched provider and CIDR block in detection events.
 
----
+___
 
-## Refresh Intervals and `cloud_ip_refresh_interval`
+Refresh Intervals and `cloud_ip_refresh_interval`
+--------------------------------------------------
 
 The `SecurityConfig` model exposes:
 
@@ -205,9 +214,10 @@ Cloud IP range update for AWS: +12 added, -3 removed
 
 `CloudManager.last_updated` tracks the last successful fetch time per provider as a `datetime | None` dict. This allows consumers to verify freshness independently for each provider.
 
----
+___
 
-## Agent Event Integration
+Agent Event Integration
+-----------------------
 
 ### `send_cloud_detection_event()`
 
@@ -254,9 +264,10 @@ Events are only sent when both conditions are met:
 1. `get_cloud_provider_details()` returns a match.
 2. An agent handler has been initialized via `initialize_agent()`.
 
----
+___
 
-## Pipeline Integration
+Pipeline Integration
+--------------------
 
 Two security checks in the pipeline handle cloud provider logic:
 
@@ -272,14 +283,15 @@ Two security checks in the pipeline handle cloud provider logic:
 - **Provider scoping**: Only checks providers returned by `get_cloud_providers_to_check()`, which can be narrowed per-route via decorators.
 - **Passive mode**: Logs but does not block when `config.passive_mode` is enabled.
 
----
+___
 
-## Initialization
+Initialization
+--------------
 
 ```python
 cloud_manager = CloudManager()
 
-cloud_manager.refresh()
+await cloud_manager.refresh()
 
 await cloud_manager.initialize_redis(redis_handler, providers={"AWS", "GCP"}, ttl=7200)
 

@@ -5,9 +5,11 @@ description: How to implement the GuardResponse and GuardResponseFactory protoco
 keywords: guard-core, GuardResponse, GuardResponseFactory, response protocol, adapter, error response, redirect
 ---
 
-# Implementing GuardResponse and GuardResponseFactory
+Implementing GuardResponse and GuardResponseFactory
+===================================================
 
-## Protocol Definitions
+Protocol Definitions
+--------------------
 
 Both protocols live at `guard_core/protocols/response_protocol.py`:
 
@@ -40,7 +42,8 @@ The response object returned by your factory and ultimately sent back to the cli
 
 A factory that produces `GuardResponse` instances. Guard-core's `ErrorResponseFactory` calls your factory's methods to build framework-native responses. You pass an instance of your factory into the `ResponseContext`, and the entire pipeline uses it from that point forward.
 
-## How ErrorResponseFactory Uses Your Factory
+How ErrorResponseFactory Uses Your Factory
+------------------------------------------
 
 The `ErrorResponseFactory` in `guard_core/core/responses/factory.py` delegates response creation to your `GuardResponseFactory`:
 
@@ -79,7 +82,8 @@ The flow is:
 5. Security headers are applied via `response.headers[...] = ...`.
 6. If `SecurityConfig.custom_response_modifier` is set, it receives the response for final transformation.
 
-## Implementation: FastAPI / Starlette
+Implementation: FastAPI / Starlette
+-----------------------------------
 
 ```python
 from collections.abc import MutableMapping
@@ -133,7 +137,8 @@ class StarletteResponseFactory:
 
 This works because Starlette's `Response` structurally satisfies `GuardResponse`.
 
-## Implementation: Flask
+Implementation: Flask
+---------------------
 
 Flask's `Response` has mutable headers but uses `data` instead of `body`:
 
@@ -180,7 +185,8 @@ class FlaskResponseFactory:
         )
 ```
 
-## Implementation: Django
+Implementation: Django
+----------------------
 
 Django's `HttpResponse` has a dict-like `headers` property (Django 3.2+):
 
@@ -222,7 +228,8 @@ class DjangoResponseFactory:
         return DjangoGuardResponse(response)
 ```
 
-## ResponseContext
+ResponseContext
+---------------
 
 Your `GuardResponseFactory` instance is passed into the `ResponseContext` dataclass, which is then used to construct the `ErrorResponseFactory`:
 
@@ -258,7 +265,8 @@ class ResponseContext:
     response_factory: Any = field(default=None)
 ```
 
-## Security Headers
+Security Headers
+----------------
 
 `ErrorResponseFactory.apply_security_headers()` iterates over the headers produced by `security_headers_manager.get_headers()` and writes them onto your response:
 
@@ -276,7 +284,8 @@ async def apply_security_headers(
 
 This is why `GuardResponse.headers` must return a `MutableMapping`. If your framework's response uses an immutable header collection, you must wrap it with a mutable proxy.
 
-## Custom Response Modifier
+Custom Response Modifier
+------------------------
 
 If `SecurityConfig.custom_response_modifier` is set, `ErrorResponseFactory.apply_modifier()` passes every response through it:
 

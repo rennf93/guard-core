@@ -1,0 +1,410 @@
+import ipaddress
+import time
+from collections import deque
+from unittest.mock import MagicMock, patch
+
+from guard_core.models import SecurityConfig
+from guard_core.sync.handlers.cloud_handler import CloudManager
+from guard_core.sync.handlers.ipban_handler import IPBanManager, reset_global_state
+from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
+from guard_core.sync.handlers.redis_handler import RedisManager
+from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
+from tests.test_sync.conftest import (
+    MockGuardResponse,
+    MockGuardResponseFactory,
+    SyncMockGuardRequest,
+)
+
+
+def test_ipban_in_memory_expired() -> None:
+    IPBanManager._instance = None
+    mgr = IPBanManager()
+    mgr.banned_ips["1.2.3.4"] = time.time() - 100
+    result = mgr.is_ip_banned("1.2.3.4")
+    assert result is False
+
+
+def test_ipban_in_memory_valid() -> None:
+    IPBanManager._instance = None
+    mgr = IPBanManager()
+    mgr.banned_ips["1.2.3.4"] = time.time() + 1000
+    result = mgr.is_ip_banned("1.2.3.4")
+    assert result is True
+
+
+def test_ipban_reset_global_state() -> None:
+    IPBanManager._instance = None
+    reset_global_state()
+    from guard_core.handlers import ipban_handler
+
+    assert ipban_handler.ip_ban_manager is not None
+
+
+def test_ratelimit_popleft_stale_timestamps() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(enable_redis=False)
+    mgr = RateLimitManager(config)
+    old_time = time.time() - 120
+    current = time.time()
+    mgr.request_timestamps["1.2.3.4"] = deque([old_time, old_time + 1])
+    count = mgr._get_in_memory_request_count("1.2.3.4", current - 60, current)
+    assert count == 0
+
+
+def test_cloud_handler_get_details_match() -> None:
+    handler = CloudManager()
+    network = ipaddress.ip_network("10.0.0.0/8")
+    handler.ip_ranges = {"AWS": {network}}
+    result = handler.get_cloud_provider_details("10.1.2.3", {"AWS"})
+    assert result is not None
+    assert result[0] == "AWS"
+
+
+def test_cloud_handler_get_details_no_match() -> None:
+    handler = CloudManager()
+    network = ipaddress.ip_network("10.0.0.0/8")
+    handler.ip_ranges = {"AWS": {network}}
+    result = handler.get_cloud_provider_details("192.168.1.1", {"AWS"})
+    assert result is None
+
+
+def test_redis_delete_pattern_with_keys() -> None:
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    mgr = RedisManager(config)
+    mgr.initialize()
+    mgr.set_key("test_dp", "key1", "value1")
+    result = mgr.delete_pattern("test_dp:*")
+    assert result is not None
+    mgr.close()
+
+
+def test_security_headers_get_headers_agent_event() -> None:
+    SecurityHeadersManager._instance = None
+    mgr = SecurityHeadersManager()
+    mgr.headers_cache.clear()
+    agent = MagicMock()
+    agent.send_event = MagicMock()
+    mgr.agent_handler = agent
+    with patch(
+        "guard_core.sync.handlers.security_headers_handler.SecurityEvent", create=True
+    ) as mock_event:
+        mock_event.return_value = MagicMock()
+        headers = mgr.get_headers("/api/test")
+    assert isinstance(headers, dict)
+
+
+def test_security_headers_wildcard_credentials_true() -> None:
+    SecurityHeadersManager._instance = None
+    mgr = SecurityHeadersManager()
+    mgr.cors_config = {
+        "origins": ["*"],
+        "allow_credentials": True,
+        "allow_methods": ["GET"],
+        "allow_headers": ["*"],
+    }
+    result = mgr._is_wildcard_with_credentials(["*"])
+    assert result is True
+
+
+def test_responses_factory_cors_with_headers() -> None:
+    from guard_core.sync.core.events.metrics import MetricsCollector
+    from guard_core.sync.core.responses.context import ResponseContext
+    from guard_core.sync.core.responses.factory import ErrorResponseFactory
+
+    SecurityHeadersManager._instance = None
+    sec_mgr = SecurityHeadersManager()
+    sec_mgr._configure_cors(
+        cors_origins=["https://example.com"],
+        cors_allow_credentials=False,
+        cors_allow_methods=["GET", "POST"],
+        cors_allow_headers=["*"],
+    )
+
+    config = SecurityConfig(
+        enable_redis=False,
+        security_headers={"enabled": True},
+        enable_cors=True,
+        cors_allow_origins=["https://example.com"],
+    )
+    metrics = MagicMock(spec=MetricsCollector)
+    metrics.collect_request_metrics = MagicMock()
+    ctx = ResponseContext(
+        config=config,
+        logger=MagicMock(),
+        metrics_collector=metrics,
+        response_factory=MockGuardResponseFactory(),
+    )
+    factory = ErrorResponseFactory(ctx)
+    resp = MockGuardResponse("ok", 200)
+    cors_headers = sec_mgr.get_cors_headers("https://example.com")
+    assert "Access-Control-Allow-Origin" in cors_headers
+    result = factory.apply_cors_headers(resp, "https://example.com")
+    assert result is not None
+
+
+def test_utils_extract_ip_null_client_host() -> None:
+    from guard_core.sync.utils import _extract_ip_from_request
+
+    req = SyncMockGuardRequest(client_host=None)
+    result = _extract_ip_from_request(req)
+    assert result == "unknown"
+
+
+def test_utils_log_country_check_no_geolocation() -> None:
+    from guard_core.sync.utils import _log_country_check_result
+
+    _log_country_check_result("1.2.3.4", None, "no_geolocation")
+
+
+def test_utils_check_country_no_geolocation() -> None:
+    from guard_core.sync.utils import check_ip_country
+
+    config = MagicMock()
+    config.blocked_countries = ["CN"]
+    config.whitelist_countries = []
+    geo = MagicMock()
+    geo.is_initialized = True
+    geo.get_country = MagicMock(return_value=None)
+    result = check_ip_country(SyncMockGuardRequest(), config, geo)
+    assert result is False
+
+
+def test_utils_detect_penetration_json_field_threat() -> None:
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    req = SyncMockGuardRequest(
+        path="/api",
+        headers={"content-type": "application/json"},
+        body_content=b'{"name": "SELECT * FROM users"}',
+        query_params={},
+    )
+    result, trigger = detect_penetration_attempt(req)
+    assert isinstance(result, bool)
+
+
+def test_utils_detect_penetration_header_threat() -> None:
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    req = SyncMockGuardRequest(
+        path="/api",
+        headers={"X-Custom": "<script>alert(1)</script>"},
+        query_params={},
+    )
+    result, trigger = detect_penetration_attempt(req)
+    assert isinstance(result, bool)
+
+
+def test_utils_check_json_data_regex_threat() -> None:
+    from guard_core.sync.utils import _check_json_fields
+
+    mock_result = {
+        "is_threat": True,
+        "threats": [{"type": "regex", "pattern": "SELECT.*FROM"}],
+    }
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_handler.detect = MagicMock(return_value=mock_result)
+        detected, info = _check_json_fields(
+            {"name": "SELECT * FROM users"}, "body", "1.2.3.4", "corr-1"
+        )
+    assert detected is True
+    assert "matched pattern" in info
+
+
+def test_utils_check_json_data_other_threat() -> None:
+    from guard_core.sync.utils import _check_json_fields
+
+    mock_result = {
+        "is_threat": True,
+        "threats": [{"type": "heuristic"}],
+    }
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_handler.detect = MagicMock(return_value=mock_result)
+        detected, info = _check_json_fields(
+            {"field": "payload"}, "body", "1.2.3.4", "corr-1"
+        )
+    assert detected is True
+    assert "contains:" in info
+
+
+def test_utils_check_json_data_no_threats_list() -> None:
+    from guard_core.sync.utils import _check_json_fields
+
+    mock_result = {"is_threat": True, "threats": []}
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_handler.detect = MagicMock(return_value=mock_result)
+        detected, info = _check_json_fields(
+            {"field": "val"}, "body", "1.2.3.4", "corr-1"
+        )
+    assert detected is True
+    assert "contains threat" in info
+
+
+def test_utils_check_json_data_clean() -> None:
+    from guard_core.sync.utils import _check_json_fields
+
+    mock_result = {"is_threat": False, "threats": []}
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_handler.detect = MagicMock(return_value=mock_result)
+        detected, info = _check_json_fields(
+            {"field": "safe"}, "body", "1.2.3.4", "corr-1"
+        )
+    assert detected is False
+
+
+def test_utils_detect_header_threat() -> None:
+    from guard_core.sync.utils import _check_request_component
+
+    with patch(
+        "guard_core.sync.utils._check_value_enhanced",
+        return_value=(True, "XSS detected"),
+    ):
+        detected, trigger = _check_request_component(
+            "<script>", "header:X-Evil", "header 'X-Evil'", "1.2.3.4", "corr-1"
+        )
+    assert detected is True
+
+
+def test_utils_detect_penetration_header_match() -> None:
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    with patch("guard_core.sync.utils._check_request_component") as mock_check:
+        call_count = 0
+
+        def side_effect(value, context, component_name, client_ip, correlation_id):
+            nonlocal call_count
+            call_count += 1
+            if "header" in context and "X-Evil" in context:
+                return True, "XSS detected"
+            return False, ""
+
+        mock_check.side_effect = side_effect
+
+        req = SyncMockGuardRequest(
+            path="/safe",
+            headers={"X-Evil": "<script>alert(1)</script>"},
+            query_params={},
+        )
+        result, trigger = detect_penetration_attempt(req)
+    assert result is True
+    assert "Header" in trigger
+
+
+def test_security_headers_get_headers_agent_sends_event() -> None:
+    from guard_core.sync.handlers.security_headers_handler import (
+        security_headers_manager,
+    )
+
+    security_headers_manager.headers_cache.clear()
+    agent = MagicMock()
+    agent.send_event = MagicMock()
+    original_agent = security_headers_manager.agent_handler
+    security_headers_manager.agent_handler = agent
+    try:
+        with patch(
+            "guard_core.sync.handlers.security_headers_handler.SecurityEvent",
+            create=True,
+        ) as mock_event_cls:
+            mock_event_cls.return_value = MagicMock()
+            security_headers_manager.get_headers("/agent/test/path")
+        agent.send_event.assert_called_once()
+    finally:
+        security_headers_manager.agent_handler = original_agent
+
+
+def test_security_headers_get_headers_cache_hit() -> None:
+    from guard_core.sync.handlers.security_headers_handler import (
+        security_headers_manager,
+    )
+
+    security_headers_manager.headers_cache.clear()
+    first = security_headers_manager.get_headers("/cache/hit/test")
+    assert isinstance(first, dict)
+    second = security_headers_manager.get_headers("/cache/hit/test")
+    assert second is first
+
+
+def test_security_headers_is_wildcard_with_creds_true() -> None:
+    from guard_core.sync.handlers.security_headers_handler import (
+        security_headers_manager,
+    )
+
+    original_cors = security_headers_manager.cors_config
+    security_headers_manager.cors_config = {
+        "origins": ["*"],
+        "allow_credentials": True,
+    }
+    try:
+        result = security_headers_manager._is_wildcard_with_credentials(["*"])
+        assert result is True
+        cors_result = security_headers_manager.get_cors_headers("https://test.com")
+        assert cors_result == {}
+    finally:
+        security_headers_manager.cors_config = original_cors
+
+
+def test_security_headers_is_wildcard_no_creds() -> None:
+    from guard_core.sync.handlers.security_headers_handler import (
+        security_headers_manager,
+    )
+
+    original_cors = security_headers_manager.cors_config
+    security_headers_manager.cors_config = {
+        "origins": ["*"],
+        "allow_credentials": False,
+    }
+    try:
+        result = security_headers_manager._is_wildcard_with_credentials(["*"])
+        assert result is False
+    finally:
+        security_headers_manager.cors_config = original_cors
+
+
+def test_security_headers_is_wildcard_no_cors_config() -> None:
+    from guard_core.sync.handlers.security_headers_handler import (
+        security_headers_manager,
+    )
+
+    original_cors = security_headers_manager.cors_config
+    security_headers_manager.cors_config = None
+    try:
+        result = security_headers_manager._is_wildcard_with_credentials(["*"])
+        assert result is False
+    finally:
+        security_headers_manager.cors_config = original_cors
+
+
+def test_responses_factory_cors_applies_headers() -> None:
+    from guard_core.sync.core.events.metrics import MetricsCollector
+    from guard_core.sync.core.responses.context import ResponseContext
+    from guard_core.sync.core.responses.factory import ErrorResponseFactory
+
+    config = SecurityConfig(
+        enable_redis=False,
+        security_headers={"enabled": True},
+    )
+    metrics = MagicMock(spec=MetricsCollector)
+    metrics.collect_request_metrics = MagicMock()
+    ctx = ResponseContext(
+        config=config,
+        logger=MagicMock(),
+        metrics_collector=metrics,
+        response_factory=MockGuardResponseFactory(),
+    )
+    factory = ErrorResponseFactory(ctx)
+    with patch(
+        "guard_core.sync.core.responses.factory.security_headers_manager"
+    ) as mock_shm:
+        mock_shm.get_cors_headers = MagicMock(
+            return_value={"Access-Control-Allow-Origin": "*"}
+        )
+        resp = MockGuardResponse("ok", 200)
+        result = factory.apply_cors_headers(resp, "https://example.com")
+    assert "Access-Control-Allow-Origin" in result.headers

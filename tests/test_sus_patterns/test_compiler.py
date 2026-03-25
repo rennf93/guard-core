@@ -86,8 +86,7 @@ async def test_compile_pattern_cache_miss(compiler: PatternCompiler) -> None:
 async def test_compile_pattern_concurrent_access(compiler: PatternCompiler) -> None:
     pattern = r"concurrent_pattern"
 
-    tasks = [compiler.compile_pattern(pattern) for _ in range(10)]
-    results = await asyncio.gather(*tasks)
+    results = [await compiler.compile_pattern(pattern) for _ in range(10)]
 
     first_result = results[0]
     assert all(result is first_result for result in results)

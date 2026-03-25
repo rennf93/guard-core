@@ -5,13 +5,15 @@ description: PatternCompiler, ContentPreprocessor, SemanticAnalyzer, and Perform
 keywords: detection engine, pattern matching, semantic analysis, performance monitoring, guard-core
 ---
 
-# Detection Engine
+Detection Engine
+================
 
 The detection engine (`guard_core.detection_engine`) provides multi-layered threat detection with four components working together: pattern compilation, content preprocessing, semantic analysis, and performance monitoring.
 
 These components are orchestrated by the `SusPatternsManager` handler, which adapter developers do not call directly but may need to understand for tuning and diagnostics.
 
-## Architecture
+Architecture
+------------
 
 ```mermaid
 flowchart TD
@@ -40,11 +42,10 @@ flowchart TD
     INJECT --> AGG
 ```
 
----
+___
 
-## PatternCompiler
-
-::: guard_core.detection_engine.compiler.PatternCompiler
+PatternCompiler
+---------------
 
 Manages regex pattern compilation with LRU caching and ReDoS safety validation.
 
@@ -90,11 +91,10 @@ result = safe_match(user_input)  # None if timed out
 
 Compiles multiple patterns, optionally validating each for safety. Unsafe or invalid patterns are silently skipped.
 
----
+___
 
-## ContentPreprocessor
-
-::: guard_core.detection_engine.preprocessor.ContentPreprocessor
+ContentPreprocessor
+-------------------
 
 Normalizes and sanitizes input before pattern matching.
 
@@ -145,11 +145,10 @@ The preprocessor replaces over 20 Unicode characters used for evasion:
 | `\uff1e`    | `>`         | Fullwidth greater-than       |
 | `\u037e`    | `;`         | Greek question mark          |
 
----
+___
 
-## SemanticAnalyzer
-
-::: guard_core.detection_engine.semantic.SemanticAnalyzer
+SemanticAnalyzer
+----------------
 
 Performs structural and statistical analysis of content to detect attacks that evade pattern matching.
 
@@ -212,11 +211,10 @@ Aggregates all analysis results into a single 0.0 - 1.0 score:
 | Code injection risk    | 20%  |
 | Suspicious patterns    | 5-10% (min of count* 5%, 10%)    |
 
----
+___
 
-## PerformanceMonitor
-
-::: guard_core.detection_engine.monitor.PerformanceMonitor
+PerformanceMonitor
+------------------
 
 Tracks pattern execution performance and detects anomalies.
 
@@ -234,7 +232,7 @@ PerformanceMonitor(
 | Parameter                | Description                                     | Bounds       |
 |--------------------------|-------------------------------------------------|--------------|
 | `anomaly_threshold`      | Z-score threshold for statistical anomalies     | 1.0 - 10.0  |
-| `slow_pattern_threshold` | Seconds to consider a pattern slow              | 0.01 - 1.0  |
+| `slow_pattern_threshold` | Seconds to consider a pattern slow              | 0.01 - 10.0 |
 | `history_size`           | Recent metrics to retain                        | 100 - 10,000 |
 | `max_tracked_patterns`   | Maximum unique patterns to track                | 100 - 5,000  |
 

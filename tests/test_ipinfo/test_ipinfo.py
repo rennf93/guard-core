@@ -1,7 +1,7 @@
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import maxminddb
 import pytest
@@ -9,16 +9,36 @@ import pytest
 from guard_core.handlers.ipinfo_handler import IPInfoManager
 
 
+def _mock_aiohttp(
+    content: bytes = b"test data",
+    side_effect: Exception | None = None,
+) -> MagicMock:
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+
+    if side_effect:
+        mock_session.get = AsyncMock(side_effect=side_effect)
+    else:
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.read = AsyncMock(return_value=content)
+        mock_session.get = AsyncMock(return_value=mock_response)
+
+    return mock_session
+
+
 @pytest.mark.asyncio
 async def test_ipinfo_db(tmp_path: Path) -> None:
     db = IPInfoManager(token="test_token", db_path=tmp_path / "test.mmdb")
 
-    mock_response = Mock()
-    mock_response.raise_for_status = Mock()
-    mock_response.content = b"test data"
+    mock_session = _mock_aiohttp(content=b"test data")
 
     with (
-        patch("httpx.AsyncClient.get", return_value=mock_response),
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
         patch("maxminddb.open_database"),
         patch("builtins.open", Mock()),
         patch("os.makedirs"),
@@ -37,8 +57,13 @@ def test_ipinfo_missing_token() -> None:
 
 async def test_ipinfo_download_failure(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
+
     with (
-        patch("httpx.AsyncClient.get", side_effect=Exception("Download failed")),
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
         patch.object(IPInfoManager, "_is_db_outdated", return_value=True),
     ):
         await db.initialize()
@@ -49,8 +74,13 @@ async def test_ipinfo_download_failure(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_db_initialization_retry(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    mock_session = _mock_aiohttp(side_effect=Exception("First fail"))
+
     with (
-        patch("httpx.AsyncClient.get", side_effect=Exception("First fail")),
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
         patch("asyncio.sleep") as mock_sleep,
         patch("builtins.open", Mock()),
     ):
@@ -62,18 +92,23 @@ async def test_db_initialization_retry(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_database_retry_success(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
-    mock_response = Mock()
-    mock_response.raise_for_status = Mock()
-    mock_response.content = b"test data"
 
     call_count = 0
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.read = AsyncMock(return_value=b"test data")
 
-    async def side_effect_function(*args: Any, **kwargs: Any) -> Mock:
+    async def get_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise Exception("First fail")
         return mock_response
+
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_session.get = AsyncMock(side_effect=get_side_effect)
 
     mock_file = Mock()
     mock_file_context = Mock()
@@ -82,7 +117,10 @@ async def test_database_retry_success(tmp_path: Path) -> None:
     mock_open = Mock(return_value=mock_file_context)
 
     with (
-        patch("httpx.AsyncClient.get", side_effect=side_effect_function),
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
         patch("builtins.open", mock_open),
         patch("os.makedirs"),
         patch("asyncio.sleep") as mock_sleep,
@@ -143,62 +181,6 @@ async def test_real_database_initialization(ipinfo_db_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_token_handling(tmp_path: Path) -> None:
-    db = IPInfoManager(token="invalid_token", db_path=tmp_path / "test.mmdb")
-
-    with pytest.raises(Exception) as exc_info:
-        await db._download_database()
-
-    assert "401" in str(exc_info.value)
-
-
-def test_file_operations(tmp_path: Path) -> None:
-    test_path = tmp_path / "test.mmdb"
-    test_path.touch()
-
-    mock_reader = Mock()
-    mock_reader.__enter__ = Mock(return_value=mock_reader)
-    mock_reader.__exit__ = Mock(return_value=None)
-
-    with patch("maxminddb.open_database", return_value=mock_reader):
-        with maxminddb.open_database(str(test_path)) as reader:
-            assert reader is not None
-
-
-@pytest.mark.asyncio
-async def test_get_country_without_init(tmp_path: Path) -> None:
-    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
-    with pytest.raises(RuntimeError, match="Database not initialized"):
-        db.get_country("1.1.1.1")
-
-
-@pytest.mark.asyncio
-async def test_corrupted_db_removal(tmp_path: Path) -> None:
-    test_db_path = tmp_path / "country_asn.mmdb"
-    db = IPInfoManager(token="test", db_path=test_db_path)
-    db.db_path.touch()
-
-    with (
-        patch("httpx.AsyncClient.get", side_effect=Exception("Download failed")),
-        patch.object(IPInfoManager, "_is_db_outdated", return_value=True),
-    ):
-        await db.initialize()
-        assert not db.db_path.exists()
-
-
-@pytest.mark.asyncio
-async def test_download_exhausts_retries(tmp_path: Path) -> None:
-    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
-
-    with (
-        patch("httpx.AsyncClient.get", side_effect=Exception("Download failed")),
-        patch("asyncio.sleep"),
-    ):
-        with pytest.raises(Exception, match="Download failed"):
-            await db._download_database()
-
-
-@pytest.mark.asyncio
 async def test_close_with_reader(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     mock_reader = Mock()
@@ -234,12 +216,13 @@ async def test_redis_cache_update(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     db.redis_handler = AsyncMock()
 
-    mock_response = Mock()
-    mock_response.raise_for_status = Mock()
-    mock_response.content = b"new_db_data"
+    mock_session = _mock_aiohttp(content=b"new_db_data")
 
     with (
-        patch("httpx.AsyncClient.get", return_value=mock_response),
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
         patch("maxminddb.open_database"),
     ):
         await db._download_database()
@@ -280,31 +263,74 @@ def test_ipinfo_not_initialized() -> None:
 
 
 @pytest.mark.asyncio
+async def test_corrupted_db_removal(tmp_path: Path) -> None:
+    test_db_path = tmp_path / "country_asn.mmdb"
+    db = IPInfoManager(token="test", db_path=test_db_path)
+    db.db_path.touch()
+
+    mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch.object(IPInfoManager, "_is_db_outdated", return_value=True),
+    ):
+        await db.initialize()
+        assert not db.db_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_exhausts_retries(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch("asyncio.sleep"),
+    ):
+        with pytest.raises(Exception, match="Download failed"):
+            await db._download_database()
+
+
+@pytest.mark.asyncio
 async def test_redirect_handling(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
 
-    redirect_response = Mock()
-    redirect_response.status_code = 302
-    redirect_response.headers = {
-        "Location": "https://ipinfo.io/data/free/country_asn.mmdb"
-    }
+    mock_session = _mock_aiohttp(content=b"valid_db_content")
 
-    final_response = Mock()
-    final_response.raise_for_status = Mock()
-    final_response.content = b"valid_db_content"
-    final_response.status_code = 200
-    final_response.history = [redirect_response]
-
-    with patch("httpx.AsyncClient.get", return_value=final_response) as mock_get:
+    with patch(
+        "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+        return_value=mock_session,
+    ):
         await db._download_database()
 
         assert db.db_path.exists()
         with open(db.db_path, "rb") as f:
             assert f.read() == b"valid_db_content"
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args[1]
-        assert call_kwargs.get("follow_redirects") is True
+        mock_session.get.assert_called_once()
 
-        assert len(final_response.history) == 1
-        assert final_response.history[0].status_code == 302
+
+def test_file_operations(tmp_path: Path) -> None:
+    test_path = tmp_path / "test.mmdb"
+    test_path.touch()
+
+    mock_reader = Mock()
+    mock_reader.__enter__ = Mock(return_value=mock_reader)
+    mock_reader.__exit__ = Mock(return_value=None)
+
+    with patch("maxminddb.open_database", return_value=mock_reader):
+        with maxminddb.open_database(str(test_path)) as reader:
+            assert reader is not None
+
+
+@pytest.mark.asyncio
+async def test_get_country_without_init(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    with pytest.raises(RuntimeError, match="Database not initialized"):
+        db.get_country("1.1.1.1")

@@ -5,9 +5,11 @@ description: How to wire guard-core's security pipeline into your framework's mi
 keywords: guard-core, middleware, dispatch, initialization, SecurityCheckPipeline, HandlerInitializer, CORS, adapter
 ---
 
-# Middleware Integration
+Middleware Integration
+======================
 
-## The Dispatch Pattern
+The Dispatch Pattern
+--------------------
 
 Every adapter follows the same dispatch lifecycle:
 
@@ -21,7 +23,8 @@ Every adapter follows the same dispatch lifecycle:
 
 Guard-core provides all the building blocks. Your middleware class orchestrates them.
 
-## Reference: fastapi-guard Middleware
+Reference: fastapi-guard Middleware
+-----------------------------------
 
 The production `fastapi-guard` adapter demonstrates the complete pattern. Study this as a blueprint for your own adapter.
 
@@ -175,7 +178,8 @@ async def initialize(self) -> None:
     await self.handler_initializer.initialize_agent_integrations()
 ```
 
-## Building Your Own Middleware
+Building Your Own Middleware
+----------------------------
 
 ### Step 1: Create the Middleware Class
 
@@ -368,7 +372,8 @@ async def refresh_cloud_ip_ranges(self) -> None:
     self.last_cloud_ip_refresh = int(time.time())
 ```
 
-## CORS Handling
+CORS Handling
+-------------
 
 Guard-core does not manage CORS middleware registration. CORS is framework-specific and must be handled at the adapter level. The fastapi-guard adapter provides a static helper:
 
@@ -404,7 +409,8 @@ For Flask, use `flask-cors`. For Django, use `django-cors-headers`. Read the COR
 - `cors_expose_headers`
 - `cors_max_age`
 
-## Framework-Specific Middleware Patterns
+Framework-Specific Middleware Patterns
+--------------------------------------
 
 ### FastAPI / Starlette
 
@@ -461,7 +467,8 @@ class GuardMiddleware:
         return response
 ```
 
-## Initialization Timing
+Initialization Timing
+---------------------
 
 The `initialize()` method is async and must be called after the middleware is instantiated. In FastAPI, use a startup event:
 
