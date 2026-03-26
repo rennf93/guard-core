@@ -2067,7 +2067,7 @@
 </span></code></pre></div>
 <p>Parameters:</p>
 <ul>
-<li><code>request</code>: The FastAPI request object</li>
+<li><code>request</code>: The request object implementing <code>GuardRequest</code></li>
 <li><code>logger</code>: The logger instance</li>
 <li><code>log_type</code>: Type of log entry (default: "request", can also be "suspicious")</li>
 <li><code>reason</code>: Reason for flagging an activity</li>
@@ -2081,7 +2081,7 @@
 <h2 id="is_user_agent_allowed">is_user_agent_allowed<a class="headerlink" href="#is_user_agent_allowed" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_user_agent_allowed</span><span class="p">(</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">user_agent</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">SecurityConfig</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Any</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="sd">    Check if user agent is allowed.</span>
@@ -2089,9 +2089,9 @@
 </span></code></pre></div>
 <h2 id="check_ip_country">check_ip_country<a class="headerlink" href="#check_ip_country" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_ip_country</span><span class="p">(</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">request</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Request</span><span class="p">,</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">SecurityConfig</span><span class="p">,</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">ipinfo_db</span><span class="p">:</span> <span class="n">IPInfoManager</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">request</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">GuardRequest</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">geo_ip_handler</span><span class="p">:</span> <span class="n">GeoIPHandler</span>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="sd">    Check if IP is from a blocked country.</span>
@@ -2100,18 +2100,18 @@
 <h2 id="is_ip_allowed">is_ip_allowed<a class="headerlink" href="#is_ip_allowed" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_ip_allowed</span><span class="p">(</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">ip</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">SecurityConfig</span><span class="p">,</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">ipinfo_db</span><span class="p">:</span> <span class="n">IPInfoManager</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">geo_ip_handler</span><span class="p">:</span> <span class="n">GeoIPHandler</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 </span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="sd">    Check if IP address is allowed.</span>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span></code></pre></div>
-<p>The <code>ipinfo_db</code> parameter is now properly optional - it's only needed when country filtering is configured. If it's not provided when country filtering is configured, the function will work correctly but won't apply country filtering rules rules.</p>
+<p>The <code>geo_ip_handler</code> parameter is now properly optional - it's only needed when country filtering is configured. If it's not provided when country filtering is configured, the function will work correctly but won't apply country filtering rules.</p>
 <p>This function intelligently handles:</p>
 <ul>
 <li>Whitelist/blacklist checking</li>
-<li>Country filtering (only when IPInfoManager is provided)</li>
+<li>Country filtering (only when GeoIPHandler is provided)</li>
 <li>Cloud provider detection (only when cloud blocking is configured)</li>
 </ul>
 <p>This selective processing aligns with Guard Core's smart resource loading to optimize performance.</p>
@@ -2124,7 +2124,7 @@
 <p>This function analyzes various parts of the request (query params, body, path, headers) using the Detection Engine's components including pattern matching, semantic analysis, and performance monitoring.</p>
 <p>Parameters:</p>
 <ul>
-<li><code>request</code>: The FastAPI request object to analyze</li>
+<li><code>request</code>: The request object implementing <code>GuardRequest</code></li>
 </ul>
 <p>Returns a tuple where:</p>
 <ul>
