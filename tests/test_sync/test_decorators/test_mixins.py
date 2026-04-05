@@ -148,6 +148,14 @@ def test_suspicious_detection() -> None:
     assert rc.enable_suspicious_detection is False
 
 
+def test_prompt_injection_detection() -> None:
+    d = _decorator()
+    decorated = d.prompt_injection_detection(enabled=False)(_sample_func)
+    rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
+    assert rc.enable_prompt_injection_detection is False
+
+
 def test_honeypot_detection_json_trigger() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)

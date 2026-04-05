@@ -22,6 +22,9 @@ from guard_core.sync.core.checks.implementations.https_enforcement import (
 from guard_core.sync.core.checks.implementations.ip_security import (
     IpSecurityCheck,
 )
+from guard_core.sync.core.checks.implementations.prompt_injection import (
+    PromptInjectionCheck,
+)
 from guard_core.sync.core.checks.implementations.rate_limit import RateLimitCheck
 from guard_core.sync.core.checks.implementations.referrer import ReferrerCheck
 from guard_core.sync.core.checks.implementations.request_logging import (
@@ -53,6 +56,7 @@ __all__ = [
     "EmergencyModeCheck",
     "HttpsEnforcementCheck",
     "IpSecurityCheck",
+    "PromptInjectionCheck",
     "RateLimitCheck",
     "ReferrerCheck",
     "RequestLoggingCheck",

@@ -130,9 +130,6 @@ class PerformanceMonitor:
             return None
 
         recent_times = list(stats.recent_times)
-        if len(recent_times) <= 1:
-            return None  # pragma: no cover
-
         avg_time = mean(recent_times)
         std_time = stdev(recent_times)
 

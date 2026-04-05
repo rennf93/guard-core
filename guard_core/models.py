@@ -12,7 +12,7 @@ from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
 if TYPE_CHECKING:
-    from guard_agent import AgentConfig  # pragma: no cover
+    from guard_agent import AgentConfig
 
 
 class SecurityConfig(BaseModel):
@@ -341,6 +341,107 @@ class SecurityConfig(BaseModel):
         description="Maximum number of patterns to track for performance",
         ge=100,
         le=5000,
+    )
+
+    # Prompt Injection Defense
+    enable_prompt_injection_detection: bool = Field(
+        default=False,
+        description="Enable prompt injection detection (opt-in)",
+    )
+
+    prompt_injection_threshold: float = Field(
+        default=0.6,
+        description="Score threshold for blocking (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_sensitivity: float = Field(
+        default=0.5,
+        description="Pattern sensitivity (0.0=strict, 1.0=permissive)",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_custom_patterns: list[str] = Field(
+        default_factory=list,
+        description="User-defined regex patterns for injection detection",
+    )
+
+    prompt_injection_format_strategy: Literal[
+        "repr", "code_block", "byte_string", "xml_tags", "json_escape"
+    ] = Field(
+        default="xml_tags",
+        description="Format strategy for sanitizing LLM input",
+    )
+
+    prompt_injection_enable_canary: bool = Field(
+        default=False,
+        description="Enable canary token leak detection",
+    )
+
+    prompt_injection_canary_ttl: int = Field(
+        default=3600,
+        description="Canary token TTL in seconds",
+        ge=60,
+        le=86400,
+    )
+
+    prompt_injection_store_canaries_redis: bool = Field(
+        default=True,
+        description="Store canary tokens in Redis (falls back to in-memory)",
+    )
+
+    prompt_injection_max_content_length: int = Field(
+        default=10000,
+        description="Maximum text length to analyze for injection",
+        ge=100,
+        le=100000,
+    )
+
+    prompt_injection_text_fields: list[str] = Field(
+        default_factory=lambda: [
+            "prompt",
+            "message",
+            "content",
+            "text",
+            "query",
+            "input",
+            "instruction",
+        ],
+        description="JSON body fields to extract text from for analysis",
+    )
+
+    prompt_injection_statistical_weight: float = Field(
+        default=0.2,
+        description="How much statistical signal boosts the score (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_methods: list[str] = Field(
+        default_factory=lambda: ["POST", "PUT", "PATCH"],
+        description="HTTP methods to check for prompt injection",
+    )
+
+    prompt_injection_enable_ml: bool = Field(
+        default=False,
+        description=(
+            "Enable ML-based detection (requires transformers + torch). "
+            "Uses ProtectAI DeBERTa model for 99%+ accuracy."
+        ),
+    )
+
+    prompt_injection_ml_model: str = Field(
+        default="protectai/deberta-v3-base-prompt-injection-v2",
+        description="HuggingFace model for ML detection",
+    )
+
+    prompt_injection_ml_threshold: float = Field(
+        default=0.5,
+        description="ML model confidence threshold (0.0-1.0)",
+        ge=0.0,
+        le=1.0,
     )
 
     # TODO: Add type hints to the decorator

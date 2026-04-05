@@ -52,6 +52,7 @@ SUBS: list[tuple[str, str]] = [
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
     (r"from guard_core\.detection_engine\b", "from guard_core.sync.detection_engine"),
     (r"from guard_core\.decorators\b", "from guard_core.sync.decorators"),
+    (r"from guard_core\.prompt_injection\b", "from guard_core.sync.prompt_injection"),
     (r"(?<!Sync)(?<!\w)GuardMiddlewareProtocol\b", "SyncGuardMiddlewareProtocol"),
     (r"(?<!Sync)(?<!\w)AgentHandlerProtocol\b", "SyncAgentHandlerProtocol"),
     (r"(?<!Sync)(?<!\w)RedisHandlerProtocol\b", "SyncRedisHandlerProtocol"),
@@ -110,6 +111,7 @@ SUBS: list[tuple[str, str]] = [
     (r'"guard_core\.core\.', '"guard_core.sync.core.'),
     (r'"guard_core\.utils', '"guard_core.sync.utils'),
     (r'"guard_core\.detection_engine', '"guard_core.sync.detection_engine'),
+    (r'"guard_core\.prompt_injection', '"guard_core.sync.prompt_injection'),
 ]
 
 TEST_SUBS: list[tuple[str, str]] = [

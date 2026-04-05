@@ -256,28 +256,24 @@ class SemanticAnalyzer:
         if len(content) > MAX_AST_LENGTH:
             return 0.0
 
-        try:
-            import concurrent.futures
+        import concurrent.futures
 
-            def _parse_ast() -> bool:
-                try:
-                    ast.parse(content, mode="eval")
-                    return True
-                except SyntaxError:
-                    return False
-                except Exception:
-                    return False
+        def _parse_ast() -> bool:
+            try:
+                ast.parse(content, mode="eval")
+                return True
+            except SyntaxError:
+                return False
+            except Exception:
+                return False
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_parse_ast)
-                try:
-                    if future.result(timeout=0.1):
-                        return 0.3
-                except concurrent.futures.TimeoutError:
-                    return 0.2
-
-        except Exception:  # pragma: no cover
-            pass
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_parse_ast)
+            try:
+                if future.result(timeout=0.1):
+                    return 0.3
+            except concurrent.futures.TimeoutError:
+                return 0.2
 
         return 0.0
 

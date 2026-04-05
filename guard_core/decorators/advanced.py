@@ -52,6 +52,16 @@ class AdvancedMixin(BaseSecurityMixin):
 
         return decorator
 
+    def prompt_injection_detection(
+        self, enabled: bool = True
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            route_config = self._ensure_route_config(func)
+            route_config.enable_prompt_injection_detection = enabled
+            return self._apply_route_config(func)
+
+        return decorator
+
     def honeypot_detection(
         self, trap_fields: list[str]
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

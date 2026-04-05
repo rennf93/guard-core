@@ -8,6 +8,7 @@ from guard_core.core.checks.implementations import (
     EmergencyModeCheck,
     HttpsEnforcementCheck,
     IpSecurityCheck,
+    PromptInjectionCheck,
     RateLimitCheck,
     ReferrerCheck,
     RequestLoggingCheck,
@@ -38,6 +39,7 @@ __all__ = [
     "CloudProviderCheck",
     "UserAgentCheck",
     "RateLimitCheck",
+    "PromptInjectionCheck",
     "SuspiciousActivityCheck",
     "CustomRequestCheck",
 ]
