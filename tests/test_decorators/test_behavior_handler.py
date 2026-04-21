@@ -343,7 +343,7 @@ async def test_check_response_pattern_non_bytes_body(
     result = await tracker._check_response_pattern(response, "12345")
     assert result
 
-    response._body = "12345"  # type: ignore
+    object.__setattr__(response, "_body", "12345")
 
     result2 = await tracker._check_response_pattern(response, "12345")
     assert result2
@@ -457,6 +457,43 @@ async def test_apply_action_alert(security_config: SecurityConfig) -> None:
         mock_logger.assert_called_once_with(
             "ALERT - Behavioral anomaly: Test violation"
         )
+
+
+@pytest.mark.asyncio
+async def test_apply_action_unknown_action_is_noop(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+    object.__setattr__(rule, "action", "unknown_action")
+
+    with (
+        patch.object(tracker.logger, "warning") as mock_warning,
+        patch.object(tracker.logger, "critical") as mock_critical,
+    ):
+        await tracker.apply_action(rule, "192.168.1.1", "/api/test", "violation")
+
+    mock_warning.assert_not_called()
+    mock_critical.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_log_passive_mode_unknown_action_is_noop(
+    security_config: SecurityConfig,
+) -> None:
+    passive_config = security_config.model_copy(update={"passive_mode": True})
+    tracker = BehaviorTracker(passive_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+    object.__setattr__(rule, "action", "unknown_action")
+
+    with (
+        patch.object(tracker.logger, "warning") as mock_warning,
+        patch.object(tracker.logger, "critical") as mock_critical,
+    ):
+        await tracker.apply_action(rule, "192.168.1.1", "/api/test", "violation")
+
+    mock_warning.assert_not_called()
+    mock_critical.assert_not_called()
 
 
 @pytest.mark.asyncio

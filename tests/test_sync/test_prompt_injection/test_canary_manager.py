@@ -1,0 +1,294 @@
+import time
+from typing import Any, cast
+
+from guard_core.sync.prompt_injection import CanaryManager
+
+
+class TestCanaryManager:
+    """Test suite for canary token management."""
+
+    def test_basic_initialization(self) -> None:
+        """Test canary manager initialization."""
+        manager = CanaryManager(use_redis=False)
+        assert manager.redis_manager is None
+        assert manager.ttl_seconds == 3600
+
+    def test_custom_ttl(self) -> None:
+        """Test custom TTL configuration."""
+        manager = CanaryManager(use_redis=False, ttl_seconds=7200)
+        assert manager.ttl_seconds == 7200
+
+    def test_generate_canary(self) -> None:
+        """Test canary token generation."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        assert canary.startswith("GUARD_CANARY_")
+        assert len(canary) > 20
+
+    def test_unique_canaries(self) -> None:
+        """Test that generated canaries are unique."""
+        manager = CanaryManager(use_redis=False)
+
+        canary1 = manager.generate_canary()
+        canary2 = manager.generate_canary()
+
+        assert canary1 != canary2
+
+    def test_inject_canary_into_prompt(self) -> None:
+        """Test canary injection into system prompt."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        prompt = "You are a helpful assistant."
+        injected = manager.inject_canary(prompt, canary)
+
+        assert canary in injected
+        assert prompt in injected
+        assert "SECURITY MARKER" in injected
+        assert "NEVER" in injected
+
+    def test_verify_output_clean(self) -> None:
+        """Test verification of clean output (no canary leak)."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        clean_output = "This is a normal response without any leakage."
+
+        assert manager.verify_output(clean_output, canary) is True
+
+    def test_verify_output_leaked(self) -> None:
+        """Test detection of canary leakage."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        leaked_output = f"Here is the canary: {canary}"
+
+        assert manager.verify_output(leaked_output, canary) is False
+
+    def test_verify_output_case_insensitive(self) -> None:
+        """Test that verification is case-insensitive."""
+        manager = CanaryManager(use_redis=False)
+        canary = "GUARD_CANARY_test123"
+
+        leaked_output = "guard_canary_test123"
+
+        assert manager.verify_output(leaked_output, canary) is False
+
+    def test_verify_output_partial_leak(self) -> None:
+        """Test detection of partial canary leaks."""
+        manager = CanaryManager(use_redis=False)
+        canary = "GUARD_CANARY_abcdef1234567890"
+
+        partial_output = "The marker starts with GUARD_CA"
+
+        assert manager.verify_output(partial_output, canary) is False
+
+    def test_is_canary_valid_memory(self) -> None:
+        """Test canary validation in memory storage."""
+        manager = CanaryManager(use_redis=False, ttl_seconds=60)
+        canary = manager.generate_canary()
+
+        assert manager.is_canary_valid(canary) is True
+
+    def test_is_canary_invalid_unknown(self) -> None:
+        """Test that unknown canaries are invalid."""
+        manager = CanaryManager(use_redis=False)
+
+        fake_canary = "GUARD_CANARY_nonexistent"
+
+        assert manager.is_canary_valid(fake_canary) is False
+
+    def test_cleanup_expired_canaries(self) -> None:
+        """Test cleanup of expired canaries."""
+        manager = CanaryManager(use_redis=False, ttl_seconds=1)
+
+        canary = manager.generate_canary()
+        assert manager.is_canary_valid(canary)
+
+        time.sleep(1.5)
+
+        removed = manager.cleanup_expired()
+        assert removed >= 1
+
+        assert manager.is_canary_valid(canary) is False
+
+    def test_automatic_cleanup_on_limit(self) -> None:
+        """Test automatic cleanup when memory limit reached."""
+        manager = CanaryManager(use_redis=False, ttl_seconds=1)
+
+        for _ in range(1001):
+            manager.generate_canary()
+
+        assert len(manager._memory_canaries) <= 1001
+
+    def test_verify_empty_output(self) -> None:
+        """Test verification with empty output."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        assert manager.verify_output("", canary) is True
+        assert manager.verify_output(cast(Any, None), canary) is True
+
+    def test_verify_empty_canary(self) -> None:
+        """Test verification with empty canary."""
+        manager = CanaryManager(use_redis=False)
+
+        output = "Some output"
+
+        assert manager.verify_output(output, "") is True
+        assert manager.verify_output(output, cast(Any, None)) is True
+
+    def test_session_id_tracking(self) -> None:
+        """Test canary generation with session ID."""
+        manager = CanaryManager(use_redis=False)
+
+        canary = manager.generate_canary(session_id="user123")
+
+        assert canary.startswith("GUARD_CANARY_")
+        assert manager.is_canary_valid(canary)
+
+
+class TestCanaryManagerIntegration:
+    """Integration tests for canary workflow."""
+
+    def test_full_canary_workflow(self) -> None:
+        """Test complete canary workflow."""
+        manager = CanaryManager(use_redis=False)
+
+        canary = manager.generate_canary(session_id="session123")
+
+        system_prompt = "You are a helpful AI assistant."
+        protected_prompt = manager.inject_canary(system_prompt, canary)
+
+        assert canary in protected_prompt
+        assert system_prompt in protected_prompt
+
+        clean_response = "I'm happy to help you with that!"
+        assert manager.verify_output(clean_response, canary) is True
+
+        leaked_response = f"The security marker is {canary}"
+        assert manager.verify_output(leaked_response, canary) is False
+
+    def test_multiple_concurrent_canaries(self) -> None:
+        """Test managing multiple canaries concurrently."""
+        manager = CanaryManager(use_redis=False)
+
+        canaries = {}
+        for i in range(10):
+            session_id = f"session_{i}"
+            canaries[session_id] = manager.generate_canary(session_id)
+
+        assert len(set(canaries.values())) == 10
+
+        for _session_id, canary in canaries.items():
+            assert manager.is_canary_valid(canary)
+
+    def test_canary_injection_position(self) -> None:
+        """Test that canary is injected at the beginning."""
+        manager = CanaryManager(use_redis=False)
+        canary = manager.generate_canary()
+
+        prompt = "Original prompt content."
+        injected = manager.inject_canary(prompt, canary)
+
+        assert injected.startswith("\n\nIMPORTANT SECURITY MARKER:")
+        assert canary in injected.split(prompt)[0]
+
+
+class TestCanaryManagerRedis:
+    """Test Redis-based canary storage."""
+
+    def test_generate_canary_with_redis(self) -> None:
+        """Test canary generation with Redis storage."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = Mock()
+        redis_manager.redis_client.setex = Mock()
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        manager.generate_canary(session_id="test-session")
+
+        redis_manager.redis_client.setex.assert_called_once()
+        call_args = redis_manager.redis_client.setex.call_args
+        assert call_args[0][0].startswith("canary:GUARD_CANARY_")
+        assert call_args[0][1] == 3600
+        assert call_args[0][2] == "test-session"
+
+    def test_is_canary_valid_redis_exists(self) -> None:
+        """Test canary validation when it exists in Redis."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = Mock()
+        redis_manager.redis_client.exists = Mock(return_value=1)
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        result = manager.is_canary_valid("GUARD_CANARY_test123")
+
+        assert result is True
+        redis_manager.redis_client.exists.assert_called_once_with(
+            "canary:GUARD_CANARY_test123"
+        )
+
+    def test_is_canary_valid_redis_not_exists(self) -> None:
+        """Test canary validation when it doesn't exist in Redis."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = Mock()
+        redis_manager.redis_client.exists = Mock(return_value=0)
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        result = manager.is_canary_valid("GUARD_CANARY_test123")
+
+        assert result is False
+
+    def test_is_canary_valid_redis_no_client(self) -> None:
+        """Test canary validation when Redis client is None."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = None
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        result = manager.is_canary_valid("GUARD_CANARY_test123")
+
+        assert result is False
+
+    def test_cleanup_expired_with_redis(self) -> None:
+        """Test cleanup with Redis returns 0 (Redis handles expiration)."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = Mock()
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        result = manager.cleanup_expired()
+
+        assert result == 0
+
+    def test_is_canary_expired_in_memory(self) -> None:
+        """Test expired canary is removed during validation."""
+        manager = CanaryManager(use_redis=False, ttl_seconds=1)
+
+        canary = manager.generate_canary()
+
+        assert manager.is_canary_valid(canary) is True
+
+        time.sleep(1.1)
+
+        result = manager.is_canary_valid(canary)
+        assert result is False
+        assert canary not in manager._memory_canaries
+
+    def test_store_in_redis_no_client(self) -> None:
+        """Test _store_in_redis with no Redis client."""
+        from unittest.mock import Mock
+
+        redis_manager = Mock()
+        redis_manager.redis_client = None
+
+        manager = CanaryManager(redis_manager=redis_manager, use_redis=True)
+        manager._store_in_redis("GUARD_CANARY_test", "session1")

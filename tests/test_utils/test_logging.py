@@ -18,6 +18,15 @@ from tests.conftest import MockGuardRequest
 IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
 
 
+@pytest.fixture(autouse=True)
+def _close_guard_logger_handlers() -> Any:
+    yield
+    guard_logger = logging.getLogger("guard_core")
+    for handler in list(guard_logger.handlers):
+        handler.close()
+        guard_logger.removeHandler(handler)
+
+
 async def test_is_ip_allowed(
     security_config: SecurityConfig, mocker: MockerFixture
 ) -> None:

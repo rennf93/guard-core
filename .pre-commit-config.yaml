@@ -34,12 +34,6 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-      # - id: safety
-      #   name: safety
-      #   entry: uv run safety scan
-      #   require_serial: true
-      #   language: system
-      #   pass_filenames: false
       - id: radon-cc
         name: radon-cyclomatic-complexity
         entry: uv run radon cc guard_core -nc
@@ -59,4 +53,11 @@ repos:
         entry: uv run deptry .
         require_serial: true
         language: system
+        pass_filenames: false
+      - id: pymarkdown
+        name: pymarkdown
+        entry: uv run pymarkdownlnt scan -r -e ".venv/**" -e ".git/**" -e ".github/**" -e "data/**" -e "guard_core/**" -e "tests/**" -e ".claude/**" -e "CLAUDE.md" -e ".cursor/**" -e ".kiro/**" -e "ZZZ/**" .
+        require_serial: true
+        language: system
+        types: [markdown]
         pass_filenames: false

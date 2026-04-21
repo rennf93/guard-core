@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from guard_core.core.events.metrics import MetricsCollector
@@ -5,13 +7,15 @@ from guard_core.core.responses.context import ResponseContext
 from guard_core.core.responses.factory import ErrorResponseFactory
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 from tests.conftest import MockGuardRequest, MockGuardResponse, MockGuardResponseFactory
 
 
 def _make_factory(
     passive_mode: bool = False,
     custom_error_responses: dict[int, str] | None = None,
-    custom_response_modifier: object = None,
+    custom_response_modifier: Callable[[GuardResponse], Awaitable[GuardResponse]]
+    | None = None,
     security_headers: dict[str, object] | None = None,
     **config_overrides: object,
 ) -> ErrorResponseFactory:
@@ -23,7 +27,7 @@ def _make_factory(
         **config_overrides,
     )
     if custom_response_modifier:
-        config.custom_response_modifier = custom_response_modifier
+        config.custom_response_modifier = cast(Any, custom_response_modifier)
     metrics = MagicMock(spec=MetricsCollector)
     metrics.collect_request_metrics = AsyncMock()
     ctx = ResponseContext(
@@ -102,7 +106,7 @@ async def test_apply_modifier_none() -> None:
 
 
 async def test_apply_modifier_custom() -> None:
-    async def modifier(response: object) -> object:
+    async def modifier(response: GuardResponse) -> GuardResponse:
         return response
 
     factory = _make_factory(custom_response_modifier=modifier)
@@ -153,3 +157,18 @@ async def test_process_response_with_origin() -> None:
     resp = MockGuardResponse("ok", 200)
     result = await factory.process_response(req, resp, 0.1, None)
     assert result is not None
+
+
+async def test_process_response_runs_security_pipeline() -> None:
+    factory = _make_factory()
+    replacement = MockGuardResponse("blocked", 403)
+    pipeline = MagicMock()
+    pipeline.run_post_response = AsyncMock(return_value=replacement)
+    factory.context.security_pipeline = pipeline
+
+    req = MockGuardRequest(path="/api")
+    resp = MockGuardResponse("ok", 200)
+    result = await factory.process_response(req, resp, 0.1, None)
+
+    pipeline.run_post_response.assert_awaited_once_with(req, resp)
+    assert result.status_code == 403

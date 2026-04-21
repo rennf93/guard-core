@@ -1,0 +1,166 @@
+name: Prompt Injection Benchmark
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'guard_core/prompt_injection/**'
+      - 'guard_core/core/checks/implementations/prompt_injection.py'
+      - 'benchmarks/prompt_injection/**'
+      - '.github/workflows/prompt_injection_benchmark.yml'
+  pull_request_target:
+    branches:
+      - master
+    paths:
+      - 'guard_core/prompt_injection/**'
+      - 'guard_core/core/checks/implementations/prompt_injection.py'
+      - 'benchmarks/prompt_injection/**'
+      - '.github/workflows/prompt_injection_benchmark.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  pattern-regression:
+    name: Pattern layers (per-PR, fast)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies (dev + benchmark extras, no ML extras)
+        run: uv sync --extra dev --extra benchmark
+
+      - name: Cache HF datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-datasets-eval_v1-${{ hashFiles('benchmarks/prompt_injection/manifests/eval_v1.json') }}
+
+      - name: Run pattern-layer benchmark on eval_v1 test
+        run: |
+          uv run python benchmarks/prompt_injection/benchmark_eval_v1.py \
+            --split test \
+            --layers pattern_only pattern_plus_statistical \
+            --out /tmp/eval_v1_test.json
+
+      - name: Regression gate (recall, FPR, known-benign)
+        run: |
+          uv run python benchmarks/prompt_injection/check_regression.py \
+            --baseline benchmarks/prompt_injection/results/baseline_v1.json \
+            --current /tmp/eval_v1_test.json \
+            --max-recall-drop 0.01 \
+            --max-fpr 0.13
+
+  adversarial-corpus:
+    name: Adversarial corpus (per-PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run adversarial corpus test
+        run: |
+          REDIS_URL='memory://' uv run pytest \
+            tests/test_prompt_injection/test_adversarial_corpus.py \
+            -v --no-cov
+
+  ml-benchmark-nightly:
+    name: ML layers (nightly / manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies with prompt-injection + benchmark extras
+        run: |
+          uv sync --extra dev --extra benchmark --extra prompt_injection
+
+      - name: Cache HF datasets + models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-cache-ml-${{ hashFiles('benchmarks/prompt_injection/manifests/eval_v1.json', 'guard_core/prompt_injection/transformer_detector.py') }}
+
+      - name: Run multi-model benchmark
+        run: |
+          uv run python benchmarks/prompt_injection/benchmark_models.py \
+            --split test --batch-size 16 \
+            --out /tmp/models_test.json
+
+      - name: Run multilingual benchmark
+        run: |
+          uv run python benchmarks/prompt_injection/benchmark_multilingual.py \
+            --batch-size 16 \
+            --out /tmp/multilingual.json
+
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: models-benchmark-${{ github.sha }}
+          path: |
+            /tmp/models_test.json
+            /tmp/multilingual.json
+          retention-days: 90
+
+  multilingual-default-smoke:
+    name: Multilingual default model load/infer (per-PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies with prompt-injection extra
+        run: uv sync --extra dev --extra prompt_injection
+
+      - name: Cache HF models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-multilingual-smoke-${{ hashFiles('guard_core/models.py') }}
+
+      - name: Load and infer on default multilingual model
+        env:
+          GUARD_RUN_REAL_MODELS: "1"
+          REDIS_URL: "memory://"
+        run: |
+          uv run pytest \
+            tests/test_prompt_injection/test_multilingual_smoke.py \
+            -v --no-cov

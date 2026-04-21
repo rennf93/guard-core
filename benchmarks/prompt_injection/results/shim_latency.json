@@ -1,0 +1,16 @@
+{
+  "model": "proventra/mdeberta-v3-base-prompt-injection",
+  "device": "mps",
+  "warmup": 3,
+  "iterations": 20,
+  "prompts": 8,
+  "stats": {
+    "samples": 160,
+    "mean_ms": 43.51,
+    "median_ms": 42.69,
+    "p95_ms": 47.96,
+    "max_ms": 61.23,
+    "stdev_ms": 2.87
+  },
+  "note": "The shim only runs during from_pretrained to suppress the @torch.jit.script deprecation warning emitted at module load time. Inference runs on the already-loaded model with JIT-decorated helpers replaced by plain Python callables. These numbers measure the effective cost of running DeBERTa-v2's relative-position helpers without JIT compilation \u2014 which is what users actually see in production."
+}

@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -47,7 +48,7 @@ def test_json_format_fields_are_correct() -> None:
     assert "timestamp" in parsed
 
 
-def test_json_format_with_file_handler(tmp_path: pytest.TempPathFactory) -> None:
+def test_json_format_with_file_handler(tmp_path: Path) -> None:
     log_file = str(tmp_path / "test.log")
     logger = setup_custom_logging(log_file=log_file, log_format="json")
     logger.info("file test")

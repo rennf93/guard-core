@@ -1,6 +1,9 @@
+from collections.abc import Callable
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.events.metrics import MetricsCollector
 from guard_core.sync.core.responses.context import ResponseContext
 from guard_core.sync.core.responses.factory import ErrorResponseFactory
@@ -15,7 +18,7 @@ from tests.test_sync.conftest import (
 def _make_factory(
     passive_mode: bool = False,
     custom_error_responses: dict[int, str] | None = None,
-    custom_response_modifier: object = None,
+    custom_response_modifier: Callable[[GuardResponse], GuardResponse] | None = None,
     security_headers: dict[str, object] | None = None,
     **config_overrides: object,
 ) -> ErrorResponseFactory:
@@ -27,7 +30,7 @@ def _make_factory(
         **config_overrides,
     )
     if custom_response_modifier:
-        config.custom_response_modifier = custom_response_modifier
+        config.custom_response_modifier = cast(Any, custom_response_modifier)
     metrics = MagicMock(spec=MetricsCollector)
     metrics.collect_request_metrics = MagicMock()
     ctx = ResponseContext(
@@ -106,7 +109,7 @@ def test_apply_modifier_none() -> None:
 
 
 def test_apply_modifier_custom() -> None:
-    def modifier(response: object) -> object:
+    def modifier(response: GuardResponse) -> GuardResponse:
         return response
 
     factory = _make_factory(custom_response_modifier=modifier)
@@ -156,3 +159,18 @@ def test_process_response_with_origin() -> None:
     resp = MockGuardResponse("ok", 200)
     result = factory.process_response(req, resp, 0.1, None)
     assert result is not None
+
+
+def test_process_response_runs_security_pipeline() -> None:
+    factory = _make_factory()
+    replacement = MockGuardResponse("blocked", 403)
+    pipeline = MagicMock()
+    pipeline.run_post_response = MagicMock(return_value=replacement)
+    factory.context.security_pipeline = pipeline
+
+    req = SyncMockGuardRequest(path="/api")
+    resp = MockGuardResponse("ok", 200)
+    result = factory.process_response(req, resp, 0.1, None)
+
+    pipeline.run_post_response.assert_called_once_with(req, resp)
+    assert result.status_code == 403

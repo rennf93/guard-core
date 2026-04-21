@@ -4,6 +4,8 @@ import re
 import string
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from guard_core.sync.detection_engine.semantic import SemanticAnalyzer
 
 
@@ -448,3 +450,27 @@ def test_performance_large_input() -> None:
 
     assert duration < 1.0
     assert analysis["token_count"] <= 1000
+
+
+def test_check_ast_parsing_executor_failure_returns_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import concurrent.futures
+
+    analyzer = SemanticAnalyzer()
+
+    class FailingExecutor:
+        def __init__(self, *_: object, **__: object) -> None:
+            raise RuntimeError("cannot spawn executor")
+
+        def __enter__(self) -> "FailingExecutor":
+            raise RuntimeError("cannot spawn executor")
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        concurrent.futures, "ThreadPoolExecutor", FailingExecutor, raising=True
+    )
+
+    assert analyzer._check_ast_parsing_risk("eval('1')") == 0.0

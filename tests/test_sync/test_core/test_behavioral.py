@@ -146,6 +146,23 @@ def test_process_usage_rules_multiple_rules(
     )
 
 
+def test_process_usage_rules_ignores_non_usage_frequency(
+    processor: Mock, mock_request: Mock
+) -> None:
+    rule = BehaviorRule(
+        rule_type="return_pattern",
+        pattern="error",
+        threshold=3,
+        window=60,
+        action="log",
+    )
+    route_config = create_route_config_with_rules([rule])
+
+    processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
+
+    processor.context.guard_decorator.behavior_tracker.track_endpoint_usage.assert_not_called()
+
+
 def test_process_return_rules_no_decorator(
     processor: Mock, mock_request: Mock, mock_response: Mock
 ) -> None:

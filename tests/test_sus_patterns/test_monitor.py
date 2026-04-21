@@ -1,7 +1,7 @@
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -184,11 +184,7 @@ async def test_check_anomalies_statistical() -> None:
 async def test_statistical_anomaly_insufficient_data() -> None:
     monitor = PerformanceMonitor(anomaly_threshold=2.0)
 
-    anomalies_detected = []
-
-    def anomaly_callback(anomaly: dict[str, Any]) -> None:
-        anomalies_detected.append(anomaly)  # pragma: no cover
-
+    anomaly_callback = Mock()
     monitor.register_anomaly_callback(anomaly_callback)
 
     pattern = "insufficient_pattern"
@@ -200,18 +196,14 @@ async def test_statistical_anomaly_insufficient_data() -> None:
             matched=False,
         )
 
-    assert len(anomalies_detected) == 0
+    anomaly_callback.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_statistical_anomaly_zero_std_dev() -> None:
     monitor = PerformanceMonitor(anomaly_threshold=2.0)
 
-    anomalies_detected = []
-
-    def anomaly_callback(anomaly: dict[str, Any]) -> None:
-        anomalies_detected.append(anomaly)  # pragma: no cover
-
+    anomaly_callback = Mock()
     monitor.register_anomaly_callback(anomaly_callback)
 
     pattern = "zero_std_pattern"
@@ -223,7 +215,7 @@ async def test_statistical_anomaly_zero_std_dev() -> None:
             matched=False,
         )
 
-    assert len(anomalies_detected) == 0
+    anomaly_callback.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -356,6 +348,23 @@ async def test_anomaly_callback_error() -> None:
     error_event = agent_handler.send_event.call_args_list[1][0][0]
     assert error_event.event_type == "detection_engine_callback_error"
     assert "Callback error" in error_event.reason
+
+
+@pytest.mark.asyncio
+async def test_anomaly_callback_error_no_agent() -> None:
+    monitor = PerformanceMonitor()
+
+    def failing_callback(anomaly: dict[str, Any]) -> None:
+        raise Exception("Callback error")
+
+    monitor.register_anomaly_callback(failing_callback)
+
+    await monitor.record_metric(
+        pattern="slow_pattern",
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -521,13 +530,11 @@ async def test_get_summary_stats_with_data() -> None:
 
 def test_register_anomaly_callback() -> None:
     monitor = PerformanceMonitor()
-
-    def callback(anomaly: dict[str, Any]) -> None:
-        pass  # pragma: no cover
+    callback = Mock()
 
     monitor.register_anomaly_callback(callback)
     assert len(monitor.anomaly_callbacks) == 1
-    assert monitor.anomaly_callbacks[0] == callback
+    assert monitor.anomaly_callbacks[0] is callback
 
 
 @pytest.mark.asyncio
@@ -561,7 +568,61 @@ async def test_remove_pattern_stats() -> None:
     assert "pattern1" not in monitor.pattern_stats
     assert "pattern2" in monitor.pattern_stats
 
-    await monitor.remove_pattern_stats("non_existent")
+
+@pytest.mark.asyncio
+async def test_remove_pattern_stats_missing_is_noop() -> None:
+    monitor = PerformanceMonitor()
+    assert monitor.pattern_stats == {}
+    await monitor.remove_pattern_stats("never_recorded")
+    assert monitor.pattern_stats == {}
+
+
+def test_sanitize_anomaly_data_without_pattern_key() -> None:
+    monitor = PerformanceMonitor()
+    anomaly = {"type": "generic", "execution_time": 0.5}
+    sanitized = monitor._sanitize_anomaly_data(anomaly)
+    assert "pattern" not in sanitized
+    assert "pattern_hash" not in sanitized
+    assert sanitized["type"] == "generic"
+
+
+@pytest.mark.asyncio
+async def test_get_slow_patterns_skips_missing_reports() -> None:
+    monitor = PerformanceMonitor()
+    await monitor.record_metric(
+        pattern="p1", execution_time=0.5, content_length=100, matched=False
+    )
+
+    def always_none(_: str) -> None:
+        return None
+
+    object.__setattr__(monitor, "get_pattern_report", always_none)
+    assert monitor.get_slow_patterns(limit=10) == []
+
+
+@pytest.mark.asyncio
+async def test_get_problematic_patterns_skips_missing_reports() -> None:
+    monitor = PerformanceMonitor(slow_pattern_threshold=0.01)
+
+    await monitor.record_metric(
+        pattern="timeout_pattern",
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+        timeout=True,
+    )
+    await monitor.record_metric(
+        pattern="slow_pattern",
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+    )
+
+    def always_none(_: str) -> None:
+        return None
+
+    object.__setattr__(monitor, "get_pattern_report", always_none)
+    assert monitor.get_problematic_patterns() == []
 
 
 @pytest.mark.asyncio

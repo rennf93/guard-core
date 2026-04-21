@@ -42,7 +42,7 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 
 @pytest.fixture
-def mock_aiohttp_session() -> Generator[MagicMock, None]:
+def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
     with patch("guard_core.sync.handlers.cloud_handler.requests.Session") as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__enter__ = MagicMock(return_value=mock_sess)
@@ -73,6 +73,7 @@ def test_fetch_gcp_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
             "prefixes": [
                 {"ipv4Prefix": "172.16.0.0/12"},
                 {"ipv6Prefix": "2001:db8::/32"},
+                {"service": "unknown"},
             ]
         }
     )
@@ -216,6 +217,25 @@ def test_cloud_ip_ranges_error_handling() -> None:
 
 def test_cloud_ip_ranges_invalid_ip() -> None:
     assert not cloud_handler.is_cloud_ip("invalid_ip", {"AWS", "GCP", "Azure"})
+
+
+def test_get_cloud_provider_details_unknown_provider() -> None:
+    cloud_handler.ip_ranges.clear()
+    assert (
+        cloud_handler.get_cloud_provider_details("192.168.0.1", {"UnknownProvider"})
+        is None
+    )
+
+
+def test_get_cloud_provider_details_invalid_ip() -> None:
+    assert cloud_handler.get_cloud_provider_details("bad-ip", {"AWS"}) is None
+
+
+def test_get_cloud_provider_details_returns_match() -> None:
+    cloud_handler.ip_ranges["AWS"] = {ipaddress.IPv4Network("10.0.0.0/24")}
+    result = cloud_handler.get_cloud_provider_details("10.0.0.5", {"AWS"})
+    assert result == ("AWS", "10.0.0.0/24")
+    cloud_handler.ip_ranges.clear()
 
 
 def test_fetch_aws_ip_ranges_error(mock_aiohttp_session: MagicMock) -> None:

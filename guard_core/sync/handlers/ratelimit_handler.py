@@ -18,6 +18,7 @@ class RateLimitManager:
     _instance: Optional["RateLimitManager"] = None
     config: SecurityConfig
     request_timestamps: defaultdict[str, deque[float]]
+    threat_signals: defaultdict[str, deque[tuple[float, float]]]
     logger: logging.Logger
     redis_handler: Any = None
     agent_handler: Any = None
@@ -30,6 +31,7 @@ class RateLimitManager:
             cls._instance = super().__new__(cls)
             cls._instance.config = config
             cls._instance.request_timestamps = defaultdict(deque)
+            cls._instance.threat_signals = defaultdict(deque)
             cls._instance.logger = logging.getLogger(
                 "guard_core.sync.handlers.ratelimit"
             )
@@ -153,6 +155,85 @@ class RateLimitManager:
 
         return request_count
 
+    def record_threat_signal(
+        self,
+        client_ip: str,
+        score: float,
+        ttl: int | None = None,
+    ) -> None:
+        signal_ttl = ttl if ttl is not None else self.config.threat_signal_ttl
+        current_time = time.time()
+        expiry = current_time + signal_ttl
+
+        if self.config.enable_redis and self.redis_handler:
+            self._record_threat_signal_redis(client_ip, score, expiry, signal_ttl)
+            return
+
+        self.threat_signals[client_ip].append((expiry, score))
+
+    def _record_threat_signal_redis(
+        self,
+        client_ip: str,
+        score: float,
+        expiry: float,
+        signal_ttl: int,
+    ) -> None:
+        key = f"{self.redis_handler.config.redis_prefix}threat_signal:{client_ip}"
+        try:
+            with self.redis_handler.get_connection() as conn:
+                conn.zadd(key, {f"{expiry}:{score}": expiry})
+                conn.expire(key, signal_ttl * 2)
+        except RedisError as e:
+            self.logger.error(f"Redis threat signal error: {str(e)}")
+            self.threat_signals[client_ip].append((expiry, score))
+
+    def get_threat_score(self, client_ip: str) -> float:
+        current_time = time.time()
+
+        if self.config.enable_redis and self.redis_handler:
+            redis_score = self._get_threat_score_redis(client_ip, current_time)
+            if redis_score is not None:
+                return redis_score
+
+        signals = self.threat_signals.get(client_ip)
+        if not signals:
+            return 0.0
+        while signals and signals[0][0] <= current_time:
+            signals.popleft()
+        return sum(score for _expiry, score in signals)
+
+    def _get_threat_score_redis(
+        self, client_ip: str, current_time: float
+    ) -> float | None:
+        key = f"{self.redis_handler.config.redis_prefix}threat_signal:{client_ip}"
+        try:
+            with self.redis_handler.get_connection() as conn:
+                conn.zremrangebyscore(key, 0, current_time)
+                members = conn.zrange(key, 0, -1)
+        except RedisError as e:
+            self.logger.error(f"Redis threat score error: {str(e)}")
+            return None
+
+        total = 0.0
+        for member in members:
+            decoded = member.decode() if isinstance(member, bytes) else member
+            _, _, score_str = decoded.partition(":")
+            if score_str:
+                total += float(score_str)
+        return total
+
+    def _resolve_threat_multiplier(
+        self, client_ip: str, override: float | None
+    ) -> float:
+        if override is not None:
+            return override
+        if not self.config.enable_threat_score_rate_limiting:
+            return 1.0
+        score = self.get_threat_score(client_ip)
+        if score <= 0:
+            return 1.0
+        return self.config.rate_limit_multiplier_on_threat
+
     def check_rate_limit(
         self,
         request: SyncGuardRequest,
@@ -161,18 +242,20 @@ class RateLimitManager:
         endpoint_path: str = "",
         rate_limit: int | None = None,
         rate_limit_window: int | None = None,
+        threat_multiplier: float | None = None,
     ) -> GuardResponse | None:
         if not self.config.enable_rate_limiting:
             return None
 
-        effective_limit = (
-            rate_limit if rate_limit is not None else self.config.rate_limit
-        )
+        base_limit = rate_limit if rate_limit is not None else self.config.rate_limit
         effective_window = (
             rate_limit_window
             if rate_limit_window is not None
             else self.config.rate_limit_window
         )
+
+        multiplier = self._resolve_threat_multiplier(client_ip, threat_multiplier)
+        effective_limit = max(1, int(base_limit * multiplier))
 
         current_time = time.time()
         window_start = current_time - effective_window
@@ -244,12 +327,16 @@ class RateLimitManager:
 
     def reset(self) -> None:
         self.request_timestamps.clear()
+        self.threat_signals.clear()
 
         if self.config.enable_redis and self.redis_handler:
             try:
                 keys = self.redis_handler.keys("rate_limit:rate:*")
                 if keys and len(keys) > 0:
                     self.redis_handler.delete_pattern("rate_limit:rate:*")
+                threat_keys = self.redis_handler.keys("threat_signal:*")
+                if threat_keys and len(threat_keys) > 0:
+                    self.redis_handler.delete_pattern("threat_signal:*")
             except Exception as e:
                 self.logger.error(f"Failed to reset Redis rate limits: {str(e)}")
 

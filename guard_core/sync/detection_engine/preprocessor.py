@@ -166,11 +166,9 @@ class ContentPreprocessor:
         remaining = self.max_content_length
 
         for start, end in attack_regions:
-            chunk_len = min(end - start, remaining)
+            chunk_len = max(0, min(end - start, remaining))
             result += content[start : start + chunk_len]
             remaining -= chunk_len
-            if remaining <= 0:
-                break
 
         return result
 

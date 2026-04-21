@@ -1,12 +1,27 @@
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.ipban_handler import IPBanManager
 from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
 from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
 from tests.test_sync.conftest import SyncMockGuardRequest
+
+
+class _RaisingConnCtx:
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def __enter__(self) -> None:
+        raise self._exc
+
+    def __exit__(self, *_: object) -> None:
+        return None
 
 
 def test_ipban_initialize_redis() -> None:
@@ -39,23 +54,55 @@ def test_ipban_is_banned_redis_valid() -> None:
     assert result is True
 
 
+def test_ipban_is_banned_no_redis_unknown_ip() -> None:
+    IPBanManager._instance = None
+    mgr = IPBanManager()
+    mgr.redis_handler = None
+    assert mgr.is_ip_banned("9.9.9.9") is False
+
+
+def test_ipban_is_banned_redis_missing_entry() -> None:
+    IPBanManager._instance = None
+    mgr = IPBanManager()
+    redis = MagicMock()
+    redis.get_key = MagicMock(return_value=None)
+    mgr.redis_handler = redis
+    assert mgr.is_ip_banned("9.9.9.9") is False
+
+
+def test_ipban_singleton_returns_same_instance() -> None:
+    IPBanManager._instance = None
+    first = IPBanManager()
+    second = IPBanManager()
+    assert first is second
+
+
+def test_ipban_reset_without_redis() -> None:
+    IPBanManager._instance = None
+    mgr = IPBanManager()
+    mgr.banned_ips["1.1.1.1"] = time.time() + 100
+    mgr.redis_handler = None
+    mgr.reset()
+    assert len(mgr.banned_ips) == 0
+
+
 def test_ipban_reset_with_redis() -> None:
     IPBanManager._instance = None
     mgr = IPBanManager()
-    mgr.config = MagicMock()
-    mgr.config.redis_prefix = "test:"
+    config_mock = MagicMock()
+    config_mock.redis_prefix = "test:"
 
     mock_conn = MagicMock()
     mock_conn.keys = MagicMock(return_value=["test:banned_ips:1.2.3.4"])
     mock_conn.delete = MagicMock()
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
     redis.get_connection = mock_get_connection
-    redis.config = mgr.config
+    redis.config = config_mock
     mgr.redis_handler = redis
     mgr.reset()
     mock_conn.delete.assert_called_once()
@@ -64,20 +111,20 @@ def test_ipban_reset_with_redis() -> None:
 def test_ipban_reset_with_redis_no_keys() -> None:
     IPBanManager._instance = None
     mgr = IPBanManager()
-    mgr.config = MagicMock()
-    mgr.config.redis_prefix = "test:"
+    config_mock = MagicMock()
+    config_mock.redis_prefix = "test:"
 
     mock_conn = MagicMock()
     mock_conn.keys = MagicMock(return_value=[])
     mock_conn.delete = MagicMock()
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
     redis.get_connection = mock_get_connection
-    redis.config = mgr.config
+    redis.config = config_mock
     mgr.redis_handler = redis
     mgr.reset()
     mock_conn.delete.assert_not_called()
@@ -129,7 +176,7 @@ def test_ratelimit_initialize_redis() -> None:
     mock_conn.script_load = MagicMock(return_value="sha123")
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -144,15 +191,18 @@ def test_ratelimit_initialize_redis_exception() -> None:
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
 
-    @contextmanager
-    def mock_get_connection():
-        raise Exception("conn fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _RaisingConnCtx(Exception("conn fail"))
     mgr.redis_handler = redis
     mgr.initialize_redis(redis)
+    assert mgr.rate_limit_script_sha is None
+
+
+def test_ratelimit_initialize_redis_disabled() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(enable_redis=False)
+    mgr = RateLimitManager(config)
+    mgr.initialize_redis(MagicMock())
     assert mgr.rate_limit_script_sha is None
 
 
@@ -166,7 +216,7 @@ def test_ratelimit_redis_count_with_script() -> None:
     mock_conn.evalsha = MagicMock(return_value=5)
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -196,7 +246,7 @@ def test_ratelimit_redis_count_without_script() -> None:
     mock_conn.pipeline = MagicMock(return_value=mock_pipeline)
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -217,13 +267,8 @@ def test_ratelimit_redis_count_redis_error() -> None:
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
-    @contextmanager
-    def mock_get_connection():
-        raise RedisError("conn fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _RaisingConnCtx(RedisError("conn fail"))
     redis.config = MagicMock()
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
@@ -238,13 +283,8 @@ def test_ratelimit_redis_count_generic_error() -> None:
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
-    @contextmanager
-    def mock_get_connection():
-        raise Exception("generic fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _RaisingConnCtx(Exception("generic fail"))
     redis.config = MagicMock()
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
@@ -271,6 +311,22 @@ def test_ratelimit_check_disabled() -> None:
     assert result is None
 
 
+def test_ratelimit_check_falls_back_when_redis_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
+    )
+    mgr = RateLimitManager(config)
+    mgr.redis_handler = MagicMock()
+    monkeypatch.setattr(mgr, "_get_redis_request_count", MagicMock(return_value=None))
+
+    req = SyncMockGuardRequest()
+    result = mgr.check_rate_limit(req, "1.2.3.4", MagicMock())
+    assert result is None
+
+
 def test_ratelimit_check_redis_exceeded() -> None:
     RateLimitManager._instance = None
     config = SecurityConfig(
@@ -282,7 +338,7 @@ def test_ratelimit_check_redis_exceeded() -> None:
     mock_conn.evalsha = MagicMock(return_value=10)
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -314,7 +370,7 @@ def test_ratelimit_check_redis_ok() -> None:
     mock_conn.evalsha = MagicMock(return_value=2)
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -338,7 +394,9 @@ def test_ratelimit_reset_redis() -> None:
     redis.delete_pattern = MagicMock()
     mgr.redis_handler = redis
     mgr.reset()
-    redis.delete_pattern.assert_called_once()
+    assert redis.delete_pattern.call_count == 2
+    patterns = {call.args[0] for call in redis.delete_pattern.call_args_list}
+    assert patterns == {"rate_limit:rate:*", "threat_signal:*"}
 
 
 def test_ratelimit_reset_redis_exception() -> None:
@@ -348,6 +406,26 @@ def test_ratelimit_reset_redis_exception() -> None:
     redis = MagicMock()
     redis.keys = MagicMock(side_effect=Exception("fail"))
     mgr.redis_handler = redis
+    mgr.reset()
+
+
+def test_ratelimit_reset_redis_no_keys() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    mgr = RateLimitManager(config)
+    redis = MagicMock()
+    redis.keys = MagicMock(return_value=[])
+    redis.delete_pattern = MagicMock()
+    mgr.redis_handler = redis
+    mgr.reset()
+    redis.delete_pattern.assert_not_called()
+
+
+def test_ratelimit_reset_no_redis() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(enable_redis=False)
+    mgr = RateLimitManager(config)
+    mgr.redis_handler = None
     mgr.reset()
 
 
@@ -389,7 +467,7 @@ def test_ratelimit_redis_count_with_endpoint() -> None:
     mock_conn.evalsha = MagicMock(return_value=2)
 
     @contextmanager
-    def mock_get_connection():
+    def mock_get_connection() -> Iterator[Any]:
         yield mock_conn
 
     redis = MagicMock()
@@ -636,3 +714,233 @@ def test_responses_factory_cors_disabled() -> None:
     resp = MockGuardResponse("ok", 200)
     result = factory.apply_cors_headers(resp, "https://example.com")
     assert result is resp
+
+
+class TestThreatSignalRateLimiting:
+    def _manager(self, **config_kwargs: object) -> RateLimitManager:
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=False, **config_kwargs)
+        return RateLimitManager(config)
+
+    def test_record_threat_signal_stores_in_memory(self) -> None:
+        mgr = self._manager()
+        mgr.record_threat_signal("1.2.3.4", 0.9)
+        assert len(mgr.threat_signals["1.2.3.4"]) == 1
+        expiry, score = mgr.threat_signals["1.2.3.4"][0]
+        assert score == pytest.approx(0.9)
+        assert expiry > 0
+
+    def test_get_threat_score_sums_active_signals(self) -> None:
+        mgr = self._manager()
+        mgr.record_threat_signal("1.2.3.4", 0.5)
+        mgr.record_threat_signal("1.2.3.4", 0.4)
+        total = mgr.get_threat_score("1.2.3.4")
+        assert total == pytest.approx(0.9)
+
+    def test_get_threat_score_expires(self) -> None:
+        mgr = self._manager()
+        now = time.time()
+        mgr.threat_signals["1.2.3.4"].append((now - 1, 0.9))
+        assert mgr.get_threat_score("1.2.3.4") == 0.0
+        assert not mgr.threat_signals["1.2.3.4"]
+
+    def test_get_threat_score_unknown_ip(self) -> None:
+        mgr = self._manager()
+        assert mgr.get_threat_score("unknown") == 0.0
+
+    def test_check_rate_limit_tightens_when_threat_signal_active(self) -> None:
+        from tests.test_sync.conftest import MockGuardResponse
+
+        mgr = self._manager(
+            enable_rate_limiting=True,
+            rate_limit=100,
+            rate_limit_window=60,
+            enable_threat_score_rate_limiting=True,
+            rate_limit_multiplier_on_threat=0.1,
+        )
+        create_error = MagicMock(return_value=MockGuardResponse("blocked", 429))
+        req = SyncMockGuardRequest(path="/api")
+        mgr.record_threat_signal("9.9.9.9", 0.9)
+
+        for _ in range(10):
+            mgr.check_rate_limit(req, "9.9.9.9", create_error, endpoint_path="/api")
+        result = mgr.check_rate_limit(
+            req, "9.9.9.9", create_error, endpoint_path="/api"
+        )
+        assert result is not None
+        assert result.status_code == 429
+
+    def test_check_rate_limit_unchanged_without_threat_signal(self) -> None:
+        from tests.test_sync.conftest import MockGuardResponse
+
+        mgr = self._manager(
+            enable_rate_limiting=True,
+            rate_limit=100,
+            rate_limit_window=60,
+            enable_threat_score_rate_limiting=True,
+            rate_limit_multiplier_on_threat=0.1,
+        )
+        create_error = MagicMock(return_value=MockGuardResponse("blocked", 429))
+        req = SyncMockGuardRequest(path="/api")
+
+        for _ in range(50):
+            result = mgr.check_rate_limit(
+                req, "8.8.8.8", create_error, endpoint_path="/api"
+            )
+            assert result is None
+
+    def test_explicit_threat_multiplier_overrides_score(self) -> None:
+        from tests.test_sync.conftest import MockGuardResponse
+
+        mgr = self._manager(
+            enable_rate_limiting=True,
+            rate_limit=100,
+            rate_limit_window=60,
+            enable_threat_score_rate_limiting=True,
+            rate_limit_multiplier_on_threat=0.01,
+        )
+        create_error = MagicMock(return_value=MockGuardResponse("blocked", 429))
+        req = SyncMockGuardRequest(path="/api")
+        mgr.record_threat_signal("1.1.1.1", 0.9)
+
+        result = mgr.check_rate_limit(
+            req,
+            "1.1.1.1",
+            create_error,
+            endpoint_path="/api",
+            threat_multiplier=1.0,
+        )
+        assert result is None
+
+    def test_disabling_feature_ignores_signals(self) -> None:
+        from tests.test_sync.conftest import MockGuardResponse
+
+        mgr = self._manager(
+            enable_rate_limiting=True,
+            rate_limit=100,
+            rate_limit_window=60,
+            enable_threat_score_rate_limiting=False,
+            rate_limit_multiplier_on_threat=0.01,
+        )
+        create_error = MagicMock(return_value=MockGuardResponse("blocked", 429))
+        req = SyncMockGuardRequest(path="/api")
+        mgr.record_threat_signal("2.2.2.2", 0.9)
+
+        for _ in range(50):
+            result = mgr.check_rate_limit(
+                req, "2.2.2.2", create_error, endpoint_path="/api"
+            )
+            assert result is None
+
+    def test_reset_clears_threat_signals(self) -> None:
+        mgr = self._manager()
+        mgr.record_threat_signal("4.4.4.4", 0.9)
+        assert mgr.threat_signals["4.4.4.4"]
+        mgr.reset()
+        assert not mgr.threat_signals
+
+    def test_redis_record_persists_via_sorted_set(self) -> None:
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        mock_conn = MagicMock()
+        mock_conn.zadd = MagicMock()
+        mock_conn.expire = MagicMock()
+
+        @contextmanager
+        def conn_ctx() -> Iterator[Any]:
+            yield mock_conn
+
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = conn_ctx
+        mgr.redis_handler = redis
+
+        mgr.record_threat_signal("5.5.5.5", 0.7)
+        mock_conn.zadd.assert_called_once()
+        mock_conn.expire.assert_called_once()
+
+    def test_redis_get_threat_score_sums_members(self) -> None:
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        mock_conn = MagicMock()
+        mock_conn.zremrangebyscore = MagicMock()
+        mock_conn.zrange = MagicMock(return_value=[b"1000:0.7", "2000:0.3"])
+
+        @contextmanager
+        def conn_ctx() -> Iterator[Any]:
+            yield mock_conn
+
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = conn_ctx
+        mgr.redis_handler = redis
+
+        total = mgr.get_threat_score("6.6.6.6")
+        assert total == pytest.approx(1.0)
+
+    def test_redis_error_on_record_falls_back_to_in_memory(self) -> None:
+        from redis.exceptions import RedisError
+
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = lambda: _RaisingConnCtx(RedisError("boom"))
+        mgr.redis_handler = redis
+
+        mgr.record_threat_signal("7.7.7.7", 0.8)
+        assert mgr.threat_signals["7.7.7.7"]
+
+    def test_redis_error_on_query_returns_none(self) -> None:
+        from redis.exceptions import RedisError
+
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = lambda: _RaisingConnCtx(RedisError("boom"))
+        mgr.redis_handler = redis
+
+        redis_score = mgr._get_threat_score_redis("7.7.7.7", time.time())
+        assert redis_score is None
+
+    def test_get_threat_score_falls_back_to_memory_on_redis_error(
+        self,
+    ) -> None:
+        from redis.exceptions import RedisError
+
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = lambda: _RaisingConnCtx(RedisError("boom"))
+        mgr.redis_handler = redis
+
+        mgr.threat_signals["8.8.8.8"].append((time.time() + 100, 0.6))
+        total = mgr.get_threat_score("8.8.8.8")
+        assert total == pytest.approx(0.6)
+
+    def test_redis_get_threat_score_ignores_malformed_member(self) -> None:
+        RateLimitManager._instance = None
+        config = SecurityConfig(enable_redis=True, redis_url="redis://x")
+        mgr = RateLimitManager(config)
+        mock_conn = MagicMock()
+        mock_conn.zremrangebyscore = MagicMock()
+        mock_conn.zrange = MagicMock(return_value=[b"malformed_no_colon", b"1000:0.5"])
+
+        @contextmanager
+        def conn_ctx() -> Iterator[Any]:
+            yield mock_conn
+
+        redis = MagicMock()
+        redis.config.redis_prefix = "gc:"
+        redis.get_connection = conn_ctx
+        mgr.redis_handler = redis
+
+        total = mgr.get_threat_score("9.9.9.9")
+        assert total == pytest.approx(0.5)

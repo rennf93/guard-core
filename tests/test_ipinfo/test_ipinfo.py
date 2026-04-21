@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import maxminddb
@@ -190,6 +190,51 @@ async def test_close_with_reader(tmp_path: Path) -> None:
     mock_reader.close.assert_called_once()
 
 
+def test_close_without_reader(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.reader = None
+    db.close()
+
+
+def test_singleton_reuses_existing_instance(tmp_path: Path) -> None:
+    IPInfoManager._instance = None
+    first = IPInfoManager(token="tokenA", db_path=tmp_path / "first.mmdb")
+    second = IPInfoManager(token="tokenB", db_path=tmp_path / "second.mmdb")
+    assert first is second
+    assert second.token == "tokenB"
+    assert second.db_path == tmp_path / "second.mmdb"
+
+
+@pytest.mark.asyncio
+async def test_initialize_redis_cache_miss_triggers_download(
+    tmp_path: Path,
+) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = AsyncMock()
+    db.redis_handler.get_key = AsyncMock(return_value=None)
+    db.redis_handler.set_key = AsyncMock()
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.read = AsyncMock(return_value=b"test_db")
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_session.get = AsyncMock(return_value=mock_response)
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch("maxminddb.open_database") as mock_open,
+    ):
+        await db.initialize()
+
+    mock_open.assert_called_once()
+    db.redis_handler.get_key.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_redis_cache_hit(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
@@ -295,6 +340,43 @@ async def test_download_exhausts_retries(tmp_path: Path) -> None:
     ):
         with pytest.raises(Exception, match="Download failed"):
             await db._download_database()
+
+
+@pytest.mark.asyncio
+async def test_initialize_skips_reader_when_download_leaves_no_file(
+    tmp_path: Path,
+) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "missing.mmdb")
+
+    async def fake_download() -> None:
+        return None
+
+    cast(Any, db)._download_database = fake_download
+    db.redis_handler = None
+
+    await db.initialize()
+    assert db.reader is None
+
+
+@pytest.mark.asyncio
+async def test_download_zero_retries_config_exits_loop(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "zero.mmdb")
+
+    class _Session:
+        async def __aenter__(self) -> "_Session":
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=_Session(),
+        ),
+        patch("guard_core.handlers.ipinfo_handler.range", lambda _n: iter(())),
+    ):
+        await db._download_database()
 
 
 @pytest.mark.asyncio

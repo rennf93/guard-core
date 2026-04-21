@@ -13,6 +13,7 @@ from guard_core.sync.utils import (
     is_ip_allowed,
     is_user_agent_allowed,
 )
+from tests.test_sync.conftest import SyncMockGuardRequest
 
 IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
 
@@ -654,3 +655,111 @@ def test_detect_penetration_unknown_threat_type() -> None:
 
         assert result is True
         assert trigger == "Query param 'param': Threat detected"
+
+
+def test_is_trusted_proxy_cidr_miss_then_exact_match() -> None:
+    from guard_core.sync.utils import _is_trusted_proxy
+
+    assert _is_trusted_proxy("5.5.5.5", ["10.0.0.0/8", "5.5.5.5"]) is True
+
+
+def test_extract_request_context_without_client_host() -> None:
+    from guard_core.sync.utils import _extract_request_context
+
+    request = SyncMockGuardRequest(client_host=None)
+    context = _extract_request_context(request)
+    assert context["client_ip"] == "unknown"
+
+
+def test_log_activity_suspicious_without_trigger_info() -> None:
+    import logging as _logging
+
+    from guard_core.sync.utils import log_activity
+
+    logger = _logging.getLogger("test_log_activity")
+    request = SyncMockGuardRequest()
+    log_activity(
+        request,
+        logger,
+        log_type="suspicious",
+        reason="test",
+        passive_mode=True,
+        trigger_info="",
+        level="WARNING",
+    )
+
+
+def test_check_blocked_countries_not_blocked() -> None:
+    from guard_core.sync.utils import _check_blocked_countries
+
+    config = MagicMock()
+    config.blocked_countries = ["CN"]
+    geo = MagicMock()
+
+    def fake_check(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+    with patch("guard_core.sync.utils.check_ip_country", side_effect=fake_check):
+        allowed = _check_blocked_countries("1.2.3.4", config, geo)
+    assert allowed is True
+
+
+def test_detect_penetration_attempt_without_client_host() -> None:
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={},
+        client_host=None,
+        query_params={},
+        body_content=b"",
+    )
+    detected, trigger = detect_penetration_attempt(request)
+    assert detected is False
+    assert trigger == ""
+
+
+def test_detect_penetration_skips_non_string_body_values() -> None:
+    import json as _json
+
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    body = _json.dumps({"count": 42, "flag": True, "name": "safe"})
+    request = SyncMockGuardRequest(
+        path="/",
+        method="POST",
+        headers={"content-type": "application/json"},
+        client_host="127.0.0.1",
+        body_content=body.encode(),
+    )
+    detected, trigger = detect_penetration_attempt(request)
+    assert detected is False
+    assert trigger == ""
+
+
+def test_detect_penetration_skips_excluded_headers() -> None:
+    from guard_core.sync.utils import detect_penetration_attempt
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={
+            "host": "example.com",
+            "user-agent": "test",
+            "accept": "*/*",
+            "accept-encoding": "gzip",
+            "accept-language": "en",
+            "cookie": "session=abc",
+            "authorization": "Bearer x",
+            "content-type": "application/json",
+            "content-length": "0",
+            "connection": "close",
+        },
+        client_host="127.0.0.1",
+        query_params={},
+        body_content=b"",
+    )
+    detected, trigger = detect_penetration_attempt(request)
+    assert detected is False
+    assert trigger == ""

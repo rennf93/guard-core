@@ -1,0 +1,47 @@
+{
+  "pattern_only": {
+    "samples": 160,
+    "cold_start_ms": 211.58,
+    "mean_ms": 0.124,
+    "median_ms": 0.124,
+    "p95_ms": 0.157,
+    "p99_ms": 0.17,
+    "max_ms": 0.194
+  },
+  "pattern_plus_statistical": {
+    "samples": 160,
+    "cold_start_ms": 0.26,
+    "mean_ms": 0.576,
+    "median_ms": 0.756,
+    "p95_ms": 0.96,
+    "p99_ms": 1.089,
+    "max_ms": 2.384
+  },
+  "embedding": {
+    "samples": 160,
+    "cold_start_ms": 13784.6,
+    "mean_ms": 1.887,
+    "median_ms": 0.125,
+    "p95_ms": 19.817,
+    "p99_ms": 23.615,
+    "max_ms": 28.023
+  },
+  "transformer": {
+    "samples": 160,
+    "cold_start_ms": 2044.88,
+    "mean_ms": 12.817,
+    "median_ms": 0.001,
+    "p95_ms": 46.266,
+    "p99_ms": 51.634,
+    "max_ms": 1336.336
+  },
+  "full_stack": {
+    "samples": 160,
+    "cold_start_ms": 7443.49,
+    "mean_ms": 3.42,
+    "median_ms": 0.893,
+    "p95_ms": 1.289,
+    "p99_ms": 53.851,
+    "max_ms": 89.856
+  }
+}

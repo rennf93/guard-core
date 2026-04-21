@@ -182,6 +182,19 @@ def test_redis_url_none(security_config_redis: SecurityConfig) -> None:
         assert handler._redis is None
 
 
+def test_initialize_when_redis_from_url_returns_none(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+
+    with patch(
+        "guard_core.sync.handlers.redis_handler.Redis.from_url", return_value=None
+    ):
+        handler.initialize()
+
+    assert handler._redis is None
+
+
 def test_safe_operation_redis_disabled(security_config: SecurityConfig) -> None:
     handler = redis_handler(security_config)
 
@@ -225,3 +238,12 @@ def test_redis_keys_and_delete_pattern_with_redis_disabled() -> None:
 
     delete_result = handler.delete_pattern("*")
     assert delete_result is None
+
+
+def test_close_without_redis_is_noop() -> None:
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    handler = redis_handler(config)
+    handler._redis = None
+    handler._closed = False
+    handler.close()
+    assert handler._redis is None

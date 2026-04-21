@@ -23,6 +23,9 @@ def cleanup_ratelimit_singleton() -> Generator[Any, Any, Any]:
             cls._instance.request_timestamps = __import__("collections").defaultdict(
                 lambda: __import__("collections").deque(maxlen=config.rate_limit * 2)
             )
+            cls._instance.threat_signals = __import__("collections").defaultdict(
+                __import__("collections").deque
+            )
             cls._instance.logger = logging.getLogger(__name__)
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
@@ -149,7 +152,7 @@ async def test_check_rate_limit_agent_event_called() -> None:
         )
         assert result1 is None
 
-        result2 = await manager.check_rate_limit(
+        result2: Any = await manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.100",
             create_error_response=mock_error_response,
@@ -199,7 +202,7 @@ async def test_check_rate_limit_redis_path_with_agent() -> None:
     with patch(
         "guard_core.handlers.ratelimit_handler.log_activity", new_callable=AsyncMock
     ):
-        result = await manager.check_rate_limit(
+        result: Any = await manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.200",
             create_error_response=mock_error_response,

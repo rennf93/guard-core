@@ -4,6 +4,8 @@ import pytest
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.pipeline import SecurityCheckPipeline
+from guard_core.protocols.request_protocol import GuardRequest
+from guard_core.protocols.response_protocol import GuardResponse
 
 
 class MockCheck(SecurityCheck):
@@ -16,7 +18,7 @@ class MockCheck(SecurityCheck):
     def check_name(self) -> str:
         return self._name
 
-    async def check(self, request):
+    async def check(self, request: GuardRequest) -> GuardResponse | None:
         if self._should_block:
             return Mock(status_code=403)
         return None
@@ -31,7 +33,7 @@ class FailingCheck(SecurityCheck):
     def check_name(self) -> str:
         return self._name
 
-    async def check(self, request):
+    async def check(self, request: GuardRequest) -> GuardResponse | None:
         raise ValueError("Check error")
 
 
@@ -244,3 +246,100 @@ def test_pipeline_various_sizes(
 
     assert len(pipeline) == expected_count
     assert pipeline.get_check_names() == checks
+
+
+class PostResponseCheck(SecurityCheck):
+    def __init__(
+        self,
+        middleware: Mock,
+        name: str,
+        replacement: GuardResponse | None = None,
+        raises: bool = False,
+    ) -> None:
+        super().__init__(middleware)
+        self._name = name
+        self._replacement = replacement
+        self._raises = raises
+
+    @property
+    def check_name(self) -> str:
+        return self._name
+
+    async def check(self, request: GuardRequest) -> GuardResponse | None:
+        return None
+
+    async def post_response(
+        self, request: GuardRequest, response: GuardResponse
+    ) -> GuardResponse | None:
+        if self._raises:
+            raise RuntimeError("boom")
+        return self._replacement
+
+
+async def test_run_post_response_passes_through_when_no_replacement(
+    mock_middleware: Mock, mock_request: Mock
+) -> None:
+    original = Mock(status_code=200)
+    check = PostResponseCheck(mock_middleware, "noop")
+    pipeline = SecurityCheckPipeline([check])
+
+    result = await pipeline.run_post_response(mock_request, original)
+
+    assert result is original
+
+
+async def test_run_post_response_uses_replacement(
+    mock_middleware: Mock, mock_request: Mock
+) -> None:
+    original = Mock(status_code=200)
+    replacement = Mock(status_code=403)
+    check = PostResponseCheck(mock_middleware, "blocker", replacement=replacement)
+    pipeline = SecurityCheckPipeline([check])
+
+    result = await pipeline.run_post_response(mock_request, original)
+
+    assert result is replacement
+
+
+async def test_run_post_response_chains_replacements(
+    mock_middleware: Mock, mock_request: Mock
+) -> None:
+    original = Mock(status_code=200)
+    first_replacement = Mock(status_code=403)
+    second_replacement = Mock(status_code=451)
+    checks: list[SecurityCheck] = [
+        PostResponseCheck(mock_middleware, "first", replacement=first_replacement),
+        PostResponseCheck(mock_middleware, "second", replacement=second_replacement),
+    ]
+    pipeline = SecurityCheckPipeline(checks)
+
+    result = await pipeline.run_post_response(mock_request, original)
+
+    assert result is second_replacement
+
+
+async def test_run_post_response_swallows_check_exceptions(
+    mock_middleware: Mock, mock_request: Mock
+) -> None:
+    original = Mock(status_code=200)
+    checks: list[SecurityCheck] = [
+        PostResponseCheck(mock_middleware, "raises", raises=True),
+        PostResponseCheck(
+            mock_middleware, "follow_up", replacement=Mock(status_code=418)
+        ),
+    ]
+    pipeline = SecurityCheckPipeline(checks)
+
+    result = await pipeline.run_post_response(mock_request, original)
+
+    assert result.status_code == 418
+
+
+async def test_default_post_response_is_noop(
+    mock_middleware: Mock, mock_request: Mock
+) -> None:
+    check = MockCheck(mock_middleware, "legacy")
+
+    result = await check.post_response(mock_request, Mock(status_code=200))
+
+    assert result is None

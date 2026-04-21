@@ -65,9 +65,11 @@ nav:
     - Security Headers: internals/security-headers.md
     - Behavioral Analysis: internals/behavioral.md
     - Redis Integration: internals/redis.md
+    - Prompt Injection Defense: internals/prompt-injection.md
   - Configuration:
     - SecurityConfig Reference: configuration/security-config.md
     - Detection Tuning: configuration/detection-tuning.md
+    - Prompt Injection Tuning: configuration/prompt-injection-tuning.md
     - Logging: configuration/logging.md
   - API Reference:
     - Protocols: api/protocols.md

@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -58,7 +59,7 @@ def test_check_bypass_clouds_check(
 ) -> None:
     route_config = RouteConfig()
     mock_request.state.route_config = route_config
-    cloud_check.middleware.route_resolver = Mock()
+    cast(Any, cloud_check.middleware).route_resolver = Mock()
     cloud_check.middleware.route_resolver.should_bypass_check = Mock(return_value=True)
     cloud_check.middleware.route_resolver.get_cloud_providers_to_check = Mock(
         return_value=["aws", "gcp"]
@@ -91,7 +92,7 @@ def test_check_passive_mode(
 def test_check_no_cloud_providers_to_check(
     cloud_check: CloudProviderCheck, mock_request: Mock
 ) -> None:
-    cloud_check.middleware.route_resolver = Mock()
+    cast(Any, cloud_check.middleware).route_resolver = Mock()
     cloud_check.middleware.route_resolver.should_bypass_check = Mock(return_value=False)
     cloud_check.middleware.route_resolver.get_cloud_providers_to_check = Mock(
         return_value=None

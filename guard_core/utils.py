@@ -187,9 +187,12 @@ async def extract_client_ip(
     if not is_trusted:
         if forwarded_for:
             safe_forwarded_for = _sanitize_for_log(forwarded_for)
+            safe_connecting_ip = _sanitize_for_log(connecting_ip)
             logging.warning(
-                f"Potential IP spoof attempt: X-Forwarded-For header "  # nosemgrep
-                f"({safe_forwarded_for}) received from untrusted IP {connecting_ip}"
+                "Potential IP spoof attempt: X-Forwarded-For header "
+                "(%s) received from untrusted IP %s",
+                safe_forwarded_for,
+                safe_connecting_ip,
             )
             await send_agent_event(
                 agent_handler,

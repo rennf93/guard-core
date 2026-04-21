@@ -1,12 +1,15 @@
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 class ConcreteSecurityCheck(SecurityCheck):
-    def check(self, request):
+    def check(self, request: SyncGuardRequest) -> GuardResponse | None:
         return None
 
     @property
@@ -41,7 +44,7 @@ def mock_request() -> Mock:
 
 def test_cannot_instantiate_abstract_class(mock_middleware: Mock) -> None:
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-        SecurityCheck(mock_middleware)  # type: ignore
+        cast(Any, SecurityCheck)(mock_middleware)
 
 
 def test_init(mock_middleware: Mock) -> None:

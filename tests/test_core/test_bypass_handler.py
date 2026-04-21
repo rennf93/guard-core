@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -95,7 +96,9 @@ async def test_handle_passthrough_no_client(
 ) -> None:
     mock_request.client_host = None
 
-    response = await bypass_handler.handle_passthrough(mock_request, call_next)
+    response = await bypass_handler.handle_passthrough(
+        cast(Any, mock_request), cast(Any, call_next)
+    )
 
     assert response is not None
     assert response.status_code == 200
@@ -111,7 +114,9 @@ async def test_handle_passthrough_excluded_path(
 ) -> None:
     mock_validator.is_path_excluded.return_value = True
 
-    response = await bypass_handler.handle_passthrough(mock_request, call_next)
+    response = await bypass_handler.handle_passthrough(
+        cast(Any, mock_request), cast(Any, call_next)
+    )
 
     assert response is not None
     assert response.status_code == 200
@@ -127,7 +132,9 @@ async def test_handle_passthrough_no_bypass(
 ) -> None:
     mock_validator.is_path_excluded.return_value = False
 
-    response = await bypass_handler.handle_passthrough(mock_request, call_next)
+    response = await bypass_handler.handle_passthrough(
+        cast(Any, mock_request), cast(Any, call_next)
+    )
 
     assert response is None
     mock_validator.is_path_excluded.assert_called_once_with(mock_request)
@@ -139,7 +146,7 @@ async def test_handle_security_bypass_no_route_config(
     call_next: Callable[[Mock], Awaitable[Mock]],
 ) -> None:
     response = await bypass_handler.handle_security_bypass(
-        mock_request, call_next, None
+        cast(Any, mock_request), cast(Any, call_next), None
     )
 
     assert response is None
@@ -156,7 +163,7 @@ async def test_handle_security_bypass_should_not_bypass(
     mock_route_resolver.should_bypass_check.return_value = False
 
     response = await bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        cast(Any, mock_request), cast(Any, call_next), route_config
     )
 
     assert response is None
@@ -178,7 +185,7 @@ async def test_handle_security_bypass_active_mode(
     bypass_context.config.passive_mode = False
 
     response = await bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        cast(Any, mock_request), cast(Any, call_next), route_config
     )
 
     assert response is not None
@@ -206,7 +213,7 @@ async def test_handle_security_bypass_passive_mode(
     bypass_context.config.passive_mode = True
 
     response = await bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        cast(Any, mock_request), cast(Any, call_next), route_config
     )
 
     assert response is None
@@ -228,7 +235,7 @@ async def test_handle_security_bypass_with_multiple_bypassed_checks(
     bypass_context.config.passive_mode = False
 
     response = await bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        cast(Any, mock_request), cast(Any, call_next), route_config
     )
 
     assert response is not None

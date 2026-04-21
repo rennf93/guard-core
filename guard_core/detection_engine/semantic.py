@@ -131,8 +131,7 @@ class SemanticAnalyzer:
         entropy = 0.0
         for count in char_counts.values():
             probability = count / length
-            if probability > 0:
-                entropy -= probability * math.log2(probability)
+            entropy -= probability * math.log2(probability)
 
         return entropy
 
@@ -267,6 +266,7 @@ class SemanticAnalyzer:
             except Exception:
                 return False
 
+<<<<<<< Updated upstream
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_parse_ast)
             try:
@@ -274,6 +274,18 @@ class SemanticAnalyzer:
                     return 0.3
             except concurrent.futures.TimeoutError:
                 return 0.2
+=======
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_parse_ast)
+                try:
+                    if future.result(timeout=0.1):
+                        return 0.3
+                except concurrent.futures.TimeoutError:
+                    return 0.2
+
+        except Exception:
+            pass
+>>>>>>> Stashed changes
 
         return 0.0
 

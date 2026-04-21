@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
 import maxminddb
@@ -184,6 +184,50 @@ def test_close_with_reader(tmp_path: Path) -> None:
     mock_reader.close.assert_called_once()
 
 
+def test_close_without_reader(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.reader = None
+    db.close()
+
+
+def test_singleton_reuses_existing_instance(tmp_path: Path) -> None:
+    IPInfoManager._instance = None
+    first = IPInfoManager(token="tokenA", db_path=tmp_path / "first.mmdb")
+    second = IPInfoManager(token="tokenB", db_path=tmp_path / "second.mmdb")
+    assert first is second
+    assert second.token == "tokenB"
+    assert second.db_path == tmp_path / "second.mmdb"
+
+
+def test_initialize_redis_cache_miss_triggers_download(
+    tmp_path: Path,
+) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.get_key = MagicMock(return_value=None)
+    db.redis_handler.set_key = MagicMock()
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.content = b"test_db"
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=None)
+    mock_session.get = MagicMock(return_value=mock_response)
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+        patch("maxminddb.open_database") as mock_open,
+    ):
+        db.initialize()
+
+    mock_open.assert_called_once()
+    db.redis_handler.get_key.assert_called_once()
+
+
 def test_redis_cache_hit(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     db.redis_handler = MagicMock()
@@ -283,6 +327,41 @@ def test_download_exhausts_retries(tmp_path: Path) -> None:
     ):
         with pytest.raises(Exception, match="Download failed"):
             db._download_database()
+
+
+def test_initialize_skips_reader_when_download_leaves_no_file(
+    tmp_path: Path,
+) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "missing.mmdb")
+
+    def fake_download() -> None:
+        return None
+
+    cast(Any, db)._download_database = fake_download
+    db.redis_handler = None
+
+    db.initialize()
+    assert db.reader is None
+
+
+def test_download_zero_retries_config_exits_loop(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "zero.mmdb")
+
+    class _Session:
+        def __enter__(self) -> "_Session":
+            return self
+
+        def __exit__(self, *_: Any) -> None:
+            return None
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=_Session(),
+        ),
+        patch("guard_core.sync.handlers.ipinfo_handler.range", lambda _n: iter(())),
+    ):
+        db._download_database()
 
 
 def test_redirect_handling(tmp_path: Path) -> None:

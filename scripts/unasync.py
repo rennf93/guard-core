@@ -12,6 +12,10 @@ TEST_SYNC_DIR = ROOT / "tests" / "test_sync"
 
 SKIP_SRC = {"models.py", "exceptions.py"}
 
+SKIP_SRC_PATHS = {Path("prompt_injection/decorators.py")}
+
+SKIP_TEST_PATHS = {Path("test_prompt_injection/test_decorators.py")}
+
 SKIP_DIRS = {"__pycache__", "sync"}
 
 TEMPLATE_FILES = {
@@ -32,9 +36,15 @@ SUBS: list[tuple[str, str]] = [
         "from guard_core.sync.protocols.request_protocol import SyncGuardRequest",
     ),
     (
-        r"from guard_core\.protocols\.middleware_protocol import GuardMiddlewareProtocol",  # noqa: E501
-        "from guard_core.sync.protocols.middleware_protocol import SyncGuardMiddlewareProtocol",  # noqa: E501
-    ),  # noqa: E501
+        (
+            r"from guard_core\.protocols\.middleware_protocol import "
+            r"GuardMiddlewareProtocol"
+        ),
+        (
+            "from guard_core.sync.protocols.middleware_protocol import "
+            "SyncGuardMiddlewareProtocol"
+        ),
+    ),
     (
         r"from guard_core\.protocols\.agent_protocol import AgentHandlerProtocol",
         "from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol",
@@ -52,7 +62,18 @@ SUBS: list[tuple[str, str]] = [
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
     (r"from guard_core\.detection_engine\b", "from guard_core.sync.detection_engine"),
     (r"from guard_core\.decorators\b", "from guard_core.sync.decorators"),
+<<<<<<< Updated upstream
     (r"from guard_core\.prompt_injection\b", "from guard_core.sync.prompt_injection"),
+=======
+    (
+        r"from guard_core\.prompt_injection\b(?!\.decorators)",
+        "from guard_core.sync.prompt_injection",
+    ),
+    (
+        r"import guard_core\.prompt_injection\b",
+        "import guard_core.sync.prompt_injection",
+    ),
+>>>>>>> Stashed changes
     (r"(?<!Sync)(?<!\w)GuardMiddlewareProtocol\b", "SyncGuardMiddlewareProtocol"),
     (r"(?<!Sync)(?<!\w)AgentHandlerProtocol\b", "SyncAgentHandlerProtocol"),
     (r"(?<!Sync)(?<!\w)RedisHandlerProtocol\b", "SyncRedisHandlerProtocol"),
@@ -89,7 +110,7 @@ SUBS: list[tuple[str, str]] = [
     (
         r"asyncio\.create_task\(self\.(\w+)\(",
         r"threading.Thread(target=self.\1, args=(",
-    ),  # noqa: E501
+    ),
     (
         r"(\s+)([\w.]+) = asyncio\.create_task\((\w+)\.(\w+)\(\)\)",
         r"\1\2 = threading.Thread(target=\3.\4, daemon=True)\n\1\2.start()",
@@ -163,7 +184,13 @@ def apply_subs(content: str, subs: list[tuple[str, str]]) -> str:
 
 POST_FIXUPS: list[tuple[str, str]] = [
     (
-        r"            except Exception:\n                self\.logger\.info\(\"Dynamic rule update loop cancelled\"\)\n                break\n            except Exception as e:",  # noqa: E501
+        (
+            r"            except Exception:\n"
+            r"                self\.logger\.info\("
+            r"\"Dynamic rule update loop cancelled\"\)\n"
+            r"                break\n"
+            r"            except Exception as e:"
+        ),
         r"            except Exception as e:",
     ),
     (
@@ -180,64 +207,121 @@ POST_FIXUPS: list[tuple[str, str]] = [
         '                    reason=f"Geographic lookup failed: {str(e)}",\n'
         "                )",
     ),
-    (r"list\(\(([^,]+\(\),\s*[^,]+\(\)),\s*return_exceptions=True\)", r"[\1]"),
     (
-        r"            try:\n                self\.update_task\n            except Exception:\n                pass",  # noqa: E501
+        r"list\(\(([^,]+\(\)),\s*([^,]+\(\)),\s*return_exceptions=True\)",
+        r"\1\n    \2",
+    ),
+    (
+        (
+            r"            try:\n"
+            r"                self\.update_task\n"
+            r"            except Exception:\n"
+            r"                pass"
+        ),
         "            pass",
     ),
 ]
 
 DOTALL_FIXUPS: list[tuple[str, str]] = [
     (
-        r"pass\n\n(\s+)coro = (self\._send_geo_event\(.+?\))\n\s+try:\n\s+coro\n\s+except Exception:\n\s+coro\.close\(\)",  # noqa: E501
+        (
+            r"pass\n\n(\s+)coro = (self\._send_geo_event\(.+?\))\n"
+            r"\s+try:\n\s+coro\n\s+except Exception:\n\s+coro\.close\(\)"
+        ),
         r"\2",
     ),
     (
-        r"self\.update_task = threading\.Thread\(target=self\._rule_update_loop, args=\(\)\)\n\s+self\.logger\.info",  # noqa: E501
-        "self.update_task = threading.Thread(\n"
-        "                target=self._rule_update_loop, daemon=True\n"
-        "            )\n"
-        "            self.update_task.start()\n"
-        "            self.logger.info",
+        (
+            r"self\.update_task = threading\.Thread\("
+            r"target=self\._rule_update_loop, args=\(\)\)\n"
+            r"\s+self\.logger\.info"
+        ),
+        (
+            "self.update_task = threading.Thread(\n"
+            "                target=self._rule_update_loop, daemon=True\n"
+            "            )\n"
+            "            self.update_task.start()\n"
+            "            self.logger.info"
+        ),
     ),
     (
-        r"def handle_passthrough\(\n\s+self,\n\s+request: SyncGuardRequest,\n\s+call_next: Callable\[\[SyncGuardRequest\], GuardResponse\],\n\s+\) -> GuardResponse \| None:\n\s+if not request\.client_host:\n\s+response = call_next\(request\)\n\s+return self\.context\.response_factory\.apply_modifier\(response\)\n\n\s+if self\.context\.validator\.is_path_excluded\(request\):\n\s+response = call_next\(request\)\n\s+return self\.context\.response_factory\.apply_modifier\(response\)\n\n\s+return None",  # noqa: E501
-        "def handle_passthrough(\n"
-        "        self,\n"
-        "        request: SyncGuardRequest,\n"
-        "        call_next: Callable[[SyncGuardRequest], GuardResponse] | None = None,\n"  # noqa: E501
-        "    ) -> GuardResponse | None:\n"
-        "        if not request.client_host:\n"
-        "            if call_next:\n"
-        "                response = call_next(request)\n"
-        "                return self.context.response_factory.apply_modifier(response)\n"  # noqa: E501
-        "            return None\n"
-        "\n"
-        "        if self.context.validator.is_path_excluded(request):\n"
-        "            if call_next:\n"
-        "                response = call_next(request)\n"
-        "                return self.context.response_factory.apply_modifier(response)\n"  # noqa: E501
-        "            return None\n"
-        "\n"
-        "        return None",
+        (
+            r"def handle_passthrough\(\n"
+            r"\s+self,\n"
+            r"\s+request: SyncGuardRequest,\n"
+            r"\s+call_next: "
+            r"Callable\[\[SyncGuardRequest\], GuardResponse\],\n"
+            r"\s+\) -> GuardResponse \| None:\n"
+            r"\s+if not request\.client_host:\n"
+            r"\s+response = call_next\(request\)\n"
+            r"\s+return self\.context\.response_factory\."
+            r"apply_modifier\(response\)\n\n"
+            r"\s+if self\.context\.validator\.is_path_excluded\(request\):\n"
+            r"\s+response = call_next\(request\)\n"
+            r"\s+return self\.context\.response_factory\."
+            r"apply_modifier\(response\)\n\n"
+            r"\s+return None"
+        ),
+        (
+            "def handle_passthrough(\n"
+            "        self,\n"
+            "        request: SyncGuardRequest,\n"
+            "        call_next: "
+            "Callable[[SyncGuardRequest], GuardResponse] | None = None,\n"
+            "    ) -> GuardResponse | None:\n"
+            "        if not request.client_host:\n"
+            "            if call_next:\n"
+            "                response = call_next(request)\n"
+            "                return self.context.response_factory."
+            "apply_modifier(response)\n"
+            "            return None\n"
+            "\n"
+            "        if self.context.validator.is_path_excluded(request):\n"
+            "            if call_next:\n"
+            "                response = call_next(request)\n"
+            "                return self.context.response_factory."
+            "apply_modifier(response)\n"
+            "            return None\n"
+            "\n"
+            "        return None"
+        ),
     ),
     (
-        r"def handle_security_bypass\(\n\s+self,\n\s+request: SyncGuardRequest,\n\s+call_next: Callable\[\[SyncGuardRequest\], GuardResponse\],\n\s+route_config: RouteConfig \| None,",  # noqa: E501
-        "def handle_security_bypass(\n"
-        "        self,\n"
-        "        request: SyncGuardRequest,\n"
-        "        call_next: Callable[[SyncGuardRequest], GuardResponse] | None = None,\n"  # noqa: E501
-        "        route_config: RouteConfig | None = None,",
+        (
+            r"def handle_security_bypass\(\n"
+            r"\s+self,\n"
+            r"\s+request: SyncGuardRequest,\n"
+            r"\s+call_next: "
+            r"Callable\[\[SyncGuardRequest\], GuardResponse\],\n"
+            r"\s+route_config: RouteConfig \| None,"
+        ),
+        (
+            "def handle_security_bypass(\n"
+            "        self,\n"
+            "        request: SyncGuardRequest,\n"
+            "        call_next: "
+            "Callable[[SyncGuardRequest], GuardResponse] | None = None,\n"
+            "        route_config: RouteConfig | None = None,"
+        ),
     ),
     (
-        r"if not self\.context\.config\.passive_mode:\n\s+response = call_next\(request\)\n\s+return self\.context\.response_factory\.apply_modifier\(response\)\n\n\s+return None",  # noqa: E501
-        "if not self.context.config.passive_mode:\n"
-        "            if call_next:\n"
-        "                response = call_next(request)\n"
-        "                return self.context.response_factory.apply_modifier(response)\n"  # noqa: E501
-        "            return None\n"
-        "\n"
-        "        return None",
+        (
+            r"if not self\.context\.config\.passive_mode:\n"
+            r"\s+response = call_next\(request\)\n"
+            r"\s+return self\.context\.response_factory\."
+            r"apply_modifier\(response\)\n\n"
+            r"\s+return None"
+        ),
+        (
+            "if not self.context.config.passive_mode:\n"
+            "            if call_next:\n"
+            "                response = call_next(request)\n"
+            "                return self.context.response_factory."
+            "apply_modifier(response)\n"
+            "            return None\n"
+            "\n"
+            "        return None"
+        ),
     ),
     (
         r"def stop\(self\) -> None:\n\s+if self\.update_task:\n"
@@ -267,30 +351,39 @@ def _skip_async_only_tests(content: str) -> str:
     lines = content.split("\n")
     result: list[str] = []
     skipping = False
+    pending_decorators: list[str] = []
 
     for line in lines:
+        stripped = line.strip()
+
         if "# async-only" in line:
-            match = re.match(r"^(\s*)(?:async )?def (test_\w+)\(", line)
-            if match:
-                indent = match.group(1)
-                name = match.group(2)
+            if re.match(r"^\s*(?:async )?def test_\w+\(", line):
                 skipping = True
-                result.append(f"{indent}def {name}() -> None:")
-                result.append(f'{indent}    pytest.skip("async-only test")')
-                result.append("")
-                result.append("")
+                pending_decorators = []
                 continue
 
         if skipping:
-            is_next_def = re.match(
-                r"^(?:async )?def test_|^@pytest\.mark|^class ", line
-            )
-            if is_next_def:
+            if re.match(r"^(?:async )?def test_|^@pytest\.mark|^class ", line):
                 skipping = False
+                if line.startswith("@"):
+                    pending_decorators = [line]
+                    continue
                 result.append(line)
+                continue
             continue
 
+        if stripped.startswith("@"):
+            pending_decorators.append(line)
+            continue
+
+        if pending_decorators:
+            result.extend(pending_decorators)
+            pending_decorators = []
+
         result.append(line)
+
+    if pending_decorators:
+        result.extend(pending_decorators)
 
     return "\n".join(result)
 
@@ -319,6 +412,8 @@ def collect_source_files() -> list[tuple[Path, Path]]:
                 continue
             if rel == Path(".") and f == "__init__.py":
                 continue
+            if (rel / f) in SKIP_SRC_PATHS:
+                continue
 
             src = root_path / f
             dst = SYNC_DIR / rel / f
@@ -340,6 +435,8 @@ def collect_test_files() -> list[tuple[Path, Path]]:
 
         for f in sorted(files):
             if not f.endswith(".py"):
+                continue
+            if (rel / f) in SKIP_TEST_PATHS:
                 continue
 
             src = root_path / f
@@ -416,8 +513,8 @@ def main() -> None:
     check = "--check" in sys.argv
 
     if check:
-        import tempfile  # noqa: I001
         import shutil
+        import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_sync = Path(tmpdir) / "sync"

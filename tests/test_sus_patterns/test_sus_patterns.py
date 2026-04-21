@@ -803,3 +803,109 @@ def test_sensitive_pattern_no_false_positives(path: str) -> None:
     assert not _matches_sensitive_pattern(path), (
         f"False positive: legitimate path matched: {path}"
     )
+
+
+@pytest.mark.asyncio
+async def test_initialize_redis_no_cached_patterns() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    redis = AsyncMock()
+    redis.get_key = AsyncMock(return_value=None)
+    await mgr.initialize_redis(redis)
+    assert mgr.redis_handler is redis
+
+
+@pytest.mark.asyncio
+async def test_initialize_redis_duplicate_patterns_skipped() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    await mgr.reset()
+    await mgr.add_pattern(r"test_existing_pattern", custom=True)
+
+    redis = AsyncMock()
+    redis.get_key = AsyncMock(
+        return_value="test_existing_pattern,another_unique_pattern"
+    )
+    await mgr.initialize_redis(redis)
+    await mgr.reset()
+
+
+@pytest.mark.asyncio
+async def test_detect_pattern_match_semantic_only() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    fake_result = {
+        "is_threat": True,
+        "threats": [
+            {"type": "semantic", "attack_type": "xss"},
+        ],
+    }
+    with patch.object(mgr, "detect", AsyncMock(return_value=fake_result)):
+        is_threat, pattern = await mgr.detect_pattern_match("<script>", "1.2.3.4")
+    assert is_threat is True
+    assert pattern == "semantic:xss"
+
+
+@pytest.mark.asyncio
+async def test_detect_pattern_match_threats_empty_returns_unknown() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    fake_result = {"is_threat": True, "threats": []}
+    with patch.object(mgr, "detect", AsyncMock(return_value=fake_result)):
+        is_threat, pattern = await mgr.detect_pattern_match("x", "1.1.1.1")
+    assert is_threat is True
+    assert pattern == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_reset_without_instance() -> None:
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    await SusPatternsManager.reset()
+    assert SusPatternsManager._instance is None
+
+
+@pytest.mark.asyncio
+async def test_send_threat_event_without_patterns_uses_unknown() -> None:
+    from typing import Any
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+
+    captured: dict[str, Any] = {}
+
+    async def capture_event(**kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    with patch.object(mgr, "_send_pattern_event", AsyncMock(side_effect=capture_event)):
+        await mgr._send_threat_event(
+            matched_patterns=[],
+            semantic_threats=[],
+            ip_address="1.1.1.1",
+            context="unknown",
+            content="benign",
+            threat_score=0.0,
+            threats=[],
+            regex_threats=[],
+            timeouts=[],
+            execution_time=0.01,
+            correlation_id=None,
+        )
+
+    assert captured["pattern"] == "unknown"

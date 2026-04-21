@@ -3,7 +3,7 @@ import threading
 import time
 from collections.abc import Generator
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -191,10 +191,6 @@ def test_rule_update_loop_handles_exceptions(
 
     assert "Error in dynamic rule update loop: Test exception" in caplog.text
     assert call_count >= 1
-
-
-def test_rule_update_loop_cancellation_logged() -> None:
-    pytest.skip("async-only test")
 
 
 def test_update_rules_disabled(
@@ -1258,10 +1254,6 @@ def test_force_update(
         mock_update_rules.assert_called_once()
 
 
-def test_stop_with_task() -> None:
-    pytest.skip("async-only test")
-
-
 def test_stop_without_task(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1275,3 +1267,36 @@ def test_stop_without_task(
 
     assert manager.update_task is None
     assert "Stopped dynamic rule update loop" not in caplog.text
+
+
+def test_apply_ip_rules_whitelist_only(
+    config: SecurityConfig, cleanup_singleton: Generator[Any, Any, Any]
+) -> None:
+    manager = DynamicRuleManager(config)
+    rules = DynamicRules(
+        rule_id="x",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=["1.1.1.1"],
+    )
+    cast(Any, manager)._apply_ip_whitelist = MagicMock()
+    cast(Any, manager)._apply_ip_bans = MagicMock()
+    manager._apply_ip_rules(rules)
+    cast(Any, manager)._apply_ip_bans.assert_not_called()
+    cast(Any, manager)._apply_ip_whitelist.assert_called_once()
+
+
+def test_apply_rate_limit_without_window(
+    config: SecurityConfig, cleanup_singleton: Generator[Any, Any, Any]
+) -> None:
+    manager = DynamicRuleManager(config)
+    rules = DynamicRules(
+        rule_id="x",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        global_rate_limit=100,
+        global_rate_window=None,
+    )
+    manager._apply_rate_limit_rules(rules)
+    assert manager.config.rate_limit == 100

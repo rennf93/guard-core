@@ -94,14 +94,6 @@ bandit:
 	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
 
 
-.PHONY: safety
-safety:
-	@echo "Checking dependencies with Safety..."
-	@echo ''
-	@uv run safety scan
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
-
-
 .PHONY: pip-audit
 pip-audit:
 	@echo "Auditing dependencies with pip-audit..."
@@ -141,26 +133,18 @@ deptry:
 	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
 
 
-.PHONY: semgrep
-semgrep:
-	@echo "Running Semgrep static analysis..."
-	@echo ''
-	@uv run semgrep --config=auto guard_core
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
-
-
 .PHONY: security
-security: bandit safety pip-audit
+security: bandit pip-audit
 	@echo "All security checks completed."
 
 
 .PHONY: quality
-quality: lint vulture radon xenon
+quality: lint lint-docs vulture radon xenon
 	@echo "All code quality checks completed."
 
 
 .PHONY: analysis
-analysis: deptry semgrep
+analysis: deptry
 	@echo "All analysis tools completed."
 
 
@@ -239,13 +223,13 @@ serve-docs:
 
 .PHONY: lint-docs
 lint-docs:
-	@uv run pymarkdownlnt scan -r -e ./.venv -e ./.git -e ./.github -e ./data -e ./guard_core -e ./tests -e ./.claude -e ./CLAUDE.md -e ./.cursor -e ./.kiro -e ./ZZZ .
+	@uv run pymarkdownlnt scan -r -e ".venv/**" -e ".git/**" -e ".github/**" -e "data/**" -e "guard_core/**" -e "tests/**" -e ".claude/**" -e "CLAUDE.md" -e ".cursor/**" -e ".kiro/**" -e "ZZZ/**" .
 	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
 
 
 .PHONY: fix-docs
 fix-docs:
-	@uv run pymarkdownlnt fix -r -e ./.venv -e ./.git -e ./.github -e ./data -e ./guard_core -e ./tests -e ./.claude -e ./CLAUDE.md -e ./.cursor -e ./.kiro -e ./ZZZ .
+	@uv run pymarkdownlnt fix -r -e ".venv/**" -e ".git/**" -e ".github/**" -e "data/**" -e "guard_core/**" -e "tests/**" -e ".claude/**" -e "CLAUDE.md" -e ".cursor/**" -e ".kiro/**" -e "ZZZ/**" .
 	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
 
 

@@ -50,6 +50,36 @@ class SecurityCheckPipeline:
 
         return None
 
+    async def run_post_response(
+        self, request: GuardRequest, response: GuardResponse
+    ) -> GuardResponse:
+        current = response
+        for check in self.checks:
+            try:
+                replacement = await check.post_response(request, current)
+            except Exception as e:
+                self.logger.error(
+                    f"Error in post_response {check.check_name}: {e}",
+                    extra={
+                        "check": check.check_name,
+                        "path": request.url_path,
+                        "method": request.method,
+                    },
+                    exc_info=True,
+                )
+                continue
+            if replacement is not None:
+                self.logger.info(
+                    f"Response replaced by {check.check_name}",
+                    extra={
+                        "check": check.check_name,
+                        "path": request.url_path,
+                        "method": request.method,
+                    },
+                )
+                current = replacement
+        return current
+
     def add_check(self, check: SecurityCheck) -> None:
         self.checks.append(check)
 

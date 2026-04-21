@@ -23,22 +23,18 @@ class PatternCompiler:
     ) -> re.Pattern:
         cache_key = f"{hash(pattern)}:{flags}"
 
-        if cache_key in self._compiled_cache:
-            with self._lock:
-                if cache_key in self._compiled_cache:
-                    self._cache_order.remove(cache_key)
-                    self._cache_order.append(cache_key)
-                    return self._compiled_cache[cache_key]
-
         with self._lock:
-            if cache_key not in self._compiled_cache:
-                if len(self._compiled_cache) >= self.max_cache_size:
-                    oldest_key = self._cache_order.pop(0)
-                    del self._compiled_cache[oldest_key]
-
-                self._compiled_cache[cache_key] = re.compile(pattern, flags)
+            if cache_key in self._compiled_cache:
+                self._cache_order.remove(cache_key)
                 self._cache_order.append(cache_key)
+                return self._compiled_cache[cache_key]
 
+            if len(self._compiled_cache) >= self.max_cache_size:
+                oldest_key = self._cache_order.pop(0)
+                del self._compiled_cache[oldest_key]
+
+            self._compiled_cache[cache_key] = re.compile(pattern, flags)
+            self._cache_order.append(cache_key)
             return self._compiled_cache[cache_key]
 
     def compile_pattern_sync(

@@ -1,6 +1,7 @@
 import ipaddress
 import time
 from collections import deque
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from guard_core.handlers.cloud_handler import CloudManager
@@ -102,6 +103,37 @@ async def test_security_headers_wildcard_credentials_true() -> None:
     assert result is True
 
 
+async def test_security_headers_singleton_returns_existing_instance() -> None:
+    SecurityHeadersManager._instance = None
+    first = SecurityHeadersManager()
+    second = SecurityHeadersManager()
+    assert first is second
+
+
+async def test_security_headers_singleton_race_inner_check_false() -> None:
+    SecurityHeadersManager._instance = None
+    pre_existing = object.__new__(SecurityHeadersManager)
+
+    class _RaceLock:
+        def __enter__(self) -> "_RaceLock":
+            SecurityHeadersManager._instance = pre_existing
+            return self
+
+        def __exit__(self, *_: Any) -> None:
+            return None
+
+    lock_attr = "_lock"
+    original_lock = SecurityHeadersManager._lock
+    setattr(SecurityHeadersManager, lock_attr, _RaceLock())
+    try:
+        result = SecurityHeadersManager()
+    finally:
+        setattr(SecurityHeadersManager, lock_attr, original_lock)
+        SecurityHeadersManager._instance = None
+
+    assert result is pre_existing
+
+
 async def test_responses_factory_cors_with_headers() -> None:
     from guard_core.core.events.metrics import MetricsCollector
     from guard_core.core.responses.context import ResponseContext
@@ -150,6 +182,21 @@ async def test_utils_log_country_check_no_geolocation() -> None:
     from guard_core.utils import _log_country_check_result
 
     _log_country_check_result("1.2.3.4", None, "no_geolocation")
+
+
+async def test_utils_log_country_check_unknown_result_type() -> None:
+    from guard_core.utils import _log_country_check_result
+
+    _log_country_check_result("1.2.3.4", "US", "not_a_real_type")
+
+
+async def test_utils_log_at_level_unknown_level_is_noop() -> None:
+    import logging as _logging
+
+    from guard_core.utils import _log_at_level
+
+    logger = _logging.getLogger("test_log_at_level_noop")
+    _log_at_level(logger, "UNKNOWN_LEVEL", "msg that should be ignored")
 
 
 async def test_utils_check_country_no_geolocation() -> None:
@@ -278,8 +325,12 @@ async def test_utils_detect_penetration_header_match() -> None:
         call_count = 0
 
         async def side_effect(
-            value, context, component_name, client_ip, correlation_id
-        ):
+            value: Any,
+            context: str,
+            component_name: str,
+            client_ip: str,
+            correlation_id: str,
+        ) -> tuple[bool, str]:
             nonlocal call_count
             call_count += 1
             if "header" in context and "X-Evil" in context:

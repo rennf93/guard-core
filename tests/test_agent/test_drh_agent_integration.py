@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections.abc import Generator
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1337,7 +1337,7 @@ async def test_stop_with_task(  # async-only
     manager = DynamicRuleManager(config)
 
     async def dummy_task() -> None:
-        pass  # pragma: no cover
+        await asyncio.sleep(10)
 
     manager.update_task = asyncio.create_task(dummy_task())
 
@@ -1361,3 +1361,38 @@ async def test_stop_without_task(
 
     assert manager.update_task is None
     assert "Stopped dynamic rule update loop" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apply_ip_rules_whitelist_only(
+    config: SecurityConfig, cleanup_singleton: Generator[Any, Any, Any]
+) -> None:
+    manager = DynamicRuleManager(config)
+    rules = DynamicRules(
+        rule_id="x",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=["1.1.1.1"],
+    )
+    cast(Any, manager)._apply_ip_whitelist = AsyncMock()
+    cast(Any, manager)._apply_ip_bans = AsyncMock()
+    await manager._apply_ip_rules(rules)
+    cast(Any, manager)._apply_ip_bans.assert_not_called()
+    cast(Any, manager)._apply_ip_whitelist.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_apply_rate_limit_without_window(
+    config: SecurityConfig, cleanup_singleton: Generator[Any, Any, Any]
+) -> None:
+    manager = DynamicRuleManager(config)
+    rules = DynamicRules(
+        rule_id="x",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        global_rate_limit=100,
+        global_rate_window=None,
+    )
+    await manager._apply_rate_limit_rules(rules)
+    assert manager.config.rate_limit == 100

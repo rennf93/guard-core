@@ -141,6 +141,13 @@ async def test_cache_key_default_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_hsts_without_subdomains_or_preload() -> None:
+    manager = SecurityHeadersManager()
+    hsts_config = {"max_age": 3600, "include_subdomains": False, "preload": False}
+    assert manager._build_hsts(hsts_config) == "max-age=3600"
+
+
+@pytest.mark.asyncio
 async def test_hsts_preload_requires_long_max_age(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

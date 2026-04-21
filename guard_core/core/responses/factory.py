@@ -83,6 +83,11 @@ class ErrorResponseFactory:
             )
             await process_behavioral_rules(request, response, client_ip, route_config)
 
+        if self.context.security_pipeline is not None:
+            response = await self.context.security_pipeline.run_post_response(
+                request, response
+            )
+
         await self.context.metrics_collector.collect_request_metrics(
             request, response_time, response.status_code
         )

@@ -238,6 +238,53 @@ async def test_initialize_agent_for_handlers_with_cloud(
         mock_cloud.initialize_agent.assert_called_once_with(mock_agent_handler)
 
 
+async def test_initialize_agent_for_handlers_without_rate_limit(
+    security_config: SecurityConfig,
+    mock_agent_handler: Mock,
+) -> None:
+    initializer = HandlerInitializer(
+        config=security_config,
+        agent_handler=mock_agent_handler,
+        rate_limit_handler=None,
+    )
+    with (
+        patch("guard_core.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_agent = AsyncMock()
+        mock_ipban.initialize_agent = AsyncMock()
+        mock_sus.initialize_agent = AsyncMock()
+
+        await initializer.initialize_agent_for_handlers()
+
+
+async def test_initialize_agent_for_handlers_geoip_without_method(
+    security_config: SecurityConfig,
+    mock_agent_handler: Mock,
+) -> None:
+    geo = Mock(spec=[])
+    initializer = HandlerInitializer(
+        config=security_config,
+        agent_handler=mock_agent_handler,
+        geo_ip_handler=geo,
+    )
+    with (
+        patch("guard_core.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_agent = AsyncMock()
+        mock_ipban.initialize_agent = AsyncMock()
+        mock_sus.initialize_agent = AsyncMock()
+
+        await initializer.initialize_agent_for_handlers()
+
+
 async def test_initialize_agent_for_handlers_with_geoip(
     initializer: HandlerInitializer,
     mock_agent_handler: Mock,

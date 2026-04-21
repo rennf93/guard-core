@@ -18,6 +18,15 @@ from tests.test_sync.conftest import SyncMockGuardRequest
 IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
 
 
+@pytest.fixture(autouse=True)
+def _close_guard_logger_handlers() -> Any:
+    yield
+    guard_logger = logging.getLogger("guard_core")
+    for handler in list(guard_logger.handlers):
+        handler.close()
+        guard_logger.removeHandler(handler)
+
+
 def test_is_ip_allowed(security_config: SecurityConfig, mocker: MockerFixture) -> None:
     mocker.patch("guard_core.sync.utils.check_ip_country", return_value=False)
 

@@ -161,10 +161,6 @@ def test_get_country_exception_with_agent(
     assert "Geographic lookup failed: Database corrupted" in sent_event.reason
 
 
-def test_get_country_exception_create_task_fails() -> None:
-    pytest.skip("async-only test")
-
-
 def test_get_country_exception_no_agent(
     cleanup_ipinfo_singleton: None,
 ) -> None:

@@ -118,6 +118,37 @@ class SecurityConfig(BaseModel):
         default=60, description="Rate limiting time window (seconds)"
     )
 
+    enable_threat_score_rate_limiting: bool = Field(
+        default=False,
+        description=(
+            "Tighten per-IP rate limits when recent prompt-injection "
+            "detections have been recorded for that IP. Requires rate "
+            "limiting to be enabled overall. Off by default; opt in to "
+            "trade a small per-request Redis query for automatic backoff "
+            "on attackers."
+        ),
+    )
+
+    rate_limit_multiplier_on_threat: float = Field(
+        default=0.25,
+        description=(
+            "Fraction of the configured rate_limit applied when a client IP "
+            "has any unexpired threat signal. 0.25 = allow 25% of normal "
+            "throughput. Range (0, 1]; 1.0 disables tightening."
+        ),
+        gt=0.0,
+        le=1.0,
+    )
+
+    threat_signal_ttl: int = Field(
+        default=3600,
+        description=(
+            "Seconds a recorded threat signal remains in effect when "
+            "applying rate_limit_multiplier_on_threat. Default 1h."
+        ),
+        ge=1,
+    )
+
     enforce_https: bool = Field(
         default=False, description="Whether to enforce HTTPS connections"
     )
@@ -343,6 +374,7 @@ class SecurityConfig(BaseModel):
         le=5000,
     )
 
+<<<<<<< Updated upstream
     # Prompt Injection Defense
     enable_prompt_injection_detection: bool = Field(
         default=False,
@@ -359,18 +391,40 @@ class SecurityConfig(BaseModel):
     prompt_injection_sensitivity: float = Field(
         default=0.5,
         description="Pattern sensitivity (0.0=strict, 1.0=permissive)",
+=======
+    enable_prompt_injection_defense: bool = Field(
+        default=False,
+        description="Enable prompt injection detection on request bodies",
+    )
+
+    prompt_injection_protection_level: Literal["disabled", "enabled"] = Field(
+        default="enabled",
+        description="Prompt injection protection level",
+    )
+
+    prompt_injection_pattern_sensitivity: float = Field(
+        default=0.5,
+        description=(
+            "Pattern detector sensitivity; <=0.5 is strict (any match blocks)"
+        ),
+>>>>>>> Stashed changes
         ge=0.0,
         le=1.0,
     )
 
     prompt_injection_custom_patterns: list[str] = Field(
         default_factory=list,
+<<<<<<< Updated upstream
         description="User-defined regex patterns for injection detection",
+=======
+        description="Additional regex patterns (ReDoS-validated at load)",
+>>>>>>> Stashed changes
     )
 
     prompt_injection_format_strategy: Literal[
         "repr", "code_block", "byte_string", "xml_tags", "json_escape"
     ] = Field(
+<<<<<<< Updated upstream
         default="xml_tags",
         description="Format strategy for sanitizing LLM input",
     )
@@ -440,12 +494,263 @@ class SecurityConfig(BaseModel):
     prompt_injection_ml_threshold: float = Field(
         default=0.5,
         description="ML model confidence threshold (0.0-1.0)",
+=======
+        default="repr",
+        description="Input sanitization strategy applied before LLM",
+    )
+
+    prompt_injection_enable_canary: bool = Field(
+        default=True,
+        description="Inject canary tokens into system prompts for leak detection",
+    )
+
+    prompt_injection_store_canaries_redis: bool = Field(
+        default=False,
+        description="Use Redis for distributed canary storage",
+    )
+
+    prompt_injection_enable_statistical_boost: bool = Field(
+        default=True,
+        description=(
+            "Add a statistical (entropy/encoding/obfuscation) boost to the "
+            "pattern score via SemanticAnalyzer"
+        ),
+    )
+
+    prompt_injection_statistical_boost_weight: float = Field(
+        default=0.3,
+        description="Weight applied to the statistical boost when combining",
+>>>>>>> Stashed changes
         ge=0.0,
         le=1.0,
     )
 
+<<<<<<< Updated upstream
     # TODO: Add type hints to the decorator
     @field_validator("whitelist", "blacklist")  # type: ignore
+=======
+    prompt_injection_context_boost_weight: float = Field(
+        default=0.2,
+        description="Weight applied to the context-aware boost when combining",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_context_max_history: int = Field(
+        default=50,
+        description="Max per-user input history retained by context detector",
+        ge=1,
+        le=10000,
+    )
+
+    prompt_injection_detection_threshold: float = Field(
+        default=0.7,
+        description="Unified detection threshold; block when score >= threshold",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_rag_detection_threshold: float = Field(
+        default=0.6,
+        description=(
+            "Detection threshold for PromptGuard.protect_rag_content(). Lower "
+            "than the chat threshold because retrieved content is typically "
+            "longer, less structured, and more likely to embed injection "
+            "payloads near the end of benign-looking context."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_semantic_fuzzy_threshold: float = Field(
+        default=0.85,
+        description="Minimum similarity for semantic fuzzy matches",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_semantic_proximity_window: int = Field(
+        default=5,
+        description="Max tokens between related terms for proximity match",
+        ge=1,
+        le=100,
+    )
+
+    prompt_injection_semantic_enable_synonym: bool = Field(
+        default=True,
+        description="Enable synonym expansion in semantic matcher",
+    )
+
+    prompt_injection_semantic_enable_fuzzy: bool = Field(
+        default=True,
+        description="Enable fuzzy matching in semantic matcher",
+    )
+
+    prompt_injection_semantic_enable_proximity: bool = Field(
+        default=True,
+        description="Enable proximity matching in semantic matcher",
+    )
+
+    prompt_injection_enable_embedding_detection: bool = Field(
+        default=False,
+        description=(
+            "Enable sentence-transformer embedding similarity detector "
+            "(requires guard-core[prompt_injection])"
+        ),
+    )
+
+    prompt_injection_embedding_model: str = Field(
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        description="Model name for embedding detector",
+    )
+
+    prompt_injection_embedding_threshold: float = Field(
+        default=0.5,
+        description="Cosine similarity threshold for embedding detector",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_enable_transformer_detection: bool = Field(
+        default=False,
+        description=(
+            "Enable DeBERTa-based transformer classifier "
+            "(requires guard-core[prompt_injection])"
+        ),
+    )
+
+    prompt_injection_transformer_model: str = Field(
+        default="protectai/deberta-v3-base-prompt-injection",
+        description="HuggingFace model id for transformer classifier",
+    )
+
+    prompt_injection_transformer_threshold: float = Field(
+        default=0.5,
+        description="Confidence threshold for transformer classifier",
+        ge=0.0,
+        le=1.0,
+    )
+
+    prompt_injection_transformer_revision: str = Field(
+        default="main",
+        description="Git revision (commit SHA, tag, or branch) to pin HuggingFace "
+        "transformer model weights",
+    )
+
+    prompt_injection_long_input_strategy: Literal["max", "mean", "any"] = Field(
+        default="max",
+        description=(
+            "How to aggregate per-window scores when input exceeds the "
+            "transformer / embedding max sequence length. 'max' (default) "
+            "is safest for detection; 'mean' is conservative; 'any' fires "
+            "if any window is above the threshold."
+        ),
+    )
+
+    prompt_injection_window_size: int = Field(
+        default=512,
+        description="Transformer token window size for long-input splitting",
+        ge=64,
+    )
+
+    prompt_injection_window_overlap: int = Field(
+        default=64,
+        description=(
+            "Transformer token window overlap so payloads spanning a "
+            "window boundary are seen whole by at least one window"
+        ),
+        ge=0,
+    )
+
+    prompt_injection_embedding_window_chars: int = Field(
+        default=96,
+        description=(
+            "Embedding character window size for long-input splitting. "
+            "Measured sweep against the built-in attack template corpus: "
+            "an embedded 40-80-char injection payload scores 0.67 at "
+            "window=64, 0.61 at window=96, 0.35 at window=128, <0.25 at "
+            "≥256. Default 96 keeps the payload isolated enough to cross "
+            "the 0.5 similarity threshold without over-slicing normal "
+            "chat inputs. The prior 1024-char default produced zero "
+            "embedding hits on the RAG benchmark — this fixes the layer."
+        ),
+        ge=32,
+    )
+
+    prompt_injection_embedding_window_overlap_chars: int = Field(
+        default=24,
+        description=(
+            "Embedding character window overlap for long-input splitting. "
+            "Sized to 25% of window_chars so a payload spanning a window "
+            "boundary is always seen whole by at least one window."
+        ),
+        ge=0,
+    )
+
+    prompt_injection_enable_language_routing: bool = Field(
+        default=False,
+        description=(
+            "Route non-English input to a multilingual transformer model. "
+            "Requires lingua-language-detector (bundled in the "
+            "prompt_injection extra) and the multilingual transformer "
+            "weights. Off by default."
+        ),
+    )
+
+    prompt_injection_multilingual_transformer_model: str = Field(
+        default="proventra/mdeberta-v3-base-prompt-injection",
+        description=(
+            "HuggingFace model id used when prompt_injection_enable_"
+            "language_routing is True and the detected language is not "
+            "English. Default proventra/mdeberta-v3-base-prompt-injection "
+            "(non-gated MIT, mDeBERTa-v3 multilingual base). Measured on "
+            "the 5685-sample non-English eval corpus (DE/ES/FR/IT/JA/NL/PT/"
+            "TR/ZH): P=0.985 R=0.857 F1=0.916 FPR=0.010 at threshold=0.5. "
+            "See benchmarks/prompt_injection/results/multilingual.json."
+        ),
+    )
+
+    prompt_injection_multilingual_scoring_scheme: Literal[
+        "softmax", "sigmoid_binary"
+    ] = Field(
+        default="softmax",
+        description=(
+            "Output head shape of the multilingual model. 'softmax' "
+            "(two-logit binary SAFE/INJECTION) or 'sigmoid_binary' "
+            "(independent per-label logits, read the injection label "
+            "through sigmoid). DeBERTa-style checkpoints are softmax; "
+            "mmBERT-v3.5 is sigmoid_binary."
+        ),
+    )
+
+    prompt_injection_multilingual_injection_label_idx: int = Field(
+        default=1,
+        description=(
+            "Logit index that holds the INJECTION score for the "
+            "multilingual model. DeBERTa-style checkpoints use idx=1; "
+            "mmBERT-v3.5 has prompt_injection at idx=0."
+        ),
+        ge=0,
+    )
+
+    prompt_injection_multilingual_transformer_threshold: float = Field(
+        default=0.65,
+        description=(
+            "Confidence threshold applied to the INJECTION class "
+            "probability of the multilingual model. Calibrated on a 3,119-"
+            "sample stratified val split of the multilingual eval corpus: "
+            "0.65 maximises recall subject to FPR ≤ 0.01. Held-out test "
+            "numbers at this threshold: P=0.996 R=0.524 F1=0.686 FPR=0.008. "
+            "See benchmarks/prompt_injection/results/multilingual_"
+            "calibration.json for the full sweep."
+        ),
+        ge=0.0,
+        le=1.0,
+    )
+
+    @field_validator("whitelist", "blacklist")
+    @classmethod
+>>>>>>> Stashed changes
     def validate_ip_lists(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
@@ -463,8 +768,8 @@ class SecurityConfig(BaseModel):
                 raise ValueError(f"Invalid IP or CIDR range: {entry}") from None
         return validated
 
-    # TODO: Add type hints to the decorator
-    @field_validator("trusted_proxies")  # type: ignore
+    @field_validator("trusted_proxies")
+    @classmethod
     def validate_trusted_proxies(cls, v: list[str]) -> list[str]:
         if not v:
             return []
@@ -482,23 +787,22 @@ class SecurityConfig(BaseModel):
                 raise ValueError(f"Invalid proxy IP or CIDR range: {entry}") from None
         return validated
 
-    # TODO: Add type hints to the decorator
-    @field_validator("trusted_proxy_depth")  # type: ignore
+    @field_validator("trusted_proxy_depth")
+    @classmethod
     def validate_proxy_depth(cls, v: int) -> int:
         if v < 1:
             raise ValueError("trusted_proxy_depth must be at least 1")
         return v
 
-    # TODO: Add type hints to the decorator
-    @field_validator("block_cloud_providers", mode="before")  # type: ignore
+    @field_validator("block_cloud_providers", mode="before")
+    @classmethod
     def validate_cloud_providers(cls, v: Any) -> set[str]:
         valid_providers = {"AWS", "GCP", "Azure"}
         if v is None:
             return set()
         return {p for p in v if p in valid_providers}
 
-    # TODO: Add type hints to the decorator
-    @model_validator(mode="after")  # type: ignore
+    @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:
         if self.geo_ip_handler is None and (
             self.blocked_countries or self.whitelist_countries
@@ -517,8 +821,7 @@ class SecurityConfig(BaseModel):
                 )
         return self
 
-    # TODO: Add type hints to the decorator
-    @model_validator(mode="after")  # type: ignore
+    @model_validator(mode="after")
     def validate_agent_config(self) -> Self:
         if self.enable_agent and not self.agent_api_key:
             raise ValueError("agent_api_key is required when enable_agent is True")

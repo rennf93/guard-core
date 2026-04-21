@@ -41,5 +41,6 @@ __all__ = [
     "RateLimitCheck",
     "PromptInjectionCheck",
     "SuspiciousActivityCheck",
+    "PromptInjectionCheck",
     "CustomRequestCheck",
 ]

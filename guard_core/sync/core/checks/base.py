@@ -17,13 +17,16 @@ class SecurityCheck(ABC):
         self.logger = middleware.logger
 
     @abstractmethod
-    def check(self, request: SyncGuardRequest) -> GuardResponse | None:
-        pass  # pragma: no cover
+    def check(self, request: SyncGuardRequest) -> GuardResponse | None: ...
 
     @property
     @abstractmethod
-    def check_name(self) -> str:
-        pass  # pragma: no cover
+    def check_name(self) -> str: ...
+
+    def post_response(
+        self, request: SyncGuardRequest, response: GuardResponse
+    ) -> GuardResponse | None:
+        return None
 
     def send_event(
         self,

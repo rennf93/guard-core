@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -46,7 +47,7 @@ def test_check_banned_ip_bypass(
     ip_security_check: IpSecurityCheck, mock_request: Mock
 ) -> None:
     route_config = RouteConfig()
-    ip_security_check.middleware.route_resolver = Mock()
+    cast(Any, ip_security_check.middleware).route_resolver = Mock()
     ip_security_check.middleware.route_resolver.should_bypass_check = Mock(
         return_value=True
     )
@@ -141,7 +142,7 @@ def test_check_with_bypass_ip_check(
         mock_ban_mgr.is_ip_banned = MagicMock(return_value=False)
 
         mock_bypass = Mock(side_effect=lambda check, config: check == "ip")
-        ip_security_check.middleware.route_resolver = Mock()
+        cast(Any, ip_security_check.middleware).route_resolver = Mock()
         ip_security_check.middleware.route_resolver.should_bypass_check = mock_bypass
 
         result = ip_security_check.check(mock_request)

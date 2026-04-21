@@ -418,3 +418,36 @@ def test_integration_padding_attack() -> None:
 
     assert len(result) <= 200
     assert "script" in result
+
+
+def test_truncate_attacks_exceed_max_length_breaks_loop() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=400)
+    spacer = "y" * 500
+    attack = (
+        "<script>1</script>"
+        + spacer
+        + "<script>2</script>"
+        + spacer
+        + "<script>3</script>"
+        + spacer
+        + "<script>4</script>"
+        + spacer
+    )
+    result = preprocessor.truncate_safely(attack)
+    assert len(result) <= 400
+    assert "<script>" in result
+
+
+def test_truncate_attacks_iterate_without_break() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=500)
+    attack = "<script>a</script>" + "y" * 1000 + "<script>b</script>"
+    result = preprocessor.truncate_safely(attack)
+    assert "<script>a</script>" in result
+    assert "<script>b</script>" in result
+
+
+def test_decode_reaches_max_iterations() -> None:
+    preprocessor = ContentPreprocessor()
+    nested = "%25%32%35%32%35%33%31" + "script"
+    result = preprocessor.decode_common_encodings(nested)
+    assert result != nested

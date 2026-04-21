@@ -33,6 +33,13 @@ async def test_is_ip_in_blacklist_no_match() -> None:
     assert is_ip_in_blacklist("5.5.5.5", ip_address("5.5.5.5"), ["1.2.3.4"]) is False
 
 
+async def test_is_ip_in_blacklist_cidr_miss_then_match() -> None:
+    assert (
+        is_ip_in_blacklist("5.5.5.5", ip_address("5.5.5.5"), ["10.0.0.0/8", "5.5.5.5"])
+        is True
+    )
+
+
 async def test_is_ip_in_whitelist_empty() -> None:
     assert is_ip_in_whitelist("1.2.3.4", ip_address("1.2.3.4"), []) is None
 
@@ -49,6 +56,13 @@ async def test_is_ip_in_whitelist_cidr_match() -> None:
 
 async def test_is_ip_in_whitelist_no_match() -> None:
     assert is_ip_in_whitelist("5.5.5.5", ip_address("5.5.5.5"), ["1.2.3.4"]) is False
+
+
+async def test_is_ip_in_whitelist_cidr_miss_then_match() -> None:
+    assert (
+        is_ip_in_whitelist("5.5.5.5", ip_address("5.5.5.5"), ["10.0.0.0/8", "5.5.5.5"])
+        is True
+    )
 
 
 async def test_check_country_access_no_handler() -> None:
@@ -178,6 +192,20 @@ async def test_check_user_agent_allowed_by_route() -> None:
     rc.blocked_user_agents = ["badbot"]
     config = SecurityConfig(enable_redis=False)
     result = await check_user_agent_allowed("Mozilla/5.0", rc, config)
+    assert result is True
+
+
+async def test_check_user_agent_skips_non_matching_pattern() -> None:
+    rc = RouteConfig()
+    rc.blocked_user_agents = ["evilbot", "spamcrawler"]
+    config = SecurityConfig(enable_redis=False)
+    result = await check_user_agent_allowed("Mozilla/5.0", rc, config)
+    assert result is True
+
+
+async def test_check_user_agent_no_route_config() -> None:
+    config = SecurityConfig(enable_redis=False)
+    result = await check_user_agent_allowed("Mozilla/5.0", None, config)
     assert result is True
 
 

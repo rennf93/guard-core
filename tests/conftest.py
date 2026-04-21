@@ -1,7 +1,7 @@
 import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pytest import TempPathFactory
@@ -103,13 +103,18 @@ class MockGuardRequest:
 class MockGuardResponse:
     def __init__(
         self,
-        content: str = "",
+        content: str | bytes | None = "",
         status_code: int = 200,
         headers: dict[str, str] | None = None,
     ) -> None:
         self._status_code = status_code
         self._headers: dict[str, str] = headers or {}
-        self._body = content.encode() if isinstance(content, str) else content
+        if content is None:
+            self._body: bytes | None = None
+        elif isinstance(content, str):
+            self._body = content.encode()
+        else:
+            self._body = content
 
     @property
     def status_code(self) -> int:
@@ -120,7 +125,7 @@ class MockGuardResponse:
         return self._headers
 
     @property
-    def body(self) -> bytes:
+    def body(self) -> bytes | None:
         return self._body
 
 
@@ -153,8 +158,9 @@ async def reset_state() -> AsyncGenerator[None, None]:
     yield
     sus_patterns_handler.patterns = original_patterns.copy()
 
-    if IPBanManager._instance:
-        IPBanManager._instance.agent_handler = None
+    ipban_instance = cast(Any, IPBanManager)._instance
+    if ipban_instance:
+        ipban_instance.agent_handler = None
     IPBanManager._instance = None
 
 
@@ -226,7 +232,7 @@ async def redis_cleanup() -> AsyncGenerator[None, None]:
         pass
     finally:
         await redis_handler.close()
-    yield  # type: ignore
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -234,7 +240,7 @@ async def reset_rate_limiter() -> AsyncGenerator[None, None]:
     config = SecurityConfig(enable_redis=False)
     rate_limit = rate_limit_handler(config)
     await rate_limit.reset()
-    yield  # type: ignore
+    yield
 
 
 @pytest.fixture

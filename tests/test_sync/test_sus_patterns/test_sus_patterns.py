@@ -773,3 +773,103 @@ def test_sensitive_pattern_no_false_positives(path: str) -> None:
     assert not _matches_sensitive_pattern(path), (
         f"False positive: legitimate path matched: {path}"
     )
+
+
+def test_initialize_redis_no_cached_patterns() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    redis = MagicMock()
+    redis.get_key = MagicMock(return_value=None)
+    mgr.initialize_redis(redis)
+    assert mgr.redis_handler is redis
+
+
+def test_initialize_redis_duplicate_patterns_skipped() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    mgr.reset()
+    mgr.add_pattern(r"test_existing_pattern", custom=True)
+
+    redis = MagicMock()
+    redis.get_key = MagicMock(
+        return_value="test_existing_pattern,another_unique_pattern"
+    )
+    mgr.initialize_redis(redis)
+    mgr.reset()
+
+
+def test_detect_pattern_match_semantic_only() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    fake_result = {
+        "is_threat": True,
+        "threats": [
+            {"type": "semantic", "attack_type": "xss"},
+        ],
+    }
+    with patch.object(mgr, "detect", MagicMock(return_value=fake_result)):
+        is_threat, pattern = mgr.detect_pattern_match("<script>", "1.2.3.4")
+    assert is_threat is True
+    assert pattern == "semantic:xss"
+
+
+def test_detect_pattern_match_threats_empty_returns_unknown() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    mgr = SusPatternsManager()
+    fake_result = {"is_threat": True, "threats": []}
+    with patch.object(mgr, "detect", MagicMock(return_value=fake_result)):
+        is_threat, pattern = mgr.detect_pattern_match("x", "1.1.1.1")
+    assert is_threat is True
+    assert pattern == "unknown"
+
+
+def test_reset_without_instance() -> None:
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    SusPatternsManager.reset()
+    assert SusPatternsManager._instance is None
+
+
+def test_send_threat_event_without_patterns_uses_unknown() -> None:
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+
+    captured: dict[str, Any] = {}
+
+    def capture_event(**kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    with patch.object(mgr, "_send_pattern_event", MagicMock(side_effect=capture_event)):
+        mgr._send_threat_event(
+            matched_patterns=[],
+            semantic_threats=[],
+            ip_address="1.1.1.1",
+            context="unknown",
+            content="benign",
+            threat_score=0.0,
+            threats=[],
+            regex_threats=[],
+            timeouts=[],
+            execution_time=0.01,
+            correlation_id=None,
+        )
+
+    assert captured["pattern"] == "unknown"
