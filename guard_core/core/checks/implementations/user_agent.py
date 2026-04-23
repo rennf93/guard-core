@@ -26,6 +26,8 @@ class UserAgentCheck(SecurityCheck):
                 reason=f"Blocked user agent: {user_agent}",
                 level=self.config.log_suspicious_level,
                 passive_mode=self.config.passive_mode,
+                check_name=self.check_name,
+                muted_check_logs=self.config.muted_check_logs,
             )
 
             if route_config and route_config.blocked_user_agents:

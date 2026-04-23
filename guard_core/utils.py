@@ -278,8 +278,16 @@ async def log_activity(
     passive_mode: bool = False,
     trigger_info: str = "",
     level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
+    check_name: str | None = None,
+    muted_check_logs: set[str] | None = None,
 ) -> None:
     if level is None:
+        return
+    if (
+        check_name is not None
+        and muted_check_logs is not None
+        and check_name in muted_check_logs
+    ):
         return
 
     context = _extract_request_context(request)

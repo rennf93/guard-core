@@ -38,6 +38,8 @@ class CloudProviderCheck(SecurityCheck):
             reason=f"Blocked cloud provider IP: {client_ip}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         await self.middleware.event_bus.send_cloud_detection_events(

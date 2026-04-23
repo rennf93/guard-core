@@ -32,6 +32,8 @@ class RequiredHeadersCheck(SecurityCheck):
             reason=reason,
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         decorator_type, violation_type = _classify_header_violation(header)

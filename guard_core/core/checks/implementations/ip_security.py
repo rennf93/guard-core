@@ -32,6 +32,8 @@ class IpSecurityCheck(SecurityCheck):
             reason=f"Banned IP attempted access: {client_ip}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         if not self.config.passive_mode:
@@ -59,6 +61,8 @@ class IpSecurityCheck(SecurityCheck):
             reason=f"IP not allowed by route config: {client_ip}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         await self.middleware.event_bus.send_middleware_event(
@@ -99,6 +103,8 @@ class IpSecurityCheck(SecurityCheck):
             reason=f"IP not allowed: {client_ip}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         await self.middleware.event_bus.send_middleware_event(
