@@ -18,6 +18,9 @@ try:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
 
     _otel_available = True
 except ImportError:
@@ -30,6 +33,7 @@ except ImportError:
     Resource = None  # type: ignore[assignment,misc]
     TracerProvider = None  # type: ignore[assignment,misc]
     BatchSpanProcessor = None  # type: ignore[assignment,misc]
+    TraceContextTextMapPropagator = None  # type: ignore[assignment,misc]
     _otel_available = False
 
 
@@ -81,7 +85,16 @@ class OtelHandler:
         if not _otel_available or not self._tracer:
             return
         event_type = getattr(event, "event_type", "unknown")
-        with self._tracer.start_as_current_span(f"guard.event.{event_type}") as span:
+        metadata = getattr(event, "metadata", {}) or {}
+        traceparent = metadata.get("traceparent") if isinstance(metadata, dict) else None
+        parent_ctx = None
+        if traceparent:
+            propagator = TraceContextTextMapPropagator()
+            parent_ctx = propagator.extract(carrier={"traceparent": traceparent})
+
+        with self._tracer.start_as_current_span(
+            f"guard.event.{event_type}", context=parent_ctx
+        ) as span:
             span.set_attribute("guard.event_type", event_type)
             span.set_attribute("guard.ip_address", getattr(event, "ip_address", ""))
             span.set_attribute("guard.action_taken", getattr(event, "action_taken", ""))
