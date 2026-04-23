@@ -26,6 +26,8 @@ class SuspiciousActivityCheck(SecurityCheck):
             passive_mode=True,
             trigger_info=trigger_info,
             level=self.config.log_suspicious_level,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         message = "Suspicious pattern detected (passive mode)"
@@ -61,6 +63,8 @@ class SuspiciousActivityCheck(SecurityCheck):
                 log_type="suspicious",
                 reason=f"IP banned due to suspicious activity: {sus_specs}",
                 level=self.config.log_suspicious_level,
+                check_name=self.check_name,
+                muted_check_logs=self.config.muted_check_logs,
             )
 
             return self.middleware.create_error_response(
@@ -74,6 +78,8 @@ class SuspiciousActivityCheck(SecurityCheck):
             log_type="suspicious",
             reason=f"Suspicious activity detected for IP: {sus_specs}",
             level=self.config.log_suspicious_level,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         self.middleware.event_bus.send_middleware_event(

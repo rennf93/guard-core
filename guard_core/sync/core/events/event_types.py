@@ -44,6 +44,28 @@ METRIC_TYPE_VALUES: frozenset[str] = frozenset(
     }
 )
 
+CHECK_NAME_VALUES: frozenset[str] = frozenset(
+    {
+        "authentication",
+        "cloud_ip_refresh",
+        "cloud_provider",
+        "custom_request",
+        "custom_validators",
+        "emergency_mode",
+        "https_enforcement",
+        "ip_security",
+        "rate_limit",
+        "referrer",
+        "request_logging",
+        "request_size_content",
+        "required_headers",
+        "route_config",
+        "suspicious_activity",
+        "time_window",
+        "user_agent",
+    }
+)
+
 
 @dataclass(frozen=True)
 class EventFilter:

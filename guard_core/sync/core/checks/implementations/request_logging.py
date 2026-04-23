@@ -10,5 +10,11 @@ class RequestLoggingCheck(SecurityCheck):
         return "request_logging"
 
     def check(self, request: SyncGuardRequest) -> GuardResponse | None:
-        log_activity(request, self.logger, level=self.config.log_request_level)
+        log_activity(
+            request,
+            self.logger,
+            level=self.config.log_request_level,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
+        )
         return None

@@ -29,6 +29,8 @@ class RequestSizeContentCheck(SecurityCheck):
             reason=f"{message}: {route_config.max_request_size}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         self.middleware.event_bus.send_middleware_event(
@@ -67,6 +69,8 @@ class RequestSizeContentCheck(SecurityCheck):
             reason=f"Invalid content type: {content_type}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         message = f"Content type {content_type} not in allowed types"

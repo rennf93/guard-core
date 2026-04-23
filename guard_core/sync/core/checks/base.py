@@ -48,3 +48,27 @@ class SecurityCheck(ABC):
 
     def is_passive_mode(self) -> bool:
         return self.config.passive_mode
+
+    def log_if_allowed(
+        self,
+        request: SyncGuardRequest,
+        *,
+        log_type: str = "request",
+        reason: str = "",
+        passive_mode: bool = False,
+        trigger_info: str = "",
+        level: Any = "WARNING",
+    ) -> None:
+        from guard_core.sync.utils import log_activity
+
+        log_activity(
+            request,
+            self.logger,
+            log_type=log_type,
+            reason=reason,
+            passive_mode=passive_mode,
+            trigger_info=trigger_info,
+            level=level,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
+        )

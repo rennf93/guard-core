@@ -22,6 +22,8 @@ class AuthenticationCheck(SecurityCheck):
             reason=f"Authentication failure: {auth_reason}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
         )
 
         self.middleware.event_bus.send_middleware_event(

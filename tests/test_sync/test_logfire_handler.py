@@ -75,7 +75,12 @@ def test_send_metric_records(config: MagicMock) -> None:
         metric.tags = {"method": "GET"}
 
         handler.send_metric(metric)
-        mock_lf.metric.assert_called_once()
+        mock_lf.info.assert_called_once()
+        call_args = mock_lf.info.call_args
+        assert call_args.args[0] == "guard.metric.response_time"
+        assert call_args.kwargs["value"] == 0.5
+        assert call_args.kwargs["endpoint"] == "/test"
+        assert call_args.kwargs["method"] == "GET"
 
 
 def test_start_configures_logfire(config: MagicMock) -> None:

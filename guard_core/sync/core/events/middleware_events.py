@@ -51,6 +51,10 @@ class SecurityEventBus:
                 except Exception:
                     pass
 
+            traceparent = request.headers.get("traceparent")
+            if traceparent and "traceparent" not in kwargs:
+                kwargs = {**kwargs, "traceparent": traceparent}
+
             from guard_agent import SecurityEvent
 
             event = SecurityEvent(

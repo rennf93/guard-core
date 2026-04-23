@@ -18,9 +18,22 @@ try:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.trace.propagation.tracecontext import (
+        TraceContextTextMapPropagator,
+    )
 
     _otel_available = True
 except ImportError:
+    metrics = None  # type: ignore[assignment]
+    trace = None  # type: ignore[assignment]
+    OTLPMetricExporter = None  # type: ignore[assignment,misc]
+    OTLPSpanExporter = None  # type: ignore[assignment,misc]
+    MeterProvider = None  # type: ignore[assignment,misc]
+    PeriodicExportingMetricReader = None  # type: ignore[assignment,misc]
+    Resource = None  # type: ignore[assignment,misc]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    BatchSpanProcessor = None  # type: ignore[assignment,misc]
+    TraceContextTextMapPropagator = None  # type: ignore[assignment,misc]
     _otel_available = False
 
 
@@ -37,7 +50,10 @@ class OtelHandler:
         if not _otel_available:
             logger.warning("opentelemetry-sdk not installed, OTEL handler disabled")
             return
-        resource = Resource.create({"service.name": self._config.otel_service_name})
+        attrs: dict[str, Any] = {"service.name": self._config.otel_service_name}
+        extra = getattr(self._config, "otel_resource_attributes", {}) or {}
+        attrs.update(extra)
+        resource = Resource.create(attrs)
         endpoint = self._config.otel_exporter_endpoint
         tp = TracerProvider(resource=resource)
         tp.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
@@ -67,7 +83,16 @@ class OtelHandler:
         if not _otel_available or not self._tracer:
             return
         event_type = getattr(event, "event_type", "unknown")
-        with self._tracer.start_as_current_span(f"guard.event.{event_type}") as span:
+        metadata = getattr(event, "metadata", {}) or {}
+        traceparent = metadata.get("traceparent") if isinstance(metadata, dict) else None
+        parent_ctx = None
+        if traceparent:
+            propagator = TraceContextTextMapPropagator()
+            parent_ctx = propagator.extract(carrier={"traceparent": traceparent})
+
+        with self._tracer.start_as_current_span(
+            f"guard.event.{event_type}", context=parent_ctx
+        ) as span:
             span.set_attribute("guard.event_type", event_type)
             span.set_attribute("guard.ip_address", getattr(event, "ip_address", ""))
             span.set_attribute("guard.action_taken", getattr(event, "action_taken", ""))
@@ -92,6 +117,10 @@ class OtelHandler:
             self._request_counter.add(value, attributes=attrs)
         elif metric_type == "error_rate" and self._error_counter:
             self._error_counter.add(value, attributes=attrs)
+        else:
+            logger.warning(
+                "Unknown OTEL metric type %s - no instrument recorded", metric_type
+            )
 
     def initialize_redis(self, redis_handler: Any) -> None:
         pass

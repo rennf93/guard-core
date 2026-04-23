@@ -10,6 +10,7 @@ try:
 
     _logfire_available = True
 except ImportError:
+    logfire = None  # type: ignore[assignment]
     _logfire_available = False
 
 
@@ -49,7 +50,12 @@ class LogfireHandler:
         value = getattr(metric, "value", 0)
         endpoint = getattr(metric, "endpoint", "")
         tags = getattr(metric, "tags", {}) or {}
-        logfire.metric(f"guard.{metric_type}", value, endpoint=endpoint, **tags)
+        logfire.info(
+            f"guard.metric.{metric_type}",
+            value=value,
+            endpoint=endpoint,
+            **tags,
+        )
 
     def initialize_redis(self, redis_handler: Any) -> None:
         pass

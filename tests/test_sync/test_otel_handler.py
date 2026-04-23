@@ -62,9 +62,10 @@ def test_send_event_creates_span(config: MagicMock) -> None:
         event.status_code = 403
 
         handler.send_event(event)
-        mock_tracer.start_as_current_span.assert_called_once_with(
-            "guard.event.penetration_attempt"
-        )
+        mock_tracer.start_as_current_span.assert_called_once()
+        args, kwargs = mock_tracer.start_as_current_span.call_args
+        assert args[0] == "guard.event.penetration_attempt"
+        assert kwargs.get("context") is None
         assert mock_span.set_attribute.call_count >= 4
 
 
