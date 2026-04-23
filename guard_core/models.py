@@ -373,6 +373,14 @@ class SecurityConfig(BaseModel):
         description="OTLP HTTP endpoint for OpenTelemetry export",
     )
 
+    otel_resource_attributes: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Additional OpenTelemetry resource attributes "
+            "(e.g. deployment.environment, service.version)."
+        ),
+    )
+
     enable_logfire: bool = Field(
         default=False,
         description="Enable Logfire span/metric export (requires [logfire] extra)",

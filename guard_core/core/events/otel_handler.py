@@ -21,6 +21,15 @@ try:
 
     _otel_available = True
 except ImportError:
+    metrics = None  # type: ignore[assignment]
+    trace = None  # type: ignore[assignment]
+    OTLPMetricExporter = None  # type: ignore[assignment,misc]
+    OTLPSpanExporter = None  # type: ignore[assignment,misc]
+    MeterProvider = None  # type: ignore[assignment,misc]
+    PeriodicExportingMetricReader = None  # type: ignore[assignment,misc]
+    Resource = None  # type: ignore[assignment,misc]
+    TracerProvider = None  # type: ignore[assignment,misc]
+    BatchSpanProcessor = None  # type: ignore[assignment,misc]
     _otel_available = False
 
 
@@ -37,7 +46,10 @@ class OtelHandler:
         if not _otel_available:
             logger.warning("opentelemetry-sdk not installed, OTEL handler disabled")
             return
-        resource = Resource.create({"service.name": self._config.otel_service_name})
+        attrs: dict[str, Any] = {"service.name": self._config.otel_service_name}
+        extra = getattr(self._config, "otel_resource_attributes", {}) or {}
+        attrs.update(extra)
+        resource = Resource.create(attrs)
         endpoint = self._config.otel_exporter_endpoint
         tp = TracerProvider(resource=resource)
         tp.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
