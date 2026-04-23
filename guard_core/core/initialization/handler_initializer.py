@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from guard_core.core.events.metrics import MetricsCollector
+    from guard_core.core.events.middleware_events import SecurityEventBus
     from guard_core.models import SecurityConfig
 
 
@@ -47,6 +49,35 @@ class HandlerInitializer:
         return EventFilter(
             muted_event_types=frozenset(self.config.muted_event_types),
             muted_metric_types=frozenset(self.config.muted_metric_types),
+        )
+
+    def build_event_bus(
+        self, geo_ip_handler: Any = None
+    ) -> "SecurityEventBus":
+        from guard_core.core.events.middleware_events import SecurityEventBus
+
+        if self.composite_handler is None or self.event_filter is None:
+            raise RuntimeError(
+                "Call initialize_agent_integrations() before build_event_bus()."
+            )
+        return SecurityEventBus(
+            agent_handler=self.composite_handler,
+            config=self.config,
+            geo_ip_handler=geo_ip_handler or self.geo_ip_handler,
+            event_filter=self.event_filter,
+        )
+
+    def build_metrics_collector(self) -> "MetricsCollector":
+        from guard_core.core.events.metrics import MetricsCollector
+
+        if self.composite_handler is None or self.event_filter is None:
+            raise RuntimeError(
+                "Call initialize_agent_integrations() before build_metrics_collector()."
+            )
+        return MetricsCollector(
+            agent_handler=self.composite_handler,
+            config=self.config,
+            event_filter=self.event_filter,
         )
 
     async def initialize_redis_handlers(self) -> None:
@@ -115,12 +146,11 @@ class HandlerInitializer:
         self.composite_handler = self.build_composite_handler()
         self.event_filter = self.build_event_filter()
 
-        if self.agent_handler:
-            await self.agent_handler.start()
+        await self.composite_handler.start()
 
-            if self.redis_handler:
-                await self.agent_handler.initialize_redis(self.redis_handler)
-                await self.redis_handler.initialize_agent(self.agent_handler)
+        if self.agent_handler and self.redis_handler:
+            await self.agent_handler.initialize_redis(self.redis_handler)
+            await self.redis_handler.initialize_agent(self.agent_handler)
 
         await self.initialize_agent_for_handlers()
 
@@ -128,3 +158,8 @@ class HandlerInitializer:
             await self.guard_decorator.initialize_agent(self.agent_handler)
 
         await self.initialize_dynamic_rule_manager()
+
+    async def shutdown_agent_integrations(self) -> None:
+        if self.composite_handler is None:
+            return
+        await self.composite_handler.stop()
