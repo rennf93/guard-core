@@ -239,11 +239,13 @@ class CloudManager:
         network: str,
         action_taken: str = "request_blocked",
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_CLOUD_BLOCKED
+
         if not self.agent_handler:
             return
 
         self._send_cloud_event(
-            event_type="cloud_blocked",
+            event_type=EVENT_CLOUD_BLOCKED,
             ip_address=ip,
             action_taken=action_taken,
             reason=f"IP belongs to blocked cloud provider: {provider}",

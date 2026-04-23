@@ -2,6 +2,7 @@ from typing import Any
 
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
@@ -91,7 +92,7 @@ class RateLimitCheck(SecurityCheck):
             client_ip,
             route_config.rate_limit,
             window,
-            "decorator_violation",
+            EVENT_DECORATOR_VIOLATION,
             {
                 "reason": (
                     f"Route-specific rate limit exceeded: "
@@ -130,7 +131,7 @@ class RateLimitCheck(SecurityCheck):
             client_ip,
             rate_limit,
             window,
-            "decorator_violation",
+            EVENT_DECORATOR_VIOLATION,
             {
                 "reason": (
                     f"Geo rate limit exceeded for {country or 'unknown'}: "

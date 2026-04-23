@@ -1,5 +1,6 @@
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.behavioral.context import BehavioralContext
+from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
@@ -27,7 +28,7 @@ class BehavioralProcessor:
                     reason = "threshold exceeded"
 
                     self.context.event_bus.send_middleware_event(
-                        event_type="decorator_violation",
+                        event_type=EVENT_DECORATOR_VIOLATION,
                         request=request,
                         action_taken="behavioral_action_triggered",
                         reason=f"{message} {reason}: {details}",
@@ -67,7 +68,7 @@ class BehavioralProcessor:
                     details = f"{rule.threshold} for '{rule.pattern}' in {rule.window}s"
 
                     self.context.event_bus.send_middleware_event(
-                        event_type="decorator_violation",
+                        event_type=EVENT_DECORATOR_VIOLATION,
                         request=request,
                         action_taken="behavioral_action_triggered",
                         reason=f"Return pattern threshold exceeded: {details}",

@@ -611,6 +611,8 @@ class SusPatternsManager:
         execution_time: float,
         correlation_id: str | None,
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_PATTERN_DETECTED
+
         pattern_info = "unknown"
         if matched_patterns:
             pattern_info = matched_patterns[0]
@@ -618,7 +620,7 @@ class SusPatternsManager:
             pattern_info = f"semantic:{semantic_threats[0]['attack_type']}"
 
         self._send_pattern_event(
-            event_type="pattern_detected",
+            event_type=EVENT_PATTERN_DETECTED,
             ip_address=ip_address,
             action_taken="threat_detected",
             reason=f"Threat detected in {context}",

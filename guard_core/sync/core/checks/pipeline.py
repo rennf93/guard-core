@@ -7,8 +7,13 @@ from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 class SecurityCheckPipeline:
-    def __init__(self, checks: list[SecurityCheck]) -> None:
+    def __init__(
+        self,
+        checks: list[SecurityCheck],
+        muted_check_logs: set[str] | None = None,
+    ) -> None:
         self.checks = checks
+        self.muted_check_logs = muted_check_logs or set()
         self.logger = logging.getLogger(__name__)
 
     def execute(self, request: SyncGuardRequest) -> GuardResponse | None:
@@ -18,32 +23,35 @@ class SecurityCheckPipeline:
             try:
                 response = check.check(request)
                 if response is not None:
-                    self.logger.info(
-                        f"Request blocked by {check.check_name}",
+                    if check.check_name not in self.muted_check_logs:
+                        self.logger.info(
+                            f"Request blocked by {check.check_name}",
+                            extra={
+                                "check": check.check_name,
+                                "path": request.url_path,
+                                "method": request.method,
+                            },
+                        )
+                    return response
+
+            except Exception as e:
+                if check.check_name not in self.muted_check_logs:
+                    self.logger.error(
+                        f"Error in security check {check.check_name}: {e}",
                         extra={
                             "check": check.check_name,
                             "path": request.url_path,
                             "method": request.method,
                         },
+                        exc_info=True,
                     )
-                    return response
-
-            except Exception as e:
-                self.logger.error(
-                    f"Error in security check {check.check_name}: {e}",
-                    extra={
-                        "check": check.check_name,
-                        "path": request.url_path,
-                        "method": request.method,
-                    },
-                    exc_info=True,
-                )
 
                 if hasattr(check.config, "fail_secure") and check.config.fail_secure:
-                    self.logger.warning(
-                        f"Blocking request due to check error "
-                        f"in fail-secure mode: {check.check_name}"
-                    )
+                    if check.check_name not in self.muted_check_logs:
+                        self.logger.warning(
+                            f"Blocking request due to check error "
+                            f"in fail-secure mode: {check.check_name}"
+                        )
                     return check.create_error_response(
                         status_code=500,
                         default_message="Security check failed",

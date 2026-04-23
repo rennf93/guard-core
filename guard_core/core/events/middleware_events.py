@@ -2,6 +2,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from guard_core.core.events.event_types import (
+    EVENT_DECORATOR_VIOLATION,
+    EVENT_HTTPS_ENFORCED,
+    EventFilter,
+)
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
@@ -14,10 +19,12 @@ class SecurityEventBus:
         agent_handler: Any,
         config: SecurityConfig,
         geo_ip_handler: Any = None,
+        event_filter: EventFilter | None = None,
     ):
         self.agent_handler = agent_handler
         self.config = config
         self.geo_ip_handler = geo_ip_handler
+        self.event_filter = event_filter or EventFilter()
         self.logger = logging.getLogger(__name__)
 
     async def send_middleware_event(
@@ -29,6 +36,9 @@ class SecurityEventBus:
         **kwargs: Any,
     ) -> None:
         if not self.agent_handler or not self.config.agent_enable_events:
+            return
+
+        if not self.event_filter.is_event_allowed(event_type):
             return
 
         try:
@@ -70,7 +80,7 @@ class SecurityEventBus:
 
         if route_config and route_config.require_https:
             await self.send_middleware_event(
-                event_type="decorator_violation",
+                event_type=EVENT_DECORATOR_VIOLATION,
                 request=request,
                 action_taken="https_redirect",
                 reason="Route requires HTTPS but request was HTTP",
@@ -81,7 +91,7 @@ class SecurityEventBus:
             )
         else:
             await self.send_middleware_event(
-                event_type="https_enforced",
+                event_type=EVENT_HTTPS_ENFORCED,
                 request=request,
                 action_taken="https_redirect",
                 reason="HTTP request redirected to HTTPS for security",
@@ -112,7 +122,7 @@ class SecurityEventBus:
 
         if route_config and route_config.block_cloud_providers:
             await self.send_middleware_event(
-                event_type="decorator_violation",
+                event_type=EVENT_DECORATOR_VIOLATION,
                 request=request,
                 action_taken="request_blocked" if not passive_mode else "logged_only",
                 reason=f"Cloud provider IP {client_ip} blocked",

@@ -58,6 +58,13 @@ dev = [
     "vulture",
     "xenon",
 ]
+otel = [
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-http",
+]
+logfire = [
+    "logfire",
+]
 
 [build-system]
 requires = ["hatchling"]

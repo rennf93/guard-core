@@ -1,0 +1,121 @@
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from guard_core.core.events.logfire_handler import LogfireHandler
+
+
+@pytest.fixture
+def config() -> MagicMock:
+    return MagicMock(logfire_service_name="guard-core-test")
+
+
+async def test_health_check_true_when_available(config: MagicMock) -> None:
+    with patch("guard_core.core.events.logfire_handler._logfire_available", True):
+        handler = LogfireHandler(config)
+        assert await handler.health_check() is True
+
+
+async def test_health_check_false_when_unavailable() -> None:
+    with patch("guard_core.core.events.logfire_handler._logfire_available", False):
+        handler = LogfireHandler(MagicMock())
+        assert await handler.health_check() is False
+
+
+async def test_noop_when_logfire_unavailable(config: MagicMock) -> None:
+    with patch("guard_core.core.events.logfire_handler._logfire_available", False):
+        handler = LogfireHandler(config)
+        await handler.send_event(MagicMock())
+        await handler.send_metric(MagicMock())
+        await handler.start()
+        await handler.stop()
+
+
+async def test_get_dynamic_rules_returns_none(config: MagicMock) -> None:
+    handler = LogfireHandler(config)
+    assert await handler.get_dynamic_rules() is None
+
+
+async def test_send_event_creates_span(config: MagicMock) -> None:
+    with (
+        patch("guard_core.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=None)
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_lf.span.return_value = mock_cm
+
+        handler = LogfireHandler(config)
+        event = MagicMock()
+        event.event_type = "penetration_attempt"
+        event.ip_address = "1.2.3.4"
+        event.action_taken = "blocked"
+        event.reason = "test"
+        event.endpoint = "/test"
+        event.method = "GET"
+        event.status_code = 403
+
+        await handler.send_event(event)
+        mock_lf.span.assert_called_once()
+        call_kwargs = mock_lf.span.call_args[1]
+        assert call_kwargs["event_type"] == "penetration_attempt"
+
+
+async def test_send_metric_records(config: MagicMock) -> None:
+    with (
+        patch("guard_core.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        handler = LogfireHandler(config)
+        metric = MagicMock()
+        metric.metric_type = "response_time"
+        metric.value = 0.5
+        metric.endpoint = "/test"
+        metric.tags = {"method": "GET"}
+
+        await handler.send_metric(metric)
+        mock_lf.metric.assert_called_once()
+
+
+async def test_start_configures_logfire(config: MagicMock) -> None:
+    with (
+        patch("guard_core.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        handler = LogfireHandler(config)
+        await handler.start()
+        mock_lf.configure.assert_called_once_with(service_name="guard-core-test")
+
+
+async def test_flush_buffer_and_initialize_redis_and_stop_noop(config: MagicMock) -> None:
+    handler = LogfireHandler(config)
+    await handler.flush_buffer()
+    await handler.initialize_redis(MagicMock())
+    await handler.stop()
+
+
+def test_import_error_branch() -> None:
+    import importlib
+    import sys
+
+    module_name = "guard_core.core.events.logfire_handler"
+    original = sys.modules.get(module_name)
+    sys.modules.pop(module_name, None)
+    sys.modules.pop("logfire", None)
+
+    real_import = __import__
+
+    def block_logfire(name, *args, **kwargs):
+        if name == "logfire":
+            raise ImportError("logfire not installed")
+        return real_import(name, *args, **kwargs)
+
+    try:
+        with patch("builtins.__import__", side_effect=block_logfire):
+            mod = importlib.import_module(module_name)
+            assert mod._logfire_available is False
+    finally:
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+        sys.modules[module_name] = original if original else importlib.import_module(module_name)

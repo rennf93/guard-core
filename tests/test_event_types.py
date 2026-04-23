@@ -1,0 +1,102 @@
+from guard_core.core.events.event_types import (
+    EVENT_BEHAVIOR_VIOLATION,
+    EVENT_CLOUD_BLOCKED,
+    EVENT_DECORATOR_VIOLATION,
+    EVENT_DYNAMIC_RULE_APPLIED,
+    EVENT_DYNAMIC_RULE_UPDATED,
+    EVENT_EMERGENCY_MODE,
+    EVENT_HTTPS_ENFORCED,
+    EVENT_IP_BANNED,
+    EVENT_IP_BLOCKED,
+    EVENT_IP_UNBANNED,
+    EVENT_PATTERN_DETECTED,
+    EVENT_PENETRATION_ATTEMPT,
+    EVENT_TYPE_VALUES,
+    METRIC_ERROR_RATE,
+    METRIC_REQUEST_COUNT,
+    METRIC_RESPONSE_TIME,
+    METRIC_TYPE_VALUES,
+    EventFilter,
+)
+
+
+def test_event_type_constants_are_strings() -> None:
+    for name in [
+        "EVENT_PENETRATION_ATTEMPT",
+        "EVENT_IP_BLOCKED",
+        "EVENT_IP_BANNED",
+        "EVENT_IP_UNBANNED",
+        "EVENT_CLOUD_BLOCKED",
+        "EVENT_HTTPS_ENFORCED",
+        "EVENT_DECORATOR_VIOLATION",
+        "EVENT_BEHAVIOR_VIOLATION",
+        "EVENT_PATTERN_DETECTED",
+        "EVENT_DYNAMIC_RULE_UPDATED",
+        "EVENT_DYNAMIC_RULE_APPLIED",
+        "EVENT_EMERGENCY_MODE",
+    ]:
+        val = globals().get(name)
+        assert isinstance(val, str)
+
+
+def test_event_type_values_contains_all() -> None:
+    expected = {
+        EVENT_PENETRATION_ATTEMPT,
+        EVENT_IP_BLOCKED,
+        EVENT_IP_BANNED,
+        EVENT_IP_UNBANNED,
+        EVENT_CLOUD_BLOCKED,
+        EVENT_HTTPS_ENFORCED,
+        EVENT_DECORATOR_VIOLATION,
+        EVENT_BEHAVIOR_VIOLATION,
+        EVENT_PATTERN_DETECTED,
+        EVENT_DYNAMIC_RULE_UPDATED,
+        EVENT_DYNAMIC_RULE_APPLIED,
+        EVENT_EMERGENCY_MODE,
+    }
+    assert EVENT_TYPE_VALUES == expected
+
+
+def test_metric_type_constants() -> None:
+    assert METRIC_RESPONSE_TIME == "response_time"
+    assert METRIC_REQUEST_COUNT == "request_count"
+    assert METRIC_ERROR_RATE == "error_rate"
+
+
+def test_metric_type_values_contains_all() -> None:
+    assert METRIC_TYPE_VALUES == {
+        METRIC_RESPONSE_TIME,
+        METRIC_REQUEST_COUNT,
+        METRIC_ERROR_RATE,
+    }
+
+
+def test_event_filter_allows_when_not_muted() -> None:
+    filt = EventFilter(muted_event_types=frozenset(), muted_metric_types=frozenset())
+    assert filt.is_event_allowed(EVENT_PENETRATION_ATTEMPT) is True
+    assert filt.is_metric_allowed(METRIC_RESPONSE_TIME) is True
+
+
+def test_event_filter_mutes_specific_events() -> None:
+    filt = EventFilter(
+        muted_event_types=frozenset({EVENT_CLOUD_BLOCKED, EVENT_HTTPS_ENFORCED}),
+        muted_metric_types=frozenset(),
+    )
+    assert filt.is_event_allowed(EVENT_PENETRATION_ATTEMPT) is True
+    assert filt.is_event_allowed(EVENT_CLOUD_BLOCKED) is False
+    assert filt.is_event_allowed(EVENT_HTTPS_ENFORCED) is False
+
+
+def test_event_filter_mutes_specific_metrics() -> None:
+    filt = EventFilter(
+        muted_event_types=frozenset(),
+        muted_metric_types=frozenset({METRIC_RESPONSE_TIME}),
+    )
+    assert filt.is_metric_allowed(METRIC_RESPONSE_TIME) is False
+    assert filt.is_metric_allowed(METRIC_REQUEST_COUNT) is True
+
+
+def test_event_filter_defaults() -> None:
+    filt = EventFilter()
+    assert filt.muted_event_types == frozenset()
+    assert filt.muted_metric_types == frozenset()

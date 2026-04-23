@@ -20,6 +20,34 @@ class HandlerInitializer:
         self.geo_ip_handler = geo_ip_handler
         self.rate_limit_handler = rate_limit_handler
         self.guard_decorator = guard_decorator
+        self.composite_handler: Any = None
+        self.event_filter: Any = None
+
+    def build_composite_handler(self) -> Any:
+        from guard_core.sync.core.events.composite_handler import CompositeAgentHandler
+
+        handlers = []
+        if self.agent_handler:
+            handlers.append(self.agent_handler)
+        if self.config.enable_otel:
+            from guard_core.sync.core.events.otel_handler import OtelHandler
+
+            handlers.append(OtelHandler(self.config))
+        if self.config.enable_logfire:
+            from guard_core.sync.core.events.logfire_handler import LogfireHandler
+
+            handlers.append(LogfireHandler(self.config))
+        if len(handlers) == 1:
+            return handlers[0]
+        return CompositeAgentHandler(handlers)
+
+    def build_event_filter(self) -> Any:
+        from guard_core.sync.core.events.event_types import EventFilter
+
+        return EventFilter(
+            muted_event_types=frozenset(self.config.muted_event_types),
+            muted_metric_types=frozenset(self.config.muted_metric_types),
+        )
 
     def initialize_redis_handlers(self) -> None:
         if not (self.config.enable_redis and self.redis_handler):
@@ -77,14 +105,22 @@ class HandlerInitializer:
             dynamic_rule_manager.initialize_redis(self.redis_handler)
 
     def initialize_agent_integrations(self) -> None:
-        if not self.agent_handler:
+        if (
+            not self.agent_handler
+            and not self.config.enable_otel
+            and not self.config.enable_logfire
+        ):
             return
 
-        self.agent_handler.start()
+        self.composite_handler = self.build_composite_handler()
+        self.event_filter = self.build_event_filter()
 
-        if self.redis_handler:
-            self.agent_handler.initialize_redis(self.redis_handler)
-            self.redis_handler.initialize_agent(self.agent_handler)
+        if self.agent_handler:
+            self.agent_handler.start()
+
+            if self.redis_handler:
+                self.agent_handler.initialize_redis(self.redis_handler)
+                self.redis_handler.initialize_agent(self.agent_handler)
 
         self.initialize_agent_for_handlers()
 

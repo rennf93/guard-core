@@ -181,8 +181,10 @@ class BaseSecurityDecorator:
         reason: str,
         **metadata: Any,
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
+
         self.send_decorator_event(
-            event_type="decorator_violation",
+            event_type=EVENT_DECORATOR_VIOLATION,
             request=request,
             action_taken="blocked",
             reason=reason,

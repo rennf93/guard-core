@@ -39,12 +39,14 @@ class IPBanManager:
             self._send_ban_event(ip, duration, reason)
 
     def _send_ban_event(self, ip: str, duration: int, reason: str) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_IP_BANNED
+
         try:
             from guard_agent import SecurityEvent
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="ip_banned",
+                event_type=EVENT_IP_BANNED,
                 ip_address=ip,
                 action_taken="banned",
                 reason=reason,
@@ -67,12 +69,14 @@ class IPBanManager:
             self._send_unban_event(ip)
 
     def _send_unban_event(self, ip: str) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_IP_UNBANNED
+
         try:
             from guard_agent import SecurityEvent
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="ip_unbanned",
+                event_type=EVENT_IP_UNBANNED,
                 ip_address=ip,
                 action_taken="unbanned",
                 reason="dynamic_rule_whitelist",

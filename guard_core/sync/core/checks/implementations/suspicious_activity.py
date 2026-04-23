@@ -1,6 +1,10 @@
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import detect_penetration_patterns
+from guard_core.sync.core.events.event_types import (
+    EVENT_DECORATOR_VIOLATION,
+    EVENT_PENETRATION_ATTEMPT,
+)
 from guard_core.sync.handlers.ipban_handler import ip_ban_manager
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
@@ -27,7 +31,7 @@ class SuspiciousActivityCheck(SecurityCheck):
         message = "Suspicious pattern detected (passive mode)"
 
         self.middleware.event_bus.send_middleware_event(
-            event_type="penetration_attempt",
+            event_type=EVENT_PENETRATION_ATTEMPT,
             request=request,
             action_taken="logged_only",
             reason=f"{message}: {trigger_info}",
@@ -73,7 +77,7 @@ class SuspiciousActivityCheck(SecurityCheck):
         )
 
         self.middleware.event_bus.send_middleware_event(
-            event_type="penetration_attempt",
+            event_type=EVENT_PENETRATION_ATTEMPT,
             request=request,
             action_taken="request_blocked",
             reason=f"Penetration attempt detected: {trigger_info}",
@@ -105,7 +109,7 @@ class SuspiciousActivityCheck(SecurityCheck):
 
         if trigger_info == "disabled_by_decorator":
             self.middleware.event_bus.send_middleware_event(
-                event_type="decorator_violation",
+                event_type=EVENT_DECORATOR_VIOLATION,
                 request=request,
                 action_taken="detection_disabled",
                 reason="Suspicious pattern detection disabled by route decorator",

@@ -212,3 +212,18 @@ async def test_event_bus_geo_exception() -> None:
             mock_event.return_value = MagicMock()
             await bus.send_middleware_event("test", req, "blocked", "reason")
     agent.send_event.assert_called_once()
+
+
+async def test_metrics_collector_filtered_metric() -> None:
+    agent = MagicMock()
+    agent.send_metric = AsyncMock()
+    from guard_core.core.events.event_types import METRIC_RESPONSE_TIME, EventFilter
+
+    collector = MetricsCollector(
+        agent,
+        _config(agent_enable_metrics=True),
+        event_filter=EventFilter(muted_metric_types=frozenset({METRIC_RESPONSE_TIME})),
+    )
+    with patch("guard_core.core.events.metrics.SecurityMetric", create=True):
+        await collector.send_metric(METRIC_RESPONSE_TIME, 0.5, {"endpoint": "/api"})
+    agent.send_metric.assert_not_called()

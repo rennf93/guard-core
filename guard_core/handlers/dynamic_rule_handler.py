@@ -61,6 +61,8 @@ class DynamicRuleManager:
         )
 
     async def _send_rule_received_event(self, rules: DynamicRules) -> None:
+        from guard_core.core.events.event_types import EVENT_DYNAMIC_RULE_UPDATED
+
         if not self.agent_handler:
             return
 
@@ -71,7 +73,7 @@ class DynamicRuleManager:
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="dynamic_rule_updated",
+                event_type=EVENT_DYNAMIC_RULE_UPDATED,
                 ip_address="system",
                 action_taken="rules_received",
                 reason=reason,
@@ -253,6 +255,8 @@ class DynamicRuleManager:
             await self._send_emergency_event(emergency_whitelist)
 
     async def _send_rule_applied_event(self, rules: DynamicRules) -> None:
+        from guard_core.core.events.event_types import EVENT_DYNAMIC_RULE_APPLIED
+
         if not self.agent_handler:
             return
 
@@ -261,7 +265,7 @@ class DynamicRuleManager:
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="dynamic_rule_applied",
+                event_type=EVENT_DYNAMIC_RULE_APPLIED,
                 ip_address="system",
                 action_taken="rules_updated",
                 reason=f"Applied dynamic rules {rules.rule_id} v{rules.version}",
@@ -278,6 +282,8 @@ class DynamicRuleManager:
             self.logger.error(f"Failed to send rule applied event: {e}")
 
     async def _send_emergency_event(self, whitelist: list[str]) -> None:
+        from guard_core.core.events.event_types import EVENT_EMERGENCY_MODE
+
         if not self.agent_handler:
             return
 
@@ -286,7 +292,7 @@ class DynamicRuleManager:
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="emergency_mode_activated",
+                event_type=EVENT_EMERGENCY_MODE,
                 ip_address="system",
                 action_taken="emergency_lockdown",
                 reason="[EMERGENCY MODE] activated via dynamic rules",

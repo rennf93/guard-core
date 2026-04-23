@@ -129,3 +129,23 @@ def test_validate_proxy_depth() -> None:
 
     with pytest.raises(ValueError, match="trusted_proxy_depth must be at least 1"):
         SecurityConfig(trusted_proxy_depth=0)
+
+
+def test_muted_event_types_validation_invalid() -> None:
+    with pytest.raises(ValueError, match="Unknown event types"):
+        SecurityConfig(muted_event_types={"nonexistent_event_type"})
+
+
+def test_muted_metric_types_validation_invalid() -> None:
+    with pytest.raises(ValueError, match="Unknown metric types"):
+        SecurityConfig(muted_metric_types={"nonexistent_metric_type"})
+
+
+def test_muted_event_types_validation_valid() -> None:
+    config = SecurityConfig(muted_event_types={"penetration_attempt"})
+    assert config.muted_event_types == {"penetration_attempt"}
+
+
+def test_muted_metric_types_validation_valid() -> None:
+    config = SecurityConfig(muted_metric_types={"response_time"})
+    assert config.muted_metric_types == {"response_time"}
