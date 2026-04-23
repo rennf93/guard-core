@@ -47,6 +47,7 @@ nav:
     - Protocol Layer: architecture/protocols.md
     - Security Pipeline: architecture/pipeline.md
     - Event System: architecture/events.md
+    - Telemetry: architecture/telemetry.md
     - Dependency Injection: architecture/dependency-injection.md
   - Building Adapters:
     - Getting Started: adapters/getting-started.md

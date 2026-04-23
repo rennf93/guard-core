@@ -68,6 +68,7 @@ Documentation
 - [Protocol Reference](architecture/protocols.md) -- `GuardRequest`, `GuardResponse`, `GuardResponseFactory`, `GuardMiddlewareProtocol`
 - [Security Pipeline](architecture/pipeline.md) -- `SecurityCheckPipeline`, all 17 checks, adding custom checks
 - [Event System](architecture/events.md) -- `SecurityEventBus`, `MetricsCollector`, hooking into events
+- [Telemetry](architecture/telemetry.md) -- muting events/metrics/check logs, OpenTelemetry, Logfire, adapter wiring
 - [Dependency Injection](architecture/dependency-injection.md) -- context objects, `HandlerInitializer`, singleton lifecycle
 
 ### API Reference
