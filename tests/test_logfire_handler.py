@@ -75,7 +75,12 @@ async def test_send_metric_records(config: MagicMock) -> None:
         metric.tags = {"method": "GET"}
 
         await handler.send_metric(metric)
-        mock_lf.metric.assert_called_once()
+        mock_lf.info.assert_called_once()
+        call_args = mock_lf.info.call_args
+        assert call_args.args[0] == "guard.metric.response_time"
+        assert call_args.kwargs["value"] == 0.5
+        assert call_args.kwargs["endpoint"] == "/test"
+        assert call_args.kwargs["method"] == "GET"
 
 
 async def test_start_configures_logfire(config: MagicMock) -> None:
@@ -116,6 +121,9 @@ def test_import_error_branch() -> None:
             mod = importlib.import_module(module_name)
             assert mod._logfire_available is False
     finally:
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-        sys.modules[module_name] = original if original else importlib.import_module(module_name)
+        sys.modules.pop(module_name, None)
+        if original is not None:
+            sys.modules[module_name] = original
+            importlib.reload(original)
+        else:
+            importlib.import_module(module_name)
