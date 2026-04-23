@@ -477,8 +477,7 @@ class SecurityConfig(BaseModel):
 
         return self
 
-    @field_validator("muted_event_types")
-    @classmethod
+    @field_validator("muted_event_types")  # type: ignore
     def validate_muted_event_types(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import EVENT_TYPE_VALUES
 
@@ -490,8 +489,7 @@ class SecurityConfig(BaseModel):
             )
         return v
 
-    @field_validator("muted_metric_types")
-    @classmethod
+    @field_validator("muted_metric_types")  # type: ignore
     def validate_muted_metric_types(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import METRIC_TYPE_VALUES
 
@@ -503,8 +501,7 @@ class SecurityConfig(BaseModel):
             )
         return v
 
-    @field_validator("muted_check_logs")
-    @classmethod
+    @field_validator("muted_check_logs")  # type: ignore
     def validate_muted_check_logs(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import CHECK_NAME_VALUES
 

@@ -51,9 +51,7 @@ class HandlerInitializer:
             muted_metric_types=frozenset(self.config.muted_metric_types),
         )
 
-    def build_event_bus(
-        self, geo_ip_handler: Any = None
-    ) -> "SecurityEventBus":
+    def build_event_bus(self, geo_ip_handler: Any = None) -> "SecurityEventBus":
         from guard_core.sync.core.events.middleware_events import SecurityEventBus
 
         if self.composite_handler is None or self.event_filter is None:

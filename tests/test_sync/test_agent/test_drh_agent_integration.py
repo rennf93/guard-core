@@ -193,10 +193,6 @@ def test_rule_update_loop_handles_exceptions(
     assert call_count >= 1
 
 
-def test_rule_update_loop_cancellation_logged() -> None:
-    pytest.skip("async-only test")
-
-
 def test_update_rules_disabled(
     config: SecurityConfig, mock_agent_handler: MagicMock
 ) -> None:
@@ -1256,10 +1252,6 @@ def test_force_update(
         manager.force_update()
 
         mock_update_rules.assert_called_once()
-
-
-def test_stop_with_task() -> None:
-    pytest.skip("async-only test")
 
 
 def test_stop_without_task(

@@ -9,7 +9,7 @@ from guard_core.models import SecurityConfig
 
 
 def _fresh_otel_handler_module():
-    module_name = "guard_core.core.events.otel_handler"
+    module_name = "guard_core.sync.core.events.otel_handler"
     if module_name in sys.modules:
         return importlib.reload(sys.modules[module_name])
     return importlib.import_module(module_name)
@@ -26,18 +26,7 @@ def test_otel_resource_attributes_default_empty() -> None:
     assert SecurityConfig().otel_resource_attributes == {}
 
 
-def test_otel_resource_attributes_accepts_map() -> None:
-    config = SecurityConfig(
-        otel_resource_attributes={
-            "deployment.environment": "prod",
-            "service.version": "1.0.3",
-        }
-    )
-    assert config.otel_resource_attributes["deployment.environment"] == "prod"
-    assert config.otel_resource_attributes["service.version"] == "1.0.3"
-
-
-async def test_otel_handler_applies_resource_attributes() -> None:
+def test_otel_handler_applies_resource_attributes() -> None:
     module = _fresh_otel_handler_module()
     fake_resource = MagicMock()
     fake_resource_cls = MagicMock()
@@ -64,7 +53,7 @@ async def test_otel_handler_applies_resource_attributes() -> None:
             },
         )
         handler = module.OtelHandler(config)
-        await handler.start()
+        handler.start()
 
     fake_resource_cls.create.assert_called_once()
     attrs = fake_resource_cls.create.call_args.args[0]
@@ -73,7 +62,7 @@ async def test_otel_handler_applies_resource_attributes() -> None:
     assert attrs["service.version"] == "1.0.3"
 
 
-async def test_send_event_extracts_traceparent_from_metadata() -> None:
+def test_send_event_extracts_traceparent_from_metadata() -> None:
     module = _fresh_otel_handler_module()
     propagator = MagicMock()
     propagator.extract = MagicMock(return_value="resumed_context")
@@ -113,7 +102,7 @@ async def test_send_event_extracts_traceparent_from_metadata() -> None:
                 )
             },
         )
-        await handler.send_event(event)
+        handler.send_event(event)
 
     propagator.extract.assert_called_once()
     call = propagator.extract.call_args
@@ -126,7 +115,7 @@ async def test_send_event_extracts_traceparent_from_metadata() -> None:
     assert sas_kwargs.get("context") == "resumed_context"
 
 
-async def test_send_event_no_traceparent_starts_root_span() -> None:
+def test_send_event_no_traceparent_starts_root_span() -> None:
     module = _fresh_otel_handler_module()
     tracer = MagicMock()
     span_cm = MagicMock()
@@ -155,72 +144,14 @@ async def test_send_event_no_traceparent_starts_root_span() -> None:
             status_code=0,
             metadata={},
         )
-        await handler.send_event(event)
+        handler.send_event(event)
 
     tracer.start_as_current_span.assert_called_once()
     sas_kwargs = tracer.start_as_current_span.call_args.kwargs
     assert sas_kwargs.get("context") is None
 
 
-async def test_event_bus_attaches_traceparent_from_request_headers() -> None:
-    from guard_core.core.events.event_types import EVENT_PENETRATION_ATTEMPT
-    from guard_core.core.events.middleware_events import SecurityEventBus
-
-    captured: dict[str, object] = {}
-
-    agent = MagicMock()
-
-    async def capture_send(event):
-        captured["event"] = event
-
-    agent.send_event = capture_send
-
-    cfg = SimpleNamespace(agent_enable_events=True)
-    bus = SecurityEventBus(agent_handler=agent, config=cfg)
-
-    request = MagicMock()
-    request.client_host = "1.2.3.4"
-    request.headers = {
-        "User-Agent": "test",
-        "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
-    }
-    request.url_path = "/x"
-    request.method = "GET"
-
-    fake_event_cls = MagicMock(side_effect=lambda **kw: SimpleNamespace(**kw))
-    with (
-        patch(
-            "guard_core.core.events.middleware_events.extract_client_ip",
-            new=MagicMock(return_value="1.2.3.4"),
-        ) as mock_extract,
-        patch(
-            "guard_core.core.events.middleware_events.SecurityEvent",
-            fake_event_cls,
-            create=True,
-        ),
-    ):
-
-        async def _async_return_ip(*_a, **_kw):
-            return "1.2.3.4"
-
-        mock_extract.side_effect = _async_return_ip
-        await bus.send_middleware_event(
-            event_type=EVENT_PENETRATION_ATTEMPT,
-            request=request,
-            action_taken="blocked",
-            reason="test",
-        )
-
-    event = captured["event"]
-    assert (
-        event.metadata["traceparent"]
-        == "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
-    )
-
-
-async def test_send_metric_warns_on_unknown_type(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_send_metric_warns_on_unknown_type(caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
     module = _fresh_otel_handler_module()
@@ -244,40 +175,8 @@ async def test_send_metric_warns_on_unknown_type(
             tags={},
         )
         with caplog.at_level(logging.WARNING, logger="guard_core"):
-            await handler.send_metric(metric)
+            handler.send_metric(metric)
 
     messages = [r.getMessage() for r in caplog.records]
     assert any("unknown otel metric type" in m.lower() for m in messages), messages
     assert any("new_metric_type" in m for m in messages), messages
-    handler._rt_histogram.record.assert_not_called()
-    handler._request_counter.add.assert_not_called()
-    handler._error_counter.add.assert_not_called()
-
-
-async def test_otel_handler_works_without_resource_attrs_field() -> None:
-    module = _fresh_otel_handler_module()
-    fake_resource = MagicMock()
-    fake_resource_cls = MagicMock()
-    fake_resource_cls.create = MagicMock(return_value=fake_resource)
-
-    with (
-        patch.object(module, "_otel_available", True),
-        patch.object(module, "Resource", fake_resource_cls),
-        patch.object(module, "TracerProvider"),
-        patch.object(module, "BatchSpanProcessor"),
-        patch.object(module, "OTLPSpanExporter"),
-        patch.object(module, "OTLPMetricExporter"),
-        patch.object(module, "PeriodicExportingMetricReader"),
-        patch.object(module, "MeterProvider"),
-        patch.object(module, "trace"),
-        patch.object(module, "metrics"),
-    ):
-        config = SimpleNamespace(
-            otel_service_name="guard-core",
-            otel_exporter_endpoint=None,
-        )
-        handler = module.OtelHandler(config)
-        await handler.start()
-
-    attrs = fake_resource_cls.create.call_args.args[0]
-    assert attrs == {"service.name": "guard-core"}

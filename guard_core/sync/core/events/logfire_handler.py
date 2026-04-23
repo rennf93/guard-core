@@ -10,7 +10,7 @@ try:
 
     _logfire_available = True
 except ImportError:
-    logfire = None  # type: ignore[assignment]
+    logfire = None
     _logfire_available = False
 
 

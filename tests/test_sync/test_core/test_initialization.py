@@ -259,6 +259,56 @@ def test_initialize_agent_for_handlers_with_geoip(
         mock_geo_ip_handler.initialize_agent.assert_called_once_with(mock_agent_handler)
 
 
+def test_initialize_agent_for_handlers_without_rate_limit_handler(
+    security_config: SecurityConfig,
+    mock_agent_handler: Mock,
+) -> None:
+    initializer = HandlerInitializer(
+        config=security_config,
+        agent_handler=mock_agent_handler,
+        rate_limit_handler=None,
+    )
+    with (
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_agent = MagicMock()
+        mock_ipban.initialize_agent = MagicMock()
+        mock_sus.initialize_agent = MagicMock()
+
+        initializer.initialize_agent_for_handlers()
+
+        mock_ipban.initialize_agent.assert_called_once_with(mock_agent_handler)
+        mock_sus.initialize_agent.assert_called_once_with(mock_agent_handler)
+
+
+def test_initialize_agent_for_handlers_geoip_without_initialize_agent(
+    security_config: SecurityConfig,
+    mock_agent_handler: Mock,
+) -> None:
+    geo_ip = Mock(spec=[])
+    initializer = HandlerInitializer(
+        config=security_config,
+        agent_handler=mock_agent_handler,
+        geo_ip_handler=geo_ip,
+    )
+    with (
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_agent = MagicMock()
+        mock_ipban.initialize_agent = MagicMock()
+        mock_sus.initialize_agent = MagicMock()
+
+        initializer.initialize_agent_for_handlers()
+
+
 def test_initialize_dynamic_rule_manager_disabled(
     security_config: SecurityConfig,
 ) -> None:

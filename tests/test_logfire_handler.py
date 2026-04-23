@@ -93,7 +93,9 @@ async def test_start_configures_logfire(config: MagicMock) -> None:
         mock_lf.configure.assert_called_once_with(service_name="guard-core-test")
 
 
-async def test_flush_buffer_and_initialize_redis_and_stop_noop(config: MagicMock) -> None:
+async def test_flush_buffer_and_initialize_redis_and_stop_noop(
+    config: MagicMock,
+) -> None:
     handler = LogfireHandler(config)
     await handler.flush_buffer()
     await handler.initialize_redis(MagicMock())

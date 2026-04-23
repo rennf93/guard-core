@@ -59,9 +59,7 @@ class OtelHandler:
         tp.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
         trace.set_tracer_provider(tp)
         self._tracer = trace.get_tracer("guard_core.otel")
-        reader = PeriodicExportingMetricReader(
-            OTLPMetricExporter(endpoint=endpoint)
-        )
+        reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=endpoint))
         mp = MeterProvider(resource=resource, metric_readers=[reader])
         metrics.set_meter_provider(mp)
         self._meter = metrics.get_meter("guard_core.otel")
@@ -73,20 +71,22 @@ class OtelHandler:
 
     async def stop(self) -> None:
         if self._tracer and _otel_available:
-            provider = trace.get_tracer_provider()
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()
+            tracer_provider = trace.get_tracer_provider()
+            if hasattr(tracer_provider, "shutdown"):
+                tracer_provider.shutdown()
         if self._meter and _otel_available:
-            provider = metrics.get_meter_provider()
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()
+            meter_provider = metrics.get_meter_provider()
+            if hasattr(meter_provider, "shutdown"):
+                meter_provider.shutdown()
 
     async def send_event(self, event: Any) -> None:
         if not _otel_available or not self._tracer:
             return
         event_type = getattr(event, "event_type", "unknown")
         metadata = getattr(event, "metadata", {}) or {}
-        traceparent = metadata.get("traceparent") if isinstance(metadata, dict) else None
+        traceparent = (
+            metadata.get("traceparent") if isinstance(metadata, dict) else None
+        )
         parent_ctx = None
         if traceparent:
             propagator = TraceContextTextMapPropagator()

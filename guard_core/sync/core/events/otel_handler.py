@@ -24,16 +24,16 @@ try:
 
     _otel_available = True
 except ImportError:
-    metrics = None  # type: ignore[assignment]
-    trace = None  # type: ignore[assignment]
-    OTLPMetricExporter = None  # type: ignore[assignment,misc]
-    OTLPSpanExporter = None  # type: ignore[assignment,misc]
-    MeterProvider = None  # type: ignore[assignment,misc]
-    PeriodicExportingMetricReader = None  # type: ignore[assignment,misc]
-    Resource = None  # type: ignore[assignment,misc]
-    TracerProvider = None  # type: ignore[assignment,misc]
-    BatchSpanProcessor = None  # type: ignore[assignment,misc]
-    TraceContextTextMapPropagator = None  # type: ignore[assignment,misc]
+    metrics = None
+    trace = None
+    OTLPMetricExporter = None  # type: ignore[misc]
+    OTLPSpanExporter = None  # type: ignore[misc]
+    MeterProvider = None  # type: ignore[misc]
+    PeriodicExportingMetricReader = None  # type: ignore[misc]
+    Resource = None  # type: ignore[misc]
+    TracerProvider = None  # type: ignore[misc]
+    BatchSpanProcessor = None  # type: ignore[misc]
+    TraceContextTextMapPropagator = None  # type: ignore[misc]
     _otel_available = False
 
 
@@ -71,20 +71,22 @@ class OtelHandler:
 
     def stop(self) -> None:
         if self._tracer and _otel_available:
-            provider = trace.get_tracer_provider()
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()
+            tracer_provider = trace.get_tracer_provider()
+            if hasattr(tracer_provider, "shutdown"):
+                tracer_provider.shutdown()
         if self._meter and _otel_available:
-            provider = metrics.get_meter_provider()
-            if hasattr(provider, "shutdown"):
-                provider.shutdown()
+            meter_provider = metrics.get_meter_provider()
+            if hasattr(meter_provider, "shutdown"):
+                meter_provider.shutdown()
 
     def send_event(self, event: Any) -> None:
         if not _otel_available or not self._tracer:
             return
         event_type = getattr(event, "event_type", "unknown")
         metadata = getattr(event, "metadata", {}) or {}
-        traceparent = metadata.get("traceparent") if isinstance(metadata, dict) else None
+        traceparent = (
+            metadata.get("traceparent") if isinstance(metadata, dict) else None
+        )
         parent_ctx = None
         if traceparent:
             propagator = TraceContextTextMapPropagator()

@@ -75,7 +75,9 @@ async def test_get_dynamic_rules_continues_on_handler_failure(handler_a, handler
     assert result is None
 
 
-async def test_get_dynamic_rules_returns_from_second_on_first_failure(handler_a, handler_b):
+async def test_get_dynamic_rules_returns_from_second_on_first_failure(
+    handler_a, handler_b
+):
     handler_a.get_dynamic_rules = AsyncMock(side_effect=RuntimeError("fail"))
     handler_b.get_dynamic_rules = AsyncMock(return_value={"rule": "test"})
     composite = CompositeAgentHandler([handler_a, handler_b])

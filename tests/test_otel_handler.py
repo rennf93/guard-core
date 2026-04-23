@@ -164,6 +164,24 @@ async def test_stop_no_tracer_or_meter(config: MagicMock) -> None:
         await handler.stop()
 
 
+async def test_stop_providers_without_shutdown_attr(config: MagicMock) -> None:
+    with patch("guard_core.core.events.otel_handler._otel_available", True):
+        handler = OtelHandler(config)
+        handler._tracer = MagicMock()
+        handler._meter = MagicMock()
+
+        class _NoShutdown:
+            pass
+
+        with (
+            patch("guard_core.core.events.otel_handler.trace") as mock_trace,
+            patch("guard_core.core.events.otel_handler.metrics") as mock_metrics,
+        ):
+            mock_trace.get_tracer_provider.return_value = _NoShutdown()
+            mock_metrics.get_meter_provider.return_value = _NoShutdown()
+            await handler.stop()
+
+
 async def test_start_configures_otel(config: MagicMock) -> None:
     with patch("guard_core.core.events.otel_handler._otel_available", True):
         handler = OtelHandler(config)
@@ -179,10 +197,10 @@ async def test_start_configures_otel(config: MagicMock) -> None:
             patch("guard_core.core.events.otel_handler.metrics") as mock_metrics,
             patch("guard_core.core.events.otel_handler.Resource") as MockResource,
             patch("guard_core.core.events.otel_handler.TracerProvider") as MockTP,
-            patch("guard_core.core.events.otel_handler.BatchSpanProcessor") as MockBSP,
-            patch("guard_core.core.events.otel_handler.OTLPSpanExporter") as MockSpanExporter,
-            patch("guard_core.core.events.otel_handler.PeriodicExportingMetricReader") as MockReader,
-            patch("guard_core.core.events.otel_handler.OTLPMetricExporter") as MockMetricExporter,
+            patch("guard_core.core.events.otel_handler.BatchSpanProcessor"),
+            patch("guard_core.core.events.otel_handler.OTLPSpanExporter"),
+            patch("guard_core.core.events.otel_handler.PeriodicExportingMetricReader"),
+            patch("guard_core.core.events.otel_handler.OTLPMetricExporter"),
             patch("guard_core.core.events.otel_handler.MeterProvider") as MockMP,
         ):
             mock_tp = MagicMock()
@@ -232,4 +250,6 @@ def test_import_error_branch() -> None:
     finally:
         if module_name in sys.modules:
             del sys.modules[module_name]
-        sys.modules[module_name] = original if original else importlib.import_module(module_name)
+        sys.modules[module_name] = (
+            original if original else importlib.import_module(module_name)
+        )

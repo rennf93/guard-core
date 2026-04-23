@@ -164,6 +164,24 @@ def test_stop_no_tracer_or_meter(config: MagicMock) -> None:
         handler.stop()
 
 
+def test_stop_providers_without_shutdown_attr(config: MagicMock) -> None:
+    with patch("guard_core.sync.core.events.otel_handler._otel_available", True):
+        handler = OtelHandler(config)
+        handler._tracer = MagicMock()
+        handler._meter = MagicMock()
+
+        class _NoShutdown:
+            pass
+
+        with (
+            patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+            patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        ):
+            mock_trace.get_tracer_provider.return_value = _NoShutdown()
+            mock_metrics.get_meter_provider.return_value = _NoShutdown()
+            handler.stop()
+
+
 def test_start_configures_otel(config: MagicMock) -> None:
     with patch("guard_core.sync.core.events.otel_handler._otel_available", True):
         handler = OtelHandler(config)
@@ -179,18 +197,12 @@ def test_start_configures_otel(config: MagicMock) -> None:
             patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
             patch("guard_core.sync.core.events.otel_handler.Resource") as MockResource,
             patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
-            patch(
-                "guard_core.sync.core.events.otel_handler.BatchSpanProcessor"
-            ) as MockBSP,
-            patch(
-                "guard_core.sync.core.events.otel_handler.OTLPSpanExporter"
-            ) as MockSpanExporter,
+            patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+            patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
             patch(
                 "guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"
-            ) as MockReader,
-            patch(
-                "guard_core.sync.core.events.otel_handler.OTLPMetricExporter"
-            ) as MockMetricExporter,
+            ),
+            patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
             patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
         ):
             mock_tp = MagicMock()
