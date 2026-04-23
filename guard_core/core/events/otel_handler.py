@@ -119,6 +119,10 @@ class OtelHandler:
             self._request_counter.add(value, attributes=attrs)
         elif metric_type == "error_rate" and self._error_counter:
             self._error_counter.add(value, attributes=attrs)
+        else:
+            logger.warning(
+                "Unknown OTEL metric type %s - no instrument recorded", metric_type
+            )
 
     async def initialize_redis(self, redis_handler: Any) -> None:
         pass

@@ -217,6 +217,42 @@ async def test_event_bus_attaches_traceparent_from_request_headers() -> None:
     )
 
 
+async def test_send_metric_warns_on_unknown_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    module = _fresh_otel_handler_module()
+    with patch.object(module, "_otel_available", True):
+        handler = module.OtelHandler(
+            config=SimpleNamespace(
+                otel_service_name="svc",
+                otel_exporter_endpoint=None,
+                otel_resource_attributes={},
+            )
+        )
+        handler._meter = MagicMock()
+        handler._rt_histogram = MagicMock()
+        handler._request_counter = MagicMock()
+        handler._error_counter = MagicMock()
+
+        metric = SimpleNamespace(
+            metric_type="new_metric_type",
+            value=1.0,
+            endpoint="/x",
+            tags={},
+        )
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            await handler.send_metric(metric)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("unknown otel metric type" in m.lower() for m in messages), messages
+    assert any("new_metric_type" in m for m in messages), messages
+    handler._rt_histogram.record.assert_not_called()
+    handler._request_counter.add.assert_not_called()
+    handler._error_counter.add.assert_not_called()
+
+
 async def test_otel_handler_works_without_resource_attrs_field() -> None:
     module = _fresh_otel_handler_module()
     fake_resource = MagicMock()
