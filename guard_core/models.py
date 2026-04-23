@@ -476,7 +476,10 @@ class SecurityConfig(BaseModel):
 
         invalid = v - EVENT_TYPE_VALUES
         if invalid:
-            raise ValueError(f"Unknown event types in muted_event_types: {invalid}")
+            raise ValueError(
+                f"Unknown event types in muted_event_types: {sorted(invalid)}. "
+                f"Valid: {sorted(EVENT_TYPE_VALUES)}"
+            )
         return v
 
     @field_validator("muted_metric_types")
@@ -486,7 +489,23 @@ class SecurityConfig(BaseModel):
 
         invalid = v - METRIC_TYPE_VALUES
         if invalid:
-            raise ValueError(f"Unknown metric types in muted_metric_types: {invalid}")
+            raise ValueError(
+                f"Unknown metric types in muted_metric_types: {sorted(invalid)}. "
+                f"Valid: {sorted(METRIC_TYPE_VALUES)}"
+            )
+        return v
+
+    @field_validator("muted_check_logs")
+    @classmethod
+    def validate_muted_check_logs(cls, v: set[str]) -> set[str]:
+        from guard_core.core.events.event_types import CHECK_NAME_VALUES
+
+        invalid = v - CHECK_NAME_VALUES
+        if invalid:
+            raise ValueError(
+                f"Unknown check names in muted_check_logs: {sorted(invalid)}. "
+                f"Valid: {sorted(CHECK_NAME_VALUES)}"
+            )
         return v
 
     def to_agent_config(self) -> "AgentConfig | None":
