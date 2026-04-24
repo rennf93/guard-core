@@ -271,4 +271,6 @@ per_rule_ignores = { "DEP002" = [
     "types-requests",
     "vulture",
     "xenon",
+], "DEP003" = [
+    "guard-agent",
 ] }
