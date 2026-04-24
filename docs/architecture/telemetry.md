@@ -2,9 +2,20 @@
 
 Guard Core emits security events and request metrics through a composable telemetry pipeline. Events can be muted, metrics can be muted, individual security-check logs can be muted, and exports to OpenTelemetry and Logfire are opt-in.
 
+## Two-tier model
+
+Guard Core ships telemetry in two tiers. Raw signal is free and speaks open standards. Enriched signal is guard-agent-gated and carries additional identity, threat-score, rule, and behavioural-correlation metadata that the SaaS dashboard (and your own tooling) can use to correlate attacks and prioritise investigation.
+
+| Tier | Prerequisites | What every exporter sees |
+|---|---|---|
+| **Raw** | `enable_otel=True` and/or `enable_logfire=True` | All event types, all metrics, W3C `traceparent` / `tracestate` propagation, muting. No `guard.*` enrichment fields. |
+| **Enriched** | `enable_agent=True` + `enable_enrichment=True` (agent optional for actual transport; enrichment itself runs client-side) | Everything in Raw, **plus** per-event `guard.project_id`, `guard.service.name`, `guard.deployment.environment`, `guard.threat_score`, `guard.rule.id` + `guard.rule.version`, `guard.behavior.correlation_key`, `guard.behavior.recent_event_count`. Metrics additionally inherit `guard.project_id`, `guard.service.name`, `guard.deployment.environment` as tags. |
+
+Setting `enable_enrichment=True` without `enable_agent=True` raises `ValidationError` — enrichment is the guard-agent-gated tier by design.
+
 ## Config surface
 
-Nine `SecurityConfig` fields control telemetry:
+Ten `SecurityConfig` fields control telemetry:
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
@@ -17,6 +28,7 @@ Nine `SecurityConfig` fields control telemetry:
 | `otel_resource_attributes` | `dict[str, str]` | `{}` | Extra OpenTelemetry resource attributes (e.g. `deployment.environment`, `service.version`). |
 | `enable_logfire` | `bool` | `False` | Enable Logfire export (requires `[logfire]` extra). |
 | `logfire_service_name` | `str` | `"guard-core"` | Service name for Logfire. |
+| `enable_enrichment` | `bool` | `False` | Populate `guard.*` metadata on every event and metric. **Requires `enable_agent=True`.** |
 
 All three mute fields validate their contents at config time. Unknown values raise `ValidationError` and the error message lists the valid values.
 
@@ -29,6 +41,25 @@ Drawn from constants in `guard_core.core.events.event_types`:
 - `EVENT_TYPE_VALUES` (30 values): `access_denied`, `authentication_failed`, `behavior_violation`, `cloud_blocked`, `content_filtered`, `country_blocked`, `csp_violation`, `custom_request_check`, `decoding_error`, `decorator_violation`, `dynamic_rule_applied`, `dynamic_rule_updated`, `emergency_mode_activated`, `emergency_mode_block`, `geo_lookup_failed`, `https_enforced`, `ip_banned`, `ip_blocked`, `ip_unbanned`, `path_excluded`, `pattern_added`, `pattern_detected`, `pattern_removed`, `penetration_attempt`, `rate_limited`, `redis_connection`, `redis_error`, `security_bypass`, `security_headers_applied`, `user_agent_blocked`
 - `METRIC_TYPE_VALUES`: `error_rate`, `request_count`, `response_time`
 - `CHECK_NAME_VALUES`: `authentication`, `cloud_ip_refresh`, `cloud_provider`, `custom_request`, `custom_validators`, `emergency_mode`, `https_enforcement`, `ip_security`, `rate_limit`, `referrer`, `request_logging`, `request_size_content`, `required_headers`, `route_config`, `suspicious_activity`, `time_window`, `user_agent`
+
+## Enrichment fields (guard-agent tier)
+
+When `enable_enrichment=True` the `EventEnricher` runs inside `CompositeAgentHandler.send_event` / `.send_metric` before fan-out, populating the following keys on every event's `metadata` dict (and every metric's `tags` dict, for identity fields):
+
+| Key | Type | Source | Applied to |
+|---|---|---|---|
+| `guard.project_id` | `str` | `SecurityConfig.agent_project_id` | events + metrics |
+| `guard.service.name` | `str` | `SecurityConfig.otel_service_name` | events + metrics |
+| `guard.deployment.environment` | `str` | `SecurityConfig.otel_resource_attributes["deployment.environment"]` | events + metrics |
+| `guard.threat_score` | `int` (0-100) | Deterministic map of `event_type` → score; matches guard-core-app's `EVENT_SEVERITY` (penetration_attempt=90, ip_banned=70, medium events=50, rate_limited=20, default=20) | events only |
+| `guard.rule.id` | `str` | `DynamicRuleManager.match_event(event)` when the cached rule's IP / country / event-type matched | events only |
+| `guard.rule.version` | `int` | Same source as `guard.rule.id` | events only |
+| `guard.behavior.correlation_key` | `str` (16-char hex) | SHA-256 prefix of `ip \| service \| floor(now/300)` — stable within a 5-minute window so multiple events from the same IP share a key | events only |
+| `guard.behavior.recent_event_count` | `int` | `BehaviorTracker.get_recent_event_count(ip, 300)` — total events observed from the IP across all endpoints in the last 5 minutes | events only |
+
+All fields are nullable and absent unless the corresponding context is available. When `enable_enrichment=False` the enricher is never constructed and none of these keys appear. OTel spans receive these as span attributes; Logfire spans receive them as log attributes via `**enrichment` unpacking.
+
+Enrichment is **always client-side**. guard-core-app's SaaS backend stores them as structured fields for indexed queries, but no server-side component computes them — the full behaviour is deterministic from `SecurityConfig` + current dynamic rule + local in-memory behavioural counters.
 
 ## Muting events, metrics, and check logs
 
@@ -118,6 +149,45 @@ config = SecurityConfig(
 ```
 
 Events are emitted as `logfire.span("guard.event.<event_type>", ...)` and metrics as structured logs via `logfire.info("guard.metric.<metric_type>", value=..., endpoint=..., **tags)`. When both `enable_otel` and `enable_logfire` are set, Logfire also observes the OpenTelemetry instruments automatically via its OTel bridge.
+
+Both OTel spans and Logfire spans receive enrichment fields (see **Enrichment fields** above) as attributes when `enable_enrichment=True`.
+
+## Enabling enrichment
+
+```python
+config = SecurityConfig(
+    enable_agent=True,
+    agent_api_key="your-api-key",
+    agent_project_id="proj-prod",
+    enable_enrichment=True,
+    enable_otel=True,           # optional, routes enrichment to OTel spans
+    enable_logfire=True,        # optional, routes enrichment to Logfire spans
+    otel_service_name="api",
+    otel_resource_attributes={"deployment.environment": "prod"},
+)
+```
+
+Setting `enable_enrichment=True` without `enable_agent=True` raises `ValidationError` — enrichment is the guard-agent-gated tier. Rationale: enrichment is what distinguishes the paid (guard-agent + SaaS dashboard) experience from the free (raw OTel/Logfire) experience; the free tier is a first-class standards-compliant telemetry path, and enrichment is the value-add on top that correlates events by rule/behaviour/identity.
+
+Enrichment runs inside the `CompositeAgentHandler` before fan-out, so every handler — guard-agent, OTel, Logfire — receives the same enriched payload. `guard-agent` passes the fields through unchanged (via `SecurityEvent.metadata` which accepts arbitrary keys via `ConfigDict(extra="allow")`); `guard-core-app`'s ingestion promotes them into indexed columns for dashboard queries.
+
+### Dynamic-rule correlation
+
+`guard.rule.id` + `guard.rule.version` are populated when `enable_dynamic_rules=True` AND the currently-cached `DynamicRules` payload matches the event. Matching rules:
+
+- event's `ip_address` appears in `rules.ip_blacklist` or `rules.ip_whitelist`
+- event's `country` appears in `rules.blocked_countries`
+- event's `event_type == "rate_limited"` and any rate limit is configured (global or per-endpoint)
+- event's `event_type == "cloud_blocked"` and any provider is in `rules.blocked_cloud_providers`
+- event's `event_type == "user_agent_blocked"` and any UA is in `rules.blocked_user_agents`
+
+When none matches, the two keys stay absent.
+
+### Behavioural correlation
+
+`guard.behavior.correlation_key` is `sha256(f"{ip}|{service}|{floor(now/300)}").hexdigest()[:16]` — a stable 16-character hex identifier that groups multiple events from the same IP within a 5-minute rolling window. Dashboards that want to surface "attack chains" can group events by this key.
+
+`guard.behavior.recent_event_count` is the count of timestamps recorded by `BehaviorTracker` for the same IP across all endpoints in the last 5 minutes. Purely in-memory — a high count is signal that this IP is active, not a definitive threat, but useful for prioritising review.
 
 ## Adapter wiring
 

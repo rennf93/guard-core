@@ -113,6 +113,14 @@ class OtelHandler:
             status_code = getattr(event, "status_code", 0)
             if status_code:
                 span.set_attribute("guard.status_code", status_code)
+            if isinstance(metadata, dict):
+                for key, value in metadata.items():
+                    if (
+                        key.startswith("guard.")
+                        and key not in ("traceparent", "tracestate")
+                        and value is not None
+                    ):
+                        span.set_attribute(key, value)
 
     async def send_metric(self, metric: Any) -> None:
         if not _otel_available or not self._meter:

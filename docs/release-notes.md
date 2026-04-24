@@ -10,6 +10,46 @@ Release Notes
 
 ___
 
+v1.2.0 (2026-04-24)
+-------------------
+
+Enriched telemetry: client-side EventEnricher gated on guard-agent (v1.2.0)
+--------------------------------------------------------------------------
+
+**Highlights**
+
+- **Two-tier telemetry model.** Raw OTel/Logfire signal stays free and unchanged. A new **enriched** tier — gated on `enable_agent=True` + `enable_enrichment=True` — adds project identity, deterministic threat scores, dynamic-rule correlation, and per-IP behavioural correlation to every event and metric the composite fans out. Every exporter (guard-agent, OTel, Logfire) sees the same enriched payload.
+- **`EventEnricher`.** New `guard_core.core.events.enricher.EventEnricher` + `EnrichmentContext` run inside `CompositeAgentHandler.send_event` / `.send_metric` between the mute filter and fan-out. Four independent strategies, each fails soft — a faulty strategy never blocks emission. Async + sync mirror parity maintained via `scripts/unasync.py`.
+- **Eight `guard.*` enrichment keys.** `guard.project_id`, `guard.service.name`, `guard.deployment.environment`, `guard.threat_score`, `guard.rule.id`, `guard.rule.version`, `guard.behavior.correlation_key`, `guard.behavior.recent_event_count`. All nullable, all absent unless the corresponding context exists.
+- **Deterministic threat score.** `ThreatScorer.score_for(event_type)` maps 16 event types to 0-100 scores that match the SaaS's `EVENT_SEVERITY` (`penetration_attempt=90`, `ip_banned=70`, medium events=50, `rate_limited=20`, default=20). No ML, no server-side recomputation.
+- **Dynamic-rule correlation.** `DynamicRuleManager.match_event(event)` checks the cached rule against the event's IP / country / event-type and returns `(rule_id, version) | None`. The enricher attaches both keys when matched.
+- **Behavioural correlation key.** 16-char SHA-256 prefix of `ip | service | floor(now/300)`, stable within a 5-minute rolling window. Combined with a new `BehaviorTracker.get_recent_event_count(ip, window)` that aggregates in-memory usage counters, dashboards can group correlated attack chains by IP.
+- **OTel + Logfire forward `guard.*` metadata as span attributes.** `OtelHandler.send_event` and `LogfireHandler.send_event` now walk `event.metadata` and attach every `guard.*` key (except `traceparent` / `tracestate`, which are still used for parent-context extraction only).
+- **100% line + branch coverage.** 2751 tests passing, zero skips, zero `# pragma: no cover`.
+
+**Added**
+
+- `guard_core.core.events.enricher.EventEnricher` + `EnrichmentContext` dataclass (sync mirror under `guard_core/sync/`).
+- `guard_core.core.events.enricher.ThreatScorer.score_for(event_type)` + deterministic `_THREAT_SCORE_MAP`.
+- Eight `ENRICHMENT_KEY_*` constants in `guard_core.core.events.event_types` (async + sync).
+- `SecurityConfig.enable_enrichment: bool` field with a `validate_agent_config` model validator that raises `ValidationError` when enrichment is requested without `enable_agent=True`.
+- `HandlerInitializer.build_enricher()` factory. `build_composite_handler()` now passes the enricher into `CompositeAgentHandler`; `shutdown_agent_integrations()` clears the enricher reference. The early-exit guard in `initialize_agent_integrations` now accounts for `enable_enrichment`.
+- `CompositeAgentHandler(..., enricher=...)` parameter; `send_event` / `send_metric` invoke the enricher between the mute filter and handler fan-out.
+- `DynamicRuleManager.match_event(event) -> tuple[str, int] | None` returning `(rule_id, version)` when the cached rule matches.
+- `BehaviorTracker.get_recent_event_count(ip, window_seconds) -> int` aggregating usage counts across all endpoints for the given IP.
+- `OtelHandler.send_event` + `LogfireHandler.send_event` forward `guard.*` metadata keys as span attributes.
+
+**Docs**
+
+- `docs/architecture/telemetry.md` updated with: the two-tier model table, the new `enable_enrichment` config field, an enrichment-fields reference table, a dedicated "Enabling enrichment" section, documentation of dynamic-rule correlation matching, and documentation of the behavioural correlation key algorithm.
+
+**Compat notes**
+
+- All new fields / layers are strictly additive. Existing configurations with `enable_otel=True` and/or `enable_logfire=True` continue to emit raw signal unchanged.
+- Adapters built against 1.1.0 continue to work against 1.2.0 without code changes — the enricher only activates when `enable_enrichment=True`, and that flag is False by default.
+
+___
+
 v1.1.0 (2026-04-24)
 -------------------
 

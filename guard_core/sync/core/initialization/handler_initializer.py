@@ -36,9 +36,7 @@ class HandlerInitializer:
 
         dynamic_rule_handler: Any = None
         if self.config.enable_dynamic_rules:
-            from guard_core.sync.handlers.dynamic_rule_handler import (
-                DynamicRuleManager,
-            )
+            from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
 
             dynamic_rule_handler = DynamicRuleManager(self.config)
 

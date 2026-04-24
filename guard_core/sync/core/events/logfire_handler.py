@@ -31,6 +31,16 @@ class LogfireHandler:
         if not _logfire_available:
             return
         event_type = getattr(event, "event_type", "unknown")
+        metadata = getattr(event, "metadata", None)
+        enrichment: dict[str, Any] = {}
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                if (
+                    key.startswith("guard.")
+                    and key not in ("traceparent", "tracestate")
+                    and value is not None
+                ):
+                    enrichment[key] = value
         with logfire.span(
             f"guard.event.{event_type}",
             event_type=event_type,
@@ -40,6 +50,7 @@ class LogfireHandler:
             endpoint=getattr(event, "endpoint", ""),
             method=getattr(event, "method", ""),
             status_code=getattr(event, "status_code", 0),
+            **enrichment,
         ):
             pass
 
