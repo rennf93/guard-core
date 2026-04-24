@@ -44,6 +44,29 @@ class DynamicRuleManager:
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
 
+    def match_event(self, event: Any) -> tuple[str, int] | None:
+        rules = self.current_rules
+        if rules is None:
+            return None
+        ip = getattr(event, "ip_address", None)
+        if ip and (
+            ip in (rules.ip_blacklist or []) or ip in (rules.ip_whitelist or [])
+        ):
+            return rules.rule_id, rules.version
+        country = getattr(event, "country", None)
+        if country and country in (rules.blocked_countries or []):
+            return rules.rule_id, rules.version
+        event_type = getattr(event, "event_type", None)
+        if event_type == "rate_limited" and (
+            rules.global_rate_limit is not None or bool(rules.endpoint_rate_limits)
+        ):
+            return rules.rule_id, rules.version
+        if event_type == "cloud_blocked" and rules.blocked_cloud_providers:
+            return rules.rule_id, rules.version
+        if event_type == "user_agent_blocked" and rules.blocked_user_agents:
+            return rules.rule_id, rules.version
+        return None
+
     def _rule_update_loop(self) -> None:
         while True:
             try:

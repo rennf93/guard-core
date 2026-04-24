@@ -60,14 +60,6 @@ async def test_enrich_metric_does_not_raise_on_faulty_strategy(
 
 
 @pytest.mark.asyncio
-async def test_enrich_event_runs_all_stub_strategies_on_happy_path() -> None:
-    enricher = EventEnricher(_mk_context())
-    event = SimpleNamespace(event_type="ip_blocked", metadata={})
-    await enricher.enrich_event(event)
-    assert event.metadata == {}
-
-
-@pytest.mark.asyncio
 async def test_enrich_event_catches_exceptions_from_late_strategy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

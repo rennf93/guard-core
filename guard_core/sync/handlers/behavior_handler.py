@@ -48,6 +48,17 @@ class BehaviorTracker:
     def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
 
+    def get_recent_event_count(self, ip: str, window_seconds: int) -> int:
+        if not ip:
+            return 0
+        cutoff = time.time() - window_seconds
+        count = 0
+        for endpoint_bucket in self.usage_counts.values():
+            for ts in endpoint_bucket.get(ip, []):
+                if ts >= cutoff:
+                    count += 1
+        return count
+
     def track_endpoint_usage(
         self, endpoint_id: str, client_ip: str, rule: BehaviorRule
     ) -> bool:
