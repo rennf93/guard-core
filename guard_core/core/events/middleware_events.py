@@ -27,6 +27,52 @@ class SecurityEventBus:
         self.event_filter = event_filter or EventFilter()
         self.logger = logging.getLogger(__name__)
 
+    def _lookup_country(self, client_ip: str) -> str | None:
+        if not self.geo_ip_handler:
+            return None
+        try:
+            country: str | None = self.geo_ip_handler.get_country(client_ip)
+            return country
+        except Exception:
+            return None
+
+    @staticmethod
+    def _forward_trace_headers(
+        request: GuardRequest, kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
+        forwarded = kwargs
+        for header in ("traceparent", "tracestate"):
+            value = request.headers.get(header)
+            if value and header not in forwarded:
+                forwarded = {**forwarded, header: value}
+        return forwarded
+
+    def _build_event(
+        self,
+        event_type: str,
+        request: GuardRequest,
+        client_ip: str,
+        country: str | None,
+        action_taken: str,
+        reason: str,
+        metadata: dict[str, Any],
+    ) -> Any:
+        from guard_agent import SecurityEvent
+
+        return SecurityEvent(
+            timestamp=datetime.now(timezone.utc),
+            event_type=event_type,
+            ip_address=client_ip,
+            country=country,
+            user_agent=request.headers.get("User-Agent"),
+            action_taken=action_taken,
+            reason=reason,
+            endpoint=str(request.url_path),
+            method=request.method,
+            response_time=get_pipeline_response_time(request),
+            metadata=metadata,
+        )
+
     async def send_middleware_event(
         self,
         event_type: str,
@@ -37,7 +83,6 @@ class SecurityEventBus:
     ) -> None:
         if not self.agent_handler or not self.config.agent_enable_events:
             return
-
         if not self.event_filter.is_event_allowed(event_type):
             return
 
@@ -45,37 +90,11 @@ class SecurityEventBus:
             client_ip = await extract_client_ip(
                 request, self.config, self.agent_handler
             )
-
-            country = None
-            if self.geo_ip_handler:
-                try:
-                    country = self.geo_ip_handler.get_country(client_ip)
-                except Exception:
-                    pass
-
-            traceparent = request.headers.get("traceparent")
-            if traceparent and "traceparent" not in kwargs:
-                kwargs = {**kwargs, "traceparent": traceparent}
-            tracestate = request.headers.get("tracestate")
-            if tracestate and "tracestate" not in kwargs:
-                kwargs = {**kwargs, "tracestate": tracestate}
-
-            from guard_agent import SecurityEvent
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=event_type,
-                ip_address=client_ip,
-                country=country,
-                user_agent=request.headers.get("User-Agent"),
-                action_taken=action_taken,
-                reason=reason,
-                endpoint=str(request.url_path),
-                method=request.method,
-                response_time=get_pipeline_response_time(request),
-                metadata=kwargs,
+            country = self._lookup_country(client_ip)
+            metadata = self._forward_trace_headers(request, kwargs)
+            event = self._build_event(
+                event_type, request, client_ip, country, action_taken, reason, metadata
             )
-
             await self.agent_handler.send_event(event)
         except Exception as e:
             self.logger.error(f"Failed to send security event to agent: {e}")
