@@ -49,9 +49,23 @@ ___
 Install
 -------
 
-```bash
-pip install guard-core
-```
+=== "uv"
+
+    ```bash
+    uv add guard-core
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add guard-core
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install guard-core
+    ```
 
 !!! info "Python 3.10+"
     guard-core requires Python 3.10 or higher.

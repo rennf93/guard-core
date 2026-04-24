@@ -101,7 +101,7 @@ Guard Core defines three runtime-checkable protocols that adapters must implemen
 17. Custom request checks
 
 ### Package Information
-- **PyPI**: `pip install guard-core`
+- **PyPI**: `uv add guard-core` (recommended) · `poetry add guard-core` · `pip install guard-core`
 - **Import**: `import guard_core`
 - **Python**: 3.10, 3.11, 3.12, 3.13, 3.14
 - **License**: MIT

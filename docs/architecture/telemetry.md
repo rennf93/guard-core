@@ -48,9 +48,23 @@ config = SecurityConfig(
 
 ## Enabling OpenTelemetry
 
-```bash
-pip install "guard-core[otel]"
-```
+=== "uv"
+
+    ```bash
+    uv add "guard-core[otel]"
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add "guard-core[otel]"
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install "guard-core[otel]"
+    ```
 
 ```python
 config = SecurityConfig(
@@ -78,9 +92,23 @@ Any other metric type produces a one-line warning and is dropped.
 
 ## Enabling Logfire
 
-```bash
-pip install "guard-core[logfire]"
-```
+=== "uv"
+
+    ```bash
+    uv add "guard-core[logfire]"
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add "guard-core[logfire]"
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install "guard-core[logfire]"
+    ```
 
 ```python
 config = SecurityConfig(
@@ -129,7 +157,7 @@ When `enable_otel=True` and the request carries a W3C `traceparent` header, `Sec
 ### Spans don't show up in your OTel backend
 
 1. Verify `enable_otel=True` is set.
-2. Check `pip list | grep opentelemetry-sdk` — if missing, the handler logs `opentelemetry-sdk not installed, OTEL handler disabled` on startup.
+2. Check `python -c "import opentelemetry.sdk"` — if it raises `ImportError`, the handler logs `opentelemetry-sdk not installed, OTEL handler disabled` on startup.
 3. Confirm `otel_exporter_endpoint` points to an OTLP/HTTP receiver on port `4318` (not `4317` — that's gRPC).
 4. Confirm the adapter calls `initializer.build_event_bus()` and the middleware uses that bus (not a locally-constructed `SecurityEventBus`).
 
