@@ -329,6 +329,33 @@ def test_ratelimit_check_redis_ok() -> None:
     assert result is None
 
 
+def test_ratelimit_check_falls_back_to_memory_when_redis_count_is_none() -> None:
+    from redis.exceptions import RedisError
+
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
+    )
+    mgr = RateLimitManager(config)
+
+    @contextmanager
+    def mock_get_connection():
+        raise RedisError("conn fail")
+        yield
+
+    redis = MagicMock()
+    redis.get_connection = mock_get_connection
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+    mgr.rate_limit_script_sha = "sha123"
+
+    req = SyncMockGuardRequest()
+    result = mgr.check_rate_limit(req, "1.2.3.4", MagicMock())
+    assert result is None
+    assert len(mgr.request_timestamps["1.2.3.4"]) == 1
+
+
 def test_ratelimit_reset_redis() -> None:
     RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")

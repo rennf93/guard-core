@@ -418,3 +418,34 @@ def test_integration_padding_attack() -> None:
 
     assert len(result) <= 200
     assert "script" in result
+
+
+def test_extract_and_concatenate_regions_consumes_all_without_break() -> None:
+    from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
+
+    pp = ContentPreprocessor(max_content_length=1000, preserve_attack_patterns=True)
+    regions = [(0, 5), (10, 15)]
+    content = "AAAAA_____BBBBB"
+    out = pp._extract_and_concatenate_attack_regions(content, regions)
+    assert out == "AAAAABBBBB"
+
+
+def test_extract_and_concatenate_attack_regions_multiple_iterations_before_limit() -> (
+    None
+):
+    from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
+
+    pp = ContentPreprocessor(max_content_length=8, preserve_attack_patterns=True)
+    regions = [(0, 5), (10, 15)]
+    content = "AAAAA_____BBBBB"
+    out = pp._extract_and_concatenate_attack_regions(content, regions)
+    assert out == "AAAAABBB"
+
+
+def test_decode_common_encodings_exits_after_max_iterations() -> None:
+    from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
+
+    pp = ContentPreprocessor()
+    content = "%25%32%35AAA"
+    out = pp.decode_common_encodings(content)
+    assert out != content

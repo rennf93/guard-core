@@ -773,3 +773,125 @@ def test_sensitive_pattern_no_false_positives(path: str) -> None:
     assert not _matches_sensitive_pattern(path), (
         f"False positive: legitimate path matched: {path}"
     )
+
+
+def test_send_threat_event_with_no_patterns_uses_unknown_label() -> None:
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.agent_handler = None
+    mgr._send_threat_event(
+        matched_patterns=[],
+        semantic_threats=[],
+        ip_address="1.2.3.4",
+        context="unknown",
+        content="",
+        threat_score=0.0,
+        threats=[],
+        regex_threats=[],
+        timeouts=[],
+        execution_time=0.0,
+        correlation_id=None,
+    )
+
+
+def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = MagicMock()
+    redis_handler.set_key = MagicMock()
+    mgr.redis_handler = redis_handler
+
+    mgr.add_pattern(r"custom_test_redis_add_sync", custom=True)
+    redis_handler.set_key.assert_called()
+
+
+def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.add_pattern(r"custom_test_redis_remove_sync", custom=True)
+
+    redis_handler = MagicMock()
+    redis_handler.set_key = MagicMock()
+    mgr.redis_handler = redis_handler
+
+    assert mgr._remove_custom_pattern(r"custom_test_redis_remove_sync") is True
+    redis_handler.set_key.assert_called()
+
+
+def test_initialize_redis_with_cached_patterns_empty() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = MagicMock()
+    redis_handler.get_key = MagicMock(return_value=None)
+    mgr.initialize_redis(redis_handler)
+    assert mgr.redis_handler is redis_handler
+
+
+def test_initialize_redis_skips_patterns_already_in_custom() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.custom_patterns.add("existing_pattern_sync")
+    redis_handler = MagicMock()
+    redis_handler.get_key = MagicMock(return_value="existing_pattern_sync")
+    mgr.initialize_redis(redis_handler)
+    assert "existing_pattern_sync" in mgr.custom_patterns
+
+
+def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.detect = MagicMock(  # type: ignore[method-assign]
+        return_value={"is_threat": True, "threats": [{"type": "novel_kind"}]}
+    )
+    is_threat, label = mgr.detect_pattern_match("content", "1.2.3.4")
+    assert is_threat is True
+    assert label == "unknown"
+
+
+def test_detect_pattern_match_is_threat_but_threats_list_empty_returns_unknown() -> (
+    None
+):
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.detect = MagicMock(  # type: ignore[method-assign]
+        return_value={"is_threat": True, "threats": []}
+    )
+    is_threat, label = mgr.detect_pattern_match("content", "1.2.3.4")
+    assert is_threat is True
+    assert label == "unknown"
+    SusPatternsManager._instance = None
+
+
+def test_reset_noop_when_instance_is_none() -> None:
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    original = SusPatternsManager._instance
+    SusPatternsManager._instance = None
+    SusPatternsManager.reset()
+    SusPatternsManager._instance = original

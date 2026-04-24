@@ -291,3 +291,18 @@ async def test_process_rules_with_various_configs(
             mock_request, mock_response, "1.2.3.4", route_config
         )
         processor.context.guard_decorator.behavior_tracker.track_return_pattern.assert_called()
+
+
+async def test_process_usage_rules_skips_return_pattern_rules(
+    processor: BehavioralProcessor,
+    mock_request: Mock,
+) -> None:
+    rule = BehaviorRule(
+        rule_type="return_pattern",
+        threshold=5,
+        pattern="status:404",
+    )
+    route_config = create_route_config_with_rules([rule])
+    await processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
+    tracker = processor.context.guard_decorator.behavior_tracker
+    tracker.track_endpoint_usage.assert_not_called()

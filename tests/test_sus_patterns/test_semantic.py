@@ -417,6 +417,16 @@ def test_analyze_code_injection_risk_ast_parse_exception() -> None:
         assert risk >= 0.0
 
 
+def test_check_ast_parsing_outer_exception_returns_zero() -> None:
+    analyzer = SemanticAnalyzer()
+    with patch(
+        "concurrent.futures.ThreadPoolExecutor",
+        side_effect=RuntimeError("executor init failed"),
+    ):
+        result = analyzer._check_ast_parsing_risk("harmless")
+    assert result == 0.0
+
+
 def test_edge_case_unicode_content() -> None:
     analyzer = SemanticAnalyzer()
 
@@ -448,3 +458,28 @@ def test_performance_large_input() -> None:
 
     assert duration < 1.0
     assert analysis["token_count"] <= 1000
+
+
+def test_calculate_entropy_skips_zero_probability_counts() -> None:
+    # The branch where `probability > 0` is False is reachable only with a
+    # Counter that returns a zero-count entry — not possible from real text.
+    # Patch Counter so its values() iterator yields a 0-count entry.
+    from guard_core.detection_engine import semantic as semantic_mod
+
+    analyzer = SemanticAnalyzer()
+
+    class _FakeCounter(dict):
+        def __init__(self, _content):
+            super().__init__()
+            self["a"] = 1
+            self["b"] = 0  # triggers the False branch
+
+    with patch.object(semantic_mod, "Counter", _FakeCounter):
+        entropy = analyzer.calculate_entropy("ab")
+    assert entropy > 0
+
+
+def test_detect_encoding_layers_no_base64_run_skips_that_layer() -> None:
+    analyzer = SemanticAnalyzer()
+    layers = analyzer.detect_encoding_layers("%2A")
+    assert layers >= 1

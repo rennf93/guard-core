@@ -12,7 +12,7 @@ from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
 if TYPE_CHECKING:
-    from guard_agent import AgentConfig  # pragma: no cover
+    from guard_agent import AgentConfig
 
 
 class SecurityConfig(BaseModel):

@@ -555,3 +555,36 @@ async def test_redis_return_pattern_timestamp_filtering(
             "/api/test", "192.168.1.1", response, rule
         )
         assert not result
+
+
+async def test_log_passive_mode_action_unknown_action_is_noop(caplog) -> None:
+    import logging
+
+    from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+    from guard_core.models import SecurityConfig
+
+    tracker = BehaviorTracker(SecurityConfig())
+    # Construct rule with an action value outside the Literal — Literal isn't
+    # enforced at runtime, so the elif-chain falls through with no matching branch.
+    rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
+    rule.action = "unknown"  # type: ignore[assignment]
+    with caplog.at_level(logging.INFO):
+        tracker._log_passive_mode_action(rule, "1.2.3.4", "details")
+    # Nothing matched; no warnings or criticals for this rule.
+    unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
+    assert not unknown_logs
+
+
+async def test_execute_active_mode_action_unknown_action_is_noop(caplog) -> None:
+    import logging
+
+    from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+    from guard_core.models import SecurityConfig
+
+    tracker = BehaviorTracker(SecurityConfig())
+    rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
+    rule.action = "unknown"  # type: ignore[assignment]
+    with caplog.at_level(logging.INFO):
+        await tracker._execute_active_mode_action(rule, "1.2.3.4", "ep", "details")
+    unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
+    assert not unknown_logs

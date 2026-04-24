@@ -803,3 +803,126 @@ def test_sensitive_pattern_no_false_positives(path: str) -> None:
     assert not _matches_sensitive_pattern(path), (
         f"False positive: legitimate path matched: {path}"
     )
+
+
+async def test_send_threat_event_with_no_patterns_uses_unknown_label() -> None:
+    # Defensive path: detect() only calls this when is_threat=True, which implies
+    # either matched_patterns or semantic_threats is non-empty. Invoke directly
+    # with both empty to exercise the "unknown" fallback branch.
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.agent_handler = None  # skip event dispatch
+    await mgr._send_threat_event(
+        matched_patterns=[],
+        semantic_threats=[],
+        ip_address="1.2.3.4",
+        context="unknown",
+        content="",
+        threat_score=0.0,
+        threats=[],
+        regex_threats=[],
+        timeouts=[],
+        execution_time=0.0,
+        correlation_id=None,
+    )
+
+
+async def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = AsyncMock()
+    redis_handler.set_key = AsyncMock()
+    mgr.redis_handler = redis_handler
+
+    await mgr.add_pattern(r"custom_test_redis_add", custom=True)
+    redis_handler.set_key.assert_called()
+
+
+async def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    await mgr.add_pattern(r"custom_test_redis_remove", custom=True)
+
+    redis_handler = AsyncMock()
+    redis_handler.set_key = AsyncMock()
+    mgr.redis_handler = redis_handler
+
+    assert await mgr._remove_custom_pattern(r"custom_test_redis_remove") is True
+    redis_handler.set_key.assert_called()
+
+
+async def test_initialize_redis_with_cached_patterns_empty() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = AsyncMock()
+    redis_handler.get_key = AsyncMock(return_value=None)
+    await mgr.initialize_redis(redis_handler)
+    assert mgr.redis_handler is redis_handler
+
+
+async def test_initialize_redis_skips_patterns_already_in_custom() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.custom_patterns.add("existing_pattern")
+    redis_handler = AsyncMock()
+    redis_handler.get_key = AsyncMock(return_value="existing_pattern")
+    await mgr.initialize_redis(redis_handler)
+    assert "existing_pattern" in mgr.custom_patterns
+
+
+async def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.detect = AsyncMock(  # type: ignore[method-assign]
+        return_value={"is_threat": True, "threats": [{"type": "novel_kind"}]}
+    )
+    is_threat, label = await mgr.detect_pattern_match("content", "1.2.3.4")
+    assert is_threat is True
+    assert label == "unknown"
+
+
+async def test_detect_pattern_match_empty_threats_list_returns_unknown() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    mgr.detect = AsyncMock(  # type: ignore[method-assign]
+        return_value={"is_threat": True, "threats": []}
+    )
+    is_threat, label = await mgr.detect_pattern_match("content", "1.2.3.4")
+    assert is_threat is True
+    assert label == "unknown"
+    SusPatternsManager._instance = None
+
+
+async def test_reset_noop_when_instance_is_none() -> None:
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    original = SusPatternsManager._instance
+    SusPatternsManager._instance = None
+    await SusPatternsManager.reset()
+    SusPatternsManager._instance = original

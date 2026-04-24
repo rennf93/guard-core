@@ -526,3 +526,33 @@ def test_redis_return_pattern_timestamp_filtering(
             "/api/test", "192.168.1.1", response, rule
         )
         assert not result
+
+
+def test_log_passive_mode_action_unknown_action_is_noop(caplog) -> None:
+    import logging
+
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+
+    tracker = BehaviorTracker(SecurityConfig())
+    rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
+    rule.action = "unknown"  # type: ignore[assignment]
+    with caplog.at_level(logging.INFO):
+        tracker._log_passive_mode_action(rule, "1.2.3.4", "details")
+    unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
+    assert not unknown_logs
+
+
+def test_execute_active_mode_action_unknown_action_is_noop(caplog) -> None:
+    import logging
+
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+
+    tracker = BehaviorTracker(SecurityConfig())
+    rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
+    rule.action = "unknown"  # type: ignore[assignment]
+    with caplog.at_level(logging.INFO):
+        tracker._execute_active_mode_action(rule, "1.2.3.4", "ep", "details")
+    unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
+    assert not unknown_logs

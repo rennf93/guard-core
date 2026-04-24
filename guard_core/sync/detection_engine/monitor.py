@@ -89,13 +89,15 @@ class PerformanceMonitor:
                 stats.total_matches += 1
             if timeout:
                 stats.total_timeouts += 1
-
-            if not timeout:
+            else:
                 stats.recent_times.append(execution_time)
                 stats.max_execution_time = max(stats.max_execution_time, execution_time)
                 stats.min_execution_time = min(stats.min_execution_time, execution_time)
-                if stats.recent_times:
-                    stats.avg_execution_time = mean(stats.recent_times)
+                stats.avg_execution_time = (
+                    mean(stats.recent_times)
+                    if stats.recent_times
+                    else stats.avg_execution_time
+                )
 
         self._check_anomalies(metric, agent_handler, correlation_id)
 
@@ -130,9 +132,6 @@ class PerformanceMonitor:
             return None
 
         recent_times = list(stats.recent_times)
-        if len(recent_times) <= 1:
-            return None  # pragma: no cover
-
         avg_time = mean(recent_times)
         std_time = stdev(recent_times)
 
@@ -373,5 +372,4 @@ class PerformanceMonitor:
 
     def remove_pattern_stats(self, pattern: str) -> None:
         with self._lock:
-            if pattern in self.pattern_stats:
-                del self.pattern_stats[pattern]
+            self.pattern_stats.pop(pattern, None)

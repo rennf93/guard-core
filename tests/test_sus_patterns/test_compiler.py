@@ -299,3 +299,59 @@ async def test_clear_cache_thread_safety(compiler: PatternCompiler) -> None:
     await asyncio.gather(compile_task(), clear_task(), return_exceptions=True)
 
     assert len(compiler._compiled_cache) == len(compiler._cache_order)
+
+
+async def test_compile_pattern_handles_cache_race_between_outer_and_locked_check(
+    compiler: PatternCompiler,
+) -> None:
+    # Simulate TOCTOU: outer `if cache_key in ...` is True, then cache is cleared
+    # before we acquire the lock. Inner check is False, fall through to re-compile.
+    pattern = r"race_me"
+    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    compiler._compiled_cache[cache_key] = re.compile(pattern)
+    compiler._cache_order.append(cache_key)
+
+    real_lock = compiler._lock
+
+    class _LockWrapper:
+        async def __aenter__(self):
+            compiler._compiled_cache.pop(cache_key, None)
+            if cache_key in compiler._cache_order:
+                compiler._cache_order.remove(cache_key)
+            return await real_lock.__aenter__()
+
+        async def __aexit__(self, *a):
+            return await real_lock.__aexit__(*a)
+
+    compiler._lock = _LockWrapper()
+    compiled = await compiler.compile_pattern(pattern)
+    assert compiled.pattern == pattern
+    compiler._lock = real_lock
+
+
+async def test_compile_pattern_returns_cached_entry_when_populated_during_lock_wait(
+    compiler: PatternCompiler,
+) -> None:
+    # Outer `in self._compiled_cache` is False. Before we enter the second lock,
+    # another coroutine populates the cache. Inner `not in` is False; return it.
+    pattern = r"populated_during_wait"
+    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    pre_compiled = re.compile(pattern)
+
+    real_lock = compiler._lock
+    state = {"seen_outer": False}
+
+    class _LockWrapper:
+        async def __aenter__(self):
+            if not state["seen_outer"]:
+                state["seen_outer"] = True
+                compiler._compiled_cache[cache_key] = pre_compiled
+            return await real_lock.__aenter__()
+
+        async def __aexit__(self, *a):
+            return await real_lock.__aexit__(*a)
+
+    compiler._lock = _LockWrapper()
+    result = await compiler.compile_pattern(pattern)
+    assert result is pre_compiled
+    compiler._lock = real_lock

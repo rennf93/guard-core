@@ -12,6 +12,7 @@ from maxminddb import Reader
 
 class IPInfoManager:
     _instance = None
+    _download_retries: int = 3
     token: str
     db_path: Path
     reader: Reader | None = None
@@ -110,7 +111,7 @@ class IPInfoManager:
     def _download_database(self) -> None:
         base_url = "https://ipinfo.io/data/free/country_asn.mmdb"
         url = f"{base_url}?token={self.token}"
-        retries = 3
+        retries = self._download_retries
         backoff = 1
 
         with requests.Session() as session:

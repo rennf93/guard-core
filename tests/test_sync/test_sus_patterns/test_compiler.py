@@ -290,3 +290,55 @@ def test_clear_cache_thread_safety(compiler: PatternCompiler) -> None:
     [compile_task(), clear_task()]
 
     assert len(compiler._compiled_cache) == len(compiler._cache_order)
+
+
+def test_compile_pattern_handles_cache_race_between_outer_and_locked_check(
+    compiler: PatternCompiler,
+) -> None:
+    pattern = r"race_me"
+    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    compiler._compiled_cache[cache_key] = re.compile(pattern)
+    compiler._cache_order.append(cache_key)
+
+    real_lock = compiler._lock
+
+    class _LockWrapper:
+        def __enter__(self):
+            compiler._compiled_cache.pop(cache_key, None)
+            if cache_key in compiler._cache_order:
+                compiler._cache_order.remove(cache_key)
+            return real_lock.__enter__()
+
+        def __exit__(self, *a):
+            return real_lock.__exit__(*a)
+
+    compiler._lock = _LockWrapper()
+    compiled = compiler.compile_pattern(pattern)
+    assert compiled.pattern == pattern
+    compiler._lock = real_lock
+
+
+def test_compile_pattern_returns_cached_entry_when_populated_during_lock_wait(
+    compiler: PatternCompiler,
+) -> None:
+    pattern = r"populated_during_wait"
+    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    pre_compiled = re.compile(pattern)
+
+    real_lock = compiler._lock
+    state = {"seen_outer": False}
+
+    class _LockWrapper:
+        def __enter__(self):
+            if not state["seen_outer"]:
+                state["seen_outer"] = True
+                compiler._compiled_cache[cache_key] = pre_compiled
+            return real_lock.__enter__()
+
+        def __exit__(self, *a):
+            return real_lock.__exit__(*a)
+
+    compiler._lock = _LockWrapper()
+    result = compiler.compile_pattern(pattern)
+    assert result is pre_compiled
+    compiler._lock = real_lock

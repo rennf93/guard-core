@@ -95,3 +95,58 @@ def test_complete_secure_configuration() -> None:
     cors_headers = manager.get_cors_headers("https://app.example.com")
     assert cors_headers["Access-Control-Allow-Origin"] == "https://app.example.com"
     assert cors_headers["Access-Control-Allow-Credentials"] == "true"
+
+
+def test_new_returns_existing_instance_on_subsequent_calls() -> None:
+    from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
+
+    first = SecurityHeadersManager()
+    second = SecurityHeadersManager()
+    assert first is second
+
+
+def test_new_handles_race_where_other_thread_populates_instance_while_waiting() -> None:
+    from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
+
+    original_instance = SecurityHeadersManager._instance
+    SecurityHeadersManager._instance = None
+    racer_instance = SecurityHeadersManager()
+    SecurityHeadersManager._instance = None
+    real_lock = SecurityHeadersManager._lock
+
+    class _LockWrapper:
+        def __enter__(self):
+            SecurityHeadersManager._instance = racer_instance
+            return real_lock.__enter__()
+
+        def __exit__(self, *a):
+            return real_lock.__exit__(*a)
+
+    SecurityHeadersManager._lock = _LockWrapper()
+    try:
+        result = SecurityHeadersManager()
+        assert result is racer_instance
+    finally:
+        SecurityHeadersManager._lock = real_lock
+        SecurityHeadersManager._instance = original_instance
+
+
+def test_build_hsts_without_include_subdomains_and_preload() -> None:
+    from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
+
+    mgr = SecurityHeadersManager()
+    result = mgr._build_hsts(
+        {"max_age": 31536000, "include_subdomains": False, "preload": False}
+    )
+    assert result == "max-age=31536000"
+
+
+def test_build_hsts_with_only_include_subdomains() -> None:
+    from guard_core.sync.handlers.security_headers_handler import SecurityHeadersManager
+
+    mgr = SecurityHeadersManager()
+    result = mgr._build_hsts(
+        {"max_age": 31536000, "include_subdomains": True, "preload": False}
+    )
+    assert "includeSubDomains" in result
+    assert "preload" not in result

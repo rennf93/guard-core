@@ -1361,3 +1361,47 @@ async def test_stop_without_task(
 
     assert manager.update_task is None
     assert "Stopped dynamic rule update loop" not in caplog.text
+
+
+async def test_apply_ip_rules_whitelist_only() -> None:
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
+    from guard_core.models import DynamicRules, SecurityConfig
+
+    DynamicRuleManager._instance = None
+    mgr = DynamicRuleManager(SecurityConfig())
+    rules = DynamicRules(
+        rule_id="r1",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=["10.0.0.1"],
+    )
+    with patch(
+        "guard_core.handlers.ipban_handler.ip_ban_manager.unban_ip",
+        new=AsyncMock(),
+    ):
+        await mgr._apply_ip_rules(rules)
+    DynamicRuleManager._instance = None
+
+
+async def test_apply_rate_limit_rules_global_without_window() -> None:
+    from datetime import datetime, timezone
+
+    from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
+    from guard_core.models import DynamicRules, SecurityConfig
+
+    DynamicRuleManager._instance = None
+    mgr = DynamicRuleManager(SecurityConfig())
+    rules = DynamicRules(
+        rule_id="r1",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        global_rate_limit=100,
+        global_rate_window=None,
+    )
+    await mgr._apply_rate_limit_rules(rules)
+    assert mgr.config.rate_limit == 100
+    DynamicRuleManager._instance = None

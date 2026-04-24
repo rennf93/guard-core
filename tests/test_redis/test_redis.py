@@ -238,3 +238,45 @@ async def test_redis_keys_and_delete_pattern_with_redis_disabled() -> None:
 
     delete_result = await handler.delete_pattern("*")
     assert delete_result is None
+
+
+async def test_initialize_logs_warning_when_redis_url_is_none() -> None:
+    from unittest.mock import patch
+
+    from guard_core.handlers.redis_handler import RedisManager
+    from guard_core.models import SecurityConfig
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url=None)
+    manager = RedisManager(config)
+    with patch.object(manager.logger, "warning") as mock_warn:
+        await manager.initialize()
+    mock_warn.assert_called()
+    RedisManager._instance = None
+
+
+async def test_close_noop_when_redis_not_connected() -> None:
+    from guard_core.handlers.redis_handler import RedisManager
+    from guard_core.models import SecurityConfig
+
+    RedisManager._instance = None
+    manager = RedisManager(SecurityConfig(enable_redis=True))
+    manager._redis = None
+    await manager.close()
+    assert manager._closed is True
+    RedisManager._instance = None
+
+
+async def test_initialize_when_from_url_returns_none_skips_ping() -> None:
+    from unittest.mock import patch
+
+    from guard_core.handlers.redis_handler import RedisManager
+    from guard_core.models import SecurityConfig
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+    with patch("guard_core.handlers.redis_handler.Redis.from_url", return_value=None):
+        await manager.initialize()
+    assert manager._redis is None
+    RedisManager._instance = None

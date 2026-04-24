@@ -400,3 +400,105 @@ async def test_responses_factory_cors_applies_headers() -> None:
         resp = MockGuardResponse("ok", 200)
         result = await factory.apply_cors_headers(resp, "https://example.com")
     assert "Access-Control-Allow-Origin" in result.headers
+
+
+def test_get_cloud_provider_details_skips_provider_not_in_ranges() -> None:
+    # Line 229-230 branch: provider NOT in self.ip_ranges, loop continues.
+    from guard_core.handlers.cloud_handler import CloudManager
+
+    CloudManager._instance = None
+    mgr = CloudManager()
+    mgr.ip_ranges = {"AWS": set()}  # only AWS in ranges
+    result = mgr.get_cloud_provider_details("1.2.3.4", providers={"AWS", "Unknown"})
+    assert result is None
+
+
+def test_ipban_manager_returns_existing_singleton() -> None:
+    # Covers the __new__ False branch (instance already exists).
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    first = IPBanManager()
+    second = IPBanManager()
+    assert first is second
+
+
+async def test_is_ip_banned_not_in_memory_and_no_redis() -> None:
+    # 102->111 False, then 113-115 with no redis_handler, returns False.
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    manager = IPBanManager()
+    manager.banned_ips.clear()
+    manager.redis_handler = None
+    assert await manager.is_ip_banned("99.99.99.99") is False
+
+
+async def test_is_ip_banned_redis_miss_returns_false() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    manager = IPBanManager()
+    manager.banned_ips.clear()
+    manager.redis_handler = AsyncMock()
+    manager.redis_handler.get_key = AsyncMock(return_value=None)
+    manager.redis_handler.delete = AsyncMock()
+    assert await manager.is_ip_banned("99.99.99.99") is False
+
+
+async def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
+    import time
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    manager = IPBanManager()
+    manager.banned_ips.clear()
+    manager.redis_handler = AsyncMock()
+    # expiry in the past
+    manager.redis_handler.get_key = AsyncMock(return_value=str(time.time() - 3600))
+    manager.redis_handler.delete = AsyncMock()
+    assert await manager.is_ip_banned("stale.ip") is False
+    manager.redis_handler.delete.assert_awaited()
+
+
+async def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
+    # Covers elif-False: loop continues over a prefix dict with neither key.
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from guard_core.handlers.cloud_handler import fetch_gcp_ip_ranges
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return None
+
+        async def get(self, *_a, **_kw):
+            response = MagicMock()
+            response.raise_for_status = MagicMock()
+            response.json = AsyncMock(
+                return_value={
+                    "prefixes": [
+                        {"other_key": "value"},
+                        {"ipv4Prefix": "10.0.0.0/8"},
+                    ]
+                }
+            )
+            return response
+
+    with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession", _FakeSession):
+        result = await fetch_gcp_ip_ranges()
+
+    assert len(result) == 1
+
+
+async def test_ipban_reset_noop_when_no_redis_handler() -> None:
+    # reset() with redis_handler=None: `if self.redis_handler:` False, exit.
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    manager = IPBanManager()
+    manager.banned_ips["1.2.3.4"] = 1.0
+    manager.redis_handler = None
+    await manager.reset()
+    assert len(manager.banned_ips) == 0

@@ -302,3 +302,48 @@ async def test_detect_penetration_patterns_bypassed() -> None:
     req = MockGuardRequest(path="/test")
     result, info = await detect_penetration_patterns(req, None, config, lambda *a: True)
     assert result is False
+
+
+def test_is_ip_in_blacklist_cidr_entry_not_containing_ip() -> None:
+    assert (
+        is_ip_in_blacklist(
+            "10.0.0.1", ip_address("10.0.0.1"), ["192.168.0.0/16", "172.16.0.0/12"]
+        )
+        is False
+    )
+
+
+def test_is_ip_in_blacklist_plain_entry_no_match() -> None:
+    assert (
+        is_ip_in_blacklist("10.0.0.1", ip_address("10.0.0.1"), ["1.2.3.4", "5.6.7.8"])
+        is False
+    )
+
+
+def test_is_ip_in_whitelist_cidr_entry_not_containing_ip() -> None:
+    assert (
+        is_ip_in_whitelist(
+            "10.0.0.1", ip_address("10.0.0.1"), ["192.168.0.0/16", "172.16.0.0/12"]
+        )
+        is False
+    )
+
+
+def test_is_ip_in_whitelist_plain_entry_no_match() -> None:
+    assert (
+        is_ip_in_whitelist("10.0.0.1", ip_address("10.0.0.1"), ["1.2.3.4", "5.6.7.8"])
+        is False
+    )
+
+
+async def test_check_user_agent_allowed_route_blocklist_no_match() -> None:
+    config = SecurityConfig(blocked_user_agents=[])
+    route_config = RouteConfig()
+    route_config.blocked_user_agents = ["badbot"]
+    # User agent doesn't match the route pattern, falls through to global check.
+    assert await check_user_agent_allowed("Mozilla/5.0", route_config, config) is True
+
+
+async def test_check_user_agent_allowed_no_route_config_uses_global() -> None:
+    config = SecurityConfig(blocked_user_agents=[])
+    assert await check_user_agent_allowed("Mozilla/5.0", None, config) is True

@@ -244,3 +244,67 @@ def test_pipeline_various_sizes(
 
     assert len(pipeline) == expected_count
     assert pipeline.get_check_names() == checks
+
+
+async def test_pipeline_skips_block_log_when_check_is_muted(
+    mock_middleware: Mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    pipeline = SecurityCheckPipeline(
+        [MockCheck(mock_middleware, "muted_check", should_block=True)],
+        muted_check_logs={"muted_check"},
+    )
+    request = Mock()
+    request.url_path = "/x"
+    request.method = "GET"
+    request.state = type("S", (), {})()
+
+    with caplog.at_level(logging.INFO):
+        result = await pipeline.execute(request)
+    assert result is not None
+    assert not any("Request blocked by" in r.getMessage() for r in caplog.records)
+
+
+async def test_pipeline_skips_error_log_when_check_is_muted(
+    mock_middleware: Mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    pipeline = SecurityCheckPipeline(
+        [FailingCheck(mock_middleware, name="muted_fail")],
+        muted_check_logs={"muted_fail"},
+    )
+    request = Mock()
+    request.url_path = "/x"
+    request.method = "GET"
+    request.state = type("S", (), {})()
+
+    with caplog.at_level(logging.ERROR):
+        await pipeline.execute(request)
+    assert not any("Error in security check" in r.getMessage() for r in caplog.records)
+
+
+async def test_pipeline_skips_fail_secure_log_when_check_is_muted(
+    mock_middleware: Mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    failing = FailingCheck(mock_middleware, name="muted_fs")
+    failing.config.fail_secure = True
+    failing.create_error_response = AsyncMock(return_value=Mock(status_code=500))
+
+    pipeline = SecurityCheckPipeline(
+        [failing],
+        muted_check_logs={"muted_fs"},
+    )
+    request = Mock()
+    request.url_path = "/x"
+    request.method = "GET"
+    request.state = type("S", (), {})()
+
+    with caplog.at_level(logging.WARNING):
+        await pipeline.execute(request)
+    assert not any(
+        "Blocking request due to check error" in r.getMessage() for r in caplog.records
+    )

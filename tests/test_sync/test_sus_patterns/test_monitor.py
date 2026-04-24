@@ -644,3 +644,101 @@ def test_concurrent_access() -> None:
         assert stats.max_execution_time >= stats.min_execution_time
         if stats.recent_times:
             assert stats.avg_execution_time > 0
+
+
+def test_record_metric_timeout_skips_recent_times_update() -> None:
+    from guard_core.sync.detection_engine.monitor import PerformanceMonitor
+
+    monitor = PerformanceMonitor()
+    monitor.record_metric(
+        pattern="pat1",
+        execution_time=5.0,
+        content_length=10,
+        matched=False,
+        timeout=True,
+    )
+    assert monitor.pattern_stats["pat1"].total_timeouts == 1
+    assert len(monitor.pattern_stats["pat1"].recent_times) == 0
+
+
+def test_sanitize_anomaly_data_without_pattern_key() -> None:
+    from guard_core.sync.detection_engine.monitor import PerformanceMonitor
+
+    monitor = PerformanceMonitor()
+    safe = monitor._sanitize_anomaly_data({"type": "timeout"})
+    assert "pattern" not in safe
+    assert "pattern_hash" not in safe
+
+
+def test_notify_callbacks_exception_without_agent_handler() -> None:
+    from guard_core.sync.detection_engine.monitor import PerformanceMonitor
+
+    monitor = PerformanceMonitor()
+
+    def bad_callback(anomaly):
+        raise RuntimeError("boom")
+
+    monitor.anomaly_callbacks.append(bad_callback)
+    monitor._notify_callbacks(
+        {"pattern": "x", "type": "t"}, agent_handler=None, correlation_id=None
+    )
+
+
+def test_get_slow_patterns_skips_missing_report() -> None:
+    from collections import deque
+
+    from guard_core.sync.detection_engine.monitor import (
+        PatternStats,
+        PerformanceMonitor,
+    )
+
+    monitor = PerformanceMonitor()
+    stats = PatternStats(pattern="gone")
+    stats.avg_execution_time = 1.0
+    stats.recent_times = deque([1.0], maxlen=10)
+    stats.total_executions = 1
+    monitor.pattern_stats["gone"] = stats
+
+    monitor.get_pattern_report = lambda _p: None
+    assert monitor.get_slow_patterns(limit=5) == []
+
+
+def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> None:
+    from guard_core.sync.detection_engine.monitor import (
+        PatternStats,
+        PerformanceMonitor,
+    )
+
+    monitor = PerformanceMonitor()
+    stats = PatternStats(pattern="ghost")
+    stats.total_executions = 10
+    stats.total_timeouts = 5
+    monitor.pattern_stats["ghost"] = stats
+
+    monitor.get_pattern_report = lambda _p: None
+    assert monitor.get_problematic_patterns() == []
+
+
+def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
+    from guard_core.sync.detection_engine.monitor import (
+        PatternStats,
+        PerformanceMonitor,
+    )
+
+    monitor = PerformanceMonitor(slow_pattern_threshold=0.01)
+    stats = PatternStats(pattern="ghost2")
+    stats.total_executions = 10
+    stats.total_timeouts = 0
+    stats.avg_execution_time = 1.0
+    monitor.pattern_stats["ghost2"] = stats
+
+    monitor.get_pattern_report = lambda _p: None
+    assert monitor.get_problematic_patterns() == []
+
+
+def test_remove_pattern_stats_noop_for_unknown_pattern() -> None:
+    from guard_core.sync.detection_engine.monitor import PerformanceMonitor
+
+    monitor = PerformanceMonitor()
+    monitor.remove_pattern_stats("nonexistent")
+    assert "nonexistent" not in monitor.pattern_stats

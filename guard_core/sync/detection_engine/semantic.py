@@ -276,7 +276,7 @@ class SemanticAnalyzer:
                 except concurrent.futures.TimeoutError:
                     return 0.2
 
-        except Exception:  # pragma: no cover
+        except Exception:
             pass
 
         return 0.0

@@ -320,3 +320,129 @@ def test_get_country_without_init(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     with pytest.raises(RuntimeError, match="Database not initialized"):
         db.get_country("1.1.1.1")
+
+
+def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
+    tmp_path,
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "missing.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+
+    def _raise():
+        raise RuntimeError("download failed")
+
+    with patch.object(mgr, "_download_database", new=MagicMock(side_effect=_raise)):
+        mgr.initialize()
+
+    assert mgr.reader is None
+    assert not db.exists()
+
+
+def test_initialize_leaves_reader_unset_when_download_silently_no_file(
+    tmp_path,
+) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "quiet.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+    mgr.reader = None
+
+    with patch.object(mgr, "_download_database", new=MagicMock(return_value=None)):
+        mgr.initialize()
+
+    assert mgr.reader is None
+
+
+def test_initialize_redis_cache_miss_falls_through_to_download(tmp_path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "cached.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = MagicMock()
+    mgr.redis_handler.get_key = MagicMock(return_value=None)
+    with patch.object(mgr, "_download_database", new=MagicMock()):
+        mgr.initialize()
+
+
+def test_initialize_skips_download_when_db_exists_and_fresh(tmp_path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    import maxminddb
+
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "fresh.mmdb"
+    db.write_bytes(b"stub")
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+
+    fake_reader = MagicMock()
+    fake_reader.close = MagicMock()
+    with (
+        patch.object(mgr, "_is_db_outdated", return_value=False),
+        patch.object(mgr, "_download_database", new=MagicMock()) as mock_dl,
+        patch.object(maxminddb, "open_database", return_value=fake_reader),
+    ):
+        mgr.initialize()
+
+    mock_dl.assert_not_called()
+    IPInfoManager._instance = None
+
+
+def test_initialize_redis_delegates_to_initialize() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    redis_handler = MagicMock()
+    with patch.object(mgr, "initialize", new=MagicMock()) as mock_init:
+        mgr.initialize_redis(redis_handler)
+    mock_init.assert_called_once()
+    assert mgr.redis_handler is redis_handler
+
+
+def test_new_returns_existing_instance_on_repeated_construction() -> None:
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    first = IPInfoManager(token="tok")
+    second = IPInfoManager(token="tok2")
+    assert first is second
+    assert second.token == "tok2"
+    IPInfoManager._instance = None
+
+
+def test_close_is_noop_when_reader_is_none() -> None:
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    mgr.reader = None
+    mgr.close()
+    IPInfoManager._instance = None
+
+
+def test_download_database_with_zero_retries_exits_cleanly(tmp_path: Path) -> None:
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db._download_retries = 0
+    db._download_database()
+    IPInfoManager._instance = None

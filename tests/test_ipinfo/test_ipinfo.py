@@ -191,6 +191,26 @@ async def test_close_with_reader(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_close_is_noop_when_reader_is_none(tmp_path: Path) -> None:
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.reader = None
+    db.close()
+    IPInfoManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_download_database_with_zero_retries_exits_cleanly(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db._download_retries = 0
+    await db._download_database()
+    IPInfoManager._instance = None
+
+
+@pytest.mark.asyncio
 async def test_redis_cache_hit(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     db.redis_handler = AsyncMock()
@@ -334,3 +354,109 @@ async def test_get_country_without_init(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     with pytest.raises(RuntimeError, match="Database not initialized"):
         db.get_country("1.1.1.1")
+
+
+async def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
+    tmp_path,
+) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "missing.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+
+    async def _raise(*_a, **_kw):
+        raise RuntimeError("download failed")
+
+    with patch.object(mgr, "_download_database", new=AsyncMock(side_effect=_raise)):
+        await mgr.initialize()
+
+    assert mgr.reader is None
+    assert not db.exists()
+
+
+async def test_initialize_leaves_reader_unset_when_download_silently_no_file(
+    tmp_path,
+) -> None:
+    # Patch _download_database to succeed without creating the file.
+    # Forces the `if self.db_path.exists()` False branch at the end of initialize.
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "quiet.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+    mgr.reader = None
+
+    async def _noop():
+        return None
+
+    with patch.object(mgr, "_download_database", new=AsyncMock(side_effect=_noop)):
+        await mgr.initialize()
+
+    assert mgr.reader is None
+
+
+async def test_initialize_redis_cache_miss_falls_through_to_download(
+    tmp_path,
+) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "cached.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = AsyncMock()
+    mgr.redis_handler.get_key = AsyncMock(return_value=None)
+
+    with patch.object(mgr, "_download_database", new=AsyncMock()):
+        await mgr.initialize()
+
+
+async def test_initialize_skips_download_when_db_exists_and_fresh(
+    tmp_path,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import maxminddb
+
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    db = tmp_path / "fresh.mmdb"
+    db.write_bytes(b"stub")
+
+    mgr = IPInfoManager(token="tok", db_path=db)
+    mgr.redis_handler = None
+
+    fake_reader = MagicMock()
+    fake_reader.close = MagicMock()
+    with (
+        patch.object(mgr, "_is_db_outdated", return_value=False),
+        patch.object(mgr, "_download_database", new=AsyncMock()) as mock_dl,
+        patch.object(maxminddb, "open_database", return_value=fake_reader),
+    ):
+        await mgr.initialize()
+
+    mock_dl.assert_not_awaited()
+    IPInfoManager._instance = None
+
+
+async def test_initialize_redis_delegates_to_initialize() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    redis_handler = AsyncMock()
+    with patch.object(mgr, "initialize", new=AsyncMock()) as mock_init:
+        await mgr.initialize_redis(redis_handler)
+    mock_init.assert_awaited_once()
+    assert mgr.redis_handler is redis_handler

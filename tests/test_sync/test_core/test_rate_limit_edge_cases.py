@@ -353,3 +353,28 @@ def test_global_rate_limit_has_no_endpoint_path(
     mock_handler.check_rate_limit.assert_called_once_with(
         mock_request, "1.2.3.4", rate_limit_check.middleware.create_error_response
     )
+
+
+def test_initialize_redis_noop_when_redis_disabled() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
+
+    config = SecurityConfig(enable_redis=False)
+    manager = RateLimitManager(config)
+    redis_handler = MagicMock()
+    manager.initialize_redis(redis_handler)
+    assert manager.redis_handler is redis_handler
+
+
+def test_reset_noop_when_redis_keys_missing() -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
+
+    manager = RateLimitManager(SecurityConfig(enable_redis=True))
+    manager.redis_handler = MagicMock()
+    manager.redis_handler.keys = MagicMock(return_value=[])
+    manager.reset()
