@@ -39,9 +39,8 @@ class HandlerInitializer:
             from guard_core.core.events.logfire_handler import LogfireHandler
 
             handlers.append(LogfireHandler(self.config))
-        if len(handlers) == 1:
-            return handlers[0]
-        return CompositeAgentHandler(handlers)
+        event_filter = self.build_event_filter()
+        return CompositeAgentHandler(handlers, event_filter=event_filter)
 
     def build_event_filter(self) -> Any:
         from guard_core.core.events.event_types import EventFilter
@@ -103,23 +102,24 @@ class HandlerInitializer:
         await sus_patterns_handler.initialize_redis(self.redis_handler)
 
     async def initialize_agent_for_handlers(self) -> None:
-        if not self.agent_handler:
+        telemetry = self.composite_handler or self.agent_handler
+        if telemetry is None:
             return
 
         from guard_core.handlers.cloud_handler import cloud_handler
         from guard_core.handlers.ipban_handler import ip_ban_manager
         from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
-        await ip_ban_manager.initialize_agent(self.agent_handler)
+        await ip_ban_manager.initialize_agent(telemetry)
         if self.rate_limit_handler is not None:
-            await self.rate_limit_handler.initialize_agent(self.agent_handler)
-        await sus_patterns_handler.initialize_agent(self.agent_handler)
+            await self.rate_limit_handler.initialize_agent(telemetry)
+        await sus_patterns_handler.initialize_agent(telemetry)
 
         if self.config.block_cloud_providers:
-            await cloud_handler.initialize_agent(self.agent_handler)
+            await cloud_handler.initialize_agent(telemetry)
 
         if self.geo_ip_handler and hasattr(self.geo_ip_handler, "initialize_agent"):
-            await self.geo_ip_handler.initialize_agent(self.agent_handler)
+            await self.geo_ip_handler.initialize_agent(telemetry)
 
     async def initialize_dynamic_rule_manager(self) -> None:
         if not (self.agent_handler and self.config.enable_dynamic_rules):
@@ -128,7 +128,8 @@ class HandlerInitializer:
         from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 
         dynamic_rule_manager = DynamicRuleManager(self.config)
-        await dynamic_rule_manager.initialize_agent(self.agent_handler)
+        telemetry = self.composite_handler or self.agent_handler
+        await dynamic_rule_manager.initialize_agent(telemetry)
 
         if self.redis_handler:
             await dynamic_rule_manager.initialize_redis(self.redis_handler)
@@ -153,7 +154,8 @@ class HandlerInitializer:
         await self.initialize_agent_for_handlers()
 
         if self.guard_decorator and hasattr(self.guard_decorator, "initialize_agent"):
-            await self.guard_decorator.initialize_agent(self.agent_handler)
+            telemetry = self.composite_handler or self.agent_handler
+            await self.guard_decorator.initialize_agent(telemetry)
 
         await self.initialize_dynamic_rule_manager()
 
@@ -161,3 +163,5 @@ class HandlerInitializer:
         if self.composite_handler is None:
             return
         await self.composite_handler.stop()
+        self.composite_handler = None
+        self.event_filter = None

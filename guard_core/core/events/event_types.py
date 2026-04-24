@@ -15,6 +15,25 @@ EVENT_DYNAMIC_RULE_UPDATED = "dynamic_rule_updated"
 EVENT_DYNAMIC_RULE_APPLIED = "dynamic_rule_applied"
 EVENT_EMERGENCY_MODE = "emergency_mode_activated"
 
+EVENT_ACCESS_DENIED = "access_denied"
+EVENT_AUTHENTICATION_FAILED = "authentication_failed"
+EVENT_CONTENT_FILTERED = "content_filtered"
+EVENT_COUNTRY_BLOCKED = "country_blocked"
+EVENT_CSP_VIOLATION = "csp_violation"
+EVENT_CUSTOM_REQUEST_CHECK = "custom_request_check"
+EVENT_DECODING_ERROR = "decoding_error"
+EVENT_EMERGENCY_MODE_BLOCK = "emergency_mode_block"
+EVENT_GEO_LOOKUP_FAILED = "geo_lookup_failed"
+EVENT_PATH_EXCLUDED = "path_excluded"
+EVENT_PATTERN_ADDED = "pattern_added"
+EVENT_PATTERN_REMOVED = "pattern_removed"
+EVENT_RATE_LIMITED = "rate_limited"
+EVENT_REDIS_CONNECTION = "redis_connection"
+EVENT_REDIS_ERROR = "redis_error"
+EVENT_SECURITY_BYPASS = "security_bypass"
+EVENT_SECURITY_HEADERS_APPLIED = "security_headers_applied"
+EVENT_USER_AGENT_BLOCKED = "user_agent_blocked"
+
 EVENT_TYPE_VALUES: frozenset[str] = frozenset(
     {
         EVENT_PENETRATION_ATTEMPT,
@@ -29,6 +48,24 @@ EVENT_TYPE_VALUES: frozenset[str] = frozenset(
         EVENT_DYNAMIC_RULE_UPDATED,
         EVENT_DYNAMIC_RULE_APPLIED,
         EVENT_EMERGENCY_MODE,
+        EVENT_ACCESS_DENIED,
+        EVENT_AUTHENTICATION_FAILED,
+        EVENT_CONTENT_FILTERED,
+        EVENT_COUNTRY_BLOCKED,
+        EVENT_CSP_VIOLATION,
+        EVENT_CUSTOM_REQUEST_CHECK,
+        EVENT_DECODING_ERROR,
+        EVENT_EMERGENCY_MODE_BLOCK,
+        EVENT_GEO_LOOKUP_FAILED,
+        EVENT_PATH_EXCLUDED,
+        EVENT_PATTERN_ADDED,
+        EVENT_PATTERN_REMOVED,
+        EVENT_RATE_LIMITED,
+        EVENT_REDIS_CONNECTION,
+        EVENT_REDIS_ERROR,
+        EVENT_SECURITY_BYPASS,
+        EVENT_SECURITY_HEADERS_APPLIED,
+        EVENT_USER_AGENT_BLOCKED,
     }
 )
 

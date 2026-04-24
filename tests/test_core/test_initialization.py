@@ -401,9 +401,12 @@ async def test_initialize_agent_integrations_full(
 
         mock_init_handlers.assert_called_once()
 
-        mock_guard_decorator.initialize_agent.assert_called_once_with(
-            mock_agent_handler
-        )
+        from guard_core.core.events.composite_handler import CompositeAgentHandler
+
+        mock_guard_decorator.initialize_agent.assert_called_once()
+        passed = mock_guard_decorator.initialize_agent.call_args.args[0]
+        assert isinstance(passed, CompositeAgentHandler)
+        assert mock_agent_handler in passed._handlers
 
         mock_init_drm.assert_called_once()
 
@@ -469,7 +472,10 @@ def test_build_composite_handler_agent_only(security_config: SecurityConfig) -> 
     security_config.enable_logfire = False
     initializer = HandlerInitializer(config=security_config, agent_handler=agent)
     result = initializer.build_composite_handler()
-    assert result is agent
+    from guard_core.core.events.composite_handler import CompositeAgentHandler
+
+    assert isinstance(result, CompositeAgentHandler)
+    assert result._handlers == [agent]
 
 
 def test_build_composite_handler_with_otel(security_config: SecurityConfig) -> None:
@@ -525,7 +531,10 @@ def test_build_composite_handler_no_agent(security_config: SecurityConfig) -> No
         mock_otel = Mock()
         MockOtel.return_value = mock_otel
         result = initializer.build_composite_handler()
-    assert result is mock_otel
+    from guard_core.core.events.composite_handler import CompositeAgentHandler
+
+    assert isinstance(result, CompositeAgentHandler)
+    assert result._handlers == [mock_otel]
 
 
 def test_build_event_filter(security_config: SecurityConfig) -> None:

@@ -126,6 +126,79 @@ async def test_send_event_extracts_traceparent_from_metadata() -> None:
     assert sas_kwargs.get("context") == "resumed_context"
 
 
+async def test_send_event_malformed_traceparent_does_not_crash() -> None:
+    module = _fresh_otel_handler_module()
+    tracer = MagicMock()
+    span_cm = MagicMock()
+    span = MagicMock()
+    span_cm.__enter__ = MagicMock(return_value=span)
+    span_cm.__exit__ = MagicMock(return_value=False)
+    tracer.start_as_current_span = MagicMock(return_value=span_cm)
+
+    with patch.object(module, "_otel_available", True):
+        handler = module.OtelHandler(
+            config=SimpleNamespace(
+                otel_service_name="svc",
+                otel_exporter_endpoint=None,
+                otel_resource_attributes={},
+            )
+        )
+        handler._tracer = tracer
+        event = SimpleNamespace(
+            event_type="penetration_attempt",
+            ip_address="1.2.3.4",
+            action_taken="blocked",
+            reason="",
+            endpoint="",
+            method="",
+            status_code=0,
+            metadata={"traceparent": "garbage"},
+        )
+        await handler.send_event(event)
+    tracer.start_as_current_span.assert_called_once()
+
+
+async def test_send_event_forwards_tracestate_when_present() -> None:
+    module = _fresh_otel_handler_module()
+    propagator = MagicMock()
+    propagator.extract = MagicMock(return_value="ctx")
+    prop_cls = MagicMock(return_value=propagator)
+
+    tracer = MagicMock()
+    span_cm = MagicMock()
+    span_cm.__enter__ = MagicMock(return_value=MagicMock())
+    span_cm.__exit__ = MagicMock(return_value=False)
+    tracer.start_as_current_span = MagicMock(return_value=span_cm)
+
+    with (
+        patch.object(module, "_otel_available", True),
+        patch.object(module, "TraceContextTextMapPropagator", prop_cls),
+    ):
+        handler = module.OtelHandler(
+            config=SimpleNamespace(
+                otel_service_name="svc",
+                otel_exporter_endpoint=None,
+                otel_resource_attributes={},
+            )
+        )
+        handler._tracer = tracer
+        tp = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        event = SimpleNamespace(
+            event_type="penetration_attempt",
+            ip_address="1.2.3.4",
+            action_taken="blocked",
+            reason="",
+            endpoint="",
+            method="",
+            status_code=0,
+            metadata={"traceparent": tp, "tracestate": "vendor=abc"},
+        )
+        await handler.send_event(event)
+
+    carrier = propagator.extract.call_args.kwargs["carrier"]
+    assert carrier == {"traceparent": tp, "tracestate": "vendor=abc"}
+
+
 async def test_send_event_no_traceparent_starts_root_span() -> None:
     module = _fresh_otel_handler_module()
     tracer = MagicMock()
@@ -160,6 +233,60 @@ async def test_send_event_no_traceparent_starts_root_span() -> None:
     tracer.start_as_current_span.assert_called_once()
     sas_kwargs = tracer.start_as_current_span.call_args.kwargs
     assert sas_kwargs.get("context") is None
+
+
+async def test_event_bus_attaches_tracestate_from_request_headers() -> None:
+    from types import SimpleNamespace as _SN
+
+    from guard_core.core.events.event_types import EVENT_PENETRATION_ATTEMPT
+    from guard_core.core.events.middleware_events import SecurityEventBus
+
+    captured: dict[str, object] = {}
+
+    async def capture_send(event):
+        captured["event"] = event
+
+    agent = MagicMock()
+    agent.send_event = capture_send
+
+    cfg = _SN(agent_enable_events=True)
+    bus = SecurityEventBus(agent_handler=agent, config=cfg)
+
+    request = MagicMock()
+    request.client_host = "1.2.3.4"
+    request.headers = {
+        "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        "tracestate": "vendor=abc",
+    }
+    request.url_path = "/x"
+    request.method = "GET"
+
+    fake_event_cls = MagicMock(side_effect=lambda **kw: _SN(**kw))
+    with (
+        patch(
+            "guard_core.core.events.middleware_events.extract_client_ip",
+            new=MagicMock(return_value="1.2.3.4"),
+        ) as mock_extract,
+        patch(
+            "guard_core.core.events.middleware_events.SecurityEvent",
+            fake_event_cls,
+            create=True,
+        ),
+    ):
+
+        async def _async_return_ip(*_a, **_kw):
+            return "1.2.3.4"
+
+        mock_extract.side_effect = _async_return_ip
+        await bus.send_middleware_event(
+            event_type=EVENT_PENETRATION_ATTEMPT,
+            request=request,
+            action_taken="blocked",
+            reason="test",
+        )
+
+    event = captured["event"]
+    assert event.metadata["tracestate"] == "vendor=abc"
 
 
 async def test_event_bus_attaches_traceparent_from_request_headers() -> None:

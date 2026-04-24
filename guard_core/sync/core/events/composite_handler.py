@@ -3,14 +3,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from guard_core.sync.core.events.event_types import EventFilter
+
 logger = logging.getLogger("guard_core")
 
 
 class CompositeAgentHandler:
-    def __init__(self, handlers: list[Any]) -> None:
+    def __init__(
+        self, handlers: list[Any], event_filter: EventFilter | None = None
+    ) -> None:
         self._handlers = handlers
+        self._event_filter = event_filter or EventFilter()
 
     def send_event(self, event: Any) -> None:
+        event_type = getattr(event, "event_type", None)
+        if event_type and not self._event_filter.is_event_allowed(event_type):
+            return
         for handler in self._handlers:
             try:
                 handler.send_event(event)
@@ -18,6 +26,9 @@ class CompositeAgentHandler:
                 logger.exception("handler.send_event failed")
 
     def send_metric(self, metric: Any) -> None:
+        metric_type = getattr(metric, "metric_type", None)
+        if metric_type and not self._event_filter.is_metric_allowed(metric_type):
+            return
         for handler in self._handlers:
             try:
                 handler.send_metric(metric)

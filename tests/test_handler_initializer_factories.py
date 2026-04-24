@@ -82,6 +82,26 @@ async def test_shutdown_agent_integrations_stops_composite_handler() -> None:
     fake_composite.stop.assert_awaited_once()
 
 
+async def test_shutdown_is_idempotent() -> None:
+    config = SecurityConfig(enable_otel=True)
+    initializer = HandlerInitializer(config=config, agent_handler=None)
+    fake_composite = AsyncMock()
+    with (
+        patch.object(
+            initializer, "build_composite_handler", return_value=fake_composite
+        ),
+        patch.object(initializer, "initialize_agent_for_handlers", AsyncMock()),
+        patch.object(initializer, "initialize_dynamic_rule_manager", AsyncMock()),
+    ):
+        await initializer.initialize_agent_integrations()
+        await initializer.shutdown_agent_integrations()
+        await initializer.shutdown_agent_integrations()
+
+    fake_composite.stop.assert_awaited_once()
+    assert initializer.composite_handler is None
+    assert initializer.event_filter is None
+
+
 async def test_shutdown_noop_when_not_initialized() -> None:
     config = SecurityConfig()
     initializer = HandlerInitializer(config=config, agent_handler=None)
@@ -98,6 +118,30 @@ async def test_build_metrics_collector_before_init_raises() -> None:
     initializer = _initializer(SecurityConfig())
     with pytest.raises(RuntimeError, match="initialize_agent_integrations"):
         initializer.build_metrics_collector()
+
+
+async def test_composite_routes_subsystem_events_through_filter() -> None:
+    config = SecurityConfig(
+        muted_event_types={"access_denied"},
+        agent_enable_events=True,
+    )
+    raw_agent = AsyncMock()
+    raw_agent.send_event = AsyncMock()
+    raw_agent.initialize_redis = AsyncMock()
+    initializer = HandlerInitializer(config=config, agent_handler=raw_agent)
+    with (
+        patch.object(initializer, "initialize_agent_for_handlers", AsyncMock()),
+        patch.object(initializer, "initialize_dynamic_rule_manager", AsyncMock()),
+    ):
+        await initializer.initialize_agent_integrations()
+
+    event = type("E", (), {"event_type": "access_denied"})()
+    await initializer.composite_handler.send_event(event)
+    raw_agent.send_event.assert_not_called()
+
+    allowed = type("E", (), {"event_type": "ip_blocked"})()
+    await initializer.composite_handler.send_event(allowed)
+    raw_agent.send_event.assert_called_once()
 
 
 async def test_composite_start_exception_is_logged_not_raised(

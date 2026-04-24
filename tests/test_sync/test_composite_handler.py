@@ -133,3 +133,74 @@ def test_empty_handlers() -> None:
     composite.stop()
     assert composite.health_check() is True
     assert composite.get_dynamic_rules() is None
+
+
+def test_composite_filters_muted_events() -> None:
+    from guard_core.sync.core.events.event_types import EventFilter
+
+    h = MagicMock()
+    h.send_event = MagicMock()
+    composite = CompositeAgentHandler(
+        [h],
+        event_filter=EventFilter(muted_event_types=frozenset({"penetration_attempt"})),
+    )
+
+    class _E:
+        event_type = "penetration_attempt"
+
+    composite.send_event(_E())
+    h.send_event.assert_not_called()
+
+    class _E2:
+        event_type = "ip_blocked"
+
+    composite.send_event(_E2())
+    h.send_event.assert_called_once()
+
+
+def test_composite_filters_muted_metrics() -> None:
+    from guard_core.sync.core.events.event_types import EventFilter
+
+    h = MagicMock()
+    h.send_metric = MagicMock()
+    composite = CompositeAgentHandler(
+        [h],
+        event_filter=EventFilter(muted_metric_types=frozenset({"response_time"})),
+    )
+
+    class _M:
+        metric_type = "response_time"
+
+    composite.send_metric(_M())
+    h.send_metric.assert_not_called()
+
+    class _M2:
+        metric_type = "request_count"
+
+    composite.send_metric(_M2())
+    h.send_metric.assert_called_once()
+
+
+def test_composite_default_filter_allows_everything() -> None:
+    h = MagicMock()
+    h.send_event = MagicMock()
+    composite = CompositeAgentHandler([h])
+
+    class _E:
+        event_type = "anything"
+
+    composite.send_event(_E())
+    h.send_event.assert_called_once()
+
+
+def test_composite_event_without_event_type_passes_through() -> None:
+    from guard_core.sync.core.events.event_types import EventFilter
+
+    h = MagicMock()
+    h.send_event = MagicMock()
+    composite = CompositeAgentHandler(
+        [h],
+        event_filter=EventFilter(muted_event_types=frozenset({"penetration_attempt"})),
+    )
+    composite.send_event(object())
+    h.send_event.assert_called_once()

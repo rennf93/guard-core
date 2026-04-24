@@ -20,11 +20,13 @@ Nine `SecurityConfig` fields control telemetry:
 
 All three mute fields validate their contents at config time. Unknown values raise `ValidationError` and the error message lists the valid values.
 
+Mute is applied globally inside `CompositeAgentHandler.send_event` / `.send_metric`. Every event emitted via `SecurityEventBus`, decorator-level `send_decorator_event`, or handler-level `agent_handler.send_event()` goes through the composite, so mute works uniformly regardless of emission site — as long as the adapter installs the composite through `HandlerInitializer.initialize_agent_integrations()`.
+
 ## Valid mute values
 
 Drawn from constants in `guard_core.core.events.event_types`:
 
-- `EVENT_TYPE_VALUES`: `behavior_violation`, `cloud_blocked`, `decorator_violation`, `dynamic_rule_applied`, `dynamic_rule_updated`, `emergency_mode_activated`, `https_enforced`, `ip_banned`, `ip_blocked`, `ip_unbanned`, `pattern_detected`, `penetration_attempt`
+- `EVENT_TYPE_VALUES` (31 values): `access_denied`, `authentication_failed`, `behavior_violation`, `cloud_blocked`, `content_filtered`, `country_blocked`, `csp_violation`, `custom_request_check`, `decoding_error`, `decorator_violation`, `dynamic_rule_applied`, `dynamic_rule_updated`, `emergency_mode_activated`, `emergency_mode_block`, `geo_lookup_failed`, `https_enforced`, `ip_banned`, `ip_blocked`, `ip_unbanned`, `path_excluded`, `pattern_added`, `pattern_detected`, `pattern_removed`, `penetration_attempt`, `rate_limited`, `redis_connection`, `redis_error`, `security_bypass`, `security_headers_applied`, `user_agent_blocked`
 - `METRIC_TYPE_VALUES`: `error_rate`, `request_count`, `response_time`
 - `CHECK_NAME_VALUES`: `authentication`, `cloud_ip_refresh`, `cloud_provider`, `custom_request`, `custom_validators`, `emergency_mode`, `https_enforcement`, `ip_security`, `rate_limit`, `referrer`, `request_logging`, `request_size_content`, `required_headers`, `route_config`, `suspicious_activity`, `time_window`, `user_agent`
 
@@ -62,7 +64,9 @@ config = SecurityConfig(
 )
 ```
 
-Incoming W3C `traceparent` headers are continued automatically — guard spans become children of the caller's trace.
+If `otel_resource_attributes` contains a `service.name` key it overrides `otel_service_name` (last-write-wins: the extra attributes dict is applied after the service-name key is set). Prefer setting service name via `otel_service_name` and use `otel_resource_attributes` only for environment/version/region tags.
+
+Incoming W3C `traceparent` headers are continued automatically — guard spans become children of the caller's trace. `tracestate` headers are forwarded alongside when present.
 
 `send_metric` emits three instruments when enabled:
 

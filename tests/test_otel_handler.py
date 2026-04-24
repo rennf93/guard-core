@@ -164,6 +164,24 @@ async def test_stop_no_tracer_or_meter(config: MagicMock) -> None:
         await handler.stop()
 
 
+async def test_stop_is_idempotent(config: MagicMock) -> None:
+    with patch("guard_core.core.events.otel_handler._otel_available", True):
+        handler = OtelHandler(config)
+        handler._tracer = MagicMock()
+        handler._meter = MagicMock()
+        with (
+            patch("guard_core.core.events.otel_handler.trace") as mock_trace,
+            patch("guard_core.core.events.otel_handler.metrics") as mock_metrics,
+        ):
+            mock_trace.get_tracer_provider.return_value = MagicMock()
+            mock_metrics.get_meter_provider.return_value = MagicMock()
+            await handler.stop()
+            await handler.stop()
+
+        assert handler._tracer is None
+        assert handler._meter is None
+
+
 async def test_stop_providers_without_shutdown_attr(config: MagicMock) -> None:
     with patch("guard_core.core.events.otel_handler._otel_available", True):
         handler = OtelHandler(config)

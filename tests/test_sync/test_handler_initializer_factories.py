@@ -84,6 +84,26 @@ def test_shutdown_agent_integrations_stops_composite_handler() -> None:
     fake_composite.stop.assert_called_once()
 
 
+def test_shutdown_is_idempotent() -> None:
+    config = SecurityConfig(enable_otel=True)
+    initializer = HandlerInitializer(config=config, agent_handler=None)
+    fake_composite = MagicMock()
+    with (
+        patch.object(
+            initializer, "build_composite_handler", return_value=fake_composite
+        ),
+        patch.object(initializer, "initialize_agent_for_handlers", MagicMock()),
+        patch.object(initializer, "initialize_dynamic_rule_manager", MagicMock()),
+    ):
+        initializer.initialize_agent_integrations()
+        initializer.shutdown_agent_integrations()
+        initializer.shutdown_agent_integrations()
+
+    fake_composite.stop.assert_called_once()
+    assert initializer.composite_handler is None
+    assert initializer.event_filter is None
+
+
 def test_shutdown_noop_when_not_initialized() -> None:
     config = SecurityConfig()
     initializer = HandlerInitializer(config=config, agent_handler=None)

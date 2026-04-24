@@ -115,6 +115,47 @@ def test_send_event_extracts_traceparent_from_metadata() -> None:
     assert sas_kwargs.get("context") == "resumed_context"
 
 
+def test_send_event_forwards_tracestate_when_present() -> None:
+    module = _fresh_otel_handler_module()
+    propagator = MagicMock()
+    propagator.extract = MagicMock(return_value="ctx")
+    prop_cls = MagicMock(return_value=propagator)
+
+    tracer = MagicMock()
+    span_cm = MagicMock()
+    span_cm.__enter__ = MagicMock(return_value=MagicMock())
+    span_cm.__exit__ = MagicMock(return_value=False)
+    tracer.start_as_current_span = MagicMock(return_value=span_cm)
+
+    with (
+        patch.object(module, "_otel_available", True),
+        patch.object(module, "TraceContextTextMapPropagator", prop_cls),
+    ):
+        handler = module.OtelHandler(
+            config=SimpleNamespace(
+                otel_service_name="svc",
+                otel_exporter_endpoint=None,
+                otel_resource_attributes={},
+            )
+        )
+        handler._tracer = tracer
+        tp = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        event = SimpleNamespace(
+            event_type="penetration_attempt",
+            ip_address="1.2.3.4",
+            action_taken="blocked",
+            reason="",
+            endpoint="",
+            method="",
+            status_code=0,
+            metadata={"traceparent": tp, "tracestate": "vendor=abc"},
+        )
+        handler.send_event(event)
+
+    carrier = propagator.extract.call_args.kwargs["carrier"]
+    assert carrier == {"traceparent": tp, "tracestate": "vendor=abc"}
+
+
 def test_send_event_no_traceparent_starts_root_span() -> None:
     module = _fresh_otel_handler_module()
     tracer = MagicMock()

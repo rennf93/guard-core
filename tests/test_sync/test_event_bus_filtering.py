@@ -188,3 +188,52 @@ def test_event_bus_attaches_traceparent_from_request_headers(
         event.metadata["traceparent"]
         == "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
     )
+
+
+def test_event_bus_attaches_tracestate_from_request_headers(config: MagicMock) -> None:
+    captured: dict[str, object] = {}
+
+    def capture_send(event):
+        captured["event"] = event
+
+    agent = MagicMock()
+    agent.send_event = capture_send
+
+    bus = SecurityEventBus(agent_handler=agent, config=config)
+
+    request = MagicMock()
+    request.client_host = "1.2.3.4"
+    request.headers = {
+        "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        "tracestate": "vendor=xyz",
+    }
+    request.url_path = "/x"
+    request.method = "GET"
+
+    from types import SimpleNamespace
+
+    fake_event_cls = MagicMock(side_effect=lambda **kw: SimpleNamespace(**kw))
+    with (
+        patch(
+            "guard_core.sync.core.events.middleware_events.extract_client_ip",
+            return_value="1.2.3.4",
+        ),
+        patch(
+            "guard_core.sync.core.events.middleware_events.SecurityEvent",
+            fake_event_cls,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.core.events.middleware_events.get_pipeline_response_time",
+            return_value=0.0,
+        ),
+    ):
+        bus.send_middleware_event(
+            event_type=EVENT_PENETRATION_ATTEMPT,
+            request=request,
+            action_taken="blocked",
+            reason="test",
+        )
+
+    event = captured["event"]
+    assert event.metadata["tracestate"] == "vendor=xyz"

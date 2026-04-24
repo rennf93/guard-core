@@ -74,10 +74,12 @@ class OtelHandler:
             tracer_provider = trace.get_tracer_provider()
             if hasattr(tracer_provider, "shutdown"):
                 tracer_provider.shutdown()
+            self._tracer = None
         if self._meter and _otel_available:
             meter_provider = metrics.get_meter_provider()
             if hasattr(meter_provider, "shutdown"):
                 meter_provider.shutdown()
+            self._meter = None
 
     def send_event(self, event: Any) -> None:
         if not _otel_available or not self._tracer:
@@ -87,10 +89,14 @@ class OtelHandler:
         traceparent = (
             metadata.get("traceparent") if isinstance(metadata, dict) else None
         )
+        tracestate = metadata.get("tracestate") if isinstance(metadata, dict) else None
         parent_ctx = None
         if traceparent:
+            carrier: dict[str, str] = {"traceparent": traceparent}
+            if tracestate:
+                carrier["tracestate"] = tracestate
             propagator = TraceContextTextMapPropagator()
-            parent_ctx = propagator.extract(carrier={"traceparent": traceparent})
+            parent_ctx = propagator.extract(carrier=carrier)
 
         with self._tracer.start_as_current_span(
             f"guard.event.{event_type}", context=parent_ctx

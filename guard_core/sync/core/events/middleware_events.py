@@ -54,6 +54,9 @@ class SecurityEventBus:
             traceparent = request.headers.get("traceparent")
             if traceparent and "traceparent" not in kwargs:
                 kwargs = {**kwargs, "traceparent": traceparent}
+            tracestate = request.headers.get("tracestate")
+            if tracestate and "tracestate" not in kwargs:
+                kwargs = {**kwargs, "tracestate": tracestate}
 
             from guard_agent import SecurityEvent
 
