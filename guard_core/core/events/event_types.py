@@ -104,6 +104,16 @@ CHECK_NAME_VALUES: frozenset[str] = frozenset(
 )
 
 
+ENRICHMENT_KEY_PROJECT_ID = "guard.project_id"
+ENRICHMENT_KEY_SERVICE_NAME = "guard.service.name"
+ENRICHMENT_KEY_DEPLOYMENT_ENV = "guard.deployment.environment"
+ENRICHMENT_KEY_THREAT_SCORE = "guard.threat_score"
+ENRICHMENT_KEY_RULE_ID = "guard.rule.id"
+ENRICHMENT_KEY_RULE_VERSION = "guard.rule.version"
+ENRICHMENT_KEY_BEHAVIOR_KEY = "guard.behavior.correlation_key"
+ENRICHMENT_KEY_RECENT_EVENT_COUNT = "guard.behavior.recent_event_count"
+
+
 @dataclass(frozen=True)
 class EventFilter:
     muted_event_types: frozenset[str] = frozenset()

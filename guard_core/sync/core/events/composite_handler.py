@@ -10,15 +10,21 @@ logger = logging.getLogger("guard_core")
 
 class CompositeAgentHandler:
     def __init__(
-        self, handlers: list[Any], event_filter: EventFilter | None = None
+        self,
+        handlers: list[Any],
+        event_filter: EventFilter | None = None,
+        enricher: Any | None = None,
     ) -> None:
         self._handlers = handlers
         self._event_filter = event_filter or EventFilter()
+        self._enricher = enricher
 
     def send_event(self, event: Any) -> None:
         event_type = getattr(event, "event_type", None)
         if event_type and not self._event_filter.is_event_allowed(event_type):
             return
+        if self._enricher is not None:
+            self._enricher.enrich_event(event)
         for handler in self._handlers:
             try:
                 handler.send_event(event)
@@ -29,6 +35,8 @@ class CompositeAgentHandler:
         metric_type = getattr(metric, "metric_type", None)
         if metric_type and not self._event_filter.is_metric_allowed(metric_type):
             return
+        if self._enricher is not None:
+            self._enricher.enrich_metric(metric)
         for handler in self._handlers:
             try:
                 handler.send_metric(metric)

@@ -24,6 +24,30 @@ class HandlerInitializer:
         self.guard_decorator = guard_decorator
         self.composite_handler: Any = None
         self.event_filter: Any = None
+        self.enricher: Any = None
+
+    def build_enricher(self) -> Any | None:
+        if not self.config.enable_enrichment:
+            return None
+        from guard_core.core.events.enricher import EnrichmentContext, EventEnricher
+
+        dynamic_rule_handler: Any = None
+        if self.config.enable_dynamic_rules:
+            from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
+
+            dynamic_rule_handler = DynamicRuleManager(self.config)
+
+        behavior_tracker: Any = None
+        if self.guard_decorator is not None:
+            behavior_tracker = getattr(self.guard_decorator, "behavior_tracker", None)
+
+        context = EnrichmentContext(
+            config=self.config,
+            agent_handler=self.agent_handler,
+            dynamic_rule_handler=dynamic_rule_handler,
+            behavior_tracker=behavior_tracker,
+        )
+        return EventEnricher(context)
 
     def build_composite_handler(self) -> Any:
         from guard_core.core.events.composite_handler import CompositeAgentHandler
@@ -40,7 +64,10 @@ class HandlerInitializer:
 
             handlers.append(LogfireHandler(self.config))
         event_filter = self.build_event_filter()
-        return CompositeAgentHandler(handlers, event_filter=event_filter)
+        self.enricher = self.build_enricher()
+        return CompositeAgentHandler(
+            handlers, event_filter=event_filter, enricher=self.enricher
+        )
 
     def build_event_filter(self) -> Any:
         from guard_core.core.events.event_types import EventFilter
@@ -139,6 +166,7 @@ class HandlerInitializer:
             not self.agent_handler
             and not self.config.enable_otel
             and not self.config.enable_logfire
+            and not self.config.enable_enrichment
         ):
             return
 
@@ -165,3 +193,4 @@ class HandlerInitializer:
         await self.composite_handler.stop()
         self.composite_handler = None
         self.event_filter = None
+        self.enricher = None

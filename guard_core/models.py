@@ -391,6 +391,17 @@ class SecurityConfig(BaseModel):
         description="Service name for Logfire integration",
     )
 
+    enable_enrichment: bool = Field(
+        default=False,
+        description=(
+            "Populate guard.* metadata on every event and every metric with "
+            "project identity, deterministic threat score, matched dynamic "
+            "rule, and per-IP behavioral correlation keys. Requires "
+            "enable_agent=True — enrichment is the guard-agent-gated tier "
+            "of the telemetry pipeline."
+        ),
+    )
+
     # TODO: Add type hints to the decorator
     @field_validator("whitelist", "blacklist")  # type: ignore
     def validate_ip_lists(cls, v: list[str] | None) -> list[str] | None:
@@ -473,6 +484,13 @@ class SecurityConfig(BaseModel):
         if self.enable_dynamic_rules and not self.enable_agent:
             raise ValueError(
                 "enable_agent must be True when enable_dynamic_rules is True"
+            )
+
+        if self.enable_enrichment and not self.enable_agent:
+            raise ValueError(
+                "enable_enrichment requires enable_agent=True; enrichment is "
+                "the guard-agent-gated tier. Either enable guard-agent or set "
+                "enable_enrichment=False."
             )
 
         return self
