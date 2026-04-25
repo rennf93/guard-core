@@ -6,29 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Framework-agnostic security library for Python web applications">
+        <meta name="description" content="Upgrade guide for breaking changes shipped in guard-core 2.0.0 - DetectionResult, suspicious_request_counts shape, 3-tuple compiled patterns, and cloud-IP namespace">
       
       
       
+        <link rel="canonical" href="https://rennf93.github.io/guard-core/latest/2.0.0/migration/v1-to-v2/">
       
+      
+        <link rel="prev" href="../../api/utilities/">
+      
+      
+        <link rel="next" href="../../release-notes/">
       
       
         
       
       
-      <link rel="icon" href="/guard-core/latest/2.0.0/assets/guard_core_favicon.png">
+      <link rel="icon" href="../../assets/guard_core_favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Guard Core</title>
+        <title>Migrating from v1.x to v2.0 - Guard Core</title>
       
     
     
-      <link rel="stylesheet" href="/guard-core/latest/2.0.0/assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="/guard-core/latest/2.0.0/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,11 +53,11 @@
       
     
     
-      <link rel="stylesheet" href="/guard-core/latest/2.0.0/assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="/guard-core/latest/2.0.0/css/custom.css">
+      <link rel="stylesheet" href="../../css/custom.css">
     
-    <script>__md_scope=new URL("/guard-core/latest/2.0.0",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
   
@@ -86,6 +92,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#migrating-from-v1x-to-v20" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -100,9 +111,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/guard-core/latest/2.0.0/." title="Guard Core" class="md-header__button md-logo" aria-label="Guard Core" data-md-component="logo">
+    <a href="../.." title="Guard Core" class="md-header__button md-logo" aria-label="Guard Core" data-md-component="logo">
       
-  <img src="/guard-core/latest/2.0.0/assets/guard_core_logo.svg" alt="logo">
+  <img src="../../assets/guard_core_logo.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -119,7 +130,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Migrating from v1.x to v2.0
             
           </span>
         </div>
@@ -235,7 +246,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/guard-core/latest/2.0.0/." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -254,7 +265,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/guard-core/latest/2.0.0/installation/" class="md-tabs__link">
+      <a href="../../installation/" class="md-tabs__link">
         
   
   
@@ -275,7 +286,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/architecture/overview/" class="md-tabs__link">
+        <a href="../../architecture/overview/" class="md-tabs__link">
           
   
   
@@ -297,7 +308,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/adapters/getting-started/" class="md-tabs__link">
+        <a href="../../adapters/getting-started/" class="md-tabs__link">
           
   
   
@@ -319,7 +330,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/internals/checks/" class="md-tabs__link">
+        <a href="../../internals/checks/" class="md-tabs__link">
           
   
   
@@ -341,7 +352,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/configuration/security-config/" class="md-tabs__link">
+        <a href="../../configuration/security-config/" class="md-tabs__link">
           
   
   
@@ -363,7 +374,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/api/protocols/" class="md-tabs__link">
+        <a href="../../api/protocols/" class="md-tabs__link">
           
   
   
@@ -381,11 +392,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/guard-core/latest/2.0.0/migration/v1-to-v2/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
           
   
   
@@ -405,7 +418,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/guard-core/latest/2.0.0/release-notes/" class="md-tabs__link">
+      <a href="../../release-notes/" class="md-tabs__link">
         
   
   
@@ -440,9 +453,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/guard-core/latest/2.0.0/." title="Guard Core" class="md-nav__button md-logo" aria-label="Guard Core" data-md-component="logo">
+    <a href="../.." title="Guard Core" class="md-nav__button md-logo" aria-label="Guard Core" data-md-component="logo">
       
-  <img src="/guard-core/latest/2.0.0/assets/guard_core_logo.svg" alt="logo">
+  <img src="../../assets/guard_core_logo.svg" alt="logo">
 
     </a>
     Guard Core
@@ -469,7 +482,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -496,7 +509,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -589,7 +602,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/overview/" class="md-nav__link">
+      <a href="../../architecture/overview/" class="md-nav__link">
         
   
   
@@ -617,7 +630,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/protocols/" class="md-nav__link">
+      <a href="../../architecture/protocols/" class="md-nav__link">
         
   
   
@@ -645,7 +658,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/pipeline/" class="md-nav__link">
+      <a href="../../architecture/pipeline/" class="md-nav__link">
         
   
   
@@ -673,7 +686,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/events/" class="md-nav__link">
+      <a href="../../architecture/events/" class="md-nav__link">
         
   
   
@@ -701,7 +714,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/telemetry/" class="md-nav__link">
+      <a href="../../architecture/telemetry/" class="md-nav__link">
         
   
   
@@ -729,7 +742,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/architecture/dependency-injection/" class="md-nav__link">
+      <a href="../../architecture/dependency-injection/" class="md-nav__link">
         
   
   
@@ -830,7 +843,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/getting-started/" class="md-nav__link">
+      <a href="../../adapters/getting-started/" class="md-nav__link">
         
   
   
@@ -858,7 +871,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/guard-request/" class="md-nav__link">
+      <a href="../../adapters/guard-request/" class="md-nav__link">
         
   
   
@@ -886,7 +899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/guard-response/" class="md-nav__link">
+      <a href="../../adapters/guard-response/" class="md-nav__link">
         
   
   
@@ -914,7 +927,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/middleware-integration/" class="md-nav__link">
+      <a href="../../adapters/middleware-integration/" class="md-nav__link">
         
   
   
@@ -942,7 +955,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/decorators/" class="md-nav__link">
+      <a href="../../adapters/decorators/" class="md-nav__link">
         
   
   
@@ -970,7 +983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/adapters/testing/" class="md-nav__link">
+      <a href="../../adapters/testing/" class="md-nav__link">
         
   
   
@@ -1077,7 +1090,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/checks/" class="md-nav__link">
+      <a href="../../internals/checks/" class="md-nav__link">
         
   
   
@@ -1105,7 +1118,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/check-implementations/" class="md-nav__link">
+      <a href="../../internals/check-implementations/" class="md-nav__link">
         
   
   
@@ -1133,7 +1146,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/ip-management/" class="md-nav__link">
+      <a href="../../internals/ip-management/" class="md-nav__link">
         
   
   
@@ -1161,7 +1174,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/rate-limiting/" class="md-nav__link">
+      <a href="../../internals/rate-limiting/" class="md-nav__link">
         
   
   
@@ -1189,7 +1202,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/detection-engine/" class="md-nav__link">
+      <a href="../../internals/detection-engine/" class="md-nav__link">
         
   
   
@@ -1217,7 +1230,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/cloud-providers/" class="md-nav__link">
+      <a href="../../internals/cloud-providers/" class="md-nav__link">
         
   
   
@@ -1245,7 +1258,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/security-headers/" class="md-nav__link">
+      <a href="../../internals/security-headers/" class="md-nav__link">
         
   
   
@@ -1273,7 +1286,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/behavioral/" class="md-nav__link">
+      <a href="../../internals/behavioral/" class="md-nav__link">
         
   
   
@@ -1301,7 +1314,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/internals/redis/" class="md-nav__link">
+      <a href="../../internals/redis/" class="md-nav__link">
         
   
   
@@ -1396,7 +1409,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/configuration/security-config/" class="md-nav__link">
+      <a href="../../configuration/security-config/" class="md-nav__link">
         
   
   
@@ -1424,7 +1437,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/configuration/detection-tuning/" class="md-nav__link">
+      <a href="../../configuration/detection-tuning/" class="md-nav__link">
         
   
   
@@ -1452,7 +1465,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/configuration/logging/" class="md-nav__link">
+      <a href="../../configuration/logging/" class="md-nav__link">
         
   
   
@@ -1561,7 +1574,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/protocols/" class="md-nav__link">
+      <a href="../../api/protocols/" class="md-nav__link">
         
   
   
@@ -1589,7 +1602,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/models/" class="md-nav__link">
+      <a href="../../api/models/" class="md-nav__link">
         
   
   
@@ -1617,7 +1630,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/handlers/" class="md-nav__link">
+      <a href="../../api/handlers/" class="md-nav__link">
         
   
   
@@ -1645,7 +1658,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/detection-engine/" class="md-nav__link">
+      <a href="../../api/detection-engine/" class="md-nav__link">
         
   
   
@@ -1673,7 +1686,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/detection-result/" class="md-nav__link">
+      <a href="../../api/detection-result/" class="md-nav__link">
         
   
   
@@ -1701,7 +1714,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/ban-config/" class="md-nav__link">
+      <a href="../../api/ban-config/" class="md-nav__link">
         
   
   
@@ -1729,7 +1742,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/behavior-rules/" class="md-nav__link">
+      <a href="../../api/behavior-rules/" class="md-nav__link">
         
   
   
@@ -1757,7 +1770,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/cloud-ip-store/" class="md-nav__link">
+      <a href="../../api/cloud-ip-store/" class="md-nav__link">
         
   
   
@@ -1785,7 +1798,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/decorators/" class="md-nav__link">
+      <a href="../../api/decorators/" class="md-nav__link">
         
   
   
@@ -1813,7 +1826,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/api/utilities/" class="md-nav__link">
+      <a href="../../api/utilities/" class="md-nav__link">
         
   
   
@@ -1845,8 +1858,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -1856,19 +1871,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
         
           
-          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
             
   
   
@@ -1886,7 +1904,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1901,10 +1919,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/migration/v1-to-v2/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v1.x to v2.0
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1920,6 +1965,103 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pin-guard-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pin guard-core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detect_penetration_attempt-returns-detectionresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        detect_penetration_attempt returns DetectionResult
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suspicious_request_counts-is-now-nested" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        suspicious_request_counts is now nested
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiled-pattern-tuples-are-3-tuples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compiled-pattern tuples are 3-tuples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_check_value_enhanced-_check_request_component-return-3-tuples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        _check_value_enhanced / _check_request_component return 3-tuples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cloud-ip-cache-redis-namespace-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud-IP cache Redis namespace migration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additive-no-migration-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additive (no migration required)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1939,7 +2081,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/guard-core/latest/2.0.0/release-notes/" class="md-nav__link">
+      <a href="../../release-notes/" class="md-nav__link">
         
   
   
@@ -1976,6 +2118,93 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pin-guard-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pin guard-core
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detect_penetration_attempt-returns-detectionresult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        detect_penetration_attempt returns DetectionResult
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#suspicious_request_counts-is-now-nested" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        suspicious_request_counts is now nested
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compiled-pattern-tuples-are-3-tuples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compiled-pattern tuples are 3-tuples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_check_value_enhanced-_check_request_component-return-3-tuples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        _check_value_enhanced / _check_request_component return 3-tuples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cloud-ip-cache-redis-namespace-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cloud-IP cache Redis namespace migration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additive-no-migration-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additive (no migration required)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1988,8 +2217,139 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="migrating-from-v1x-to-v20">Migrating from v1.x to v2.0<a class="headerlink" href="#migrating-from-v1x-to-v20" title="Permanent link">&para;</a></h1>
+<p><code>guard-core 2.0.0</code> ships operator-facing security controls and a pluggable IP lifecycle. This page lists every breaking change and the matching migration step. See the <a href="https://github.com/rennf93/guard-core/blob/master/CHANGELOG.md">v2.0.0 changelog entry</a> for the full list of additions.</p>
+<hr />
+<h2 id="pin-guard-core">Pin guard-core<a class="headerlink" href="#pin-guard-core" title="Permanent link">&para;</a></h2>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">guard-core</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&gt;=2.0.0,&lt;3&quot;</span>
+</span></code></pre></div>
+<p>All four framework adapters (fastapi-guard, flaskapi-guard, djapi-guard, tornadoapi-guard) need a release pinning <code>guard-core&gt;=2.0.0</code>. If you use one of those adapters, upgrade it in lockstep.</p>
+<hr />
+<h2 id="detect_penetration_attempt-returns-detectionresult"><code>detect_penetration_attempt</code> returns <code>DetectionResult</code><a class="headerlink" href="#detect_penetration_attempt-returns-detectionresult" title="Permanent link">&para;</a></h2>
+<p>Both <code>detect_penetration_attempt()</code> and <code>detect_penetration_patterns()</code> now return a <a href="../../api/detection-result/"><code>DetectionResult</code></a> dataclass instead of <code>tuple[bool, str]</code>. Tuple-unpacking callers must migrate.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">detected</span><span class="p">,</span> <span class="n">trigger</span> <span class="o">=</span> <span class="k">await</span> <span class="n">detect_penetration_attempt</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">detect_penetration_attempt</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">detected</span><span class="p">,</span> <span class="n">trigger</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">is_threat</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">trigger_info</span>
+</span></code></pre></div>
+<p>Read <code>result.threat_categories</code> and <code>result.threat_scores</code> for the new per-category metadata. The dataclass is forward-compatible — additional fields can be added without breaking call sites that read by attribute.</p>
+<hr />
+<h2 id="suspicious_request_counts-is-now-nested"><code>suspicious_request_counts</code> is now nested<a class="headerlink" href="#suspicious_request_counts-is-now-nested" title="Permanent link">&para;</a></h2>
+<p><code>GuardMiddlewareProtocol.suspicious_request_counts</code> changed shape from <code>dict[str, int]</code> to <code>dict[str, dict[str, int]]</code>. The outer key is the IP, the inner key is the detection category, the value is the per-category count.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="bp">self</span><span class="o">.</span><span class="n">suspicious_request_counts</span><span class="p">[</span><span class="n">ip</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="bp">self</span><span class="o">.</span><span class="n">suspicious_request_counts</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">ip</span><span class="p">,</span> <span class="p">{})</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">counts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">suspicious_request_counts</span><span class="p">[</span><span class="n">ip</span><span class="p">]</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">counts</span><span class="p">[</span><span class="n">category</span><span class="p">]</span> <span class="o">=</span> <span class="n">counts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">category</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">suspicious_request_counts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ip</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+</span></code></pre></div>
+<p>Every adapter middleware that read or wrote this attribute must migrate. The built-in <code>SuspiciousActivityCheck</code> already does this — only adapter-side reads need attention.</p>
+<hr />
+<h2 id="compiled-pattern-tuples-are-3-tuples">Compiled-pattern tuples are 3-tuples<a class="headerlink" href="#compiled-pattern-tuples-are-3-tuples" title="Permanent link">&para;</a></h2>
+<p><code>SusPatternsManager</code> compiled-pattern collections changed from 2-tuples to 3-tuples. The third element is the category label (<code>"xss"</code>, <code>"sqli"</code>, <code>"custom"</code>, ...). Any direct iteration over <code>compiled_patterns</code> or <code>get_all_compiled_patterns()</code> must unpack three elements.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">contexts</span> <span class="ow">in</span> <span class="k">await</span> <span class="n">mgr</span><span class="o">.</span><span class="n">get_all_compiled_patterns</span><span class="p">():</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="o">...</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">contexts</span><span class="p">,</span> <span class="n">category</span> <span class="ow">in</span> <span class="k">await</span> <span class="n">mgr</span><span class="o">.</span><span class="n">get_all_compiled_patterns</span><span class="p">():</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="o">...</span>
+</span></code></pre></div>
+<p>Custom user patterns added via <code>add_pattern(..., custom=True)</code> carry the literal label <code>"custom"</code> and run regardless of <code>enabled_categories</code> filtering.</p>
+<hr />
+<h2 id="_check_value_enhanced-_check_request_component-return-3-tuples"><code>_check_value_enhanced</code> / <code>_check_request_component</code> return 3-tuples<a class="headerlink" href="#_check_value_enhanced-_check_request_component-return-3-tuples" title="Permanent link">&para;</a></h2>
+<p>Internal helpers in <code>guard_core.utils</code> now return <code>tuple[bool, str, list[dict]]</code> instead of <code>tuple[bool, str]</code>. None of the framework adapters reach into these helpers directly; the change is flagged in case downstream code does.</p>
+<hr />
+<h2 id="cloud-ip-cache-redis-namespace-migration">Cloud-IP cache Redis namespace migration<a class="headerlink" href="#cloud-ip-cache-redis-namespace-migration" title="Permanent link">&para;</a></h2>
+<p>The Redis cache for cloud-provider IP ranges moved from <code>cloud_ranges</code> (CSV per provider) to <code>guard:cloud_ip</code> (JSON-encoded sorted list per provider). The legacy CSV path is still reachable when <code>CloudManager._store is None</code>, but the default and the new <code>RedisCloudIpStore</code> write to the new namespace.</p>
+<p>If you have ops tooling, dashboards, or sidecars reading those keys directly, switch to the new namespace. See <a href="../../api/cloud-ip-store/">Cloud IP Store</a> for details and the protocol contract.</p>
+<hr />
+<h2 id="additive-no-migration-required">Additive (no migration required)<a class="headerlink" href="#additive-no-migration-required" title="Permanent link">&para;</a></h2>
+<p>These additions ship in v2.0.0 but do not require any migration:</p>
+<ul>
+<li><code>excluded_detection_headers</code>, <code>excluded_detection_params</code>, <code>excluded_detection_body_fields</code> default to empty sets — existing detection coverage is unchanged.</li>
+<li><code>enabled_detection_categories</code> defaults to the full <code>ALL_DETECTION_CATEGORIES</code> set.</li>
+<li><code>threat_ban_config</code> defaults to <code>{}</code> and falls back to the existing flat <code>auto_ban_threshold</code> / <code>auto_ban_duration</code> policy.</li>
+<li><code>global_behavior_rules</code> defaults to <code>[]</code>.</li>
+<li><code>lazy_init</code> defaults to <code>False</code> (eager bootstrap unchanged).</li>
+<li><code>geo_ip_db_max_age</code> defaults to <code>86400</code> (matches the old hardcoded value).</li>
+<li><code>cloud_ip_store=None</code> uses the in-memory store, auto-upgraded to Redis when Redis is enabled.</li>
+</ul>
+<p>Adopt these incrementally as needed.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+  
+
+
+
+  <form class="md-feedback" name="feedback" hidden>
+    <fieldset>
+      <legend class="md-feedback__title">
+        Was this page helpful?
+      </legend>
+      <div class="md-feedback__inner">
+        <div class="md-feedback__list">
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page was helpful" data-md-value="1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m7 0c0 .8-.7 1.5-1.5 1.5S14 10.3 14 9.5 14.7 8 15.5 8s1.5.7 1.5 1.5m-5 7.73c-1.75 0-3.29-.73-4.19-1.81L9.23 14c.45.72 1.52 1.23 2.77 1.23s2.32-.51 2.77-1.23l1.42 1.42c-.9 1.08-2.44 1.81-4.19 1.81"/></svg>
+            </button>
+          
+            <button class="md-feedback__icon md-icon" type="submit" title="This page could be improved" data-md-value="0">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 0-8-8 8 8 0 0 0-8 8 8 8 0 0 0 8 8 8 8 0 0 0 8-8m2 0a10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2a10 10 0 0 1 10 10m-6.5-4c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5M10 9.5c0 .8-.7 1.5-1.5 1.5S7 10.3 7 9.5 7.7 8 8.5 8s1.5.7 1.5 1.5m2 4.5c1.75 0 3.29.72 4.19 1.81l-1.42 1.42C14.32 16.5 13.25 16 12 16s-2.32.5-2.77 1.23l-1.42-1.42C8.71 14.72 10.25 14 12 14"/></svg>
+            </button>
+          
+        </div>
+        <div class="md-feedback__note">
+          
+            <div data-md-value="1" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback!
+            </div>
+          
+            <div data-md-value="0" hidden>
+              
+              
+                
+              
+              
+              
+                
+                
+              
+              Thanks for your feedback! Help us improve by using our <a href="https://github.com/rennf93/guard-core/issues/new">issue tracker</a>.
+            </div>
+          
+        </div>
+      </div>
+    </fieldset>
+  </form>
+
+
+                
               </article>
             </div>
           
@@ -2055,10 +2415,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/guard-core/latest/2.0.0", "features": ["content.code.copy", "content.code.annotate", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "toc.follow"], "search": "/guard-core/latest/2.0.0/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "json_file": "/guard-core/versions.json", "provider": "mike", "version_selector": true}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.code.annotate", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "search.highlight", "search.share", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "json_file": "/guard-core/versions.json", "provider": "mike", "version_selector": true}}</script>
     
     
-      <script src="/guard-core/latest/2.0.0/assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

@@ -37,11 +37,27 @@
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
+         <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/ban-config/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/behavior-rules/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/cloud-ip-store/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
          <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/decorators/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
          <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/detection-engine/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://rennf93.github.io/guard-core/latest/2.0.0/api/detection-result/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
     <url>
@@ -130,6 +146,10 @@
     </url>
     <url>
          <loc>https://rennf93.github.io/guard-core/latest/2.0.0/internals/security-headers/</loc>
+         <lastmod>2026-04-25</lastmod>
+    </url>
+    <url>
+         <loc>https://rennf93.github.io/guard-core/latest/2.0.0/migration/v1-to-v2/</loc>
          <lastmod>2026-04-25</lastmod>
     </url>
 </urlset>
