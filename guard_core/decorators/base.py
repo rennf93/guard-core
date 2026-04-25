@@ -31,6 +31,10 @@ class RouteConfig:
         self.api_key_required: bool = False
         self.session_limits: dict[str, int] | None = None
         self.geo_rate_limits: dict[str, tuple[int, int]] | None = None
+        self.excluded_detection_headers: set[str] | None = None
+        self.excluded_detection_params: set[str] | None = None
+        self.excluded_detection_body_fields: set[str] | None = None
+        self.enabled_detection_categories: set[str] | None = None
 
 
 class BaseSecurityMixin:

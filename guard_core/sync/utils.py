@@ -3,11 +3,15 @@ import re
 import time
 from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+
+if TYPE_CHECKING:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.decorators.base import RouteConfig
 
 
 def _sanitize_for_log(value: str) -> str:
@@ -509,7 +513,8 @@ def _build_threat_message(threat: dict[str, Any]) -> str:
 def _fallback_pattern_check(value: str) -> tuple[bool, str]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
-    for pattern, _contexts in sus_patterns_handler.get_all_compiled_patterns():
+    all_compiled = sus_patterns_handler.get_all_compiled_patterns()
+    for pattern, _contexts, _category in all_compiled:
         try:
             if pattern.search(value):
                 return True, "Value matched pattern (fallback)"
@@ -523,6 +528,7 @@ def _check_value_enhanced(
     context: str,
     client_ip: str,
     correlation_id: str,
+    enabled_categories: set[str] | None = None,
 ) -> tuple[bool, str]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
@@ -536,6 +542,7 @@ def _check_value_enhanced(
             ip_address=client_ip,
             context=context,
             correlation_id=correlation_id,
+            enabled_categories=enabled_categories,
         )
 
         if not result["is_threat"]:
@@ -558,8 +565,11 @@ def _check_request_component(
     component_name: str,
     client_ip: str,
     correlation_id: str,
+    enabled_categories: set[str] | None = None,
 ) -> tuple[bool, str]:
-    detected, trigger = _check_value_enhanced(value, context, client_ip, correlation_id)
+    detected, trigger = _check_value_enhanced(
+        value, context, client_ip, correlation_id, enabled_categories
+    )
     if detected:
         message = "Potential attack detected from"
         details = (
@@ -572,33 +582,44 @@ def _check_request_component(
     return detected, trigger
 
 
-def detect_penetration_attempt(request: SyncGuardRequest) -> tuple[bool, str]:
-    import uuid
+def _resolve_excluded_params(
+    config: "SecurityConfig | None", route_config: "RouteConfig | None"
+) -> set[str]:
+    if route_config is not None and route_config.excluded_detection_params is not None:
+        return {k.lower() for k in route_config.excluded_detection_params}
+    if config is not None:
+        return {k.lower() for k in config.excluded_detection_params}
+    return set()
 
-    client_ip = "unknown"
-    if request.client_host:
-        client_ip = request.client_host
 
-    correlation_id = str(uuid.uuid4())
+def _resolve_excluded_body_fields(
+    config: "SecurityConfig | None", route_config: "RouteConfig | None"
+) -> set[str]:
+    if (
+        route_config is not None
+        and route_config.excluded_detection_body_fields is not None
+    ):
+        return {k.lower() for k in route_config.excluded_detection_body_fields}
+    if config is not None:
+        return {k.lower() for k in config.excluded_detection_body_fields}
+    return set()
 
-    for key, value in request.query_params.items():
-        detected, trigger = _check_request_component(
-            value,
-            f"query_param:{key}",
-            f"query param '{key}'",
-            client_ip,
-            correlation_id,
-        )
-        if detected:
-            return True, f"Query param '{key}': {trigger}"
 
-    detected, trigger = _check_request_component(
-        request.url_path, "url_path", "URL path", client_ip, correlation_id
-    )
-    if detected:
-        return True, f"URL path: {trigger}"
+def _resolve_enabled_categories(
+    config: "SecurityConfig | None", route_config: "RouteConfig | None"
+) -> set[str] | None:
+    if (
+        route_config is not None
+        and route_config.enabled_detection_categories is not None
+    ):
+        return set(route_config.enabled_detection_categories)
+    if config is not None:
+        return set(config.enabled_detection_categories)
+    return None
 
-    excluded_headers = {
+
+_DEFAULT_EXCLUDED_HEADERS: frozenset[str] = frozenset(
+    {
         "host",
         "user-agent",
         "accept",
@@ -613,22 +634,157 @@ def detect_penetration_attempt(request: SyncGuardRequest) -> tuple[bool, str]:
         "sec-ch-ua-mobile",
         "sec-ch-ua-platform",
     }
-    for key, value in request.headers.items():
-        if key.lower() not in excluded_headers:
-            detected, trigger = _check_request_component(
-                value, f"header:{key}", f"header '{key}'", client_ip, correlation_id
-            )
-            if detected:
-                return True, f"Header '{key}': {trigger}"
+)
 
-    try:
-        body = (request.body()).decode()
+
+def _resolve_excluded_headers(
+    config: "SecurityConfig | None", route_config: "RouteConfig | None"
+) -> set[str]:
+    excluded = set(_DEFAULT_EXCLUDED_HEADERS)
+    if config is not None:
+        excluded |= {h.lower() for h in config.excluded_detection_headers}
+    if route_config is not None and route_config.excluded_detection_headers is not None:
+        excluded |= {h.lower() for h in route_config.excluded_detection_headers}
+    return excluded
+
+
+def _scan_query_params(
+    request: SyncGuardRequest,
+    excluded_params: set[str],
+    enabled_categories: set[str] | None,
+    client_ip: str,
+    correlation_id: str,
+) -> tuple[bool, str]:
+    for key, value in request.query_params.items():
+        if key.lower() in excluded_params:
+            continue
         detected, trigger = _check_request_component(
-            body, "request_body", "request body", client_ip, correlation_id
+            value,
+            f"query_param:{key}",
+            f"query param '{key}'",
+            client_ip,
+            correlation_id,
+            enabled_categories,
         )
         if detected:
-            return True, f"Request body: {trigger}"
-    except Exception:
-        pass
-
+            return True, f"Query param '{key}': {trigger}"
     return False, ""
+
+
+def _scan_headers(
+    request: SyncGuardRequest,
+    excluded_headers: set[str],
+    enabled_categories: set[str] | None,
+    client_ip: str,
+    correlation_id: str,
+) -> tuple[bool, str]:
+    for key, value in request.headers.items():
+        if key.lower() in excluded_headers:
+            continue
+        detected, trigger = _check_request_component(
+            value,
+            f"header:{key}",
+            f"header '{key}'",
+            client_ip,
+            correlation_id,
+            enabled_categories,
+        )
+        if detected:
+            return True, f"Header '{key}': {trigger}"
+    return False, ""
+
+
+def _scan_request_body(
+    raw_body: str,
+    excluded_body_fields: set[str],
+    enabled_categories: set[str] | None,
+    client_ip: str,
+    correlation_id: str,
+) -> tuple[bool, str]:
+    import json
+
+    parsed_body: Any | None = None
+    if excluded_body_fields:
+        try:
+            parsed_body = json.loads(raw_body)
+        except Exception:
+            parsed_body = None
+
+    if isinstance(parsed_body, dict):
+        for key, value in parsed_body.items():
+            if str(key).lower() in excluded_body_fields:
+                continue
+            detected, trigger = _check_request_component(
+                str(value),
+                "request_body",
+                f"request body field '{key}'",
+                client_ip,
+                correlation_id,
+                enabled_categories,
+            )
+            if detected:
+                return True, f"Request body field '{key}': {trigger}"
+        return False, ""
+
+    detected, trigger = _check_request_component(
+        raw_body,
+        "request_body",
+        "request body",
+        client_ip,
+        correlation_id,
+        enabled_categories,
+    )
+    if detected:
+        return True, f"Request body: {trigger}"
+    return False, ""
+
+
+def detect_penetration_attempt(
+    request: SyncGuardRequest,
+    config: "SecurityConfig | None" = None,
+    route_config: "RouteConfig | None" = None,
+) -> tuple[bool, str]:
+    import uuid
+
+    client_ip = "unknown"
+    if request.client_host:
+        client_ip = request.client_host
+
+    correlation_id = str(uuid.uuid4())
+
+    excluded_params = _resolve_excluded_params(config, route_config)
+    excluded_body_fields = _resolve_excluded_body_fields(config, route_config)
+    enabled_categories = _resolve_enabled_categories(config, route_config)
+    excluded_headers = _resolve_excluded_headers(config, route_config)
+
+    detected, trigger = _scan_query_params(
+        request, excluded_params, enabled_categories, client_ip, correlation_id
+    )
+    if detected:
+        return True, trigger
+
+    detected, trigger = _check_request_component(
+        request.url_path,
+        "url_path",
+        "URL path",
+        client_ip,
+        correlation_id,
+        enabled_categories,
+    )
+    if detected:
+        return True, f"URL path: {trigger}"
+
+    detected, trigger = _scan_headers(
+        request, excluded_headers, enabled_categories, client_ip, correlation_id
+    )
+    if detected:
+        return True, trigger
+
+    try:
+        raw_body = (request.body()).decode()
+    except Exception:
+        return False, ""
+
+    return _scan_request_body(
+        raw_body, excluded_body_fields, enabled_categories, client_ip, correlation_id
+    )

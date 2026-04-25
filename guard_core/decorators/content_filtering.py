@@ -57,3 +57,24 @@ class ContentFilteringMixin(BaseSecurityMixin):
             return self._apply_route_config(func)
 
         return decorator
+
+    def detection_exclusion(
+        self,
+        headers: set[str] | None = None,
+        params: set[str] | None = None,
+        body_fields: set[str] | None = None,
+        categories: set[str] | None = None,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            route_config = self._ensure_route_config(func)
+            if headers is not None:
+                route_config.excluded_detection_headers = set(headers)
+            if params is not None:
+                route_config.excluded_detection_params = set(params)
+            if body_fields is not None:
+                route_config.excluded_detection_body_fields = set(body_fields)
+            if categories is not None:
+                route_config.enabled_detection_categories = set(categories)
+            return self._apply_route_config(func)
+
+        return decorator

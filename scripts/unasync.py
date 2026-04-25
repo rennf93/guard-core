@@ -114,6 +114,10 @@ SUBS: list[tuple[str, str]] = [
 
 TEST_SUBS: list[tuple[str, str]] = [
     (
+        r"from tests\.conftest import \(([^)]+)\)",
+        r"from tests.test_sync.conftest import (\1)",
+    ),
+    (
         r"from tests\.conftest import MockGuardRequest",
         "from tests.test_sync.conftest import SyncMockGuardRequest",
     ),

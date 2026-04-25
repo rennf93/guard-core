@@ -97,7 +97,7 @@ async def test_fallback_pattern_check_with_exception() -> None:
         mock_pattern = Mock()
         mock_pattern.search = Mock(side_effect=Exception("Pattern error"))
         mock_handler.get_all_compiled_patterns = AsyncMock(
-            return_value=[(mock_pattern, frozenset({"unknown"}))]
+            return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
         )
 
         result = await _fallback_pattern_check("test_value")

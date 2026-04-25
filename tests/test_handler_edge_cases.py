@@ -289,6 +289,7 @@ async def test_utils_detect_penetration_header_match() -> None:
             component_name: str,
             client_ip: str,
             correlation_id: str,
+            enabled_categories: set[str] | None = None,
         ) -> tuple[bool, str]:
             nonlocal call_count
             call_count += 1

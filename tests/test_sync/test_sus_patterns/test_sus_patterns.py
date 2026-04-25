@@ -115,11 +115,15 @@ def test_get_compiled_patterns_separation() -> None:
     custom_compiled = sus_patterns_handler.get_custom_compiled_patterns()
 
     test_default_string = "default_test_pattern_123"
-    default_matched = any(p.search(test_default_string) for p, _ctx in default_compiled)
+    default_matched = any(
+        p.search(test_default_string) for p, _ctx, _cat in default_compiled
+    )
     assert default_matched
 
     test_custom_string = "custom_test_pattern_456"
-    custom_matched = any(p.search(test_custom_string) for p, _ctx in custom_compiled)
+    custom_matched = any(
+        p.search(test_custom_string) for p, _ctx, _cat in custom_compiled
+    )
     assert custom_matched
 
     assert len(default_compiled) == len(sus_patterns_handler.compiled_patterns)
@@ -186,7 +190,7 @@ def test_get_all_compiled_patterns() -> None:
 
     test_string = "test_pattern123"
     matched = False
-    for pattern, _ctx in compiled_patterns:
+    for pattern, _ctx, _cat in compiled_patterns:
         if pattern.search(test_string):
             matched = True
             break

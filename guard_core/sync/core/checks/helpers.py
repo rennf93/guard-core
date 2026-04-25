@@ -168,7 +168,7 @@ def detect_penetration_patterns(
     )
 
     if penetration_enabled and not should_bypass_check_fn("penetration", route_config):
-        return detect_penetration_attempt(request)
+        return detect_penetration_attempt(request, config, route_config)
 
     reason = _get_detection_disabled_reason(config, route_specific_detection)
     return False, reason

@@ -29,223 +29,318 @@ _CTX_RECON = frozenset({"url_path", "unknown"})
 _CTX_ALL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
 
 
+ALL_DETECTION_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "xss",
+        "sqli",
+        "dir_traversal",
+        "path_traversal",
+        "cmd_injection",
+        "file_inclusion",
+        "ldap",
+        "xml",
+        "ssrf",
+        "nosql",
+        "file_upload",
+        "template",
+        "http_split",
+        "sensitive_file",
+        "cms_probing",
+        "recon",
+    }
+)
+
+CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
+    "xss": _CTX_XSS,
+    "sqli": _CTX_SQLI,
+    "dir_traversal": _CTX_DIR_TRAVERSAL,
+    "path_traversal": _CTX_PATH_TRAVERSAL,
+    "cmd_injection": _CTX_CMD_INJECTION,
+    "file_inclusion": _CTX_FILE_INCLUSION,
+    "ldap": _CTX_LDAP,
+    "xml": _CTX_XML,
+    "ssrf": _CTX_SSRF,
+    "nosql": _CTX_NOSQL,
+    "file_upload": _CTX_FILE_UPLOAD,
+    "template": _CTX_TEMPLATE,
+    "http_split": _CTX_HTTP_SPLIT,
+    "sensitive_file": _CTX_SENSITIVE_FILE,
+    "cms_probing": _CTX_CMS_PROBING,
+    "recon": _CTX_RECON,
+}
+
+
 class SusPatternsManager:
     _instance = None
     _config = None
 
-    _pattern_definitions: list[tuple[str, frozenset[str]]] = [
-        (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS),
-        (r"javascript:\s*[^\s]+", _CTX_XSS),
+    _pattern_definitions: list[tuple[str, frozenset[str], str]] = [
+        (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS, "xss"),
+        (r"javascript:\s*[^\s]+", _CTX_XSS, "xss"),
         (
             r"(?:on(?:error|load|click|mouseover|submit|mouse|unload|change|focus|"
             r"blur|drag))=(?:[\"'][^\"']*[\"']|[^\s>]+)",
             _CTX_XSS,
+            "xss",
         ),
         (
             r"(?:<[^>]+\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
             r"vbscript|data):)",
             _CTX_XSS,
+            "xss",
         ),
         (
             r"(?:<[^>]+style\s*=[\s\"\']*[^>\"\']*(?:expression|behavior|url)\s*\("
             r"[^)]*\))",
             _CTX_XSS,
+            "xss",
         ),
-        (r"(?:<object[^>]*>[\s\S]*<\/object\s*>)", _CTX_XSS),
-        (r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)", _CTX_XSS),
-        (r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)", _CTX_XSS),
-        (r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+", _CTX_SQLI),
-        (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI),
+        (r"(?:<object[^>]*>[\s\S]*<\/object\s*>)", _CTX_XSS, "xss"),
+        (r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)", _CTX_XSS, "xss"),
+        (r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)", _CTX_XSS, "xss"),
+        (r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+", _CTX_SQLI, "sqli"),
+        (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
         (
             r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?[\d\w]+\s*(?:=|LIKE|<|>|<=|>=)\s*"
             r"[\(\s]*'?[\d\w]+)",
             _CTX_SQLI,
+            "sqli",
         ),
         (
             r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+(?:NULL[,\s]*)+|\(\s*SELECT\s+"
             r"(?:@@|VERSION))",
             _CTX_SQLI,
+            "sqli",
         ),
-        (r"(?i)(?:INTO\s+(?:OUTFILE|DUMPFILE)\s+'[^']+')", _CTX_SQLI),
-        (r"(?i)(?:LOAD_FILE\s*\([^)]+\))", _CTX_SQLI),
-        (r"(?i)(?:BENCHMARK\s*\(\s*\d+\s*,)", _CTX_SQLI),
-        (r"(?i)(?:SLEEP\s*\(\s*\d+\s*\))", _CTX_SQLI),
+        (r"(?i)(?:INTO\s+(?:OUTFILE|DUMPFILE)\s+'[^']+')", _CTX_SQLI, "sqli"),
+        (r"(?i)(?:LOAD_FILE\s*\([^)]+\))", _CTX_SQLI, "sqli"),
+        (r"(?i)(?:BENCHMARK\s*\(\s*\d+\s*,)", _CTX_SQLI, "sqli"),
+        (r"(?i)(?:SLEEP\s*\(\s*\d+\s*\))", _CTX_SQLI, "sqli"),
         (
             r"(?i)(?:\/\*![0-9]*\s*(?:OR|AND|UNION|SELECT|INSERT|DELETE|DROP|"
             r"CONCAT|CHAR|UPDATE)\b)",
             _CTX_SQLI,
+            "sqli",
         ),
-        (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL),
+        (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
             r"ssh_config)$)",
             _CTX_DIR_TRAVERSAL,
+            "dir_traversal",
         ),
-        (r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)\s*$", _CTX_DIR_TRAVERSAL),
-        (r"(?:\/proc\/self\/environ$)", _CTX_DIR_TRAVERSAL),
-        (r"(?:\/var\/log\/[^\/]+$)", _CTX_DIR_TRAVERSAL),
+        (
+            r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)\s*$",
+            _CTX_DIR_TRAVERSAL,
+            "dir_traversal",
+        ),
+        (r"(?:\/proc\/self\/environ$)", _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (r"(?:\/var\/log\/[^\/]+$)", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r";\s*(?:ls|cat|rm|chmod|chown|wget|curl|nc|netcat|ping|telnet)\s+"
             r"-[a-zA-Z]+\s+",
             _CTX_CMD_INJECTION,
+            "cmd_injection",
         ),
         (
             r"\|\s*(?:wget|curl|fetch|lwp-download|lynx|links|GET)\s+",
             _CTX_CMD_INJECTION,
+            "cmd_injection",
         ),
         (
             r"(?:[;&|`]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
             _CTX_CMD_INJECTION,
+            "cmd_injection",
         ),
         (
             r"(?:^|;)\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
+            "cmd_injection",
         ),
         (
             r"\b(?:eval|system|exec|shell_exec|passthru|popen|proc_open)\s*\(",
             _CTX_CMD_INJECTION,
+            "cmd_injection",
         ),
         (
             r"(?:php|data|zip|rar|file|glob|expect|input|phpinfo|zlib|phar|ssh2|"
             r"rar|ogg|expect)://[^\s]+",
             _CTX_FILE_INCLUSION,
+            "file_inclusion",
         ),
         (
             r"(?:\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
             r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)",
             _CTX_FILE_INCLUSION,
+            "file_inclusion",
         ),
-        (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP),
-        (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP),
-        (r"(?:\(\s*[&|]\s*)", _CTX_LDAP),
-        (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML),
-        (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML),
-        (r"(?:<\?xml.*?\?>)", _CTX_XML),
+        (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
+        (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
+        (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
+        (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
+        (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
+        (r"(?:<\?xml.*?\?>)", _CTX_XML, "xml"),
         (
             r"(?:^|\s|/)(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::(?:\d*)\]|(?:169\.254|192\.168|10\.|"
             r"172\.(?:1[6-9]|2[0-9]|3[01]))\.\d+)(?:\s|$|/)",
             _CTX_SSRF,
+            "ssrf",
         ),
-        (r"(?:file|dict|gopher|jar|tftp)://[^\s]+", _CTX_SSRF),
+        (r"(?:file|dict|gopher|jar|tftp)://[^\s]+", _CTX_SSRF, "ssrf"),
         (
             r"\{\s*\$(?:where|gt|lt|ne|eq|regex|in|nin|all|size|exists|type|mod|"
             r"options):",
             _CTX_NOSQL,
+            "nosql",
         ),
-        (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL),
+        (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL, "nosql"),
         (
             r"(?i)filename=[\"'].*?\.(?:php\d*|phar|phtml|exe|jsp|asp|aspx|sh|"
             r"bash|rb|py|pl|cgi|com|bat|cmd|vbs|vbe|js|ws|wsf|msi|hta)[\"\']",
             _CTX_FILE_UPLOAD,
+            "file_upload",
         ),
         (
             r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
             r"%e0%80%ae|%25c0%25ae)/",
             _CTX_PATH_TRAVERSAL,
+            "path_traversal",
         ),
         (
             r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}",
             _CTX_TEMPLATE,
+            "template",
         ),
         (
             r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}",
             _CTX_TEMPLATE,
+            "template",
         ),
-        (r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)", _CTX_HTTP_SPLIT),
-        (r"(?:^|/)\.env(?:\.\w+)?(?:\?|$|/)", _CTX_SENSITIVE_FILE),
+        (
+            r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)",
+            _CTX_HTTP_SPLIT,
+            "http_split",
+        ),
+        (r"(?:^|/)\.env(?:\.\w+)?(?:\?|$|/)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
             r"(?:^|/)[\w-]*config[\w-]*\."
             r"(?:env|yml|yaml|json|toml|ini|xml|conf)(?:\?|$)",
             _CTX_SENSITIVE_FILE,
+            "sensitive_file",
         ),
-        (r"(?:^|/)[\w./-]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE),
+        (r"(?:^|/)[\w./-]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
             r"(?:^|/)[\w./-]*\."
             r"(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)(?:\?|$)",
             _CTX_SENSITIVE_FILE,
+            "sensitive_file",
         ),
-        (r"(?:^|/)\.(?:git|svn|hg|bzr)(?:/|$)", _CTX_SENSITIVE_FILE),
+        (r"(?:^|/)\.(?:git|svn|hg|bzr)(?:/|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
             r"(?:^|/)(?:wp-(?:admin|login|content|includes|config)"
             r"|administrator|xmlrpc)\.?(?:php)?(?:/|$|\?)",
             _CTX_CMS_PROBING,
+            "cms_probing",
         ),
-        (r"(?:^|/)(?:phpinfo|info|test|php_info)\.php(?:\?|$)", _CTX_CMS_PROBING),
+        (
+            r"(?:^|/)(?:phpinfo|info|test|php_info)\.php(?:\?|$)",
+            _CTX_CMS_PROBING,
+            "cms_probing",
+        ),
         (
             r"(?:^|/)[\w./-]*\."
             r"(?:bak|backup|old|orig|save|swp|swo|tmp|temp)(?:\?|$)",
             _CTX_CMS_PROBING,
+            "cms_probing",
         ),
         (
             r"(?:^|/)(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
             r"|\.npmrc|\.dockerenv|web\.config)(?:\?|$)",
             _CTX_CMS_PROBING,
+            "cms_probing",
         ),
         (
             r"(?:^|/)[\w./-]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
             r"|lua|inc|woa|nsf|esp)(?:\?|$)",
             _CTX_RECON,
+            "recon",
         ),
         (
             r"^/(?:management|system|version|config_dump|credentials)(?:/|$|\?)",
             _CTX_RECON,
+            "recon",
         ),
-        (r"(?:^|/)(?:actuator|server-status|telescope)(?:/|$|\?)", _CTX_RECON),
+        (
+            r"(?:^|/)(?:actuator|server-status|telescope)(?:/|$|\?)",
+            _CTX_RECON,
+            "recon",
+        ),
         (
             r"(?:CSCOE|dana-(?:na|cached)|sslvpn|RDWeb|/owa/|/ecp/"
             r"|global-protect|ssl-vpn/|svpn/|sonicui|/remote/login"
             r"|myvpn|vpntunnel|versa/login)",
             _CTX_RECON,
+            "recon",
         ),
         (
             r"(?:^|/)(?:geoserver|confluence|nifi|ScadaBR|pandora_console"
             r"|centreon|kylin|decisioncenter|evox|MagicInfo|metasys"
             r"|officescan|helpdesk|ignite)(?:/|$|\?|\.|-)",
             _CTX_RECON,
+            "recon",
         ),
-        (r"(?:^|/)cgi-(?:bin|mod)/", _CTX_RECON),
-        (r"(?:^|/)(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)(?:\?|$|/)", _CTX_RECON),
-        (r"^/(?:language|languages)/", _CTX_RECON),
+        (r"(?:^|/)cgi-(?:bin|mod)/", _CTX_RECON, "recon"),
+        (
+            r"(?:^|/)(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)(?:\?|$|/)",
+            _CTX_RECON,
+            "recon",
+        ),
+        (r"^/(?:language|languages)/", _CTX_RECON, "recon"),
         (
             r"(?:^|/)(?:robots\.txt|sitemap\.xml|security\.txt|readme\.txt"
             r"|README\.md|CHANGELOG|pom\.xml|build\.gradle|appsettings\.json"
             r"|crossdomain\.xml)(?:\?|$|\.)",
             _CTX_RECON,
+            "recon",
         ),
         (
             r"(?:^|/)(?:sap|ise|nidp|cslu|rustfs|developmentserver"
             r"|fog/management|lms/db|json/login_session|sms_mp"
             r"|plugin/webs_model|wsman|am_bin)(?:/|$|\?)",
             _CTX_RECON,
+            "recon",
         ),
-        (r"(?:nmaplowercheck|nice\s+ports|Trinity\.txt)", _CTX_RECON),
-        (r"(?:^|/)\.(?:openclaw|clawdbot)(?:/|$)", _CTX_RECON),
-        (r"^/(?:default|inicio|indice|localstart)(?:\.|/|$|\?)", _CTX_RECON),
+        (r"(?:nmaplowercheck|nice\s+ports|Trinity\.txt)", _CTX_RECON, "recon"),
+        (r"(?:^|/)\.(?:openclaw|clawdbot)(?:/|$)", _CTX_RECON, "recon"),
+        (r"^/(?:default|inicio|indice|localstart)(?:\.|/|$|\?)", _CTX_RECON, "recon"),
         (
             r"(?:^|/)(?:\.streamlit|\.gpt-pilot|\.aider|\.cursor"
             r"|\.windsurf|\.copilot|\.devcontainer)(?:/|$)",
             _CTX_RECON,
+            "recon",
         ),
         (
             r"(?:^|/)(?:docker-compose|Dockerfile|Makefile|Vagrantfile"
             r"|Jenkinsfile|Procfile)(?:\.ya?ml)?(?:\?|$)",
             _CTX_RECON,
+            "recon",
         ),
         (
             r"(?:^|/)[\w./-]*(?:secrets?|credentials?)"
             r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:\?|$)",
             _CTX_RECON,
+            "recon",
         ),
-        (r"(?:^|/)autodiscover/", _CTX_RECON),
-        (r"^/dns-query(?:\?|$)", _CTX_RECON),
-        (r"(?:^|/)\.git/(?:refs|index|HEAD|objects|logs)(?:/|$)", _CTX_RECON),
+        (r"(?:^|/)autodiscover/", _CTX_RECON, "recon"),
+        (r"^/dns-query(?:\?|$)", _CTX_RECON, "recon"),
+        (r"(?:^|/)\.git/(?:refs|index|HEAD|objects|logs)(?:/|$)", _CTX_RECON, "recon"),
     ]
 
     patterns: list[str] = [p[0] for p in _pattern_definitions]
 
     custom_patterns: set[str]
-    compiled_patterns: list[tuple[re.Pattern, frozenset[str]]]
-    compiled_custom_patterns: set[tuple[re.Pattern, frozenset[str]]]
+    compiled_patterns: list[tuple[re.Pattern, frozenset[str], str]]
+    compiled_custom_patterns: set[tuple[re.Pattern, frozenset[str], str]]
     redis_handler: Any
     agent_handler: Any
     _compiler: PatternCompiler | None
@@ -261,8 +356,8 @@ class SusPatternsManager:
             cls._instance = super().__new__(cls)
             cls._instance.custom_patterns = set()
             cls._instance.compiled_patterns = [
-                (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts)
-                for pattern, contexts in cls._pattern_definitions
+                (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+                for pattern, contexts, category in cls._pattern_definitions
             ]
             cls._instance.compiled_custom_patterns = set()
             cls._instance.redis_handler = None
@@ -357,6 +452,7 @@ class SusPatternsManager:
         content: str,
         ip_address: str,
         pattern_start: float,
+        category: str,
     ) -> tuple[dict | None, bool]:
         timeout_occurred = False
 
@@ -378,6 +474,7 @@ class SusPatternsManager:
                     "match": match.group(),
                     "position": match.start(),
                     "execution_time": time.time() - pattern_start,
+                    "category": category,
                 }, timeout_occurred
         else:
             match, timeout_occurred = self._check_pattern_with_timeout(
@@ -390,6 +487,7 @@ class SusPatternsManager:
                     "match": match.group(),
                     "position": match.start(),
                     "execution_time": time.time() - pattern_start,
+                    "category": category,
                 }, timeout_occurred
 
         return None, timeout_occurred
@@ -445,6 +543,7 @@ class SusPatternsManager:
         ip_address: str,
         correlation_id: str | None,
         context: str = "unknown",
+        enabled_categories: set[str] | None = None,
     ) -> tuple[list[dict], list[str], list[str]]:
         threats = []
         matched_patterns = []
@@ -454,14 +553,20 @@ class SusPatternsManager:
         normalized = self._normalize_context(context)
         skip_filter = normalized in ("unknown", "request_body")
 
-        for pattern, contexts in all_patterns:
+        for pattern, contexts, category in all_patterns:
             if not skip_filter and normalized not in contexts:
+                continue
+            if (
+                enabled_categories is not None
+                and category != "custom"
+                and category not in enabled_categories
+            ):
                 continue
 
             pattern_start = time.time()
 
             threat, timeout_occurred = self._check_regex_pattern(
-                pattern, content, ip_address, pattern_start
+                pattern, content, ip_address, pattern_start, category
             )
 
             if timeout_occurred:
@@ -537,6 +642,7 @@ class SusPatternsManager:
         ip_address: str,
         context: str = "unknown",
         correlation_id: str | None = None,
+        enabled_categories: set[str] | None = None,
     ) -> dict[str, Any]:
         original_content = content
         execution_start = time.time()
@@ -544,7 +650,11 @@ class SusPatternsManager:
         processed_content = self._preprocess_content(content, correlation_id)
 
         regex_threats, matched_patterns, timeouts = self._check_regex_patterns(
-            processed_content, ip_address, correlation_id, context
+            processed_content,
+            ip_address,
+            correlation_id,
+            context,
+            enabled_categories,
         )
 
         semantic_threats, semantic_score = self._check_semantic_threats(
@@ -662,7 +772,7 @@ class SusPatternsManager:
         instance = cls()
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
-        compiled_tuple = (compiled_pattern, _CTX_ALL)
+        compiled_tuple = (compiled_pattern, _CTX_ALL, "custom")
         if custom:
             instance.compiled_custom_patterns.add(compiled_tuple)
             instance.custom_patterns.add(pattern)
@@ -699,7 +809,9 @@ class SusPatternsManager:
         self.custom_patterns.discard(pattern)
 
         self.compiled_custom_patterns = {
-            (p, ctx) for p, ctx in self.compiled_custom_patterns if p.pattern != pattern
+            (p, ctx, cat)
+            for p, ctx, cat in self.compiled_custom_patterns
+            if p.pattern != pattern
         }
 
         if self.redis_handler:
@@ -783,21 +895,21 @@ class SusPatternsManager:
     @classmethod
     def get_default_compiled_patterns(
         cls,
-    ) -> list[tuple[re.Pattern, frozenset[str]]]:
+    ) -> list[tuple[re.Pattern, frozenset[str], str]]:
         instance = cls()
         return instance.compiled_patterns.copy()
 
     @classmethod
     def get_custom_compiled_patterns(
         cls,
-    ) -> list[tuple[re.Pattern, frozenset[str]]]:
+    ) -> list[tuple[re.Pattern, frozenset[str], str]]:
         instance = cls()
         return list(instance.compiled_custom_patterns)
 
     @classmethod
     def get_all_compiled_patterns(
         cls,
-    ) -> list[tuple[re.Pattern, frozenset[str]]]:
+    ) -> list[tuple[re.Pattern, frozenset[str], str]]:
         instance = cls()
         return instance.compiled_patterns + list(instance.compiled_custom_patterns)
 

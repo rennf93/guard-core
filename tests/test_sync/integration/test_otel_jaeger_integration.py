@@ -1,0 +1,184 @@
+import os
+import time
+from typing import Any
+
+import pytest
+import requests
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        os.environ.get("INTEGRATION_TESTS") != "1",
+        reason="Integration tests require INTEGRATION_TESTS=1 and Docker",
+    ),
+]
+
+
+@pytest.fixture(scope="module")
+def jaeger_container() -> Any:
+    from testcontainers.core.container import DockerContainer
+    from testcontainers.core.waiting_utils import wait_for_logs
+
+    container = (
+        DockerContainer("jaegertracing/all-in-one:1.76.0")
+        .with_env("COLLECTOR_OTLP_ENABLED", "true")
+        .with_exposed_ports(16686, 4318)
+    )
+    container.start()
+    wait_for_logs(container, "Starting HTTP server", timeout=60)
+    yield container
+    container.stop()
+
+
+@pytest.fixture
+def jaeger_otlp_endpoint(jaeger_container: Any) -> str:
+    host = jaeger_container.get_container_host_ip()
+    port = jaeger_container.get_exposed_port(4318)
+    return f"http://{host}:{port}"
+
+
+@pytest.fixture
+def jaeger_ui_url(jaeger_container: Any) -> str:
+    host = jaeger_container.get_container_host_ip()
+    port = jaeger_container.get_exposed_port(16686)
+    return f"http://{host}:{port}"
+
+
+class _SyntheticEvent:
+    def __init__(
+        self,
+        event_type: str,
+        ip_address: str,
+        action_taken: str,
+        reason: str,
+        endpoint: str,
+        method: str,
+        status_code: int,
+        metadata: dict[str, Any],
+    ) -> None:
+        self.event_type = event_type
+        self.ip_address = ip_address
+        self.action_taken = action_taken
+        self.reason = reason
+        self.endpoint = endpoint
+        self.method = method
+        self.status_code = status_code
+        self.metadata = metadata
+
+
+def _wait_for_service(ui_url: str, service_name: str) -> None:
+    timeout = 10
+    with requests.Session(base_url=ui_url, timeout=timeout) as session:
+        for _ in range(10):
+            with session.get("/api/services") as response:
+                payload = response.json()
+            services = payload.get("data") or []
+            if service_name in services:
+                return
+            time.sleep(1)
+        raise AssertionError(
+            f"Jaeger did not register service '{service_name}' within 10s"
+        )
+
+
+def _fetch_penetration_spans(ui_url: str, service_name: str) -> list[dict[str, Any]]:
+    timeout = 10
+    with requests.Session(base_url=ui_url, timeout=timeout) as session:
+        params = {"service": service_name, "limit": "10", "lookback": "5m"}
+        with session.get("/api/traces", params=params) as response:
+            payload = response.json()
+    data = payload.get("data") or []
+    tags_by_span = [
+        {tag["key"]: tag.get("value") for tag in span.get("tags", [])}
+        for trace in data
+        for span in trace.get("spans", [])
+    ]
+    return [
+        tags
+        for tags in tags_by_span
+        if tags.get("guard.event_type") == "penetration_attempt"
+    ]
+
+
+def test_otel_spans_land_with_normalized_endpoint(
+    jaeger_otlp_endpoint: str, jaeger_ui_url: str
+) -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.core.events.otel_handler import OtelHandler
+
+    config = SecurityConfig(
+        enable_otel=True,
+        otel_service_name="guard-core-integration",
+        otel_exporter_endpoint=jaeger_otlp_endpoint,
+        otel_resource_attributes={"deployment.environment": "integration"},
+    )
+    handler = OtelHandler(config)
+    handler.start()
+
+    event = _SyntheticEvent(
+        event_type="penetration_attempt",
+        ip_address="10.0.0.42",
+        action_taken="blocked",
+        reason="integration-test-synthetic",
+        endpoint="/login",
+        method="POST",
+        status_code=403,
+        metadata={
+            "guard.project_id": "proj_test",
+            "guard.service.name": "guard-core-integration",
+            "guard.threat_score": 90,
+        },
+    )
+    handler.send_event(event)
+    time.sleep(2)
+    handler.stop()
+
+    _wait_for_service(jaeger_ui_url, "guard-core-integration")
+    spans = _fetch_penetration_spans(jaeger_ui_url, "guard-core-integration")
+
+    assert spans, "penetration_attempt span not found in Jaeger"
+    first = spans[0]
+    assert first["guard.ip_address"] == "10.0.0.42"
+    assert first["guard.reason"] == "integration-test-synthetic"
+    assert first["guard.project_id"] == "proj_test"
+    assert first["guard.threat_score"] == 90
+
+
+def test_otel_spans_land_with_explicit_v1_traces_endpoint(
+    jaeger_otlp_endpoint: str, jaeger_ui_url: str
+) -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.core.events.otel_handler import OtelHandler
+
+    service_name = "guard-core-integration-explicit-path"
+    config = SecurityConfig(
+        enable_otel=True,
+        otel_service_name=service_name,
+        otel_exporter_endpoint=f"{jaeger_otlp_endpoint}/v1/traces",
+        otel_resource_attributes={"deployment.environment": "integration"},
+    )
+    handler = OtelHandler(config)
+    handler.start()
+
+    event = _SyntheticEvent(
+        event_type="penetration_attempt",
+        ip_address="10.0.0.43",
+        action_taken="blocked",
+        reason="integration-test-explicit-path",
+        endpoint="/admin",
+        method="GET",
+        status_code=403,
+        metadata={"guard.threat_score": 90},
+    )
+    handler.send_event(event)
+    time.sleep(2)
+    handler.stop()
+
+    _wait_for_service(jaeger_ui_url, service_name)
+    spans = _fetch_penetration_spans(jaeger_ui_url, service_name)
+
+    assert spans, (
+        "penetration_attempt span not found when endpoint was configured "
+        "with explicit /v1/traces suffix"
+    )
+    assert spans[0]["guard.reason"] == "integration-test-explicit-path"

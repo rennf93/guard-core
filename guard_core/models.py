@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import Self
 
+from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
@@ -402,8 +403,34 @@ class SecurityConfig(BaseModel):
         ),
     )
 
-    # TODO: Add type hints to the decorator
-    @field_validator("whitelist", "blacklist")  # type: ignore
+    excluded_detection_headers: set[str] = Field(
+        default_factory=set,
+        description=(
+            "Headers to exclude from penetration detection scanning. "
+            "Merged with the hardcoded default exclusion set."
+        ),
+    )
+    excluded_detection_params: set[str] = Field(
+        default_factory=set,
+        description=(
+            "Query parameters to exclude from penetration detection scanning."
+        ),
+    )
+    excluded_detection_body_fields: set[str] = Field(
+        default_factory=set,
+        description=(
+            "Top-level JSON body keys to exclude from penetration detection scanning."
+        ),
+    )
+    enabled_detection_categories: set[str] = Field(
+        default_factory=lambda: set(ALL_DETECTION_CATEGORIES),
+        description=(
+            "Detection categories to scan for. Defaults to all. "
+            f"Valid values: {sorted(ALL_DETECTION_CATEGORIES)}"
+        ),
+    )
+
+    @field_validator("whitelist", "blacklist")
     def validate_ip_lists(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
@@ -421,8 +448,7 @@ class SecurityConfig(BaseModel):
                 raise ValueError(f"Invalid IP or CIDR range: {entry}") from None
         return validated
 
-    # TODO: Add type hints to the decorator
-    @field_validator("trusted_proxies")  # type: ignore
+    @field_validator("trusted_proxies")
     def validate_trusted_proxies(cls, v: list[str]) -> list[str]:
         if not v:
             return []
@@ -440,23 +466,20 @@ class SecurityConfig(BaseModel):
                 raise ValueError(f"Invalid proxy IP or CIDR range: {entry}") from None
         return validated
 
-    # TODO: Add type hints to the decorator
-    @field_validator("trusted_proxy_depth")  # type: ignore
+    @field_validator("trusted_proxy_depth")
     def validate_proxy_depth(cls, v: int) -> int:
         if v < 1:
             raise ValueError("trusted_proxy_depth must be at least 1")
         return v
 
-    # TODO: Add type hints to the decorator
-    @field_validator("block_cloud_providers", mode="before")  # type: ignore
+    @field_validator("block_cloud_providers", mode="before")
     def validate_cloud_providers(cls, v: Any) -> set[str]:
         valid_providers = {"AWS", "GCP", "Azure"}
         if v is None:
             return set()
         return {p for p in v if p in valid_providers}
 
-    # TODO: Add type hints to the decorator
-    @model_validator(mode="after")  # type: ignore
+    @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:
         if self.geo_ip_handler is None and (
             self.blocked_countries or self.whitelist_countries
@@ -475,8 +498,7 @@ class SecurityConfig(BaseModel):
                 )
         return self
 
-    # TODO: Add type hints to the decorator
-    @model_validator(mode="after")  # type: ignore
+    @model_validator(mode="after")
     def validate_agent_config(self) -> Self:
         if self.enable_agent and not self.agent_api_key:
             raise ValueError("agent_api_key is required when enable_agent is True")
@@ -495,7 +517,7 @@ class SecurityConfig(BaseModel):
 
         return self
 
-    @field_validator("muted_event_types")  # type: ignore
+    @field_validator("muted_event_types")
     def validate_muted_event_types(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import EVENT_TYPE_VALUES
 
@@ -507,7 +529,7 @@ class SecurityConfig(BaseModel):
             )
         return v
 
-    @field_validator("muted_metric_types")  # type: ignore
+    @field_validator("muted_metric_types")
     def validate_muted_metric_types(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import METRIC_TYPE_VALUES
 
@@ -519,7 +541,17 @@ class SecurityConfig(BaseModel):
             )
         return v
 
-    @field_validator("muted_check_logs")  # type: ignore
+    @field_validator("enabled_detection_categories")
+    def validate_enabled_detection_categories(cls, v: set[str]) -> set[str]:
+        unknown = v - ALL_DETECTION_CATEGORIES
+        if unknown:
+            raise ValueError(
+                f"Unknown detection categories: {sorted(unknown)}. "
+                f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+            )
+        return v
+
+    @field_validator("muted_check_logs")
     def validate_muted_check_logs(cls, v: set[str]) -> set[str]:
         from guard_core.core.events.event_types import CHECK_NAME_VALUES
 

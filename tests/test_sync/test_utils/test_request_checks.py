@@ -520,7 +520,7 @@ def test_detect_penetration_fallback_pattern_match() -> None:
         patch.object(
             sus_patterns_handler,
             "get_all_compiled_patterns",
-            return_value=[(mock_pattern, _all_ctx)],
+            return_value=[(mock_pattern, _all_ctx, "custom")],
         ),
         patch("logging.error") as mock_error,
     ):
@@ -560,7 +560,7 @@ def test_detect_penetration_fallback_pattern_exception() -> None:
         patch.object(
             sus_patterns_handler,
             "get_all_compiled_patterns",
-            return_value=[(mock_pattern, _all_ctx)],
+            return_value=[(mock_pattern, _all_ctx, "custom")],
         ),
         patch("logging.error") as mock_log_error,
     ):
