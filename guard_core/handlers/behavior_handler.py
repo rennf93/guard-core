@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from guard_core.models import SecurityConfig
+from guard_core.models import BehaviorRuleConfig, SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 
 
@@ -21,6 +21,7 @@ class BehaviorRule:
         action: Literal["ban", "log", "throttle", "alert"] = "log",
         custom_action: Callable | None = None,
         ban_duration: int | None = None,
+        correlate_with_detection: bool = False,
     ):
         self.rule_type = rule_type
         self.threshold = threshold
@@ -29,6 +30,7 @@ class BehaviorRule:
         self.action = action
         self.custom_action = custom_action
         self.ban_duration = ban_duration
+        self.correlate_with_detection = correlate_with_detection
 
 
 class BehaviorTracker:
@@ -102,10 +104,14 @@ class BehaviorTracker:
         client_ip: str,
         response: GuardResponse,
         rule: BehaviorRule,
+        effective_threshold: int | None = None,
     ) -> bool:
         if not rule.pattern:
             return False
 
+        threshold = (
+            effective_threshold if effective_threshold is not None else rule.threshold
+        )
         current_time = time.time()
         window_start = current_time - rule.window
 
@@ -133,7 +139,7 @@ class BehaviorTracker:
                 except (ValueError, IndexError):
                     continue
 
-            return valid_count > rule.threshold
+            return valid_count > threshold
 
         pattern_key = f"{endpoint_id}:{rule.pattern}"
         timestamps = self.return_patterns[pattern_key][client_ip]
@@ -142,7 +148,7 @@ class BehaviorTracker:
 
         timestamps.append(current_time)
 
-        return len(timestamps) > rule.threshold
+        return len(timestamps) > threshold
 
     async def _check_response_pattern(
         self, response: GuardResponse, pattern: str
@@ -329,3 +335,15 @@ class BehaviorTracker:
             await self.agent_handler.send_event(event)
         except Exception as e:
             self.logger.error(f"Failed to send behavior event to agent: {e}")
+
+
+def config_to_rule(cfg: BehaviorRuleConfig) -> BehaviorRule:
+    return BehaviorRule(
+        rule_type=cfg.rule_type,
+        threshold=cfg.threshold,
+        window=cfg.window,
+        pattern=cfg.pattern,
+        action=cfg.action,
+        ban_duration=cfg.ban_duration,
+        correlate_with_detection=cfg.correlate_with_detection,
+    )

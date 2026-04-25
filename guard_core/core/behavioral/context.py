@@ -14,3 +14,4 @@ class BehavioralContext:
     event_bus: SecurityEventBus
     guard_decorator: BaseSecurityDecorator | None
     behavior_tracker: Any | None = None
+    middleware: Any = None

@@ -21,6 +21,16 @@ class ThreatBanConfig(BaseModel):
     duration: int = Field(ge=1, description="Ban duration in seconds.")
 
 
+class BehaviorRuleConfig(BaseModel):
+    rule_type: Literal["usage", "return_pattern", "frequency"]
+    threshold: int = Field(ge=1)
+    window: int = Field(default=3600, ge=1)
+    pattern: str | None = None
+    action: Literal["ban", "log", "throttle", "alert"] = "log"
+    ban_duration: int | None = Field(default=None, ge=1)
+    correlate_with_detection: bool = False
+
+
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -99,6 +109,14 @@ class SecurityConfig(BaseModel):
         description=(
             "Per-category ban thresholds and durations. "
             "Unlisted categories fall back to auto_ban_threshold / auto_ban_duration."
+        ),
+    )
+
+    global_behavior_rules: list[BehaviorRuleConfig] = Field(
+        default_factory=list,
+        description=(
+            "Behaviour rules applied to every route, in addition to any "
+            "decorator-specified rules. Useful for global 404 tracking."
         ),
     )
 

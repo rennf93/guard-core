@@ -3,6 +3,7 @@ from collections.abc import Callable
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.responses.context import ResponseContext
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.handlers.behavior_handler import BehaviorRule, config_to_rule
 from guard_core.sync.handlers.security_headers_handler import security_headers_manager
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import extract_client_ip
@@ -74,12 +75,35 @@ class ErrorResponseFactory:
             [SyncGuardRequest, GuardResponse, str, RouteConfig], None
         ]
         | None = None,
+        process_global_behavioral_rules: Callable[
+            [SyncGuardRequest, GuardResponse, str, list[BehaviorRule]], None
+        ]
+        | None = None,
     ) -> GuardResponse:
-        if route_config and route_config.behavior_rules and process_behavioral_rules:
-            client_ip = extract_client_ip(
-                request, self.context.config, self.context.agent_handler
-            )
+        client_ip = self._resolve_client_ip_for_behavioral_rules(
+            request,
+            route_config,
+            process_behavioral_rules,
+            process_global_behavioral_rules,
+        )
+
+        if (
+            client_ip is not None
+            and route_config is not None
+            and route_config.behavior_rules
+            and process_behavioral_rules is not None
+        ):
             process_behavioral_rules(request, response, client_ip, route_config)
+
+        if (
+            client_ip is not None
+            and self.context.config.global_behavior_rules
+            and process_global_behavioral_rules is not None
+        ):
+            global_rules = [
+                config_to_rule(cfg) for cfg in self.context.config.global_behavior_rules
+            ]
+            process_global_behavioral_rules(request, response, client_ip, global_rules)
 
         self.context.metrics_collector.collect_request_metrics(
             request, response_time, response.status_code
@@ -92,3 +116,30 @@ class ErrorResponseFactory:
             response = self.apply_cors_headers(response, origin)
 
         return self.apply_modifier(response)
+
+    def _resolve_client_ip_for_behavioral_rules(
+        self,
+        request: SyncGuardRequest,
+        route_config: RouteConfig | None,
+        process_behavioral_rules: Callable[
+            [SyncGuardRequest, GuardResponse, str, RouteConfig], None
+        ]
+        | None,
+        process_global_behavioral_rules: Callable[
+            [SyncGuardRequest, GuardResponse, str, list[BehaviorRule]], None
+        ]
+        | None,
+    ) -> str | None:
+        needs_client_ip = (
+            route_config is not None
+            and route_config.behavior_rules
+            and process_behavioral_rules is not None
+        ) or (
+            bool(self.context.config.global_behavior_rules)
+            and process_global_behavioral_rules is not None
+        )
+        if not needs_client_ip:
+            return None
+        return extract_client_ip(
+            request, self.context.config, self.context.agent_handler
+        )
