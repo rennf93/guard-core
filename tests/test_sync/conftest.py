@@ -14,9 +14,9 @@ from guard_core.sync.handlers.ratelimit_handler import rate_limit_handler
 from guard_core.sync.handlers.redis_handler import RedisManager
 from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
-REDIS_URL = str(os.getenv("REDIS_URL"))
-REDIS_PREFIX = str(os.getenv("REDIS_PREFIX"))
+IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
+REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
+REDIS_PREFIX = os.getenv("REDIS_PREFIX") or "test:guard_core:"
 
 
 class MockState:

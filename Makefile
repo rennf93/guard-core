@@ -233,7 +233,7 @@ local-test:
 
 .PHONY: integration-test
 integration-test:
-	@INTEGRATION_TESTS=1 uv run pytest tests/integration -m integration -v
+	@INTEGRATION_TESTS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} IPINFO_TOKEN=$${IPINFO_TOKEN:-test_token} REDIS_PREFIX=$${REDIS_PREFIX:-test:guard_core:} uv run pytest tests/integration -m integration -v
 	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
 
 
