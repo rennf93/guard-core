@@ -10,6 +10,9 @@ import aiohttp
 import maxminddb
 from maxminddb import Reader
 
+from guard_core.protocols.agent_protocol import AgentHandlerProtocol
+from guard_core.protocols.redis_protocol import RedisHandlerProtocol
+
 
 class IPInfoManager:
     _instance = None
@@ -17,12 +20,16 @@ class IPInfoManager:
     token: str
     db_path: Path
     reader: Reader | None = None
-    redis_handler: Any = None
-    agent_handler: Any = None
+    redis_handler: RedisHandlerProtocol | None = None
+    agent_handler: AgentHandlerProtocol | None = None
     logger: logging.Logger
+    _max_age: int
 
     def __new__(
-        cls: type["IPInfoManager"], token: str, db_path: Path | None = None
+        cls: type["IPInfoManager"],
+        token: str,
+        db_path: Path | None = None,
+        max_age: int = 86400,
     ) -> "IPInfoManager":
         if not token:
             raise ValueError("IPInfo token is required!")
@@ -35,17 +42,19 @@ class IPInfoManager:
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
             cls._instance.logger = logging.getLogger("guard_core.handlers.ipinfo")
+            cls._instance._max_age = max_age
 
         cls._instance.token = token
         if db_path is not None:
             cls._instance.db_path = db_path
+        cls._instance._max_age = max_age
         return cls._instance
 
     @property
     def is_initialized(self) -> bool:
         return self.reader is not None
 
-    async def initialize_agent(self, agent_handler: Any) -> None:
+    async def initialize_agent(self, agent_handler: AgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
     async def initialize(self) -> None:
@@ -131,7 +140,7 @@ class IPInfoManager:
                             "ipinfo",
                             "database",
                             db_content,
-                            ttl=86400,
+                            ttl=self._max_age,
                         )
                     return
                 except Exception:
@@ -145,7 +154,7 @@ class IPInfoManager:
             return True
 
         age = time.time() - self.db_path.stat().st_mtime
-        return age > 86400
+        return age > self._max_age
 
     def get_country(self, ip: str) -> str | None:
         if not self.reader:
@@ -214,6 +223,17 @@ class IPInfoManager:
         if self.reader:
             self.reader.close()
 
-    async def initialize_redis(self, redis_handler: Any) -> None:
+    async def refresh(self) -> None:
+        self.close()
+        self.reader = None
+        try:
+            await self._download_database()
+        except Exception as e:
+            self.logger.error(f"IPInfo refresh failed: {e}")
+            return
+        if self.db_path.exists():
+            self.reader = maxminddb.open_database(str(self.db_path))
+
+    async def initialize_redis(self, redis_handler: RedisHandlerProtocol) -> None:
         self.redis_handler = redis_handler
         await self.initialize()

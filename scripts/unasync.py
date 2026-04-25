@@ -47,6 +47,12 @@ SUBS: list[tuple[str, str]] = [
         r"from guard_core\.protocols\.geo_ip_protocol import GeoIPHandler",
         "from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler",
     ),
+    (
+        r"from guard_core\.protocols\.cloud_ip_store_protocol "
+        r"import CloudIpStoreProtocol",
+        "from guard_core.sync.protocols.cloud_ip_store_protocol "
+        "import SyncCloudIpStoreProtocol",
+    ),
     (r"from guard_core\.handlers\.", "from guard_core.sync.handlers."),
     (r"from guard_core\.utils", "from guard_core.sync.utils"),
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
@@ -58,6 +64,7 @@ SUBS: list[tuple[str, str]] = [
     (r"(?<!Sync)(?<!\w)RedisHandlerProtocol\b", "SyncRedisHandlerProtocol"),
     (r"(?<!Sync)(?<!\w)GuardRequest\b", "SyncGuardRequest"),
     (r"(?<!Sync)(?<!\w)GeoIPHandler\b", "SyncGeoIPHandler"),
+    (r"(?<!Sync)(?<!\w)CloudIpStoreProtocol\b", "SyncCloudIpStoreProtocol"),
     (r"from redis\.asyncio import Redis", "from redis import Redis"),
     (r"redis\.asyncio", "redis"),
     (r"import aiohttp", "import requests"),

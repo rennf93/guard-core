@@ -7,6 +7,11 @@ from typing import Any
 
 import requests
 
+from guard_core.sync.handlers.cloud_ip_stores import InMemoryCloudIpStore
+from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol
+from guard_core.sync.protocols.cloud_ip_store_protocol import SyncCloudIpStoreProtocol
+from guard_core.sync.protocols.redis_protocol import SyncRedisHandlerProtocol
+
 
 def fetch_aws_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     try:
@@ -93,11 +98,11 @@ _ALL_PROVIDERS = set({"AWS", "GCP", "Azure"})
 class CloudManager:
     _instance = None
     ip_ranges: dict[str, set[ipaddress.IPv4Network | ipaddress.IPv6Network]]
-    redis_handler: Any = None
-    agent_handler: Any = None
+    redis_handler: SyncRedisHandlerProtocol | None = None
+    agent_handler: SyncAgentHandlerProtocol | None = None
     logger: logging.Logger
-
     last_updated: dict[str, datetime | None]
+    _store: SyncCloudIpStoreProtocol | None
 
     def __new__(cls: type["CloudManager"]) -> "CloudManager":
         if cls._instance is None:
@@ -111,7 +116,11 @@ class CloudManager:
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
             cls._instance.logger = logging.getLogger("guard_core.sync.handlers.cloud")
+            cls._instance._store = InMemoryCloudIpStore()
         return cls._instance
+
+    def set_store(self, store: SyncCloudIpStoreProtocol) -> None:
+        self._store = store
 
     def _log_range_changes(
         self,
@@ -147,14 +156,18 @@ class CloudManager:
 
     def initialize_redis(
         self,
-        redis_handler: Any,
+        redis_handler: SyncRedisHandlerProtocol,
         providers: set[str] = _ALL_PROVIDERS,
         ttl: int = 3600,
     ) -> None:
         self.redis_handler = redis_handler
+        if isinstance(self._store, InMemoryCloudIpStore):
+            from guard_core.sync.handlers.cloud_ip_stores import RedisCloudIpStore
+
+            self._store = RedisCloudIpStore(redis_handler)
         self.refresh_async(providers, ttl=ttl)
 
-    def initialize_agent(self, agent_handler: Any) -> None:
+    def initialize_agent(self, agent_handler: SyncAgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
     def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
@@ -165,17 +178,15 @@ class CloudManager:
     def refresh_async(
         self, providers: set[str] = _ALL_PROVIDERS, ttl: int = 3600
     ) -> None:
-        if self.redis_handler is None:
-            self._refresh_providers(providers)
+        if self._store is None:
+            self._refresh_providers_via_redis_handler(providers, ttl=ttl)
             return
 
         for provider in providers:
             try:
-                cached_ranges = self.redis_handler.get_key("cloud_ranges", provider)
-                if cached_ranges:
-                    self.ip_ranges[provider] = {
-                        ipaddress.ip_network(ip) for ip in cached_ranges.split(",")
-                    }
+                cached = self._store.get(provider)
+                if cached is not None:
+                    self.ip_ranges[provider] = {ipaddress.ip_network(s) for s in cached}
                     continue
 
                 fetch_func = {
@@ -190,14 +201,49 @@ class CloudManager:
                     self._log_range_changes(provider, old_ranges, ranges)
                     self.ip_ranges[provider] = ranges
                     self.last_updated[provider] = datetime.now(timezone.utc)
+                    self._store.set(
+                        provider,
+                        {str(network) for network in ranges},
+                        ttl=ttl,
+                    )
+            except Exception as e:
+                self.logger.error(f"Failed to refresh {provider} IP ranges: {str(e)}")
+                if provider not in self.ip_ranges:
+                    self.ip_ranges[provider] = set()
 
+    def _refresh_providers_via_redis_handler(
+        self, providers: set[str], ttl: int = 3600
+    ) -> None:
+        if self.redis_handler is None:
+            self._refresh_providers(providers)
+            return
+
+        for provider in providers:
+            try:
+                cached = self.redis_handler.get_key("cloud_ranges", provider)
+                if cached:
+                    self.ip_ranges[provider] = {
+                        ipaddress.ip_network(ip) for ip in cached.split(",")
+                    }
+                    continue
+
+                fetch_func = {
+                    "AWS": fetch_aws_ip_ranges,
+                    "GCP": fetch_gcp_ip_ranges,
+                    "Azure": fetch_azure_ip_ranges,
+                }[provider]
+                ranges = fetch_func()
+                if ranges:
+                    old_ranges = self.ip_ranges.get(provider, set())
+                    self._log_range_changes(provider, old_ranges, ranges)
+                    self.ip_ranges[provider] = ranges
+                    self.last_updated[provider] = datetime.now(timezone.utc)
                     self.redis_handler.set_key(
                         "cloud_ranges",
                         provider,
                         ",".join(str(ip) for ip in ranges),
                         ttl=ttl,
                     )
-
             except Exception as e:
                 self.logger.error(f"Failed to refresh {provider} IP ranges: {str(e)}")
                 if provider not in self.ip_ranges:

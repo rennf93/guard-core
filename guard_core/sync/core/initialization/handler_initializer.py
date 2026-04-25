@@ -124,7 +124,7 @@ class HandlerInitializer:
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager
         from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
-        if self.config.block_cloud_providers:
+        if not self.config.lazy_init and self.config.block_cloud_providers:
             cloud_handler.initialize_redis(
                 self.redis_handler,
                 self.config.block_cloud_providers,
@@ -132,11 +132,16 @@ class HandlerInitializer:
             )
 
         ip_ban_manager.initialize_redis(self.redis_handler)
-        if self.geo_ip_handler is not None:
+
+        if not self.config.lazy_init and self.geo_ip_handler is not None:
             self.geo_ip_handler.initialize_redis(self.redis_handler)
+
         if self.rate_limit_handler is not None:
             self.rate_limit_handler.initialize_redis(self.redis_handler)
         sus_patterns_handler.initialize_redis(self.redis_handler)
+
+        if self.config.cloud_ip_store is not None:
+            cloud_handler.set_store(self.config.cloud_ip_store)
 
     def initialize_agent_for_handlers(self) -> None:
         telemetry = self.composite_handler or self.agent_handler

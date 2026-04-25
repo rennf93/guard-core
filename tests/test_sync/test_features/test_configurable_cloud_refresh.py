@@ -11,10 +11,13 @@ from guard_core.sync.handlers.cloud_handler import cloud_handler
 
 @pytest.fixture(autouse=True)
 def reset_cloud_handler() -> None:
+    from guard_core.sync.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
     cloud_handler.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
     cloud_handler.last_updated = {"AWS": None, "GCP": None, "Azure": None}
     cloud_handler.redis_handler = None
     cloud_handler.agent_handler = None
+    cloud_handler._store = InMemoryCloudIpStore()
 
 
 def test_config_default_value() -> None:
@@ -89,11 +92,14 @@ def test_cloud_ip_refresh_check_skips_within_interval() -> None:
 
 
 def test_refresh_async_passes_ttl_to_redis() -> None:
+    from guard_core.sync.handlers.cloud_ip_stores import RedisCloudIpStore
+
     mock_redis = MagicMock()
     mock_redis.get_key = MagicMock(return_value=None)
     mock_redis.set_key = MagicMock()
 
     cloud_handler.redis_handler = mock_redis
+    cloud_handler._store = RedisCloudIpStore(mock_redis)
 
     test_ranges = {ipaddress.ip_network("10.0.0.0/8")}
     with patch(

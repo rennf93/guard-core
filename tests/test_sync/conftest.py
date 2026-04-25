@@ -140,9 +140,12 @@ def reset_state() -> Generator[None, None]:
 
     cloud_instance = cloud_handler._instance
     if cloud_instance:
+        from guard_core.sync.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
         cloud_instance.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
         cloud_instance.redis_handler = None
         cloud_instance.agent_handler = None
+        cloud_instance._store = InMemoryCloudIpStore()
 
     if IPInfoManager._instance:
         if IPInfoManager._instance.reader:
@@ -226,7 +229,15 @@ def redis_cleanup() -> Generator[None, None]:
         pass
     finally:
         redis_handler.close()
-    yield  # type: ignore
+    yield
+    redis_handler = RedisManager(config)
+    redis_handler.initialize()
+    try:
+        redis_handler.delete_pattern(f"{REDIS_PREFIX}*")
+    except Exception:
+        pass
+    finally:
+        redis_handler.close()
 
 
 @pytest.fixture(autouse=True)

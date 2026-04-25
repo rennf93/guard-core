@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from typing_extensions import Self
 
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
+from guard_core.protocols.cloud_ip_store_protocol import CloudIpStoreProtocol
 from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
@@ -220,6 +221,30 @@ class SecurityConfig(BaseModel):
         description="Interval in seconds between cloud IP range refreshes",
         ge=60,
         le=86400,
+    )
+
+    lazy_init: bool = Field(
+        default=False,
+        description=(
+            "Defer geo-IP MMDB download and cloud-IP fetches until the first "
+            "request. Reduces startup time but first requests may block or fail."
+        ),
+    )
+
+    geo_ip_db_max_age: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Maximum age in seconds for the IPInfo MMDB before re-download.",
+    )
+
+    cloud_ip_store: CloudIpStoreProtocol | None = Field(
+        default=None,
+        description=(
+            "Pluggable store for cloud IP ranges. None uses the default in-memory "
+            "store. For horizontal scaling, pass a RedisCloudIpStore so instances "
+            "share pre-populated data."
+        ),
     )
 
     exclude_paths: list[str] = Field(

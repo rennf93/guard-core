@@ -68,6 +68,12 @@ class ValidGeoIPHandler:
     def get_country(self, ip: str) -> str | None:
         return None
 
+    async def refresh(self) -> None:
+        return
+
+    def close(self) -> None:
+        return
+
 
 def test_geo_ip_handler_validation() -> None:
     ipinfo = IPInfoManager(token="test")
