@@ -9,6 +9,17 @@ from guard_core.sync.handlers.security_headers_handler import SecurityHeadersMan
 from tests.test_sync.conftest import REDIS_URL, SyncMockGuardRequest
 
 
+class _FailingConnection:
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def __enter__(self) -> None:
+        raise self._exc
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
 def test_ipban_initialize_redis() -> None:
     IPBanManager._instance = None
     mgr = IPBanManager()
@@ -144,13 +155,8 @@ def test_ratelimit_initialize_redis_exception() -> None:
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
 
-    @contextmanager
-    def mock_get_connection():
-        raise Exception("conn fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _FailingConnection(Exception("conn fail"))
     mgr.redis_handler = redis
     mgr.initialize_redis(redis)
     assert mgr.rate_limit_script_sha is None
@@ -217,13 +223,8 @@ def test_ratelimit_redis_count_redis_error() -> None:
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
-    @contextmanager
-    def mock_get_connection():
-        raise RedisError("conn fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
     redis.config = MagicMock()
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
@@ -238,13 +239,8 @@ def test_ratelimit_redis_count_generic_error() -> None:
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
-    @contextmanager
-    def mock_get_connection():
-        raise Exception("generic fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _FailingConnection(Exception("generic fail"))
     redis.config = MagicMock()
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
@@ -338,13 +334,8 @@ def test_ratelimit_check_falls_back_to_memory_when_redis_count_is_none() -> None
     )
     mgr = RateLimitManager(config)
 
-    @contextmanager
-    def mock_get_connection():
-        raise RedisError("conn fail")
-        yield
-
     redis = MagicMock()
-    redis.get_connection = mock_get_connection
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
     redis.config = MagicMock()
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis

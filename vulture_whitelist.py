@@ -94,6 +94,7 @@ call_count  # type: ignore  # pragma: no cover
 
 block_duration  # type: ignore  # pragma: no cover
 allowed_hosts  # type: ignore  # pragma: no cover
+scheme  # type: ignore  # pragma: no cover
 auto_ban_threshold  # type: ignore  # pragma: no cover
 global_rate_limit  # type: ignore  # pragma: no cover
 custom_rate_limit_func  # type: ignore  # pragma: no cover

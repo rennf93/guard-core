@@ -103,7 +103,9 @@ def setup_custom_logging(
     log_file: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
     logger = logging.getLogger("guard_core")
-    logger.handlers.clear()
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
 
     formatter = _create_formatter(log_format)
 

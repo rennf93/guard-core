@@ -10,6 +10,108 @@ Release Notes
 
 ___
 
+v2.0.0 (2026-04-25)
+-------------------
+
+Operator-facing security controls and pluggable IP lifecycle (v2.0.0)
+---------------------------------------------------------------------
+
+### Highlights
+
+- **Detection exclusion knobs** — global and per-route opt-out for headers, query params, and JSON body fields, plus per-category disablement for the 16 known threat categories (XSS, SQLi, dir traversal, cmd injection, …). The detection engine itself is unchanged (regex set + bag-of-words token-overlap scorer); this release adds operator-facing controls on top of it.
+- **`DetectionResult` replaces `tuple[bool, str]`.** Both `detect_penetration_attempt()` and `detect_penetration_patterns()` now return a dataclass carrying `is_threat`, `trigger_info`, `threat_categories`, and `threat_scores`. Callers that unpacked the tuple must migrate.
+- **Per-category ban thresholds and durations.** New `ThreatBanConfig(threshold, duration)` model and `SecurityConfig.threat_ban_config: dict[str, ThreatBanConfig]`. The check increments per-category counts; the first category that crosses its own threshold short-circuits the flat-threshold fallback. Reasons are tagged `"penetration_attempt:<category>"` for category bans and `"penetration_attempt"` for flat fallback.
+- **Global behavior rules.** `SecurityConfig.global_behavior_rules: list[BehaviorRuleConfig]` lets users configure 404-noise correlation and other behavioural patterns without decorators. When `correlate_with_detection=True` and the IP has any positive entry in `suspicious_request_counts`, the rule's effective threshold is halved (floor 1).
+- **Lazy IP lifecycle + pluggable cloud-IP store.** `SecurityConfig.lazy_init=True` defers IPInfo MMDB download and cloud-IP fetches until the first request. `SecurityConfig.cloud_ip_store` accepts a `CloudIpStoreProtocol`; default is in-memory, automatically upgraded to Redis-backed when Redis is wired. Horizontally-scaled deployments can pre-populate the store and skip per-instance cold starts.
+- **Strict protocol typing.** `redis_handler` and `agent_handler` parameters in `IPInfoManager` and `CloudManager` are typed against `RedisHandlerProtocol` / `AgentHandlerProtocol` instead of `Any`.
+- **Test posture.** 3124 tests, 100% line + 100% branch coverage on every touched file, zero pytest warnings, vulture clean (10 pre-existing findings fixed at the root), pre-commit chain (ruff, mypy, vulture, bandit, radon, xenon, deptry) all green.
+
+### Added
+
+- `DetectionResult` dataclass at `guard_core.detection_result` (sync mirror under `guard_core.sync.detection_result`).
+- `ALL_DETECTION_CATEGORIES` (frozenset of 16 labels) and `CATEGORY_CONTEXT_MAP` in `guard_core.handlers.suspatterns_handler`.
+- `SecurityConfig` fields: `excluded_detection_headers`, `excluded_detection_params`, `excluded_detection_body_fields`, `enabled_detection_categories` (default = full `ALL_DETECTION_CATEGORIES` set; rejects unknown labels).
+- `RouteConfig` override fields for the four detection-exclusion knobs (default `None` = inherit from `SecurityConfig`).
+- `ContentFilteringMixin.detection_exclusion(headers=, params=, body_fields=, categories=)` decorator; `None` args leave the corresponding `RouteConfig` field unchanged.
+- `ThreatBanConfig(threshold, duration)` model + `SecurityConfig.threat_ban_config`. Validator rejects unknown categories.
+- `BehaviorRule.ban_duration: int | None` (consumed by `_execute_ban_action`, defaults to 3600 when unset). `BehaviorRule.correlate_with_detection: bool = False`.
+- `BehaviorTracker.track_return_pattern(..., effective_threshold=)` override.
+- `BehaviorRuleConfig` model + `SecurityConfig.global_behavior_rules: list[BehaviorRuleConfig]`. Module-level `config_to_rule(cfg) -> BehaviorRule` helper.
+- `BehavioralContext.middleware: Any = None` field. `BehavioralProcessor.process_global_return_rules()` uses the existing `_behavior_tracker()` precedence helper (context tracker first, decorator tracker fallback) and short-circuits cleanly when neither is reachable.
+- `ErrorResponseFactory.process_response()` accepts an optional `process_global_behavioral_rules` callback and runs it alongside the existing route-specific path. `client_ip` is extracted once and shared across both paths.
+- `SecurityConfig.lazy_init: bool = False`.
+- `SecurityConfig.geo_ip_db_max_age: int = 86400` (validated 3600 ≤ x ≤ 604800).
+- `SecurityConfig.cloud_ip_store: CloudIpStoreProtocol | None = None`.
+- `GeoIPHandler` protocol gained async `refresh()` and sync `close()`.
+- `IPInfoManager(token, db_path, max_age=...)` with a `refresh()` method. `_max_age` replaces the hardcoded 86400 in disk-freshness checks and Redis TTL writes.
+- `CloudIpStoreProtocol` (and `SyncCloudIpStoreProtocol` mirror) with `get` / `set` / `clear` methods.
+- `InMemoryCloudIpStore` and `RedisCloudIpStore` default implementations under `guard_core.handlers.cloud_ip_stores`.
+- `CloudManager.set_store()`. `refresh_async()` reads from the store first, falls back to API fetch + write-back. Legacy `redis_handler`-only path preserved when `_store is None`.
+- `HandlerInitializer.initialize_redis_handlers()` wires `cloud_handler.set_store(config.cloud_ip_store)` after Redis bootstrap when an explicit store is configured. Cloud + geo bootstrap now skipped when `lazy_init=True`; `CloudIpRefreshCheck` triggers a one-shot init on the first request that needs cloud data.
+
+### Changed
+
+- **`detect_penetration_attempt(request, config=None, route_config=None)` → `DetectionResult`** instead of `tuple[bool, str]`.
+- **`detect_penetration_patterns(...)` → `DetectionResult`** instead of `tuple[bool, str]`.
+- **`GuardMiddlewareProtocol.suspicious_request_counts: dict[str, dict[str, int]]`** (was `dict[str, int]`). IP → category → count. Existing total-count semantics preserved via `sum(values())` everywhere they were read.
+- **`SusPatternsManager.compiled_patterns` and `_pattern_definitions`** entries are 3-tuples `(regex, contexts, category)` (were 2-tuples). Every regex threat dict returned by `_check_regex_pattern()` now carries `category`. Custom patterns are tagged `"custom"` and bypass `enabled_categories` filtering.
+- **`SusPatternsManager.detect()` and `_check_regex_patterns()`** accept an `enabled_categories: set[str] | None = None` filter.
+- **`_check_value_enhanced()` / `_check_request_component()`** now return `tuple[bool, str, list[dict]]` (added the raw threats list so the public detector can extract categories and scores).
+- **Cloud-IP cache Redis namespace** moved from `cloud_ranges` (comma-separated values) to `guard:cloud_ip` (JSON-encoded sorted list). See *Compat notes* below.
+
+### Fixed
+
+- **`setup_custom_logging`** now closes each handler before removing it, instead of relying on `logger.handlers.clear()`. Closes a `ResourceWarning` for `_io.FileIO` that surfaced under `pytest -W error::ResourceWarning`.
+- **Vulture clean.** Removed 10 pre-existing dead-code findings: `scheme` parameter on `GuardRequest.url_replace_scheme` is now whitelisted (Protocol method body is `...`; renaming would break callers passing the kwarg by name); the four `unreachable code after raise` findings in `tests/test_handlers_integration.py` (and sync mirrors) replaced their `@asynccontextmanager` mocks with class-based async/sync context managers that don't need a structurally-required dead `yield`.
+- **Pydantic mypy plugin** is now wired (`plugins = ["pydantic.mypy"]` in `[tool.mypy]`). Removed 10 obsolete `# type: ignore` markers and 2 stale `# TODO: Add type hints to the decorator` comments above `@field_validator` / `@model_validator` decorators in `guard_core/models.py`. Also dropped the now-unneeded `[[tool.mypy.overrides]] module = "pydantic.*" follow_imports = "skip"` block that was masking the plugin.
+- **`unasync.py`** gained a multi-line `from tests.conftest import (...)` rewrite rule and a substitution rule for the new `cloud_ip_store_protocol` import path. The sync mirror now correctly renames `CloudIpStoreProtocol` → `SyncCloudIpStoreProtocol`, matching the project's `Sync*`-prefix convention for sync protocols.
+
+### BREAKING
+
+1. **`detect_penetration_attempt()` and `detect_penetration_patterns()` return `DetectionResult`**. Tuple-unpacking callers must migrate:
+
+    ```python
+    # Before
+    detected, trigger = await detect_penetration_attempt(request)
+    # After
+    result = await detect_penetration_attempt(request)
+    detected, trigger = result.is_threat, result.trigger_info
+    # Or read result.threat_categories / result.threat_scores for richer info.
+    ```
+
+2. **`GuardMiddlewareProtocol.suspicious_request_counts: dict[str, dict[str, int]]`**. Code that reads or writes this attribute must use the nested-dict shape:
+
+    ```python
+    # Before
+    self.suspicious_request_counts[ip] += 1
+    # After (per-category increment)
+    self.suspicious_request_counts.setdefault(ip, {})
+    self.suspicious_request_counts[ip][category] = self.suspicious_request_counts[ip].get(category, 0) + 1
+    # Reading the total
+    total = sum(self.suspicious_request_counts.get(ip, {}).values())
+    ```
+
+3. **`SusPatternsManager` compiled-pattern tuples are 3-tuples.** `get_all_compiled_patterns()` returns `tuple[Pattern, frozenset[str], str]` instead of `tuple[Pattern, frozenset[str]]`. Direct callers that iterate this collection must unpack three elements.
+
+4. **`_check_value_enhanced` / `_check_request_component` return 3-tuples.** External callers (none in the framework adapters; flagged here in case downstream code reaches in).
+
+5. **Cloud-IP cache namespace migration: `cloud_ranges` → `guard:cloud_ip`.** Any ops tooling or dashboards reading those Redis keys directly must switch over. The new format is JSON-encoded sorted list of CIDRs per provider, written under namespace `guard:cloud_ip`. The legacy comma-separated path is still reachable for users who explicitly set `_store = None` on the `CloudManager` singleton, but the default and the `RedisCloudIpStore` wiring use the new namespace.
+
+### Compat notes
+
+- All four framework adapters (fastapi-guard, flaskapi-guard, djapi-guard, tornadoapi-guard) need a release pinning `guard-core>=2.0.0` and a small migration: any adapter middleware that read `suspicious_request_counts[ip]` as an int must read `sum(suspicious_request_counts[ip].values())` (the protocol now reflects the per-category shape). Adapters that called `detect_penetration_attempt`/`detect_penetration_patterns` and unpacked the 2-tuple must consume `DetectionResult.is_threat` / `.trigger_info`.
+- `lazy_init=False` is the default and preserves existing eager startup. Existing deployments do not need to opt in.
+- `enabled_detection_categories` defaults to the full `ALL_DETECTION_CATEGORIES` set, so detection coverage is unchanged unless the user explicitly narrows it.
+- `threat_ban_config` defaults to an empty dict and falls back to the existing `auto_ban_threshold` / `auto_ban_duration` flat behaviour — existing configurations behave identically until per-category entries are added.
+- Pydantic mypy plugin was a typing tooling change; it does not affect runtime behaviour or installed dependencies.
+
+### Tooling
+
+- `make sync` (powered by `scripts/unasync.py`) regenerates the entire `guard_core/sync/**` tree plus matching `tests/test_sync/**`. Hand-edits are limited to files in `unasync.py:TEMPLATE_FILES` (a few sync protocol files); everything else is regenerated and verified via `python scripts/unasync.py --check` in pre-commit.
+- `tests/conftest.py` `redis_cleanup` fixture now teardowns Redis state after `yield` in addition to before it. Removes a previously-hidden test-order dependency that surfaced when running tests across many invocations.
+
+___
+
 v1.2.1 (2026-04-24)
 -------------------
 
