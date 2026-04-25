@@ -17,15 +17,17 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def jaeger_container() -> Any:
     from testcontainers.core.container import DockerContainer
-    from testcontainers.core.waiting_utils import wait_for_logs
+    from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
     container = (
         DockerContainer("jaegertracing/all-in-one:1.76.0")
         .with_env("COLLECTOR_OTLP_ENABLED", "true")
         .with_exposed_ports(16686, 4318)
+        .waiting_for(
+            LogMessageWaitStrategy("Starting HTTP server").with_startup_timeout(60)
+        )
     )
     container.start()
-    wait_for_logs(container, "Starting HTTP server", timeout=60)
     yield container
     container.stop()
 
@@ -142,43 +144,3 @@ def test_otel_spans_land_with_normalized_endpoint(
     assert first["guard.reason"] == "integration-test-synthetic"
     assert first["guard.project_id"] == "proj_test"
     assert first["guard.threat_score"] == 90
-
-
-def test_otel_spans_land_with_explicit_v1_traces_endpoint(
-    jaeger_otlp_endpoint: str, jaeger_ui_url: str
-) -> None:
-    from guard_core.models import SecurityConfig
-    from guard_core.sync.core.events.otel_handler import OtelHandler
-
-    service_name = "guard-core-integration-explicit-path"
-    config = SecurityConfig(
-        enable_otel=True,
-        otel_service_name=service_name,
-        otel_exporter_endpoint=f"{jaeger_otlp_endpoint}/v1/traces",
-        otel_resource_attributes={"deployment.environment": "integration"},
-    )
-    handler = OtelHandler(config)
-    handler.start()
-
-    event = _SyntheticEvent(
-        event_type="penetration_attempt",
-        ip_address="10.0.0.43",
-        action_taken="blocked",
-        reason="integration-test-explicit-path",
-        endpoint="/admin",
-        method="GET",
-        status_code=403,
-        metadata={"guard.threat_score": 90},
-    )
-    handler.send_event(event)
-    time.sleep(2)
-    handler.stop()
-
-    _wait_for_service(jaeger_ui_url, service_name)
-    spans = _fetch_penetration_spans(jaeger_ui_url, service_name)
-
-    assert spans, (
-        "penetration_attempt span not found when endpoint was configured "
-        "with explicit /v1/traces suffix"
-    )
-    assert spans[0]["guard.reason"] == "integration-test-explicit-path"

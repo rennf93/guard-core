@@ -408,6 +408,17 @@ def test_otlp_signal_endpoint_strips_trailing_slash_from_base() -> None:
     )
 
 
+def test_otlp_signal_endpoint_passthrough_when_signal_already_matches() -> None:
+    assert (
+        OtelHandler._otlp_signal_endpoint("http://host:4318/v1/traces", "/v1/traces")
+        == "http://host:4318/v1/traces"
+    )
+    assert (
+        OtelHandler._otlp_signal_endpoint("http://host:4318/v1/metrics", "/v1/metrics")
+        == "http://host:4318/v1/metrics"
+    )
+
+
 def test_import_error_branch() -> None:
     import importlib
     import sys
@@ -431,8 +442,7 @@ def test_import_error_branch() -> None:
             mod = importlib.import_module(module_name)
             assert mod._otel_available is False
     finally:
-        if module_name in sys.modules:
-            del sys.modules[module_name]
+        sys.modules.pop(module_name, None)
         sys.modules[module_name] = (
             original if original else importlib.import_module(module_name)
         )
