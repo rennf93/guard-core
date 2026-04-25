@@ -28,6 +28,7 @@ from guard_core.core.checks.implementations.suspicious_activity import (
 from guard_core.core.checks.implementations.time_window import TimeWindowCheck
 from guard_core.core.checks.implementations.user_agent import UserAgentCheck
 from guard_core.decorators.base import RouteConfig
+from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from tests.conftest import MockGuardRequest, MockGuardResponse
 
@@ -1282,7 +1283,7 @@ async def test_suspicious_activity_not_detected() -> None:
     with patch(
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         new_callable=AsyncMock,
-        return_value=(False, "not_enabled"),
+        return_value=DetectionResult(is_threat=False, trigger_info="not_enabled"),
     ):
         result = await check.check(req)
     assert result is None
@@ -1297,7 +1298,9 @@ async def test_suspicious_activity_disabled_by_decorator() -> None:
     with patch(
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         new_callable=AsyncMock,
-        return_value=(False, "disabled_by_decorator"),
+        return_value=DetectionResult(
+            is_threat=False, trigger_info="disabled_by_decorator"
+        ),
     ):
         result = await check.check(req)
     assert result is None
@@ -1315,7 +1318,7 @@ async def test_suspicious_activity_detected_active() -> None:
     with patch(
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         new_callable=AsyncMock,
-        return_value=(True, "sql_injection"),
+        return_value=DetectionResult(is_threat=True, trigger_info="sql_injection"),
     ):
         with patch(f"{_IMPL}.suspicious_activity.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1333,7 +1336,7 @@ async def test_suspicious_activity_detected_passive() -> None:
     with patch(
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         new_callable=AsyncMock,
-        return_value=(True, "xss"),
+        return_value=DetectionResult(is_threat=True, trigger_info="xss"),
     ):
         with patch(f"{_IMPL}.suspicious_activity.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1346,7 +1349,7 @@ async def test_suspicious_activity_auto_ban() -> None:
         auto_ban_threshold=2,
         auto_ban_duration=300,
     )
-    mw.suspicious_request_counts = {"1.2.3.4": 2}
+    mw.suspicious_request_counts = {"1.2.3.4": {"sqli": 2}}
     mw.create_error_response = AsyncMock(return_value=MockGuardResponse("banned", 403))
     check = SuspiciousActivityCheck(mw)
     req = MockGuardRequest()
@@ -1355,7 +1358,7 @@ async def test_suspicious_activity_auto_ban() -> None:
     with patch(
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         new_callable=AsyncMock,
-        return_value=(True, "sqli"),
+        return_value=DetectionResult(is_threat=True, trigger_info="sqli"),
     ):
         with patch(f"{_IMPL}.suspicious_activity.ip_ban_manager") as mock_ban:
             mock_ban.ban_ip = AsyncMock()

@@ -16,6 +16,11 @@ if TYPE_CHECKING:
     from guard_agent import AgentConfig
 
 
+class ThreatBanConfig(BaseModel):
+    threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
+    duration: int = Field(ge=1, description="Ban duration in seconds.")
+
+
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -87,6 +92,14 @@ class SecurityConfig(BaseModel):
 
     auto_ban_duration: int = Field(
         default=3600, description="Duration of auto-ban in seconds (default: 1 hour)"
+    )
+
+    threat_ban_config: dict[str, ThreatBanConfig] = Field(
+        default_factory=dict,
+        description=(
+            "Per-category ban thresholds and durations. "
+            "Unlisted categories fall back to auto_ban_threshold / auto_ban_duration."
+        ),
     )
 
     custom_log_file: str | None = Field(
@@ -547,6 +560,18 @@ class SecurityConfig(BaseModel):
         if unknown:
             raise ValueError(
                 f"Unknown detection categories: {sorted(unknown)}. "
+                f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+            )
+        return v
+
+    @field_validator("threat_ban_config")
+    def validate_threat_ban_config(
+        cls, v: dict[str, ThreatBanConfig]
+    ) -> dict[str, ThreatBanConfig]:
+        unknown = set(v.keys()) - ALL_DETECTION_CATEGORIES
+        if unknown:
+            raise ValueError(
+                f"Unknown threat categories in threat_ban_config: {sorted(unknown)}. "
                 f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
             )
         return v

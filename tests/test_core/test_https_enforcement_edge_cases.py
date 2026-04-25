@@ -16,6 +16,7 @@ from guard_core.core.checks.implementations.suspicious_activity import (
     SuspiciousActivityCheck,
 )
 from guard_core.decorators.base import RouteConfig
+from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 
 
@@ -379,7 +380,7 @@ async def test_suspicious_activity_check_passive_mode_unit() -> None:
 
     with patch(
         "guard_core.core.checks.implementations.suspicious_activity.detect_penetration_patterns",
-        return_value=(True, "SQL injection"),
+        return_value=DetectionResult(is_threat=True, trigger_info="SQL injection"),
     ):
         with patch(
             "guard_core.core.checks.implementations.suspicious_activity.log_activity",
@@ -387,4 +388,6 @@ async def test_suspicious_activity_check_passive_mode_unit() -> None:
         ):
             result = await check.check(request)
             assert result is None
-            assert middleware.suspicious_request_counts["1.2.3.4"] == 1
+            assert middleware.suspicious_request_counts["1.2.3.4"] == {
+                "uncategorized": 1
+            }

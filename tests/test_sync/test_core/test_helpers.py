@@ -268,16 +268,18 @@ def test_get_detection_disabled_reason_not_enabled() -> None:
 def test_detect_penetration_patterns_enabled() -> None:
     from unittest.mock import patch
 
+    from guard_core.sync.detection_result import DetectionResult
+
     config = SecurityConfig(enable_redis=False, enable_penetration_detection=True)
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
     with patch(
         "guard_core.sync.core.checks.helpers.detect_penetration_attempt",
-        return_value=(False, ""),
+        return_value=DetectionResult(is_threat=False, trigger_info=""),
     ):
-        result, info = detect_penetration_patterns(req, None, config, lambda *a: False)
-    assert result is False
+        result = detect_penetration_patterns(req, None, config, lambda *a: False)
+    assert result.is_threat is False
 
 
 def test_detect_penetration_patterns_disabled() -> None:
@@ -285,9 +287,9 @@ def test_detect_penetration_patterns_disabled() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result, info = detect_penetration_patterns(req, None, config, lambda *a: False)
-    assert result is False
-    assert info == "not_enabled"
+    result = detect_penetration_patterns(req, None, config, lambda *a: False)
+    assert result.is_threat is False
+    assert result.trigger_info == "not_enabled"
 
 
 def test_detect_penetration_patterns_bypassed() -> None:
@@ -295,8 +297,8 @@ def test_detect_penetration_patterns_bypassed() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result, info = detect_penetration_patterns(req, None, config, lambda *a: True)
-    assert result is False
+    result = detect_penetration_patterns(req, None, config, lambda *a: True)
+    assert result.is_threat is False
 
 
 def test_is_ip_in_blacklist_cidr_entry_not_containing_ip() -> None:

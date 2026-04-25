@@ -14,7 +14,7 @@ class SyncGuardMiddlewareProtocol(Protocol):
     config: SecurityConfig
     logger: logging.Logger
     last_cloud_ip_refresh: int
-    suspicious_request_counts: dict[str, int]
+    suspicious_request_counts: dict[str, dict[str, int]]
 
     @property
     def event_bus(self) -> Any: ...

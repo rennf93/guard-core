@@ -58,7 +58,9 @@ async def test_detect_penetration_attempt() -> None:
         query_params={},
         body_content=b"",
     )
-    result, _ = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result = _dpa.is_threat
     assert not result
 
 
@@ -73,7 +75,9 @@ async def test_detect_penetration_attempt_xss() -> None:
         query_params={"param": "<script>alert('xss')</script>"},
         body_content=b"",
     )
-    result, trigger = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result, trigger = _dpa.is_threat, _dpa.trigger_info
     assert result
     assert "script" in trigger.lower()
 
@@ -89,7 +93,9 @@ async def test_detect_penetration_attempt_sql_injection() -> None:
         query_params={"query": "UNION SELECT NULL--"},
         body_content=b"",
     )
-    result, _ = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result = _dpa.is_threat
     assert result
 
 
@@ -104,7 +110,9 @@ async def test_detect_penetration_attempt_directory_traversal() -> None:
         query_params={},
         body_content=b"",
     )
-    result, _ = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result = _dpa.is_threat
     assert result
 
 
@@ -119,7 +127,9 @@ async def test_detect_penetration_attempt_command_injection() -> None:
         query_params={"cmd": "|cat /etc/passwd"},
         body_content=b"",
     )
-    result, _ = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result = _dpa.is_threat
     assert result
 
 
@@ -134,7 +144,9 @@ async def test_detect_penetration_attempt_path_manipulation() -> None:
         query_params={},
         body_content=b"",
     )
-    result, _ = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    result = _dpa.is_threat
     assert result
 
 
@@ -320,7 +332,9 @@ async def test_detect_penetration_attempt_body_error() -> None:
     mock_request.headers = {"content-type": "application/json", "content-length": "10"}
     mock_request.body = AsyncMock(side_effect=Exception("Body read error"))
 
-    result, _ = await detect_penetration_attempt(mock_request)
+    _dpa = await detect_penetration_attempt(mock_request)
+
+    result = _dpa.is_threat
     assert not result
 
 
@@ -372,7 +386,9 @@ async def test_detect_penetration_attempt_regex_timeout() -> None:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
 
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert not result
         assert trigger == ""
@@ -399,7 +415,9 @@ async def test_detect_penetration_attempt_regex_exception() -> None:
         ),
         patch("logging.error") as mock_error,
     ):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert not result
         assert trigger == ""
@@ -433,7 +451,9 @@ async def test_detect_penetration_json_non_regex_threat() -> None:
         return {"is_threat": False, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "JSON field 'password' contains: semantic" in trigger
@@ -464,7 +484,9 @@ async def test_detect_penetration_semantic_threat() -> None:
         }
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "Semantic attack: sql_injection (score: 0.95)" in trigger
@@ -491,7 +513,9 @@ async def test_detect_penetration_semantic_threat_with_score() -> None:
         }
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "Semantic attack: suspicious (score: 0.88)" in trigger
@@ -527,7 +551,9 @@ async def test_detect_penetration_fallback_pattern_match() -> None:
         ),
         patch("logging.error") as mock_error,
     ):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "Value matched pattern (fallback)" in trigger
@@ -567,7 +593,9 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
         ),
         patch("logging.error") as mock_log_error,
     ):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is False
         assert trigger == ""
@@ -593,7 +621,9 @@ async def test_detect_penetration_short_body() -> None:
     )
 
     with patch("logging.warning") as mock_warning:
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "Request body:" in trigger
@@ -628,7 +658,9 @@ async def test_detect_penetration_empty_threat_fallback() -> None:
         }
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert "JSON field 'field' contains threat" in trigger
@@ -653,7 +685,9 @@ async def test_detect_penetration_unknown_threat_type() -> None:
         }
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        result, trigger = await detect_penetration_attempt(request)
+        _dpa = await detect_penetration_attempt(request)
+
+        result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
         assert trigger == "Query param 'param': Threat detected"

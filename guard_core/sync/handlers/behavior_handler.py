@@ -20,6 +20,7 @@ class BehaviorRule:
         pattern: str | None = None,
         action: Literal["ban", "log", "throttle", "alert"] = "log",
         custom_action: Callable | None = None,
+        ban_duration: int | None = None,
     ):
         self.rule_type = rule_type
         self.threshold = threshold
@@ -27,6 +28,7 @@ class BehaviorRule:
         self.pattern = pattern
         self.action = action
         self.custom_action = custom_action
+        self.ban_duration = ban_duration
 
 
 class BehaviorTracker:
@@ -242,10 +244,20 @@ class BehaviorTracker:
         elif rule.action == "alert":
             self.logger.critical(f"{prefix}ALERT - Behavioral anomaly: {details}")
 
-    def _execute_ban_action(self, client_ip: str, details: str) -> None:
+    def _execute_ban_action(
+        self,
+        client_ip: str,
+        details: str,
+        rule: "BehaviorRule | None" = None,
+    ) -> None:
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager
 
-        ip_ban_manager.ban_ip(client_ip, 3600, "behavioral_violation")
+        duration = (
+            rule.ban_duration
+            if rule is not None and rule.ban_duration is not None
+            else 3600
+        )
+        ip_ban_manager.ban_ip(client_ip, duration, "behavioral_violation")
         self.logger.warning(
             f"IP {client_ip} banned for behavioral violation: {details}"
         )
@@ -258,7 +270,7 @@ class BehaviorTracker:
             return
 
         if rule.action == "ban":
-            self._execute_ban_action(client_ip, details)
+            self._execute_ban_action(client_ip, details, rule)
         elif rule.action == "log":
             self.logger.warning(f"Behavioral anomaly detected: {details}")
         elif rule.action == "throttle":

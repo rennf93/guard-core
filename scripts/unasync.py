@@ -51,6 +51,7 @@ SUBS: list[tuple[str, str]] = [
     (r"from guard_core\.utils", "from guard_core.sync.utils"),
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
     (r"from guard_core\.detection_engine\b", "from guard_core.sync.detection_engine"),
+    (r"from guard_core\.detection_result\b", "from guard_core.sync.detection_result"),
     (r"from guard_core\.decorators\b", "from guard_core.sync.decorators"),
     (r"(?<!Sync)(?<!\w)GuardMiddlewareProtocol\b", "SyncGuardMiddlewareProtocol"),
     (r"(?<!Sync)(?<!\w)AgentHandlerProtocol\b", "SyncAgentHandlerProtocol"),

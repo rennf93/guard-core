@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING, Any, Literal
 
+from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -529,12 +530,13 @@ def _check_value_enhanced(
     client_ip: str,
     correlation_id: str,
     enabled_categories: set[str] | None = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[dict]]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
     json_result = _try_check_json_value(value, context, client_ip, correlation_id)
     if json_result is not None:
-        return json_result
+        detected, trigger = json_result
+        return detected, trigger, []
 
     try:
         result = sus_patterns_handler.detect(
@@ -546,17 +548,18 @@ def _check_value_enhanced(
         )
 
         if not result["is_threat"]:
-            return False, ""
+            return False, "", []
 
-        if result["threats"]:
-            threat = result["threats"][0]
-            return True, _build_threat_message(threat)
+        threats: list[dict] = list(result.get("threats", []))
+        if threats:
+            return True, _build_threat_message(threats[0]), threats
 
-        return True, "Threat detected"
+        return True, "Threat detected", threats
 
     except Exception as e:
         logging.error(f"Enhanced detection failed: {e}, falling back to basic check")
-        return _fallback_pattern_check(value)
+        detected, trigger = _fallback_pattern_check(value)
+        return detected, trigger, []
 
 
 def _check_request_component(
@@ -566,8 +569,8 @@ def _check_request_component(
     client_ip: str,
     correlation_id: str,
     enabled_categories: set[str] | None = None,
-) -> tuple[bool, str]:
-    detected, trigger = _check_value_enhanced(
+) -> tuple[bool, str, list[dict]]:
+    detected, trigger, threats = _check_value_enhanced(
         value, context, client_ip, correlation_id, enabled_categories
     )
     if detected:
@@ -579,7 +582,7 @@ def _check_request_component(
         )
         reason_message = f"Suspicious pattern in {component_name}"
         logging.warning(f"{message} {details} - {reason_message}")
-    return detected, trigger
+    return detected, trigger, threats
 
 
 def _resolve_excluded_params(
@@ -654,11 +657,11 @@ def _scan_query_params(
     enabled_categories: set[str] | None,
     client_ip: str,
     correlation_id: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[dict]]:
     for key, value in request.query_params.items():
         if key.lower() in excluded_params:
             continue
-        detected, trigger = _check_request_component(
+        detected, trigger, threats = _check_request_component(
             value,
             f"query_param:{key}",
             f"query param '{key}'",
@@ -667,8 +670,8 @@ def _scan_query_params(
             enabled_categories,
         )
         if detected:
-            return True, f"Query param '{key}': {trigger}"
-    return False, ""
+            return True, f"Query param '{key}': {trigger}", threats
+    return False, "", []
 
 
 def _scan_headers(
@@ -677,11 +680,11 @@ def _scan_headers(
     enabled_categories: set[str] | None,
     client_ip: str,
     correlation_id: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[dict]]:
     for key, value in request.headers.items():
         if key.lower() in excluded_headers:
             continue
-        detected, trigger = _check_request_component(
+        detected, trigger, threats = _check_request_component(
             value,
             f"header:{key}",
             f"header '{key}'",
@@ -690,8 +693,8 @@ def _scan_headers(
             enabled_categories,
         )
         if detected:
-            return True, f"Header '{key}': {trigger}"
-    return False, ""
+            return True, f"Header '{key}': {trigger}", threats
+    return False, "", []
 
 
 def _scan_request_body(
@@ -700,7 +703,7 @@ def _scan_request_body(
     enabled_categories: set[str] | None,
     client_ip: str,
     correlation_id: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[dict]]:
     import json
 
     parsed_body: Any | None = None
@@ -714,7 +717,7 @@ def _scan_request_body(
         for key, value in parsed_body.items():
             if str(key).lower() in excluded_body_fields:
                 continue
-            detected, trigger = _check_request_component(
+            detected, trigger, threats = _check_request_component(
                 str(value),
                 "request_body",
                 f"request body field '{key}'",
@@ -723,10 +726,10 @@ def _scan_request_body(
                 enabled_categories,
             )
             if detected:
-                return True, f"Request body field '{key}': {trigger}"
-        return False, ""
+                return True, f"Request body field '{key}': {trigger}", threats
+        return False, "", []
 
-    detected, trigger = _check_request_component(
+    detected, trigger, threats = _check_request_component(
         raw_body,
         "request_body",
         "request body",
@@ -735,15 +738,56 @@ def _scan_request_body(
         enabled_categories,
     )
     if detected:
-        return True, f"Request body: {trigger}"
-    return False, ""
+        return True, f"Request body: {trigger}", threats
+    return False, "", []
+
+
+def _threat_category(threat: dict) -> str | None:
+    if threat.get("type") == "regex":
+        category = threat.get("category")
+        return category if isinstance(category, str) else None
+    if threat.get("type") == "semantic":
+        attack_type = threat.get("attack_type")
+        return attack_type if isinstance(attack_type, str) else None
+    return None
+
+
+def _threat_score(threat: dict) -> float:
+    if "probability" in threat:
+        return float(threat["probability"])
+    if "threat_score" in threat:
+        return float(threat["threat_score"])
+    return 1.0
+
+
+def _build_detection_hit(trigger: str, threats: list[dict]) -> DetectionResult:
+    categories: list[str] = []
+    scores: dict[str, float] = {}
+    for threat in threats:
+        category = _threat_category(threat)
+        if category is None:
+            continue
+        if category not in categories:
+            categories.append(category)
+        score = _threat_score(threat)
+        scores[category] = max(scores.get(category, 0.0), score)
+    return DetectionResult(
+        is_threat=True,
+        trigger_info=trigger,
+        threat_categories=categories,
+        threat_scores=scores,
+    )
+
+
+def _build_detection_miss() -> DetectionResult:
+    return DetectionResult(is_threat=False, trigger_info="")
 
 
 def detect_penetration_attempt(
     request: SyncGuardRequest,
     config: "SecurityConfig | None" = None,
     route_config: "RouteConfig | None" = None,
-) -> tuple[bool, str]:
+) -> DetectionResult:
     import uuid
 
     client_ip = "unknown"
@@ -757,13 +801,13 @@ def detect_penetration_attempt(
     enabled_categories = _resolve_enabled_categories(config, route_config)
     excluded_headers = _resolve_excluded_headers(config, route_config)
 
-    detected, trigger = _scan_query_params(
+    detected, trigger, threats = _scan_query_params(
         request, excluded_params, enabled_categories, client_ip, correlation_id
     )
     if detected:
-        return True, trigger
+        return _build_detection_hit(trigger, threats)
 
-    detected, trigger = _check_request_component(
+    detected, trigger, threats = _check_request_component(
         request.url_path,
         "url_path",
         "URL path",
@@ -772,19 +816,22 @@ def detect_penetration_attempt(
         enabled_categories,
     )
     if detected:
-        return True, f"URL path: {trigger}"
+        return _build_detection_hit(f"URL path: {trigger}", threats)
 
-    detected, trigger = _scan_headers(
+    detected, trigger, threats = _scan_headers(
         request, excluded_headers, enabled_categories, client_ip, correlation_id
     )
     if detected:
-        return True, trigger
+        return _build_detection_hit(trigger, threats)
 
     try:
         raw_body = (request.body()).decode()
     except Exception:
-        return False, ""
+        return _build_detection_miss()
 
-    return _scan_request_body(
+    detected, trigger, threats = _scan_request_body(
         raw_body, excluded_body_fields, enabled_categories, client_ip, correlation_id
     )
+    if detected:
+        return _build_detection_hit(trigger, threats)
+    return _build_detection_miss()

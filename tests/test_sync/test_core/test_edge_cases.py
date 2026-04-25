@@ -120,10 +120,11 @@ def test_check_value_enhanced_empty_threats_list() -> None:
             correlation_id="test-123",
         )
 
-        assert result == (True, "Threat detected")
+        assert result == (True, "Threat detected", [])
 
 
 def test_detect_penetration_attempt_real_path() -> None:
+    from guard_core.sync.detection_result import DetectionResult
     from guard_core.sync.utils import detect_penetration_attempt
 
     mock_request = Mock()
@@ -135,10 +136,9 @@ def test_detect_penetration_attempt_real_path() -> None:
 
     result = detect_penetration_attempt(mock_request)
 
-    assert isinstance(result, tuple)
-    assert len(result) == 2
-    assert isinstance(result[0], bool)
-    assert isinstance(result[1], str)
+    assert isinstance(result, DetectionResult)
+    assert isinstance(result.is_threat, bool)
+    assert isinstance(result.trigger_info, str)
 
 
 def test_send_middleware_event_with_geo_ip_exception() -> None:

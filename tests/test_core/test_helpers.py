@@ -268,6 +268,8 @@ async def test_get_detection_disabled_reason_not_enabled() -> None:
 async def test_detect_penetration_patterns_enabled() -> None:
     from unittest.mock import patch
 
+    from guard_core.detection_result import DetectionResult
+
     config = SecurityConfig(enable_redis=False, enable_penetration_detection=True)
     from tests.conftest import MockGuardRequest
 
@@ -275,12 +277,10 @@ async def test_detect_penetration_patterns_enabled() -> None:
     with patch(
         "guard_core.core.checks.helpers.detect_penetration_attempt",
         new_callable=AsyncMock,
-        return_value=(False, ""),
+        return_value=DetectionResult(is_threat=False, trigger_info=""),
     ):
-        result, info = await detect_penetration_patterns(
-            req, None, config, lambda *a: False
-        )
-    assert result is False
+        result = await detect_penetration_patterns(req, None, config, lambda *a: False)
+    assert result.is_threat is False
 
 
 async def test_detect_penetration_patterns_disabled() -> None:
@@ -288,11 +288,9 @@ async def test_detect_penetration_patterns_disabled() -> None:
     from tests.conftest import MockGuardRequest
 
     req = MockGuardRequest(path="/test")
-    result, info = await detect_penetration_patterns(
-        req, None, config, lambda *a: False
-    )
-    assert result is False
-    assert info == "not_enabled"
+    result = await detect_penetration_patterns(req, None, config, lambda *a: False)
+    assert result.is_threat is False
+    assert result.trigger_info == "not_enabled"
 
 
 async def test_detect_penetration_patterns_bypassed() -> None:
@@ -300,8 +298,8 @@ async def test_detect_penetration_patterns_bypassed() -> None:
     from tests.conftest import MockGuardRequest
 
     req = MockGuardRequest(path="/test")
-    result, info = await detect_penetration_patterns(req, None, config, lambda *a: True)
-    assert result is False
+    result = await detect_penetration_patterns(req, None, config, lambda *a: True)
+    assert result.is_threat is False
 
 
 def test_is_ip_in_blacklist_cidr_entry_not_containing_ip() -> None:

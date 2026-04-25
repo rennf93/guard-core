@@ -15,6 +15,21 @@ class SuspiciousActivityCheck(SecurityCheck):
     def check_name(self) -> str:
         return "suspicious_activity"
 
+    def _total_count_for_ip(self, client_ip: str) -> int:
+        return sum(
+            self.middleware.suspicious_request_counts.get(client_ip, {}).values()
+        )
+
+    def _increment_per_category(
+        self, client_ip: str, threat_categories: list[str]
+    ) -> None:
+        if client_ip not in self.middleware.suspicious_request_counts:
+            self.middleware.suspicious_request_counts[client_ip] = {}
+        ip_counts = self.middleware.suspicious_request_counts[client_ip]
+        categories = threat_categories or ["uncategorized"]
+        for category in categories:
+            ip_counts[category] = ip_counts.get(category, 0) + 1
+
     async def _handle_suspicious_passive_mode(
         self, request: GuardRequest, client_ip: str, trigger_info: str
     ) -> None:
@@ -37,41 +52,96 @@ class SuspiciousActivityCheck(SecurityCheck):
             request=request,
             action_taken="logged_only",
             reason=f"{message}: {trigger_info}",
-            request_count=self.middleware.suspicious_request_counts[client_ip],
+            request_count=self._total_count_for_ip(client_ip),
             passive_mode=True,
             trigger_info=trigger_info,
         )
 
-    async def _handle_suspicious_active_mode(
-        self, request: GuardRequest, client_ip: str, trigger_info: str
-    ) -> GuardResponse:
+    async def _try_per_category_ban(
+        self,
+        request: GuardRequest,
+        client_ip: str,
+        trigger_info: str,
+        threat_categories: list[str],
+    ) -> GuardResponse | None:
+        if not self.config.enable_ip_banning:
+            return None
+        ip_counts = self.middleware.suspicious_request_counts.get(client_ip, {})
         sus_specs = f"{client_ip} - {trigger_info}"
+        for category in threat_categories:
+            entry = self.config.threat_ban_config.get(category)
+            if entry is None:
+                continue
+            if ip_counts.get(category, 0) >= entry.threshold:
+                await ip_ban_manager.ban_ip(
+                    client_ip,
+                    entry.duration,
+                    f"penetration_attempt:{category}",
+                )
+                await log_activity(
+                    request,
+                    self.logger,
+                    log_type="suspicious",
+                    reason=f"IP banned due to {category} threshold: {sus_specs}",
+                    level=self.config.log_suspicious_level,
+                    check_name=self.check_name,
+                    muted_check_logs=self.config.muted_check_logs,
+                )
+                return await self.middleware.create_error_response(
+                    status_code=403,
+                    default_message="IP has been banned",
+                )
+        return None
 
-        if (
-            self.config.enable_ip_banning
-            and self.middleware.suspicious_request_counts[client_ip]
-            >= self.config.auto_ban_threshold
-        ):
-            await ip_ban_manager.ban_ip(
-                client_ip,
-                self.config.auto_ban_duration,
-                "penetration_attempt",
-            )
-            await log_activity(
-                request,
-                self.logger,
-                log_type="suspicious",
-                reason=f"IP banned due to suspicious activity: {sus_specs}",
-                level=self.config.log_suspicious_level,
-                check_name=self.check_name,
-                muted_check_logs=self.config.muted_check_logs,
-            )
+    async def _try_flat_ban(
+        self,
+        request: GuardRequest,
+        client_ip: str,
+        trigger_info: str,
+    ) -> GuardResponse | None:
+        if not self.config.enable_ip_banning:
+            return None
+        total_count = self._total_count_for_ip(client_ip)
+        if total_count < self.config.auto_ban_threshold:
+            return None
+        await ip_ban_manager.ban_ip(
+            client_ip,
+            self.config.auto_ban_duration,
+            "penetration_attempt",
+        )
+        sus_specs = f"{client_ip} - {trigger_info}"
+        await log_activity(
+            request,
+            self.logger,
+            log_type="suspicious",
+            reason=f"IP banned due to suspicious activity: {sus_specs}",
+            level=self.config.log_suspicious_level,
+            check_name=self.check_name,
+            muted_check_logs=self.config.muted_check_logs,
+        )
+        return await self.middleware.create_error_response(
+            status_code=403,
+            default_message="IP has been banned",
+        )
 
-            return await self.middleware.create_error_response(
-                status_code=403,
-                default_message="IP has been banned",
-            )
+    async def _handle_suspicious_active_mode(
+        self,
+        request: GuardRequest,
+        client_ip: str,
+        trigger_info: str,
+        threat_categories: list[str],
+    ) -> GuardResponse:
+        per_category_response = await self._try_per_category_ban(
+            request, client_ip, trigger_info, threat_categories
+        )
+        if per_category_response is not None:
+            return per_category_response
 
+        flat_response = await self._try_flat_ban(request, client_ip, trigger_info)
+        if flat_response is not None:
+            return flat_response
+
+        sus_specs = f"{client_ip} - {trigger_info}"
         await log_activity(
             request,
             self.logger,
@@ -87,7 +157,7 @@ class SuspiciousActivityCheck(SecurityCheck):
             request=request,
             action_taken="request_blocked",
             reason=f"Penetration attempt detected: {trigger_info}",
-            request_count=self.middleware.suspicious_request_counts[client_ip],
+            request_count=self._total_count_for_ip(client_ip),
             trigger_info=trigger_info,
         )
 
@@ -106,14 +176,14 @@ class SuspiciousActivityCheck(SecurityCheck):
         if not client_ip:
             return None
 
-        detection_result, trigger_info = await detect_penetration_patterns(
+        result = await detect_penetration_patterns(
             request,
             route_config,
             self.config,
             self.middleware.route_resolver.should_bypass_check,
         )
 
-        if trigger_info == "disabled_by_decorator":
+        if result.trigger_info == "disabled_by_decorator":
             await self.middleware.event_bus.send_middleware_event(
                 event_type=EVENT_DECORATOR_VIOLATION,
                 request=request,
@@ -124,17 +194,18 @@ class SuspiciousActivityCheck(SecurityCheck):
             )
             return None
 
-        if not detection_result:
+        if not result.is_threat:
             return None
 
-        self.middleware.suspicious_request_counts[client_ip] = (
-            self.middleware.suspicious_request_counts.get(client_ip, 0) + 1
-        )
+        trigger_info = result.trigger_info
+        threat_categories = list(result.threat_categories)
+
+        self._increment_per_category(client_ip, threat_categories)
 
         if self.config.passive_mode:
             await self._handle_suspicious_passive_mode(request, client_ip, trigger_info)
             return None
 
         return await self._handle_suspicious_active_mode(
-            request, client_ip, trigger_info
+            request, client_ip, trigger_info, threat_categories
         )

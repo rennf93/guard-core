@@ -107,7 +107,9 @@ def test_detect_penetration_attempt_no_client_host() -> None:
 
     request.body = _body
 
-    detected, _ = detect_penetration_attempt(request)
+    _dpa = detect_penetration_attempt(request)
+
+    detected = _dpa.is_threat
     assert detected is False
 
 
@@ -124,5 +126,7 @@ def test_detect_penetration_attempt_excluded_header_skipped() -> None:
 
     request.body = _body
 
-    detected, _ = detect_penetration_attempt(request)
+    _dpa = detect_penetration_attempt(request)
+
+    detected = _dpa.is_threat
     assert detected is False

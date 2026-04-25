@@ -180,8 +180,8 @@ def test_utils_detect_penetration_json_field_threat() -> None:
         body_content=b'{"name": "SELECT * FROM users"}',
         query_params={},
     )
-    result, trigger = detect_penetration_attempt(req)
-    assert isinstance(result, bool)
+    result = detect_penetration_attempt(req)
+    assert isinstance(result.is_threat, bool)
 
 
 def test_utils_detect_penetration_header_threat() -> None:
@@ -192,8 +192,8 @@ def test_utils_detect_penetration_header_threat() -> None:
         headers={"X-Custom": "<script>alert(1)</script>"},
         query_params={},
     )
-    result, trigger = detect_penetration_attempt(req)
-    assert isinstance(result, bool)
+    result = detect_penetration_attempt(req)
+    assert isinstance(result.is_threat, bool)
 
 
 def test_utils_check_json_data_regex_threat() -> None:
@@ -266,12 +266,13 @@ def test_utils_detect_header_threat() -> None:
 
     with patch(
         "guard_core.sync.utils._check_value_enhanced",
-        return_value=(True, "XSS detected"),
+        return_value=(True, "XSS detected", []),
     ):
-        detected, trigger = _check_request_component(
+        detected, trigger, threats = _check_request_component(
             "<script>", "header:X-Evil", "header 'X-Evil'", "1.2.3.4", "corr-1"
         )
     assert detected is True
+    assert threats == []
 
 
 def test_utils_detect_penetration_header_match() -> None:
@@ -287,12 +288,16 @@ def test_utils_detect_penetration_header_match() -> None:
             client_ip: str,
             correlation_id: str,
             enabled_categories: set[str] | None = None,
-        ) -> tuple[bool, str]:
+        ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1
             if "header" in context and "X-Evil" in context:
-                return True, "XSS detected"
-            return False, ""
+                return (
+                    True,
+                    "XSS detected",
+                    [{"type": "regex", "category": "xss", "pattern": "x"}],
+                )
+            return False, "", []
 
         mock_check.side_effect = side_effect
 
@@ -301,9 +306,9 @@ def test_utils_detect_penetration_header_match() -> None:
             headers={"X-Evil": "<script>alert(1)</script>"},
             query_params={},
         )
-        result, trigger = detect_penetration_attempt(req)
-    assert result is True
-    assert "Header" in trigger
+        result = detect_penetration_attempt(req)
+    assert result.is_threat is True
+    assert "Header" in result.trigger_info
 
 
 def test_security_headers_get_headers_agent_sends_event() -> None:

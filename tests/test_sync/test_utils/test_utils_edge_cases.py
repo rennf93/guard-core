@@ -93,7 +93,9 @@ def test_detect_penetration_url_path_with_real_threat() -> None:
     request.headers = {}
     request.body = MagicMock(return_value=b"")
 
-    detected, trigger = detect_penetration_attempt(request)
+    _dpa = detect_penetration_attempt(request)
+
+    detected, trigger = _dpa.is_threat, _dpa.trigger_info
 
     assert detected is True
     assert "URL path" in trigger

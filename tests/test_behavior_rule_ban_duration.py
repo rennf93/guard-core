@@ -1,0 +1,81 @@
+import pytest
+
+from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+from guard_core.models import SecurityConfig
+
+
+def test_behavior_rule_ban_duration_defaults_to_none() -> None:
+    rule = BehaviorRule(rule_type="usage", threshold=5)
+    assert rule.ban_duration is None
+
+
+def test_behavior_rule_ban_duration_accepts_int() -> None:
+    rule = BehaviorRule(
+        rule_type="return_pattern",
+        threshold=10,
+        pattern="status:404",
+        action="ban",
+        ban_duration=7200,
+    )
+    assert rule.ban_duration == 7200
+
+
+async def test_execute_ban_action_uses_rule_ban_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = BehaviorTracker(SecurityConfig())
+    rule = BehaviorRule(
+        rule_type="return_pattern",
+        threshold=1,
+        pattern="status:404",
+        action="ban",
+        ban_duration=7200,
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_ban(ip: str, duration: int, reason: str) -> None:
+        captured["ip"] = ip
+        captured["duration"] = duration
+        captured["reason"] = reason
+
+    monkeypatch.setattr(
+        "guard_core.handlers.ipban_handler.ip_ban_manager.ban_ip",
+        fake_ban,
+    )
+    await tracker._execute_ban_action("1.2.3.4", "details", rule)
+    assert captured["duration"] == 7200
+
+
+async def test_execute_ban_action_defaults_to_3600_when_rule_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = BehaviorTracker(SecurityConfig())
+    rule = BehaviorRule(rule_type="usage", threshold=1, action="ban")
+    captured: dict[str, object] = {}
+
+    async def fake_ban(ip: str, duration: int, reason: str) -> None:
+        captured["duration"] = duration
+
+    monkeypatch.setattr(
+        "guard_core.handlers.ipban_handler.ip_ban_manager.ban_ip",
+        fake_ban,
+    )
+    await tracker._execute_ban_action("1.2.3.4", "details", rule)
+    assert captured["duration"] == 3600
+
+
+async def test_execute_ban_action_defaults_to_3600_when_no_rule_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = BehaviorTracker(SecurityConfig())
+    captured: dict[str, object] = {}
+
+    async def fake_ban(ip: str, duration: int, reason: str) -> None:
+        captured["duration"] = duration
+
+    monkeypatch.setattr(
+        "guard_core.handlers.ipban_handler.ip_ban_manager.ban_ip",
+        fake_ban,
+    )
+    await tracker._execute_ban_action("1.2.3.4", "details")
+    assert captured["duration"] == 3600

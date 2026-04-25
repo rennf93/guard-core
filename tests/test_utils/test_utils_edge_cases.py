@@ -93,7 +93,9 @@ async def test_detect_penetration_url_path_with_real_threat() -> None:
     request.headers = {}
     request.body = AsyncMock(return_value=b"")
 
-    detected, trigger = await detect_penetration_attempt(request)
+    _dpa = await detect_penetration_attempt(request)
+
+    detected, trigger = _dpa.is_threat, _dpa.trigger_info
 
     assert detected is True
     assert "URL path" in trigger

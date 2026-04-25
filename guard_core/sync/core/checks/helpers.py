@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import detect_penetration_attempt
 
@@ -162,7 +163,7 @@ def detect_penetration_patterns(
     route_config: RouteConfig | None,
     config: SecurityConfig,
     should_bypass_check_fn: Any,
-) -> tuple[bool, str]:
+) -> DetectionResult:
     penetration_enabled, route_specific_detection = _get_effective_penetration_setting(
         config, route_config
     )
@@ -171,4 +172,4 @@ def detect_penetration_patterns(
         return detect_penetration_attempt(request, config, route_config)
 
     reason = _get_detection_disabled_reason(config, route_specific_detection)
-    return False, reason
+    return DetectionResult(is_threat=False, trigger_info=reason)
