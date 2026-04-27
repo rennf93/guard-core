@@ -156,8 +156,6 @@ async def reset_state() -> AsyncGenerator[None, None]:
     yield
     sus_patterns_handler.patterns = original_patterns.copy()
 
-    if IPBanManager._instance:
-        IPBanManager._instance.agent_handler = None
     IPBanManager._instance = None
 
 
@@ -245,7 +243,7 @@ async def reset_rate_limiter() -> AsyncGenerator[None, None]:
     config = SecurityConfig(enable_redis=False)
     rate_limit = rate_limit_handler(config)
     await rate_limit.reset()
-    yield  # type: ignore
+    yield
 
 
 @pytest.fixture

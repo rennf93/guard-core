@@ -1,9 +1,12 @@
+from typing import Any, cast
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.pipeline import SecurityCheckPipeline
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 class MockCheck(SecurityCheck):
@@ -16,9 +19,9 @@ class MockCheck(SecurityCheck):
     def check_name(self) -> str:
         return self._name
 
-    def check(self, request):
+    def check(self, request: SyncGuardRequest) -> GuardResponse | None:
         if self._should_block:
-            return Mock(status_code=403)
+            return cast(GuardResponse, Mock(status_code=403))
         return None
 
 
@@ -31,7 +34,7 @@ class FailingCheck(SecurityCheck):
     def check_name(self) -> str:
         return self._name
 
-    def check(self, request):
+    def check(self, request: SyncGuardRequest) -> GuardResponse | None:
         raise ValueError("Check error")
 
 
@@ -126,13 +129,12 @@ def test_execute_with_exception_fail_secure(
     assert result.status_code == 500
 
 
-def test_execute_with_exception_no_fail_secure_attr(
+def test_execute_with_exception_fail_secure_false_falls_through(
     mock_middleware: Mock, mock_request: Mock
 ) -> None:
     failing_check = FailingCheck(mock_middleware, "failing_check")
 
-    if hasattr(mock_middleware.config, "fail_secure"):
-        delattr(mock_middleware.config, "fail_secure")
+    mock_middleware.config.fail_secure = False
 
     pipeline = SecurityCheckPipeline([failing_check])
     result = pipeline.execute(mock_request)
@@ -286,7 +288,9 @@ def test_pipeline_skips_fail_secure_log_when_check_is_muted(
 
     failing = FailingCheck(mock_middleware, name="muted_fs")
     failing.config.fail_secure = True
-    failing.create_error_response = MagicMock(return_value=Mock(status_code=500))
+    cast(Any, failing).create_error_response = MagicMock(
+        return_value=Mock(status_code=500)
+    )
 
     pipeline = SecurityCheckPipeline(
         [failing],

@@ -487,6 +487,8 @@ async def test_redis_key_timestamp_filtering(
         result = await tracker.track_endpoint_usage("/api/test", "192.168.1.1", rule)
         assert not result
 
+    await redis_mgr.close()
+
 
 @pytest.mark.asyncio
 async def test_track_return_pattern_no_match(security_config: SecurityConfig) -> None:
@@ -556,8 +558,12 @@ async def test_redis_return_pattern_timestamp_filtering(
         )
         assert not result
 
+    await redis_mgr.close()
 
-async def test_log_passive_mode_action_unknown_action_is_noop(caplog) -> None:
+
+async def test_log_passive_mode_action_unknown_action_is_noop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     import logging
 
     from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
@@ -575,7 +581,9 @@ async def test_log_passive_mode_action_unknown_action_is_noop(caplog) -> None:
     assert not unknown_logs
 
 
-async def test_execute_active_mode_action_unknown_action_is_noop(caplog) -> None:
+async def test_execute_active_mode_action_unknown_action_is_noop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     import logging
 
     from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker

@@ -401,7 +401,7 @@ def test_attack_indicators_compilation() -> None:
     assert len(matches) > 0
     assert any("<script" in m for m in matches)
     assert any("SELECT" in m for m in matches)
-    assert any("<?php" in m for m in matches)
+    assert any(r"<\?php" in m for m in matches)
 
 
 @pytest.mark.asyncio

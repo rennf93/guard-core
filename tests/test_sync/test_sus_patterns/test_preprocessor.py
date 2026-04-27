@@ -389,7 +389,7 @@ def test_attack_indicators_compilation() -> None:
     assert len(matches) > 0
     assert any("<script" in m for m in matches)
     assert any("SELECT" in m for m in matches)
-    assert any("<?php" in m for m in matches)
+    assert any(r"<\?php" in m for m in matches)
 
 
 def test_integration_xss_bypass_attempt() -> None:
@@ -447,9 +447,6 @@ def test_decode_common_encodings_exits_after_max_iterations() -> None:
     from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
 
     pp = ContentPreprocessor()
-    # "%2525..." decodes to "%25..." which decodes to "%..." which decodes to "..."
-    # across three iterations — loop exits because iterations == max_decode_iterations,
-    # not because content == original.
     content = "%25%32%35AAA"
     out = pp.decode_common_encodings(content)
     assert out != content

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -294,8 +294,10 @@ def test_process_usage_rules_skips_return_pattern_rules(
     )
     route_config = create_route_config_with_rules([rule])
     processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
-    tracker = processor.context.guard_decorator.behavior_tracker
-    tracker.track_endpoint_usage.assert_not_called()
+    guard_decorator = processor.context.guard_decorator
+    assert guard_decorator is not None
+    tracker = cast(Mock, guard_decorator.behavior_tracker)
+    cast(Mock, tracker.track_endpoint_usage).assert_not_called()
 
 
 def test_process_usage_rules_uses_context_behavior_tracker_when_present(

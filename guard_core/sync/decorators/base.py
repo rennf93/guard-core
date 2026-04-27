@@ -1,10 +1,17 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol, cast, runtime_checkable
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.behavior_handler import BehaviorRule, BehaviorTracker
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+
+
+@runtime_checkable
+class DecoratedFunction(Protocol):
+    _guard_route_id: str
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class RouteConfig:
@@ -41,7 +48,7 @@ class BaseSecurityMixin:
     def _ensure_route_config(self, func: Callable[..., Any]) -> RouteConfig:
         raise NotImplementedError("This mixin must be used with BaseSecurityDecorator")
 
-    def _apply_route_config(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def _apply_route_config(self, func: Callable[..., Any]) -> "DecoratedFunction":
         raise NotImplementedError("This mixin must be used with BaseSecurityDecorator")
 
 
@@ -68,10 +75,10 @@ class BaseSecurityDecorator:
             self._route_configs[route_id] = config
         return self._route_configs[route_id]
 
-    def _apply_route_config(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def _apply_route_config(self, func: Callable[..., Any]) -> DecoratedFunction:
         route_id = self._get_route_id(func)
-        func._guard_route_id = route_id  # type: ignore[attr-defined]
-        return func
+        cast(Any, func)._guard_route_id = route_id
+        return cast(DecoratedFunction, func)
 
     def initialize_behavior_tracking(self, redis_handler: Any = None) -> None:
         if redis_handler:

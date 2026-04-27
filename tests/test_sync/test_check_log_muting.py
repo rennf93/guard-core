@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
 
@@ -70,7 +72,7 @@ def test_security_check_log_if_allowed_respects_config(
         def check_name(self) -> str:
             return "suspicious_activity"
 
-        def check(self, request):
+        def check(self, request: SyncGuardRequest) -> GuardResponse | None:
             return None
 
     middleware = MagicMock()
@@ -98,7 +100,7 @@ def test_security_check_log_if_allowed_emits_when_not_muted(
         def check_name(self) -> str:
             return "authentication"
 
-        def check(self, request):
+        def check(self, request: SyncGuardRequest) -> GuardResponse | None:
             return None
 
     middleware = MagicMock()

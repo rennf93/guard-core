@@ -67,7 +67,7 @@ def test_check_blocked_countries_country_not_blocked() -> None:
         new=MagicMock(return_value=False),
     ) as mock_check:
 
-        def _async_false(*_a, **_kw) -> bool:
+        def _async_false(*_a: object, **_kw: object) -> bool:
             return False
 
         mock_check.side_effect = _async_false
@@ -80,7 +80,7 @@ def test_check_json_fields_ignores_non_string_entries() -> None:
 
     with patch.object(sus_patterns_handler, "detect") as mock_detect:
 
-        def _async_miss(*_a, **_kw):
+        def _async_miss(*_a: object, **_kw: object) -> dict[str, object]:
             return {"is_threat": False, "threats": []}
 
         mock_detect.side_effect = _async_miss

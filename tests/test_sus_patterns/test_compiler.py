@@ -2,6 +2,8 @@ import asyncio
 import concurrent.futures
 import re
 import time
+import types
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,7 +54,7 @@ async def test_compile_pattern_cache_hit(compiler: PatternCompiler) -> None:
     compiled2 = await compiler.compile_pattern(pattern)
     assert compiled1 is compiled2
 
-    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    cache_key = f"{pattern}:{re.IGNORECASE | re.MULTILINE}"
     assert cache_key in compiler._compiled_cache
     assert cache_key in compiler._cache_order
     assert compiler._cache_order[-1] == cache_key
@@ -75,10 +77,10 @@ async def test_compile_pattern_cache_miss(compiler: PatternCompiler) -> None:
     assert len(compiler._compiled_cache) == 3
     assert len(compiler._cache_order) == 3
 
-    first_key = f"{hash(patterns[0])}:{re.IGNORECASE | re.MULTILINE}"
+    first_key = f"{patterns[0]}:{re.IGNORECASE | re.MULTILINE}"
     assert first_key not in compiler._compiled_cache
 
-    new_key = f"{hash(new_pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    new_key = f"{new_pattern}:{re.IGNORECASE | re.MULTILINE}"
     assert new_key in compiler._compiled_cache
 
 
@@ -307,23 +309,29 @@ async def test_compile_pattern_handles_cache_race_between_outer_and_locked_check
     # Simulate TOCTOU: outer `if cache_key in ...` is True, then cache is cleared
     # before we acquire the lock. Inner check is False, fall through to re-compile.
     pattern = r"race_me"
-    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    cache_key = f"{pattern}:{re.IGNORECASE | re.MULTILINE}"
     compiler._compiled_cache[cache_key] = re.compile(pattern)
     compiler._cache_order.append(cache_key)
 
     real_lock = compiler._lock
 
     class _LockWrapper:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "_LockWrapper":
             compiler._compiled_cache.pop(cache_key, None)
             if cache_key in compiler._cache_order:
                 compiler._cache_order.remove(cache_key)
-            return await real_lock.__aenter__()
+            await real_lock.__aenter__()
+            return self
 
-        async def __aexit__(self, *a):
-            return await real_lock.__aexit__(*a)
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: types.TracebackType | None,
+        ) -> None:
+            await real_lock.__aexit__(exc_type, exc_val, exc_tb)
 
-    compiler._lock = _LockWrapper()
+    compiler._lock = cast(asyncio.Lock, _LockWrapper())
     compiled = await compiler.compile_pattern(pattern)
     assert compiled.pattern == pattern
     compiler._lock = real_lock
@@ -335,23 +343,29 @@ async def test_compile_pattern_returns_cached_entry_when_populated_during_lock_w
     # Outer `in self._compiled_cache` is False. Before we enter the second lock,
     # another coroutine populates the cache. Inner `not in` is False; return it.
     pattern = r"populated_during_wait"
-    cache_key = f"{hash(pattern)}:{re.IGNORECASE | re.MULTILINE}"
+    cache_key = f"{pattern}:{re.IGNORECASE | re.MULTILINE}"
     pre_compiled = re.compile(pattern)
 
     real_lock = compiler._lock
     state = {"seen_outer": False}
 
     class _LockWrapper:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "_LockWrapper":
             if not state["seen_outer"]:
                 state["seen_outer"] = True
                 compiler._compiled_cache[cache_key] = pre_compiled
-            return await real_lock.__aenter__()
+            await real_lock.__aenter__()
+            return self
 
-        async def __aexit__(self, *a):
-            return await real_lock.__aexit__(*a)
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: types.TracebackType | None,
+        ) -> None:
+            await real_lock.__aexit__(exc_type, exc_val, exc_tb)
 
-    compiler._lock = _LockWrapper()
+    compiler._lock = cast(asyncio.Lock, _LockWrapper())
     result = await compiler.compile_pattern(pattern)
     assert result is pre_compiled
     compiler._lock = real_lock

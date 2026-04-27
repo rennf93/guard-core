@@ -46,7 +46,7 @@ class SecurityCheckPipeline:
                         exc_info=True,
                     )
 
-                if hasattr(check.config, "fail_secure") and check.config.fail_secure:
+                if check.config.fail_secure:
                     if check.check_name not in self.muted_check_logs:
                         self.logger.warning(
                             f"Blocking request due to check error "

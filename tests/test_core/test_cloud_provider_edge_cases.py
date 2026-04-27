@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -56,11 +57,10 @@ async def test_check_bypass_clouds_check(
 ) -> None:
     route_config = RouteConfig()
     mock_request.state.route_config = route_config
-    cloud_check.middleware.route_resolver = Mock()
-    cloud_check.middleware.route_resolver.should_bypass_check = Mock(return_value=True)
-    cloud_check.middleware.route_resolver.get_cloud_providers_to_check = Mock(
-        return_value=["aws", "gcp"]
-    )
+    mock_resolver = Mock()
+    mock_resolver.should_bypass_check = Mock(return_value=True)
+    mock_resolver.get_cloud_providers_to_check = Mock(return_value=["aws", "gcp"])
+    cast(Any, cloud_check.middleware).route_resolver = mock_resolver
 
     result = await cloud_check.check(mock_request)
     assert result is None
@@ -89,11 +89,10 @@ async def test_check_passive_mode(
 async def test_check_no_cloud_providers_to_check(
     cloud_check: CloudProviderCheck, mock_request: Mock
 ) -> None:
-    cloud_check.middleware.route_resolver = Mock()
-    cloud_check.middleware.route_resolver.should_bypass_check = Mock(return_value=False)
-    cloud_check.middleware.route_resolver.get_cloud_providers_to_check = Mock(
-        return_value=None
-    )
+    mock_resolver2 = Mock()
+    mock_resolver2.should_bypass_check = Mock(return_value=False)
+    mock_resolver2.get_cloud_providers_to_check = Mock(return_value=None)
+    cast(Any, cloud_check.middleware).route_resolver = mock_resolver2
 
     result = await cloud_check.check(mock_request)
     assert result is None

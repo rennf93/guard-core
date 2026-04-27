@@ -21,7 +21,7 @@ class PatternCompiler:
     def compile_pattern(
         self, pattern: str, flags: int = re.IGNORECASE | re.MULTILINE
     ) -> re.Pattern:
-        cache_key = f"{hash(pattern)}:{flags}"
+        cache_key = f"{pattern}:{flags}"
 
         if cache_key in self._compiled_cache:
             with self._lock:

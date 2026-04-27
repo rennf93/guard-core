@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from guard_core.core.checks.implementations.authentication import AuthenticationCheck
@@ -72,7 +73,7 @@ def _make_middleware(
 
 
 def _make_request_with_route_config(
-    route_config: RouteConfig, **kwargs: object
+    route_config: RouteConfig, **kwargs: Any
 ) -> MockGuardRequest:
     req = MockGuardRequest(**kwargs)
     req.state.route_config = route_config

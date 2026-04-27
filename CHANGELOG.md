@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+v2.2.0 (2026-04-26)
+-------------------
+
+Phase 1 hardening — CORS, fail-secure, CIDR bans, preprocessor fixes, concurrency safety
+------------------------------------------------------------------------------------------
+
+### Added
+
+- `guard_core.handlers.cors_handler` — framework-agnostic CORS preflight + response-header module consumed by every adapter. Provides `CorsHandler`, `CorsPreflightResponse`, and `is_preflight`.
+- `SecurityConfig.fail_secure` field (default `False`) — when `True`, an unhandled exception in any check blocks the request instead of falling through.
+- `IPBanManager.ban_ip` accepts CIDR networks (`10.0.0.0/24`, `2001:db8::/32`) for both IPv4 and IPv6. Invalid networks raise `ValueError`.
+- Preprocessor encoding decoders: base64 (length-bounded), `\xNN` hex, and `\uNNNN` JS unicode escapes are decoded inside the existing 3-iteration loop.
+- Preprocessor SQL comment stripping: case-aware in-keyword comment removal (`SELE/**/CT` → `SELECT`, `sele/**/ct` → `select`) plus space-replacement for between-token cases (`1/**/OR` → `1 OR`). Line comments (`--`, `#`) replaced with whitespace.
+
+### Fixed
+
+- `<?php` attack-indicator regex now matches the literal PHP open tag (was `<?php` which made `<` optional and matched any string containing `php`). #6
+- Truncated preprocessor output now interleaves attack regions and gaps in source order (was reversing gaps via `insert(0, ...)`). #7
+- `fail_secure` is now actually enforceable; the previous `hasattr` guard always returned `False` because the field was undeclared on `SecurityConfig`.
+- Compiled-regex cache key is deterministic (`{pattern}:{flags}`) instead of using process-salted Python `hash()`, eliminating cross-pattern collisions.
+- Sync `RateLimitManager` serializes in-memory state with `threading.Lock`, avoiding `RuntimeError: deque mutated during iteration` under multi-threaded WSGI servers.
+- `IPBanManager.ban_ip` refuses ban durations longer than the local cache TTL when Redis is unavailable; raises `ValueError` instead of silently truncating to one hour.
+- `DynamicRuleHandler._apply_rules` snapshots config before mutating and rolls back on exception. Concurrent rule pushes serialize under a lock (`asyncio.Lock` async, `threading.Lock` sync).
+
+### Internal
+
+- Test infrastructure: `tests/test_decorators/test_behavior_handler.py` and `tests/test_sync/test_decorators/test_behavior_handler.py` now correctly close their Redis connections in teardown (previously leaked, surfacing as `ResourceWarning` errors under `-W error`).
+
+___
+
 v2.1.0 (2026-04-25)
 -------------------
 

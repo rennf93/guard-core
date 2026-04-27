@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 from guard_core.sync.core.events.composite_handler import CompositeAgentHandler
 from guard_core.sync.core.events.event_types import EventFilter
@@ -6,8 +7,8 @@ from guard_core.sync.core.events.event_types import EventFilter
 
 class _RecorderHandler:
     def __init__(self) -> None:
-        self.events: list[object] = []
-        self.metrics: list[object] = []
+        self.events: list[Any] = []
+        self.metrics: list[Any] = []
 
     def send_event(self, event: object) -> None:
         self.events.append(event)
@@ -21,13 +22,13 @@ class _StampEnricher:
         self.events_seen: list[object] = []
         self.metrics_seen: list[object] = []
 
-    def enrich_event(self, event: object) -> None:
+    def enrich_event(self, event: Any) -> None:
         self.events_seen.append(event)
-        event.metadata["enriched"] = True  # type: ignore[attr-defined]
+        event.metadata["enriched"] = True
 
-    def enrich_metric(self, metric: object) -> None:
+    def enrich_metric(self, metric: Any) -> None:
         self.metrics_seen.append(metric)
-        metric.tags["enriched"] = "true"  # type: ignore[attr-defined]
+        metric.tags["enriched"] = "true"
 
 
 def test_composite_invokes_enricher_before_fanout_on_event() -> None:

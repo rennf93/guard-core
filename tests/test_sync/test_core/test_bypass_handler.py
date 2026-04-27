@@ -1,11 +1,14 @@
 from collections.abc import Callable
+from typing import cast
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.bypass.context import BypassContext
 from guard_core.sync.core.bypass.handler import BypassHandler
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 @pytest.fixture
@@ -95,7 +98,9 @@ def test_handle_passthrough_no_client(
 ) -> None:
     mock_request.client_host = None
 
-    response = bypass_handler.handle_passthrough(mock_request, call_next)
+    response = bypass_handler.handle_passthrough(
+        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+    )
 
     assert response is not None
     assert response.status_code == 200
@@ -111,7 +116,9 @@ def test_handle_passthrough_excluded_path(
 ) -> None:
     mock_validator.is_path_excluded.return_value = True
 
-    response = bypass_handler.handle_passthrough(mock_request, call_next)
+    response = bypass_handler.handle_passthrough(
+        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+    )
 
     assert response is not None
     assert response.status_code == 200
@@ -127,7 +134,9 @@ def test_handle_passthrough_no_bypass(
 ) -> None:
     mock_validator.is_path_excluded.return_value = False
 
-    response = bypass_handler.handle_passthrough(mock_request, call_next)
+    response = bypass_handler.handle_passthrough(
+        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+    )
 
     assert response is None
     mock_validator.is_path_excluded.assert_called_once_with(mock_request)
@@ -138,7 +147,11 @@ def test_handle_security_bypass_no_route_config(
     mock_request: Mock,
     call_next: Callable[[Mock], Mock],
 ) -> None:
-    response = bypass_handler.handle_security_bypass(mock_request, call_next, None)
+    response = bypass_handler.handle_security_bypass(
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+        None,
+    )
 
     assert response is None
 
@@ -154,7 +167,9 @@ def test_handle_security_bypass_should_not_bypass(
     mock_route_resolver.should_bypass_check.return_value = False
 
     response = bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+        route_config,
     )
 
     assert response is None
@@ -176,7 +191,9 @@ def test_handle_security_bypass_active_mode(
     bypass_context.config.passive_mode = False
 
     response = bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+        route_config,
     )
 
     assert response is not None
@@ -204,7 +221,9 @@ def test_handle_security_bypass_passive_mode(
     bypass_context.config.passive_mode = True
 
     response = bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+        route_config,
     )
 
     assert response is None
@@ -226,7 +245,9 @@ def test_handle_security_bypass_with_multiple_bypassed_checks(
     bypass_context.config.passive_mode = False
 
     response = bypass_handler.handle_security_bypass(
-        mock_request, call_next, route_config
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+        route_config,
     )
 
     assert response is not None

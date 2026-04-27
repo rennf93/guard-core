@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from guard_core.sync.utils import log_activity
 
 class RateLimitManager:
     _instance: Optional["RateLimitManager"] = None
+    _lock: threading.Lock
     config: SecurityConfig
     request_timestamps: defaultdict[str, deque[float]]
     logger: logging.Logger
@@ -36,6 +38,7 @@ class RateLimitManager:
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
             cls._instance.rate_limit_script_sha = None
+            cls._instance._lock = threading.Lock()
 
         cls._instance.config = config
         return cls._instance
@@ -142,14 +145,15 @@ class RateLimitManager:
     ) -> int:
         key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
 
-        while (
-            self.request_timestamps[key]
-            and self.request_timestamps[key][0] <= window_start
-        ):
-            self.request_timestamps[key].popleft()
+        with self._lock:
+            while (
+                self.request_timestamps[key]
+                and self.request_timestamps[key][0] <= window_start
+            ):
+                self.request_timestamps[key].popleft()
 
-        request_count = len(self.request_timestamps[key])
-        self.request_timestamps[key].append(current_time)
+            request_count = len(self.request_timestamps[key])
+            self.request_timestamps[key].append(current_time)
 
         return request_count
 

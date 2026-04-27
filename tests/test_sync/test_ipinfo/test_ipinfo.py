@@ -341,7 +341,7 @@ def test_get_country_without_init(tmp_path: Path) -> None:
 
 
 def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     from unittest.mock import MagicMock, patch
 
@@ -352,7 +352,7 @@ def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
     mgr = IPInfoManager(token="tok", db_path=db)
     mgr.redis_handler = None
 
-    def _raise(*_a, **_kw):
+    def _raise(*_a: object, **_kw: object) -> None:
         raise RuntimeError("download failed")
 
     with patch.object(mgr, "_download_database", new=MagicMock(side_effect=_raise)):
@@ -363,7 +363,7 @@ def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
 
 
 def test_initialize_leaves_reader_unset_when_download_silently_no_file(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     # Patch _download_database to succeed without creating the file.
     # Forces the `if self.db_path.exists()` False branch at the end of initialize.
@@ -377,7 +377,7 @@ def test_initialize_leaves_reader_unset_when_download_silently_no_file(
     mgr.redis_handler = None
     mgr.reader = None
 
-    def _noop():
+    def _noop() -> None:
         return None
 
     with patch.object(mgr, "_download_database", new=MagicMock(side_effect=_noop)):
@@ -387,7 +387,7 @@ def test_initialize_leaves_reader_unset_when_download_silently_no_file(
 
 
 def test_initialize_redis_cache_miss_falls_through_to_download(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     from unittest.mock import MagicMock, patch
 
@@ -404,7 +404,7 @@ def test_initialize_redis_cache_miss_falls_through_to_download(
 
 
 def test_initialize_skips_download_when_db_exists_and_fresh(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     from unittest.mock import MagicMock, patch
 

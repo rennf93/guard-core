@@ -1,6 +1,6 @@
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from guard_core.sync.detection_engine.monitor import (
@@ -685,7 +685,7 @@ def test_notify_callbacks_exception_without_agent_handler() -> None:
     monitor = PerformanceMonitor()
     captured: list[Exception] = []
 
-    def bad_callback(anomaly):
+    def bad_callback(anomaly: dict[str, Any]) -> None:
         captured.append(RuntimeError("boom"))
         raise RuntimeError("boom")
 
@@ -706,15 +706,14 @@ def test_get_slow_patterns_skips_missing_report() -> None:
 
     real_report = monitor.get_pattern_report
 
-    def returns_none(pattern):
-        # Mimic a race where pattern was removed between enumeration and report.
+    def returns_none(pattern: str) -> dict[str, Any] | None:
         return None
 
-    monitor.get_pattern_report = returns_none
+    cast(Any, monitor).get_pattern_report = returns_none
     try:
         reports = monitor.get_slow_patterns(limit=5)
     finally:
-        monitor.get_pattern_report = real_report
+        cast(Any, monitor).get_pattern_report = real_report
     assert reports == []
 
 
@@ -722,15 +721,15 @@ def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> No
     monitor = PerformanceMonitor()
     stats = PatternStats(pattern="ghost")
     stats.total_executions = 10
-    stats.total_timeouts = 5  # timeout_rate=0.5 > 0.1
+    stats.total_timeouts = 5
     monitor.pattern_stats["ghost"] = stats
 
     real_report = monitor.get_pattern_report
-    monitor.get_pattern_report = lambda _p: None
+    cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
         result = monitor.get_problematic_patterns()
     finally:
-        monitor.get_pattern_report = real_report
+        cast(Any, monitor).get_pattern_report = real_report
     assert result == []
 
 
@@ -738,16 +737,16 @@ def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
     monitor = PerformanceMonitor(slow_pattern_threshold=0.01)
     stats = PatternStats(pattern="ghost2")
     stats.total_executions = 10
-    stats.total_timeouts = 0  # timeout_rate=0, falls to elif
-    stats.avg_execution_time = 1.0  # > threshold
+    stats.total_timeouts = 0
+    stats.avg_execution_time = 1.0
     monitor.pattern_stats["ghost2"] = stats
 
     real_report = monitor.get_pattern_report
-    monitor.get_pattern_report = lambda _p: None
+    cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
         result = monitor.get_problematic_patterns()
     finally:
-        monitor.get_pattern_report = real_report
+        cast(Any, monitor).get_pattern_report = real_report
     assert result == []
 
 

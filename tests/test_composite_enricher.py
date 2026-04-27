@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -8,8 +9,8 @@ from guard_core.core.events.event_types import EventFilter
 
 class _RecorderHandler:
     def __init__(self) -> None:
-        self.events: list[object] = []
-        self.metrics: list[object] = []
+        self.events: list[Any] = []
+        self.metrics: list[Any] = []
 
     async def send_event(self, event: object) -> None:
         self.events.append(event)
@@ -23,13 +24,13 @@ class _StampEnricher:
         self.events_seen: list[object] = []
         self.metrics_seen: list[object] = []
 
-    async def enrich_event(self, event: object) -> None:
+    async def enrich_event(self, event: Any) -> None:
         self.events_seen.append(event)
-        event.metadata["enriched"] = True  # type: ignore[attr-defined]
+        event.metadata["enriched"] = True
 
-    async def enrich_metric(self, metric: object) -> None:
+    async def enrich_metric(self, metric: Any) -> None:
         self.metrics_seen.append(metric)
-        metric.tags["enriched"] = "true"  # type: ignore[attr-defined]
+        metric.tags["enriched"] = "true"
 
 
 @pytest.mark.asyncio

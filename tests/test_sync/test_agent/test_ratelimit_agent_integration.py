@@ -1,4 +1,5 @@
 import logging
+import threading
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -27,6 +28,7 @@ def cleanup_ratelimit_singleton() -> Generator[Any, Any, Any]:
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
             cls._instance.rate_limit_script_sha = None
+            cls._instance._lock = threading.Lock()
         cls._instance.config = config
         return cls._instance
 
@@ -141,7 +143,7 @@ def test_check_rate_limit_agent_event_called() -> None:
         )
         assert result1 is None
 
-        result2 = manager.check_rate_limit(
+        result2: Any = manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.100",
             create_error_response=mock_error_response,
@@ -188,7 +190,7 @@ def test_check_rate_limit_redis_path_with_agent() -> None:
         return {"status": status_code, "message": message}
 
     with patch("guard_core.sync.handlers.ratelimit_handler.log_activity"):
-        result = manager.check_rate_limit(
+        result: Any = manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.200",
             create_error_response=mock_error_response,

@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, cast
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks.helpers import detect_penetration_patterns
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import detect_penetration_attempt
 
 
@@ -21,7 +22,9 @@ class _FakeRequest:
 
 
 def test_detect_returns_detection_result_for_threat() -> None:
-    request = _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    request = cast(
+        SyncGuardRequest, _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    )
     result = detect_penetration_attempt(request, SecurityConfig())
     assert isinstance(result, DetectionResult)
     assert result.is_threat is True
@@ -30,7 +33,7 @@ def test_detect_returns_detection_result_for_threat() -> None:
 
 
 def test_detect_returns_detection_result_for_clean_request() -> None:
-    request = _FakeRequest(query_params={"q": "hello world"})
+    request = cast(SyncGuardRequest, _FakeRequest(query_params={"q": "hello world"}))
     result = detect_penetration_attempt(request, SecurityConfig())
     assert isinstance(result, DetectionResult)
     assert result.is_threat is False
@@ -39,7 +42,9 @@ def test_detect_returns_detection_result_for_clean_request() -> None:
 
 
 def test_detect_populates_threat_scores_from_regex_threat() -> None:
-    request = _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    request = cast(
+        SyncGuardRequest, _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    )
     result = detect_penetration_attempt(request, SecurityConfig())
     assert result.is_threat is True
     assert "xss" in result.threat_scores
@@ -58,7 +63,9 @@ def test_detect_returns_miss_when_body_decode_fails() -> None:
 
 
 def test_detect_patterns_returns_detection_result_threat() -> None:
-    request = _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    request = cast(
+        SyncGuardRequest, _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    )
     config = SecurityConfig()
     result = detect_penetration_patterns(request, None, config, lambda *_: False)
     assert isinstance(result, DetectionResult)
@@ -67,7 +74,9 @@ def test_detect_patterns_returns_detection_result_threat() -> None:
 
 
 def test_detect_patterns_returns_detection_result_bypass() -> None:
-    request = _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    request = cast(
+        SyncGuardRequest, _FakeRequest(query_params={"q": "<script>alert(1)</script>"})
+    )
     config = SecurityConfig()
     result = detect_penetration_patterns(request, None, config, lambda *_: True)
     assert isinstance(result, DetectionResult)
@@ -76,7 +85,7 @@ def test_detect_patterns_returns_detection_result_bypass() -> None:
 
 
 def test_detect_patterns_returns_detection_result_disabled_by_decorator() -> None:
-    request = _FakeRequest()
+    request = cast(SyncGuardRequest, _FakeRequest())
     config = SecurityConfig(enable_penetration_detection=True)
     route_config = RouteConfig()
     route_config.enable_suspicious_detection = False

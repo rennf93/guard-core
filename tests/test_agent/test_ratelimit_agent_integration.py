@@ -149,7 +149,7 @@ async def test_check_rate_limit_agent_event_called() -> None:
         )
         assert result1 is None
 
-        result2 = await manager.check_rate_limit(
+        result2: Any = await manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.100",
             create_error_response=mock_error_response,
@@ -199,7 +199,7 @@ async def test_check_rate_limit_redis_path_with_agent() -> None:
     with patch(
         "guard_core.handlers.ratelimit_handler.log_activity", new_callable=AsyncMock
     ):
-        result = await manager.check_rate_limit(
+        result: Any = await manager.check_rate_limit(
             request=mock_request,
             client_ip="192.168.1.200",
             create_error_response=mock_error_response,

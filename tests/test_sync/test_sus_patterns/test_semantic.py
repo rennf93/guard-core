@@ -469,10 +469,10 @@ def test_calculate_entropy_skips_zero_probability_counts() -> None:
     analyzer = SemanticAnalyzer()
 
     class _FakeCounter(dict):
-        def __init__(self, _content):
+        def __init__(self, _content: object) -> None:
             super().__init__()
             self["a"] = 1
-            self["b"] = 0  # triggers the False branch
+            self["b"] = 0
 
     with patch.object(semantic_mod, "Counter", _FakeCounter):
         entropy = analyzer.calculate_entropy("ab")

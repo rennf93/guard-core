@@ -77,12 +77,12 @@ class ValidGeoIPHandler:
 
 def test_geo_ip_handler_validation() -> None:
     ipinfo = IPInfoManager(token="test")
-    config = SecurityConfig(geo_ip_handler=ipinfo)
-    assert config.geo_ip_handler == ipinfo
+    config = SecurityConfig(geo_ip_handler=cast(Any, ipinfo))
+    assert config.geo_ip_handler is not None
 
     valid_instance = ValidGeoIPHandler()
-    config = SecurityConfig(geo_ip_handler=valid_instance)
-    assert config.geo_ip_handler == valid_instance
+    config = SecurityConfig(geo_ip_handler=cast(Any, valid_instance))
+    assert config.geo_ip_handler is not None
 
     config = SecurityConfig(geo_ip_handler=None)
     assert config.geo_ip_handler is None

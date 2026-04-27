@@ -26,7 +26,7 @@ def test_honeypot_form_exception_caught(
     honeypot_decorator = decorator.honeypot_detection(["trap_field"])
     decorated_func = honeypot_decorator(mock_func)
 
-    route_id = decorated_func._guard_route_id  # type: ignore[attr-defined]
+    route_id = decorated_func._guard_route_id
     route_config = decorator.get_route_config(route_id)
     assert route_config is not None
     validator = route_config.custom_validators[0]
@@ -51,7 +51,7 @@ def test_honeypot_non_post_method(decorator: SecurityDecorator) -> None:
     honeypot_decorator = decorator.honeypot_detection(["trap_field"])
     decorated_func = honeypot_decorator(mock_func)
 
-    route_id = decorated_func._guard_route_id  # type: ignore[attr-defined]
+    route_id = decorated_func._guard_route_id
     route_config = decorator.get_route_config(route_id)
     assert route_config is not None
     validator = route_config.custom_validators[0]
@@ -77,7 +77,7 @@ def test_honeypot_unsupported_content_type(
     honeypot_decorator = decorator.honeypot_detection(["trap_field"])
     decorated_func = honeypot_decorator(mock_func)
 
-    route_id = decorated_func._guard_route_id  # type: ignore[attr-defined]
+    route_id = decorated_func._guard_route_id
     route_config = decorator.get_route_config(route_id)
     assert route_config is not None
     validator = route_config.custom_validators[0]
@@ -113,7 +113,7 @@ def test_honeypot_various_non_modifying_methods(
     honeypot_decorator = decorator.honeypot_detection(["trap_field"])
     decorated_func = honeypot_decorator(mock_func)
 
-    route_id = decorated_func._guard_route_id  # type: ignore[attr-defined]
+    route_id = decorated_func._guard_route_id
     route_config = decorator.get_route_config(route_id)
     assert route_config is not None
     validator = route_config.custom_validators[0]
@@ -139,7 +139,7 @@ def test_honeypot_modifying_methods_without_content_type(
     honeypot_decorator = decorator.honeypot_detection(["trap_field"])
     decorated_func = honeypot_decorator(mock_func)
 
-    route_id = decorated_func._guard_route_id  # type: ignore[attr-defined]
+    route_id = decorated_func._guard_route_id
     route_config = decorator.get_route_config(route_id)
     assert route_config is not None
     validator = route_config.custom_validators[0]

@@ -271,6 +271,14 @@ class SecurityConfig(BaseModel):
         default=True, description="Enable/disable penetration attempt detection"
     )
 
+    fail_secure: bool = Field(
+        default=False,
+        description=(
+            "Block the request when any security check raises an unexpected exception. "
+            "False (default) logs the error and falls through (fail-open)."
+        ),
+    )
+
     ipinfo_token: str | None = Field(
         default=None,
         description="IPInfo API token for IP geolocation. Deprecated. "

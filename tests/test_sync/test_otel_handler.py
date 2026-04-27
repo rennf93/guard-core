@@ -432,10 +432,16 @@ def test_import_error_branch() -> None:
 
     real_import = __import__
 
-    def block_otel(name, *args, **kwargs):
+    def block_otel(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: list[str] | None = None,
+        level: int = 0,
+    ) -> object:
         if name == "opentelemetry" or name.startswith("opentelemetry."):
             raise ImportError("opentelemetry not installed")
-        return real_import(name, *args, **kwargs)
+        return real_import(name, globals, locals, fromlist or [], level)
 
     try:
         with patch("builtins.__import__", side_effect=block_otel):

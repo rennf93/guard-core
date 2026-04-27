@@ -1,4 +1,5 @@
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -61,7 +62,7 @@ async def test_ipban_reset_with_redis() -> None:
     mock_conn.delete = AsyncMock()
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -83,7 +84,7 @@ async def test_ipban_reset_with_redis_no_keys() -> None:
     mock_conn.delete = AsyncMock()
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -140,7 +141,7 @@ async def test_ratelimit_initialize_redis() -> None:
     mock_conn.script_load = AsyncMock(return_value="sha123")
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -172,7 +173,7 @@ async def test_ratelimit_redis_count_with_script() -> None:
     mock_conn.evalsha = AsyncMock(return_value=5)
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -202,7 +203,7 @@ async def test_ratelimit_redis_count_without_script() -> None:
     mock_conn.pipeline = MagicMock(return_value=mock_pipeline)
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -278,7 +279,7 @@ async def test_ratelimit_check_redis_exceeded() -> None:
     mock_conn.evalsha = AsyncMock(return_value=10)
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -312,7 +313,7 @@ async def test_ratelimit_check_redis_ok() -> None:
     mock_conn.evalsha = AsyncMock(return_value=2)
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -409,7 +410,7 @@ async def test_ratelimit_redis_count_with_endpoint() -> None:
     mock_conn.evalsha = AsyncMock(return_value=2)
 
     @asynccontextmanager
-    async def mock_get_connection():
+    async def mock_get_connection() -> AsyncGenerator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()

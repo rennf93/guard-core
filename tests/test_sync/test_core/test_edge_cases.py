@@ -76,7 +76,7 @@ def test_remove_default_pattern_invalid_index() -> None:
         test_pattern = "test_pattern_xyz_123_unique_edge"
         handler.patterns.append(test_pattern)
         compiled = re.compile(test_pattern)
-        handler.compiled_patterns.append(compiled)
+        handler.compiled_patterns.append((compiled, frozenset(), ""))
 
         handler.compiled_patterns = []
 

@@ -13,7 +13,7 @@ def _rules(**overrides: object) -> DynamicRules:
         "timestamp": datetime.now(timezone.utc),
     }
     defaults.update(overrides)
-    return DynamicRules(**defaults)  # type: ignore[arg-type]
+    return DynamicRules(**defaults)
 
 
 def _manager_with(rules: DynamicRules | None) -> DynamicRuleManager:

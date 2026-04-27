@@ -1,7 +1,10 @@
+from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
+from pytest import MonkeyPatch
 
 pytest.importorskip("opentelemetry.sdk")
 
@@ -46,7 +49,7 @@ def _otel_handler_with_exporter(
     def _noop_start() -> None:
         return None
 
-    handler.start = _noop_start  # type: ignore[assignment]
+    cast(Any, handler).start = _noop_start
     return handler
 
 
@@ -54,7 +57,7 @@ def _prewired_composite_factory(
     exporter: InMemorySpanExporter,
     config: SecurityConfig,
     enricher: EventEnricher | None,
-):
+) -> Callable[[], CompositeAgentHandler]:
     def _factory() -> CompositeAgentHandler:
         otel = _otel_handler_with_exporter(config, exporter)
         event_filter = EventFilter(
@@ -68,7 +71,7 @@ def _prewired_composite_factory(
     return _factory
 
 
-def test_enrichment_fields_land_on_otel_span(monkeypatch) -> None:
+def test_enrichment_fields_land_on_otel_span(monkeypatch: MonkeyPatch) -> None:
     DynamicRuleManager._instance = None
     exporter = InMemorySpanExporter()
     config = SecurityConfig(
@@ -107,7 +110,7 @@ def test_enrichment_fields_land_on_otel_span(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: object, **_kw: object) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -151,7 +154,9 @@ def test_enrichment_fields_land_on_otel_span(monkeypatch) -> None:
     assert len(attrs.get("guard.behavior.correlation_key") or "") == 16
 
 
-def test_enrichment_skipped_when_enable_enrichment_false(monkeypatch) -> None:
+def test_enrichment_skipped_when_enable_enrichment_false(
+    monkeypatch: MonkeyPatch,
+) -> None:
     DynamicRuleManager._instance = None
     exporter = InMemorySpanExporter()
     config = SecurityConfig(
@@ -167,7 +172,7 @@ def test_enrichment_skipped_when_enable_enrichment_false(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: object, **_kw: object) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(

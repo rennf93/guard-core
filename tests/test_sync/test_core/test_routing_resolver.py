@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -55,7 +56,9 @@ def test_get_route_config_with_route_id(
     result = resolver.get_route_config(mock_request)
     assert result is not None
     assert "rate_limit" in result.bypassed_checks
-    mock_guard_decorator.get_route_config.assert_called_once_with("test_route_id")
+    cast(Mock, mock_guard_decorator.get_route_config).assert_called_once_with(
+        "test_route_id"
+    )
 
 
 def test_get_route_config_no_route_id(
@@ -84,7 +87,7 @@ def test_get_route_config_decorator_returns_none(
     resolver: RouteConfigResolver,
     mock_guard_decorator: BaseSecurityDecorator,
 ) -> None:
-    mock_guard_decorator.get_route_config = Mock(return_value=None)
+    cast(Any, mock_guard_decorator).get_route_config = Mock(return_value=None)
 
     mock_request = Mock()
     mock_request.state = Mock()
@@ -136,6 +139,7 @@ def test_get_cloud_providers_from_route_config(
     route_config.block_cloud_providers = {"azure", "digitalocean"}
 
     result = resolver.get_cloud_providers_to_check(route_config)
+    assert result is not None
     assert set(result) == {"azure", "digitalocean"}
 
 
@@ -145,6 +149,7 @@ def test_get_cloud_providers_from_global_config(
     route_config = RouteConfig()
 
     result = resolver.get_cloud_providers_to_check(route_config)
+    assert result is not None
     assert set(result) == {"aws", "gcp"}
 
 
@@ -152,6 +157,7 @@ def test_get_cloud_providers_none_when_no_config(
     resolver: RouteConfigResolver,
 ) -> None:
     result = resolver.get_cloud_providers_to_check(None)
+    assert result is not None
     assert set(result) == {"aws", "gcp"}
 
 

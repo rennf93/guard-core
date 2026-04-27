@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.decorators.base import BaseSecurityDecorator, RouteConfig
@@ -14,7 +14,7 @@ def _decorate(decorator_fn: Callable[..., Any]) -> Callable[..., Any]:
     def target() -> None:
         pass
 
-    return decorator_fn(target)
+    return cast(Callable[..., Any], decorator_fn(target))
 
 
 def test_route_config_detection_exclusion_defaults_to_none() -> None:

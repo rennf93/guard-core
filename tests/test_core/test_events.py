@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from guard_core.core.events.metrics import MetricsCollector
 from guard_core.core.events.middleware_events import SecurityEventBus
@@ -141,30 +142,33 @@ async def test_event_bus_https_violation_route_config() -> None:
     agent = MagicMock()
     agent.send_event = AsyncMock()
     bus = SecurityEventBus(agent, _config(agent_enable_events=True))
-    bus.send_middleware_event = AsyncMock()
+    mock_send = AsyncMock()
+    cast(Any, bus).send_middleware_event = mock_send
     req = MockGuardRequest(scheme="http")
     rc = RouteConfig()
     rc.require_https = True
     await bus.send_https_violation_event(req, rc)
-    bus.send_middleware_event.assert_called_once()
-    call_kwargs = bus.send_middleware_event.call_args
+    cast(Mock, bus.send_middleware_event).assert_called_once()
+    call_kwargs = cast(Mock, bus.send_middleware_event).call_args
     assert call_kwargs.kwargs["event_type"] == "decorator_violation"
 
 
 async def test_event_bus_https_violation_global() -> None:
     bus = SecurityEventBus(None, _config())
-    bus.send_middleware_event = AsyncMock()
+    mock_send = AsyncMock()
+    cast(Any, bus).send_middleware_event = mock_send
     req = MockGuardRequest(scheme="http")
     await bus.send_https_violation_event(req, None)
-    bus.send_middleware_event.assert_called_once()
-    call_kwargs = bus.send_middleware_event.call_args
+    cast(Mock, bus.send_middleware_event).assert_called_once()
+    call_kwargs = cast(Mock, bus.send_middleware_event).call_args
     assert call_kwargs.kwargs["event_type"] == "https_enforced"
 
 
 async def test_event_bus_cloud_detection_with_details() -> None:
     agent = MagicMock()
     bus = SecurityEventBus(agent, _config(agent_enable_events=True))
-    bus.send_middleware_event = AsyncMock()
+    mock_send = AsyncMock()
+    cast(Any, bus).send_middleware_event = mock_send
     req = MockGuardRequest()
     cloud_handler = MagicMock()
     cloud_handler.get_cloud_provider_details = MagicMock(
@@ -178,12 +182,13 @@ async def test_event_bus_cloud_detection_with_details() -> None:
         req, "1.2.3.4", ["AWS"], rc, cloud_handler, False
     )
     cloud_handler.send_cloud_detection_event.assert_called_once()
-    bus.send_middleware_event.assert_called_once()
+    cast(Mock, bus.send_middleware_event).assert_called_once()
 
 
 async def test_event_bus_cloud_detection_no_details() -> None:
     bus = SecurityEventBus(None, _config())
-    bus.send_middleware_event = AsyncMock()
+    mock_send2 = AsyncMock()
+    cast(Any, bus).send_middleware_event = mock_send2
     req = MockGuardRequest()
     cloud_handler = MagicMock()
     cloud_handler.get_cloud_provider_details = MagicMock(return_value=None)
@@ -191,7 +196,7 @@ async def test_event_bus_cloud_detection_no_details() -> None:
     await bus.send_cloud_detection_events(
         req, "1.2.3.4", ["AWS"], None, cloud_handler, False
     )
-    bus.send_middleware_event.assert_not_called()
+    cast(Mock, bus.send_middleware_event).assert_not_called()
 
 
 async def test_event_bus_geo_exception() -> None:

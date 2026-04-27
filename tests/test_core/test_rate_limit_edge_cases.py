@@ -1,3 +1,4 @@
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -77,7 +78,7 @@ async def test_check_global_rate_limit_passive_mode(
 
     mock_handler = Mock()
     mock_handler.check_rate_limit = AsyncMock(return_value=Mock(status_code=429))
-    rate_limit_check.middleware.rate_limit_handler = mock_handler
+    cast(Any, rate_limit_check.middleware).rate_limit_handler = mock_handler
 
     result = await rate_limit_check._check_global_rate_limit(mock_request, "1.2.3.4")
     assert result is None
@@ -97,7 +98,7 @@ async def test_check_global_rate_limit_not_exceeded(
 ) -> None:
     mock_handler = Mock()
     mock_handler.check_rate_limit = AsyncMock(return_value=None)
-    rate_limit_check.middleware.rate_limit_handler = mock_handler
+    cast(Any, rate_limit_check.middleware).rate_limit_handler = mock_handler
 
     result = await rate_limit_check._check_global_rate_limit(mock_request, "1.2.3.4")
     assert result is None
@@ -113,7 +114,7 @@ async def test_check_global_rate_limit_exceeded_active_mode(
     response = Mock(status_code=429)
     mock_handler = Mock()
     mock_handler.check_rate_limit = AsyncMock(return_value=response)
-    rate_limit_check.middleware.rate_limit_handler = mock_handler
+    cast(Any, rate_limit_check.middleware).rate_limit_handler = mock_handler
 
     result = await rate_limit_check._check_global_rate_limit(mock_request, "1.2.3.4")
     assert result == response
@@ -360,7 +361,7 @@ async def test_global_rate_limit_has_no_endpoint_path(
 ) -> None:
     mock_handler = Mock()
     mock_handler.check_rate_limit = AsyncMock(return_value=None)
-    rate_limit_check.middleware.rate_limit_handler = mock_handler
+    cast(Any, rate_limit_check.middleware).rate_limit_handler = mock_handler
 
     await rate_limit_check._check_global_rate_limit(mock_request, "1.2.3.4")
 

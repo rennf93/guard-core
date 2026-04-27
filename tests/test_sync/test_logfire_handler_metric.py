@@ -1,12 +1,13 @@
 import importlib
 import sys
-from types import SimpleNamespace
+from collections.abc import Generator
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
-def _fresh_logfire_handler_module():
+def _fresh_logfire_handler_module() -> ModuleType:
     module_name = "guard_core.sync.core.events.logfire_handler"
     if module_name in sys.modules:
         return importlib.reload(sys.modules[module_name])
@@ -14,7 +15,7 @@ def _fresh_logfire_handler_module():
 
 
 @pytest.fixture(autouse=True)
-def _reload_logfire_handler_between_tests():
+def _reload_logfire_handler_between_tests() -> Generator[None, None, None]:
     _fresh_logfire_handler_module()
     yield
     _fresh_logfire_handler_module()

@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from guard_core.core.events.metrics import MetricsCollector
@@ -23,7 +25,10 @@ def _make_factory(
         **config_overrides,
     )
     if custom_response_modifier:
-        config.custom_response_modifier = custom_response_modifier
+        config.custom_response_modifier = cast(
+            Callable[[Any], Awaitable[Any]],
+            custom_response_modifier,
+        )
     metrics = MagicMock(spec=MetricsCollector)
     metrics.collect_request_metrics = AsyncMock()
     ctx = ResponseContext(

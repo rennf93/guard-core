@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -47,7 +49,7 @@ def _build_otel_handler_with_exporter(
     def _noop_start() -> None:
         return None
 
-    handler.start = _noop_start  # type: ignore[assignment]
+    cast(Any, handler).start = _noop_start
     return handler
 
 
@@ -67,7 +69,7 @@ def _build_wired_event_bus(
     )
 
 
-def test_end_to_end_span_emission_with_otel(monkeypatch) -> None:
+def test_end_to_end_span_emission_with_otel(monkeypatch: pytest.MonkeyPatch) -> None:
     exporter = InMemorySpanExporter()
     config = SecurityConfig(enable_otel=True, agent_enable_events=True)
 
@@ -78,7 +80,7 @@ def test_end_to_end_span_emission_with_otel(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: Any, **_kw: Any) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -107,7 +109,7 @@ def test_end_to_end_span_emission_with_otel(monkeypatch) -> None:
     assert span.attributes["guard.action_taken"] == "blocked"
 
 
-def test_end_to_end_mute_suppresses_span(monkeypatch) -> None:
+def test_end_to_end_mute_suppresses_span(monkeypatch: pytest.MonkeyPatch) -> None:
     exporter = InMemorySpanExporter()
     config = SecurityConfig(
         enable_otel=True,
@@ -122,7 +124,7 @@ def test_end_to_end_mute_suppresses_span(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: Any, **_kw: Any) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -147,10 +149,12 @@ def test_end_to_end_mute_suppresses_span(monkeypatch) -> None:
     assert not any(s.name == "guard.event.cloud_blocked" for s in spans)
 
 
-def test_end_to_end_traceparent_passes_through_event_bus(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+def test_end_to_end_traceparent_passes_through_event_bus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
 
-    def capture_send(event):
+    def capture_send(event: Any) -> None:
         captured["event"] = event
 
     composite = MagicMock()
@@ -166,7 +170,7 @@ def test_end_to_end_traceparent_passes_through_event_bus(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: Any, **_kw: Any) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -193,13 +197,10 @@ def test_end_to_end_traceparent_passes_through_event_bus(monkeypatch) -> None:
     assert event.metadata["traceparent"] == traceparent
 
 
-def _prewired_composite_factory(exporter: InMemorySpanExporter, config: SecurityConfig):
-    """Build a CompositeAgentHandler already wired to an InMemorySpanExporter.
-
-    Avoids relying on monkeypatching OtelHandler.start across module reloads.
-    """
-
-    def _factory():
+def _prewired_composite_factory(
+    exporter: InMemorySpanExporter, config: SecurityConfig
+) -> Callable[[], CompositeAgentHandler]:
+    def _factory() -> CompositeAgentHandler:
         otel = _build_otel_handler_with_exporter(config, exporter)
         event_filter = EventFilter(
             muted_event_types=frozenset(config.muted_event_types),
@@ -210,7 +211,9 @@ def _prewired_composite_factory(exporter: InMemorySpanExporter, config: Security
     return _factory
 
 
-def test_full_pipeline_through_handler_initializer(monkeypatch) -> None:
+def test_full_pipeline_through_handler_initializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Full pipeline via HandlerInitializer."""
     exporter = InMemorySpanExporter()
     config = SecurityConfig(enable_otel=True, agent_enable_events=True)
@@ -222,7 +225,7 @@ def test_full_pipeline_through_handler_initializer(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: Any, **_kw: Any) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -256,7 +259,9 @@ def test_full_pipeline_through_handler_initializer(monkeypatch) -> None:
     assert "guard.event.penetration_attempt" in names, names
 
 
-def test_full_pipeline_mute_through_handler_initializer(monkeypatch) -> None:
+def test_full_pipeline_mute_through_handler_initializer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     exporter = InMemorySpanExporter()
     config = SecurityConfig(
         enable_otel=True,
@@ -271,7 +276,7 @@ def test_full_pipeline_mute_through_handler_initializer(monkeypatch) -> None:
         raising=False,
     )
 
-    def fake_extract(*_a, **_kw) -> str:
+    def fake_extract(*_a: Any, **_kw: Any) -> str:
         return "1.2.3.4"
 
     monkeypatch.setattr(
@@ -304,7 +309,9 @@ def test_full_pipeline_mute_through_handler_initializer(monkeypatch) -> None:
     assert not any(s.name == "guard.event.cloud_blocked" for s in spans)
 
 
-def test_full_pipeline_direct_send_respects_filter(monkeypatch) -> None:
+def test_full_pipeline_direct_send_respects_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Simulate a subsystem (handler/decorator) calling agent_handler.send_event
     directly — the composite must still apply the mute filter.
     """

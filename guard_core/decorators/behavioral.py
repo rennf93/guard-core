@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
-from guard_core.decorators.base import BaseSecurityMixin
+from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
 from guard_core.handlers.behavior_handler import BehaviorRule
 
 
@@ -11,8 +11,8 @@ class BehavioralMixin(BaseSecurityMixin):
         max_calls: int,
         window: int = 3600,
         action: Literal["ban", "log", "throttle", "alert"] = "ban",
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
 
             rule = BehaviorRule(
@@ -29,8 +29,8 @@ class BehavioralMixin(BaseSecurityMixin):
         max_occurrences: int,
         window: int = 86400,
         action: Literal["ban", "log", "throttle", "alert"] = "ban",
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
 
             rule = BehaviorRule(
@@ -47,8 +47,8 @@ class BehavioralMixin(BaseSecurityMixin):
 
     def behavior_analysis(
         self, rules: list[BehaviorRule]
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.behavior_rules.extend(rules)
             return self._apply_route_config(func)
@@ -60,8 +60,8 @@ class BehavioralMixin(BaseSecurityMixin):
         max_frequency: float,
         window: int = 300,
         action: Literal["ban", "log", "throttle", "alert"] = "ban",
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             max_calls = int(max_frequency * window)
 

@@ -3,7 +3,7 @@ from collections.abc import Callable, MutableMapping
 from typing import Any
 from urllib.parse import parse_qs
 
-from guard_core.decorators.base import BaseSecurityMixin
+from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
@@ -30,8 +30,8 @@ class _SimpleResponse:
 class AdvancedMixin(BaseSecurityMixin):
     def time_window(
         self, start_time: str, end_time: str, timezone: str = "UTC"
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.time_restrictions = {
                 "start": start_time,
@@ -44,8 +44,8 @@ class AdvancedMixin(BaseSecurityMixin):
 
     def suspicious_detection(
         self, enabled: bool = True
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.enable_suspicious_detection = enabled
             return self._apply_route_config(func)
@@ -54,8 +54,8 @@ class AdvancedMixin(BaseSecurityMixin):
 
     def honeypot_detection(
         self, trap_fields: list[str]
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             async def honeypot_validator(
                 request: GuardRequest,
             ) -> GuardResponse | None:

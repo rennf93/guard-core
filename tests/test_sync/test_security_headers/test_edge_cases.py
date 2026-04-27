@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from types import TracebackType
+from typing import Any, cast
 
 import pytest
 
@@ -116,19 +118,24 @@ def test_new_handles_race_where_other_thread_populates_instance_while_waiting() 
     real_lock = SecurityHeadersManager._lock
 
     class _LockWrapper:
-        def __enter__(self):
+        def __enter__(self) -> None:
             SecurityHeadersManager._instance = racer_instance
-            return real_lock.__enter__()
+            real_lock.__enter__()
 
-        def __exit__(self, *a):
-            return real_lock.__exit__(*a)
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: TracebackType | None,
+        ) -> None:
+            real_lock.__exit__(exc_type, exc_val, exc_tb)
 
-    SecurityHeadersManager._lock = _LockWrapper()
+    cast(Any, SecurityHeadersManager)._lock = _LockWrapper()
     try:
         result = SecurityHeadersManager()
         assert result is racer_instance
     finally:
-        SecurityHeadersManager._lock = real_lock
+        cast(Any, SecurityHeadersManager)._lock = real_lock
         SecurityHeadersManager._instance = original_instance
 
 

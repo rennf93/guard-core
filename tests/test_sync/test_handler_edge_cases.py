@@ -479,7 +479,7 @@ def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
     # expiry in the past
     manager.redis_handler.get_key = MagicMock(return_value=str(time.time() - 3600))
     manager.redis_handler.delete = MagicMock()
-    assert manager.is_ip_banned("stale.ip") is False
+    assert manager.is_ip_banned("1.2.3.4") is False
     manager.redis_handler.delete.assert_called()
 
 

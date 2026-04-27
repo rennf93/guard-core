@@ -1,6 +1,6 @@
 import ipaddress
 import itertools
-from collections.abc import AsyncGenerator
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,7 +42,7 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 
 @pytest.fixture
-def mock_aiohttp_session() -> AsyncGenerator[MagicMock, None]:
+def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
     with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession") as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)

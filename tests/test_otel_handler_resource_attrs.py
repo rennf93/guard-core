@@ -1,6 +1,8 @@
 import importlib
 import sys
-from types import SimpleNamespace
+from collections.abc import Generator
+from types import ModuleType, SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,7 +10,7 @@ import pytest
 from guard_core.models import SecurityConfig
 
 
-def _fresh_otel_handler_module():
+def _fresh_otel_handler_module() -> ModuleType:
     module_name = "guard_core.core.events.otel_handler"
     if module_name in sys.modules:
         return importlib.reload(sys.modules[module_name])
@@ -16,7 +18,7 @@ def _fresh_otel_handler_module():
 
 
 @pytest.fixture(autouse=True)
-def _reload_otel_handler_between_tests():
+def _reload_otel_handler_between_tests() -> Generator[None, None, None]:
     _fresh_otel_handler_module()
     yield
     _fresh_otel_handler_module()
@@ -277,19 +279,20 @@ async def test_send_event_no_traceparent_starts_root_span() -> None:
 
 async def test_event_bus_attaches_tracestate_from_request_headers() -> None:
     from types import SimpleNamespace as _SN
+    from typing import cast as _cast
 
     from guard_core.core.events.event_types import EVENT_PENETRATION_ATTEMPT
     from guard_core.core.events.middleware_events import SecurityEventBus
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
-    async def capture_send(event):
+    async def capture_send(event: object) -> None:
         captured["event"] = event
 
     agent = MagicMock()
     agent.send_event = capture_send
 
-    cfg = _SN(agent_enable_events=True)
+    cfg = _cast(SecurityConfig, _SN(agent_enable_events=True))
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()
@@ -314,7 +317,7 @@ async def test_event_bus_attaches_tracestate_from_request_headers() -> None:
         ),
     ):
 
-        async def _async_return_ip(*_a, **_kw):
+        async def _async_return_ip(*_a: object, **_kw: object) -> str:
             return "1.2.3.4"
 
         mock_extract.side_effect = _async_return_ip
@@ -330,19 +333,21 @@ async def test_event_bus_attaches_tracestate_from_request_headers() -> None:
 
 
 async def test_event_bus_attaches_traceparent_from_request_headers() -> None:
+    from typing import cast as _cast
+
     from guard_core.core.events.event_types import EVENT_PENETRATION_ATTEMPT
     from guard_core.core.events.middleware_events import SecurityEventBus
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     agent = MagicMock()
 
-    async def capture_send(event):
+    async def capture_send(event: object) -> None:
         captured["event"] = event
 
     agent.send_event = capture_send
 
-    cfg = SimpleNamespace(agent_enable_events=True)
+    cfg = _cast(SecurityConfig, SimpleNamespace(agent_enable_events=True))
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()
@@ -367,7 +372,7 @@ async def test_event_bus_attaches_traceparent_from_request_headers() -> None:
         ),
     ):
 
-        async def _async_return_ip(*_a, **_kw):
+        async def _async_return_ip(*_a: object, **_kw: object) -> str:
             return "1.2.3.4"
 
         mock_extract.side_effect = _async_return_ip

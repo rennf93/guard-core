@@ -169,6 +169,7 @@ async def test_honeypot_detection_json_no_trigger() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
@@ -183,6 +184,7 @@ async def test_honeypot_detection_form_trigger() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
@@ -198,6 +200,7 @@ async def test_honeypot_detection_get_request() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(method="GET")
     result = await validator(req)
@@ -208,6 +211,7 @@ async def test_honeypot_detection_unknown_content_type() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
@@ -222,6 +226,7 @@ async def test_honeypot_detection_form_no_trigger() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
@@ -236,6 +241,7 @@ async def test_honeypot_detection_invalid_json() -> None:
     d = _decorator()
     decorated = d.honeypot_detection(trap_fields=["honeypot"])(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",

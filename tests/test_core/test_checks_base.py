@@ -3,10 +3,12 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.protocols.request_protocol import GuardRequest
+from guard_core.protocols.response_protocol import GuardResponse
 
 
 class ConcreteSecurityCheck(SecurityCheck):
-    async def check(self, request):
+    async def check(self, request: GuardRequest) -> GuardResponse | None:
         return None
 
     @property

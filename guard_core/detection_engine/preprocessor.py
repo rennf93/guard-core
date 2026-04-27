@@ -1,3 +1,4 @@
+import binascii
 import re
 import unicodedata
 from typing import Any
@@ -26,7 +27,7 @@ class ContentPreprocessor:
             r"eval\s*\(",
             r"exec\s*\(",
             r"system\s*\(",
-            r"<?php",
+            r"<\?php",
             r"<%",
             r"{{",
             r"{%",
@@ -43,6 +44,20 @@ class ContentPreprocessor:
         self.compiled_indicators = [
             re.compile(pattern, re.IGNORECASE) for pattern in self.attack_indicators
         ]
+
+    _BASE64_RE = re.compile(
+        r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{20,}={0,2}(?![A-Za-z0-9+/=])"
+    )
+    _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
+    _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+    _SQL_BLOCK_COMMENT_INNER_UPPER_RE = re.compile(
+        r"(?<=[A-Z])/\*.*?\*/(?=[A-Z])", re.DOTALL
+    )
+    _SQL_BLOCK_COMMENT_INNER_LOWER_RE = re.compile(
+        r"(?<=[a-z])/\*.*?\*/(?=[a-z])", re.DOTALL
+    )
+    _SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+    _SQL_LINE_COMMENT_RE = re.compile(r"(--|#)[^\n]*")
 
     async def _send_preprocessor_event(
         self,
@@ -174,32 +189,25 @@ class ContentPreprocessor:
 
         return result
 
-    def _add_non_attack_content(
-        self,
-        content: str,
-        attack_regions: list[tuple[int, int]],
-        result_parts: list[str],
-        remaining: int,
-    ) -> None:
-        last_end = 0
-        for start, end in attack_regions:
-            if last_end < start and remaining > 0:
-                chunk_len = min(start - last_end, remaining)
-                result_parts.insert(0, content[last_end : last_end + chunk_len])
-                remaining -= chunk_len
-            last_end = end
-
     def _build_result_with_attack_regions_and_context(
         self, content: str, attack_regions: list[tuple[int, int]]
     ) -> str:
         attack_length = sum(end - start for start, end in attack_regions)
-        result_parts = []
-        remaining = self.max_content_length - attack_length
+        gap_budget = self.max_content_length - attack_length
+        result_parts: list[str] = []
+        last_end = 0
 
         for start, end in attack_regions:
+            if last_end < start and gap_budget > 0:
+                chunk_len = min(start - last_end, gap_budget)
+                result_parts.append(content[last_end : last_end + chunk_len])
+                gap_budget -= chunk_len
             result_parts.append(content[start:end])
+            last_end = end
 
-        self._add_non_attack_content(content, attack_regions, result_parts, remaining)
+        if last_end < len(content) and gap_budget > 0:
+            tail_len = min(len(content) - last_end, gap_budget)
+            result_parts.append(content[last_end : last_end + tail_len])
 
         return "".join(result_parts)
 
@@ -230,6 +238,50 @@ class ContentPreprocessor:
         control_chars = "".join(chr(i) for i in range(32) if i not in (9, 10, 13))
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
+
+    def _decode_base64_candidates(self, content: str) -> str:
+        import base64
+
+        def _replace(match: re.Match[str]) -> str:
+            token = match.group(0)
+            padding = (4 - len(token) % 4) % 4
+            padded = token + "=" * padding
+            try:
+                decoded = base64.b64decode(padded, validate=True).decode(
+                    "utf-8", errors="ignore"
+                )
+            except (ValueError, binascii.Error):
+                return token
+            if decoded and any(c.isprintable() for c in decoded):
+                return decoded
+            return token
+
+        return self._BASE64_RE.sub(_replace, content)
+
+    def _decode_hex_escapes(self, content: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
+
+        return self._HEX_ESCAPE_RE.sub(_replace, content)
+
+    def _decode_unicode_escapes(self, content: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
+
+        return self._UNICODE_ESCAPE_RE.sub(_replace, content)
+
+    def _strip_sql_comments(self, content: str) -> str:
+        content = self._SQL_BLOCK_COMMENT_INNER_UPPER_RE.sub("", content)
+        content = self._SQL_BLOCK_COMMENT_INNER_LOWER_RE.sub("", content)
+        content = self._SQL_BLOCK_COMMENT_RE.sub(" ", content)
+        content = self._SQL_LINE_COMMENT_RE.sub(" ", content)
+        return content
 
     async def decode_common_encodings(self, content: str) -> str:
         max_decode_iterations = 3
@@ -268,11 +320,16 @@ class ContentPreprocessor:
                     error_type="html_decode",
                 )
 
+            content = self._decode_hex_escapes(content)
+            content = self._decode_unicode_escapes(content)
+            content = self._decode_base64_candidates(content)
+
             if content == original:
                 break
 
             iterations += 1
 
+        content = self._strip_sql_comments(content)
         return content
 
     async def preprocess(self, content: str) -> str:

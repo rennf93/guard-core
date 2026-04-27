@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +17,23 @@ class DynamicRuleManager:
     last_update: float = 0
     current_rules: DynamicRules | None = None
     update_task: asyncio.Task | None = None
+    _lock: asyncio.Lock
+
+    _SNAPSHOT_FIELDS = (
+        "blocked_countries",
+        "whitelist_countries",
+        "rate_limit",
+        "rate_limit_window",
+        "endpoint_rate_limits",
+        "block_cloud_providers",
+        "blocked_user_agents",
+        "enable_penetration_detection",
+        "enable_ip_banning",
+        "enable_rate_limiting",
+        "emergency_mode",
+        "emergency_whitelist",
+        "auto_ban_threshold",
+    )
 
     def __new__(
         cls: type["DynamicRuleManager"], config: SecurityConfig
@@ -27,6 +45,7 @@ class DynamicRuleManager:
             cls._instance.last_update = 0
             cls._instance.current_rules = None
             cls._instance.update_task = None
+            cls._instance._lock = asyncio.Lock()
         return cls._instance
 
     async def initialize_agent(self, agent_handler: Any) -> None:
@@ -172,23 +191,37 @@ class DynamicRuleManager:
         if rules.suspicious_patterns:
             await self._apply_pattern_rules(rules.suspicious_patterns)
 
+    def _snapshot_config(self) -> dict[str, object]:
+        return {
+            field: deepcopy(getattr(self.config, field))
+            for field in self._SNAPSHOT_FIELDS
+            if hasattr(self.config, field)
+        }
+
+    def _restore_config(self, snapshot: dict[str, object]) -> None:
+        for field, value in snapshot.items():
+            setattr(self.config, field, value)
+
     async def _apply_rules(self, rules: DynamicRules) -> None:
-        try:
-            await self._apply_ip_rules(rules)
+        async with self._lock:
+            snapshot = self._snapshot_config()
+            try:
+                await self._apply_ip_rules(rules)
 
-            await self._apply_blocking_rules(rules)
+                await self._apply_blocking_rules(rules)
 
-            if rules.global_rate_limit or rules.endpoint_rate_limits:
-                await self._apply_rate_limit_rules(rules)
+                if rules.global_rate_limit or rules.endpoint_rate_limits:
+                    await self._apply_rate_limit_rules(rules)
 
-            await self._apply_feature_toggles(rules)
+                await self._apply_feature_toggles(rules)
 
-            if rules.emergency_mode:
-                await self._activate_emergency_mode(rules.emergency_whitelist)
+                if rules.emergency_mode:
+                    await self._activate_emergency_mode(rules.emergency_whitelist)
 
-        except Exception as e:
-            self.logger.error(f"Failed to apply dynamic rules: {e}")
-            raise
+            except Exception as e:
+                self._restore_config(snapshot)
+                self.logger.error(f"Failed to apply dynamic rules: {e}")
+                raise
 
     async def _apply_ip_bans(self, ip_list: list[str], duration: int) -> None:
         from guard_core.handlers.ipban_handler import ip_ban_manager

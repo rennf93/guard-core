@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from guard_core.models import SecurityConfig
@@ -84,7 +85,7 @@ def _make_middleware(
 
 
 def _make_request_with_route_config(
-    route_config: RouteConfig, **kwargs: object
+    route_config: RouteConfig, **kwargs: Any
 ) -> SyncMockGuardRequest:
     req = SyncMockGuardRequest(**kwargs)
     req.state.route_config = route_config

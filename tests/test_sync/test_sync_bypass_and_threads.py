@@ -1,4 +1,5 @@
 import threading
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from guard_core.models import SecurityConfig
@@ -32,7 +33,9 @@ def test_bypass_passthrough_no_client_with_call_next() -> None:
     mock_request.client_host = None
     mock_call_next = MagicMock(return_value=MagicMock())
 
-    handler.context.response_factory.apply_modifier = MagicMock(side_effect=lambda r: r)
+    cast(Any, handler.context.response_factory).apply_modifier = MagicMock(
+        side_effect=lambda r: r
+    )
 
     result = handler.handle_passthrough(mock_request, call_next=mock_call_next)
     assert result is not None
@@ -43,10 +46,12 @@ def test_bypass_passthrough_excluded_path_with_call_next() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = "127.0.0.1"
-    handler.context.validator.is_path_excluded = MagicMock(return_value=True)
+    cast(Any, handler.context.validator).is_path_excluded = MagicMock(return_value=True)
     mock_call_next = MagicMock(return_value=MagicMock())
 
-    handler.context.response_factory.apply_modifier = MagicMock(side_effect=lambda r: r)
+    cast(Any, handler.context.response_factory).apply_modifier = MagicMock(
+        side_effect=lambda r: r
+    )
 
     result = handler.handle_passthrough(mock_request, call_next=mock_call_next)
     assert result is not None
@@ -66,7 +71,7 @@ def test_bypass_passthrough_excluded_path_without_call_next() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = "127.0.0.1"
-    handler.context.validator.is_path_excluded = MagicMock(return_value=True)
+    cast(Any, handler.context.validator).is_path_excluded = MagicMock(return_value=True)
 
     result = handler.handle_passthrough(mock_request)
     assert result is None
@@ -80,7 +85,9 @@ def test_bypass_security_bypass_without_call_next() -> None:
     mock_route_config.bypassed_checks = {"all"}
 
     handler.context.config.passive_mode = False
-    handler.context.route_resolver.should_bypass_check = MagicMock(return_value=True)
+    cast(Any, handler.context.route_resolver).should_bypass_check = MagicMock(
+        return_value=True
+    )
 
     result = handler.handle_security_bypass(
         mock_request, route_config=mock_route_config
@@ -96,9 +103,13 @@ def test_bypass_security_bypass_with_call_next() -> None:
     mock_route_config.bypassed_checks = {"all"}
 
     handler.context.config.passive_mode = False
-    handler.context.route_resolver.should_bypass_check = MagicMock(return_value=True)
+    cast(Any, handler.context.route_resolver).should_bypass_check = MagicMock(
+        return_value=True
+    )
     mock_call_next = MagicMock(return_value=MagicMock())
-    handler.context.response_factory.apply_modifier = MagicMock(side_effect=lambda r: r)
+    cast(Any, handler.context.response_factory).apply_modifier = MagicMock(
+        side_effect=lambda r: r
+    )
 
     result = handler.handle_security_bypass(
         mock_request,
@@ -127,6 +138,5 @@ def test_dynamic_rule_manager_stop_with_active_thread() -> None:
     stop_flag.set()
     manager.stop()
 
-    assert manager.update_task is None
-
     DynamicRuleManager._instance = None
+    assert manager.update_task is None

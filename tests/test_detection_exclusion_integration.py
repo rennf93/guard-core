@@ -33,13 +33,48 @@ class _FakeRequest:
         method: str = "GET",
         client_host: str = "127.0.0.1",
     ) -> None:
-        self.query_params = query_params or {}
-        self.headers = headers or {}
+        self._query_params = query_params or {}
+        self._headers = headers or {}
         self._body_bytes = body_bytes
-        self.url_path = url_path
-        self.method = method
-        self.client_host = client_host
+        self._url_path = url_path
+        self._method = method
+        self._client_host = client_host
         self.state: Any = type("S", (), {})()
+
+    @property
+    def url_path(self) -> str:
+        return self._url_path
+
+    @property
+    def url_scheme(self) -> str:
+        return "https"
+
+    @property
+    def url_full(self) -> str:
+        return f"https://test{self._url_path}"
+
+    def url_replace_scheme(self, scheme: str) -> str:
+        return f"{scheme}://test{self._url_path}"
+
+    @property
+    def method(self) -> str:
+        return self._method
+
+    @property
+    def client_host(self) -> str | None:
+        return self._client_host
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return self._headers
+
+    @property
+    def query_params(self) -> dict[str, str]:
+        return self._query_params
+
+    @property
+    def scope(self) -> dict[str, Any]:
+        return {}
 
     async def body(self) -> bytes:
         return self._body_bytes
@@ -219,7 +254,6 @@ async def test_request_body_no_excluded_fields_still_scans_full_body() -> None:
 
 async def test_unknown_client_host_is_handled() -> None:
     request = _FakeRequest(client_host="")
-    request.client_host = ""
     _result = await detect_penetration_attempt(request)
     detected = _result.is_threat
     assert detected is False
