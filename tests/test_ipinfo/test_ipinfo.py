@@ -396,8 +396,6 @@ async def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
 async def test_initialize_leaves_reader_unset_when_download_silently_no_file(
     tmp_path: Path,
 ) -> None:
-    # Patch _download_database to succeed without creating the file.
-    # Forces the `if self.db_path.exists()` False branch at the end of initialize.
     from unittest.mock import AsyncMock, patch
 
     from guard_core.handlers.ipinfo_handler import IPInfoManager
