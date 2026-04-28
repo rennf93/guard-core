@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import sys
 import time
@@ -188,7 +189,7 @@ async def test_reset_clears_local_state_and_redis_keys() -> None:
 
     manager.banned_ips["x"] = time.time() + 60
     manager.banned_networks.append(
-        (__import__("ipaddress").ip_network("10.0.0.0/24"), time.time() + 60)
+        (ipaddress.ip_network("10.0.0.0/24"), time.time() + 60)
     )
 
     await manager.reset()
@@ -235,8 +236,11 @@ async def test_reset_without_redis_just_clears_local() -> None:
 async def test_reset_global_state_replaces_module_singleton() -> None:
     from guard_core.handlers import ipban_handler
 
+    ipban_handler.ip_ban_manager = IPBanManager()
     original = ipban_handler.ip_ban_manager
+    IPBanManager._instance = None
+
     await reset_global_state()
-    assert ipban_handler.ip_ban_manager is original or isinstance(
-        ipban_handler.ip_ban_manager, IPBanManager
-    )
+
+    assert ipban_handler.ip_ban_manager is not original
+    assert isinstance(ipban_handler.ip_ban_manager, IPBanManager)
