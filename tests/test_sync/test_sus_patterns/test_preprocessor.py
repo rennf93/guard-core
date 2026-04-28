@@ -471,3 +471,69 @@ def test_decode_common_encodings_unwraps_five_layer_base64_polyglot() -> None:
 
     assert "<script>" in result
     assert "</script>" in result
+
+
+def test_decode_base64_candidates_returns_token_when_decoded_is_non_printable() -> None:
+    preprocessor = ContentPreprocessor()
+
+    content = "AAAAAAAAAAAAAAAAAAAA"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
+def test_decode_hex_escapes_replaces_two_digit_escape() -> None:
+    preprocessor = ContentPreprocessor()
+
+    result = preprocessor._decode_hex_escapes("prefix\\x41suffix")
+
+    assert result == "prefixAsuffix"
+
+
+def test_decode_unicode_escapes_replaces_four_digit_escape() -> None:
+    preprocessor = ContentPreprocessor()
+
+    result = preprocessor._decode_unicode_escapes("prefix\\u0041suffix")
+
+    assert result == "prefixAsuffix"
+
+
+def test_build_result_with_attack_regions_skips_gap_when_regions_are_adjacent() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=20)
+
+    content = "AAAAABBBBB" + "C" * 10
+    regions = [(0, 5), (5, 10)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result.startswith("AAAAABBBBB")
+    assert len(result) <= 20
+
+
+def test_build_result_with_attack_regions_skips_gap_when_budget_exhausted() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=10)
+
+    content = "xxxxxAAAAA" + "y" * 5 + "BBBBB"
+    regions = [(5, 10), (15, 20)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result == "AAAAABBBBB"
+
+
+def test_build_result_with_attack_regions_appends_tail_within_budget() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=100)
+
+    content = "prefix" + "<script>alert(1)</script>" + "tail"
+    regions = [(6, 31)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result == content
