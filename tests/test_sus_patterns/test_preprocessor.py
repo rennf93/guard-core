@@ -459,12 +459,31 @@ def test_extract_and_concatenate_attack_regions_multiple_iterations_before_limit
 
 
 async def test_decode_common_encodings_exits_after_max_iterations() -> None:
+    import urllib.parse
+
     from guard_core.detection_engine.preprocessor import ContentPreprocessor
 
     pp = ContentPreprocessor()
-    # "%2525..." decodes to "%25..." which decodes to "%..." which decodes to "..."
-    # across three iterations — loop exits because iterations == max_decode_iterations,
-    # not because content == original.
-    content = "%25%32%35AAA"
+    content = "<"
+    for _ in range(8):
+        content = urllib.parse.quote(content, safe="")
     out = await pp.decode_common_encodings(content)
     assert out != content
+    assert "%" in out
+
+
+@pytest.mark.asyncio
+async def test_decode_common_encodings_unwraps_five_layer_base64_polyglot() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+
+    payload = "<script>alert(1)</script>"
+    encoded = payload
+    for _ in range(5):
+        encoded = base64.b64encode(encoded.encode()).decode()
+
+    result = await preprocessor.decode_common_encodings(encoded)
+
+    assert "<script>" in result
+    assert "</script>" in result

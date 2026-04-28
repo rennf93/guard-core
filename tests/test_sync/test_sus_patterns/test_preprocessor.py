@@ -444,9 +444,30 @@ def test_extract_and_concatenate_attack_regions_multiple_iterations_before_limit
 
 
 def test_decode_common_encodings_exits_after_max_iterations() -> None:
+    import urllib.parse
+
     from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
 
     pp = ContentPreprocessor()
-    content = "%25%32%35AAA"
+    content = "<"
+    for _ in range(8):
+        content = urllib.parse.quote(content, safe="")
     out = pp.decode_common_encodings(content)
     assert out != content
+    assert "%" in out
+
+
+def test_decode_common_encodings_unwraps_five_layer_base64_polyglot() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+
+    payload = "<script>alert(1)</script>"
+    encoded = payload
+    for _ in range(5):
+        encoded = base64.b64encode(encoded.encode()).decode()
+
+    result = preprocessor.decode_common_encodings(encoded)
+
+    assert "<script>" in result
+    assert "</script>" in result
