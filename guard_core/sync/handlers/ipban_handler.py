@@ -1,6 +1,7 @@
 import ipaddress
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,12 +10,31 @@ from cachetools import TTLCache
 _Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
+class _ObservableTTLCache(TTLCache):
+    def __init__(
+        self,
+        maxsize: int,
+        ttl: float,
+        on_evict: Callable[[], None],
+    ) -> None:
+        super().__init__(maxsize=maxsize, ttl=ttl)
+        self._on_evict = on_evict
+
+    def popitem(self) -> tuple[Any, Any]:
+        item = super().popitem()
+        self._on_evict()
+        return item
+
+
 class IPBanManager:
     LOCAL_CACHE_TTL_CAP_SECONDS = 3600
+    _EVICTION_LOG_EVERY = 100
 
     _instance: "IPBanManager | None" = None
     banned_ips: TTLCache
     banned_networks: list[tuple[_Network, float]]
+    evictions_count: int
+    logger: logging.Logger
     config: Any = None
     redis_handler: Any = None
     agent_handler: Any = None
@@ -22,13 +42,25 @@ class IPBanManager:
     def __new__(cls: type["IPBanManager"]) -> "IPBanManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.banned_ips = TTLCache(
-                maxsize=10000, ttl=cls.LOCAL_CACHE_TTL_CAP_SECONDS
+            cls._instance.evictions_count = 0
+            cls._instance.logger = logging.getLogger("guard_core.sync.handlers.ipban")
+            cls._instance.banned_ips = _ObservableTTLCache(
+                maxsize=10000,
+                ttl=cls.LOCAL_CACHE_TTL_CAP_SECONDS,
+                on_evict=cls._instance._on_eviction,
             )
             cls._instance.banned_networks = []
             cls._instance.redis_handler = None
             cls._instance.agent_handler = None
         return cls._instance
+
+    def _on_eviction(self) -> None:
+        self.evictions_count += 1
+        if self.evictions_count % self._EVICTION_LOG_EVERY == 0:
+            self.logger.warning(
+                "IP ban cache full; %d entries evicted (silent overflow)",
+                self.evictions_count,
+            )
 
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
@@ -113,9 +145,7 @@ class IPBanManager:
             )
             self.agent_handler.send_event(event)
         except Exception as e:
-            logging.getLogger("guard_core.sync.handlers.ipban").error(
-                f"Failed to send ban event to agent: {e}"
-            )
+            self.logger.error("Failed to send ban event to agent: %s", e)
 
     def unban_ip(self, ip: str) -> None:
         if ip in self.banned_ips:
@@ -143,9 +173,7 @@ class IPBanManager:
             )
             self.agent_handler.send_event(event)
         except Exception as e:
-            logging.getLogger("guard_core.sync.handlers.ipban").error(
-                f"Failed to send unban event to agent: {e}"
-            )
+            self.logger.error("Failed to send unban event to agent: %s", e)
 
     def _check_network_cache(
         self, addr: ipaddress.IPv4Address | ipaddress.IPv6Address, now: float
