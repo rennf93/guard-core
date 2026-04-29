@@ -6,15 +6,15 @@ from guard_core.core.checks.pipeline import SecurityCheckPipeline
 from guard_core.models import SecurityConfig
 
 
-def test_fail_secure_field_exists_with_safe_default() -> None:
+def test_default_security_config_is_fail_secure() -> None:
     config = SecurityConfig()
     assert hasattr(config, "fail_secure")
-    assert config.fail_secure is False
-
-
-def test_fail_secure_can_be_enabled() -> None:
-    config = SecurityConfig(fail_secure=True)
     assert config.fail_secure is True
+
+
+def test_fail_secure_can_be_disabled() -> None:
+    config = SecurityConfig(fail_secure=False)
+    assert config.fail_secure is False
 
 
 @pytest.mark.asyncio

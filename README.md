@@ -250,6 +250,23 @@ See the [SecurityConfig Reference](https://rennf93.github.io/guard-core/latest/c
 
 ___
 
+Migration: fail_secure default flipped
+--------------------------------------
+
+`SecurityConfig.fail_secure` now defaults to `True`. When a security check raises an unexpected exception, the request is blocked with HTTP 500 instead of falling through.
+
+**Why**: the old fail-open default silently masked check bugs. The new default surfaces them so they can be fixed instead of leaking past the security layer.
+
+**Migration**: to restore the previous fail-open behavior, opt in explicitly:
+
+```python
+config = SecurityConfig(fail_secure=False)
+```
+
+Recommended path: keep the new default and fix any check exceptions that surface. The old default could mask genuine bugs.
+
+___
+
 Detection Engine
 ----------------
 
