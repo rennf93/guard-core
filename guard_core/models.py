@@ -272,10 +272,12 @@ class SecurityConfig(BaseModel):
     )
 
     fail_secure: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Block the request when any security check raises an unexpected exception. "
-            "False (default) logs the error and falls through (fail-open)."
+            "True (default) returns HTTP 500 so check bugs surface; "
+            "False logs and falls through (fail-open) - "
+            "opt-in only for staging diagnostics."
         ),
     )
 
