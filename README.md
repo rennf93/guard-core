@@ -258,7 +258,7 @@ Multi-layered threat detection:
 - **PatternCompiler**: ReDoS-safe regex compilation with LRU caching and timeout protection.
 - **ContentPreprocessor**: Unicode normalization, encoding detection, attack-region-aware truncation.
 - **SemanticAnalyzer**: Attack probability scoring, entropy analysis, obfuscation detection.
-- **PerformanceMonitor**: Anomaly detection, slow pattern tracking, statistical analysis.
+- **PerformanceMonitor**: Slow-pattern detection via execution-time statistics (mean/stddev thresholds), not anomaly learning.
 
 See the [Detection Engine Internals](https://rennf93.github.io/guard-core/latest/internals/detection-engine/) for details.
 
