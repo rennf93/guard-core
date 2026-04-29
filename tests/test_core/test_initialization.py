@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -156,6 +157,33 @@ async def test_initialize_redis_handlers_with_cloud(
         )
 
 
+async def test_initialize_redis_handlers_sets_cloud_ip_store_when_configured(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+) -> None:
+    custom_store = Mock()
+    custom_store.get = AsyncMock()
+    custom_store.set = AsyncMock()
+    custom_store.clear = AsyncMock()
+    security_config.cloud_ip_store = custom_store
+
+    with (
+        patch("guard_core.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_redis = AsyncMock()
+        mock_cloud.set_store = Mock()
+        mock_ipban.initialize_redis = AsyncMock()
+        mock_sus.initialize_redis = AsyncMock()
+
+        await initializer.initialize_redis_handlers()
+
+        mock_cloud.set_store.assert_called_once_with(custom_store)
+
+
 async def test_initialize_redis_handlers_no_optional_handlers(
     security_config: SecurityConfig, mock_redis_handler: Mock
 ) -> None:
@@ -311,19 +339,35 @@ async def test_initialize_agent_for_handlers_geoip_without_initialize_agent(
 
 async def test_initialize_dynamic_rule_manager_disabled(
     security_config: SecurityConfig,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     initializer = HandlerInitializer(config=security_config)
 
-    await initializer.initialize_dynamic_rule_manager()
+    with caplog.at_level(logging.WARNING, logger="guard_core.core.initialization"):
+        await initializer.initialize_dynamic_rule_manager()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 0
 
 
 async def test_initialize_dynamic_rule_manager_no_agent(
     security_config: SecurityConfig,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     security_config.enable_dynamic_rules = True
     initializer = HandlerInitializer(config=security_config, agent_handler=None)
 
-    await initializer.initialize_dynamic_rule_manager()
+    with caplog.at_level(logging.WARNING, logger="guard_core.core.initialization"):
+        await initializer.initialize_dynamic_rule_manager()
+
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING"
+        and r.name == "guard_core.core.initialization"
+        and "Dynamic rules enabled but agent unavailable" in r.getMessage()
+    ]
+    assert len(warnings) == 1
 
 
 async def test_initialize_dynamic_rule_manager_enabled(
