@@ -260,13 +260,19 @@ class ContentPreprocessor:
 
     def _decode_hex_escapes(self, content: str) -> str:
         def _replace(match: re.Match[str]) -> str:
-            return chr(int(match.group(1), 16))
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
 
         return self._HEX_ESCAPE_RE.sub(_replace, content)
 
     def _decode_unicode_escapes(self, content: str) -> str:
         def _replace(match: re.Match[str]) -> str:
-            return chr(int(match.group(1), 16))
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
 
         return self._UNICODE_ESCAPE_RE.sub(_replace, content)
 
