@@ -540,6 +540,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-its-useful-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it's useful for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-design-properties" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2116,6 +2127,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-its-useful-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it's useful for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#key-design-properties" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2224,6 +2246,18 @@
     FlG --&gt; FlA["Flask App"]
     DG --&gt; DA["Django App"]</code></pre>
 <p>Adapter developers implement three protocols -- <code>GuardRequest</code>, <code>GuardResponse</code>, and <code>GuardResponseFactory</code> -- to bridge their framework's native objects into <code>guard-core</code>'s security pipeline. Everything else (17 security checks, the detection engine, Redis state management, event telemetry) works out of the box.</p>
+<hr />
+<h2 id="what-its-useful-for">What it's useful for<a class="headerlink" href="#what-its-useful-for" title="Permanent link">&para;</a></h2>
+<p>It catches the HTTP-layer attacks an automated, AI-orchestrated attacker runs at scale:</p>
+<ul>
+<li><strong>Polymorphic payloads</strong> — variation-based SQLi/XSS that defeats signature WAFs (token-overlap scoring catches them)</li>
+<li><strong>Reconnaissance</strong> — endpoint enumeration, 404 spam, honeypot probing, banner grabbing</li>
+<li><strong>Distributed attacks</strong> — when paired with behavioral patterns enabled (per-IP rate limits alone are not enough)</li>
+<li><strong>Known bad actors</strong> — country/cloud/tor blocking, IP reputation</li>
+<li><strong>Layer-7 abuse</strong> — auto-ban thresholds, custom rate limits per route, CORS enforcement, security headers</li>
+</ul>
+<p>It does <strong>not</strong> cover prompt injection against LLM endpoints, model-output exfiltration, application-logic vulnerabilities (auth bypass, IDOR, business-logic flaws), or network-layer DDoS — those are out-of-scope by design and belong to other layers of your stack.</p>
+<p>If you're integrating into FastAPI, jump straight to the <a href="https://rennf93.github.io/fastapi-guard/latest/tutorial/integration/"><strong>fastapi-guard Integration Guide</strong></a> — it has the decision tree across standalone / SaaS / encrypted-SaaS paths and the common pitfalls.</p>
 <hr />
 <h2 id="key-design-properties">Key Design Properties<a class="headerlink" href="#key-design-properties" title="Permanent link">&para;</a></h2>
 <ul>
