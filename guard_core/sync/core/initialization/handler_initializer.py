@@ -190,7 +190,14 @@ class HandlerInitializer:
             self.geo_ip_handler.initialize_agent(telemetry)
 
     def initialize_dynamic_rule_manager(self) -> None:
-        if not (self.agent_handler and self.config.enable_dynamic_rules):
+        if not self.config.enable_dynamic_rules:
+            return
+        if not self.agent_handler:
+            self.logger.warning(
+                "Dynamic rules enabled but agent unavailable; falling back to "
+                "static config. Dashboard rule updates will not propagate until "
+                "agent connectivity is restored."
+            )
             return
 
         from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
