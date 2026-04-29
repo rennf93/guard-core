@@ -10,6 +10,21 @@ Release Notes
 
 ___
 
+v2.2.2 (2026-04-29)
+-------------------
+
+Safer failures, observability, and truthful copy (v2.2.2)
+---------------------------------------------------------
+
+- **Fixed** — Decode iteration cap raised from 3 to 7 in `ContentPreprocessor.decode_common_encodings` to cover up to 7-layer polyglot encoding evasion (`base64(base64(base64(base64(payload))))` and similar). The loop still terminates on `if content == original: break`, so it stays bounded. Sync mirror updated in lockstep.
+- **Fixed** — `IPInfoManager.get_country` no longer raises `RuntimeError("Database not initialized")` when the MaxMind reader is unset; it now logs a WARNING and returns `None`. Callers no longer need to wrap every geo lookup in a defensive `try/except`. Sync mirror.
+- **Fixed** — `ErrorResponseFactory.apply_modifier` catches exceptions raised by the user-supplied `custom_response_modifier`, logs via `logger.exception`, and returns the unmodified response. A buggy modifier can no longer crash the request pipeline. Sync mirror.
+- **Added** — `IPBanManager.banned_ips` is now an `_ObservableTTLCache` that exposes `evictions_count` on the manager and emits a WARNING every 100 overflow evictions. Only overflow evictions are counted; TTL-expiry deletions are excluded (verified against `cachetools` source — `expire()` uses `Cache.__delitem__`, not `popitem`). Sync mirror.
+- **Added** — `HandlerInitializer.initialize_dynamic_rule_manager` emits a WARNING when `enable_dynamic_rules=True` but no agent handler is reachable, so the silent fall-back to static config is now visible to operators. The opt-out path (`enable_dynamic_rules=False`) remains silent. Sync mirror.
+- **Changed** — README and CHANGELOG copy aligned with what the engine actually does. Replaced "intelligent / behavioral analysis / anomaly detection / penetration detection" framing with signature-based detection plus multi-metric semantic scoring. Added a "How Detection Works" section to the README walking through the decode → regex match → semantic-score → ReDoS-guard pipeline.
+
+___
+
 v2.2.1 (2026-04-27)
 -------------------
 
