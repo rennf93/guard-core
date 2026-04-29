@@ -334,10 +334,27 @@ def test_file_operations(tmp_path: Path) -> None:
             assert reader is not None
 
 
-def test_get_country_without_init(tmp_path: Path) -> None:
+def test_get_country_without_init_returns_none_and_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    IPInfoManager._instance = None
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
-    with pytest.raises(RuntimeError, match="Database not initialized"):
-        db.get_country("1.1.1.1")
+    db.reader = None
+
+    with caplog.at_level("WARNING", logger="guard_core.sync.handlers.ipinfo"):
+        result = db.get_country("1.1.1.1")
+
+    assert result is None
+    warnings = [
+        record
+        for record in caplog.records
+        if record.levelname == "WARNING"
+        and record.name == "guard_core.sync.handlers.ipinfo"
+    ]
+    assert len(warnings) == 1
+    assert "Geo-IP reader uninitialized" in warnings[0].getMessage()
+    assert "1.1.1.1" in warnings[0].getMessage()
+    IPInfoManager._instance = None
 
 
 def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
@@ -365,8 +382,6 @@ def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
 def test_initialize_leaves_reader_unset_when_download_silently_no_file(
     tmp_path: Path,
 ) -> None:
-    # Patch _download_database to succeed without creating the file.
-    # Forces the `if self.db_path.exists()` False branch at the end of initialize.
     from unittest.mock import MagicMock, patch
 
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
@@ -462,4 +477,238 @@ def test_singleton_reuses_existing_instance_with_new_token() -> None:
     third = IPInfoManager(token="third-token")
     assert id(third) == first_id
     assert third.token == "third-token"
+    IPInfoManager._instance = None
+
+
+def test_initialize_agent_assigns_handler() -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    agent = MagicMock()
+    mgr.initialize_agent(agent)
+    assert mgr.agent_handler is agent
+    IPInfoManager._instance = None
+
+
+def test_send_geo_event_no_op_without_agent_handler() -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    mgr.agent_handler = None
+    mgr._send_geo_event(
+        event_type="x",
+        ip_address="1.1.1.1",
+        action_taken="y",
+        reason="z",
+    )
+    IPInfoManager._instance = None
+
+
+def test_send_geo_event_dispatches_to_agent_handler() -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    mgr.agent_handler = MagicMock()
+    mgr._send_geo_event(
+        event_type="probe",
+        ip_address="2.2.2.2",
+        action_taken="noted",
+        reason="because",
+        extra="meta",
+    )
+    mgr.agent_handler.send_event.assert_called_once()
+    IPInfoManager._instance = None
+
+
+def test_send_geo_event_logs_when_agent_send_event_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok")
+    mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock(side_effect=RuntimeError("agent down"))
+
+    with caplog.at_level("ERROR", logger="guard_core.sync.handlers.ipinfo"):
+        mgr._send_geo_event(
+            event_type="probe",
+            ip_address="3.3.3.3",
+            action_taken="failed",
+            reason="boom",
+        )
+
+    assert any(
+        "Failed to send geo event to agent" in record.getMessage()
+        for record in caplog.records
+    )
+    IPInfoManager._instance = None
+
+
+def test_initialize_failure_emits_geo_event_when_agent_present(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "missing.mmdb")
+    mgr.redis_handler = None
+    mgr.agent_handler = MagicMock()
+
+    def _raise(*_a: object, **_kw: object) -> None:
+        raise RuntimeError("download failed")
+
+    with patch.object(mgr, "_download_database", new=MagicMock(side_effect=_raise)):
+        mgr.initialize()
+
+    mgr.agent_handler.send_event.assert_called_once()
+    assert mgr.reader is None
+    IPInfoManager._instance = None
+
+
+def test_get_country_exception_with_agent_dispatches_geo_event(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.side_effect = RuntimeError("DB error")
+    mgr.agent_handler = MagicMock()
+
+    assert mgr.get_country("4.4.4.4") is None
+    mgr.agent_handler.send_event.assert_called_once()
+    IPInfoManager._instance = None
+
+
+def test_check_country_access_returns_true_when_country_unknown(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.return_value = None
+
+    allowed, country = mgr.check_country_access("6.6.6.6", blocked_countries=[])
+    assert allowed is True
+    assert country is None
+    IPInfoManager._instance = None
+
+
+def test_check_country_access_blocks_when_country_unknown_and_whitelisted(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.return_value = None
+
+    allowed, country = mgr.check_country_access(
+        "7.7.7.7", blocked_countries=[], whitelist_countries=["US"]
+    )
+    assert allowed is False
+    assert country is None
+    IPInfoManager._instance = None
+
+
+def test_check_country_access_blocks_country_not_in_whitelist(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.return_value = {"country": "FR"}
+    mgr.agent_handler = MagicMock()
+
+    allowed, country = mgr.check_country_access(
+        "8.8.8.8", blocked_countries=[], whitelist_countries=["US"]
+    )
+    assert allowed is False
+    assert country == "FR"
+    mgr.agent_handler.send_event.assert_called_once()
+    IPInfoManager._instance = None
+
+
+def test_check_country_access_blocks_country_in_blacklist(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.return_value = {"country": "RU"}
+    mgr.agent_handler = MagicMock()
+
+    allowed, country = mgr.check_country_access("9.9.9.9", blocked_countries=["RU"])
+    assert allowed is False
+    assert country == "RU"
+    mgr.agent_handler.send_event.assert_called_once()
+    IPInfoManager._instance = None
+
+
+def test_check_country_access_allows_country_when_unblocked(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    mgr = IPInfoManager(token="tok", db_path=tmp_path / "test.mmdb")
+    mgr.reader = Mock()
+    mgr.reader.get.return_value = {"country": "US"}
+
+    allowed, country = mgr.check_country_access(
+        "10.10.10.10", blocked_countries=["RU"], whitelist_countries=["US"]
+    )
+    assert allowed is True
+    assert country == "US"
+    IPInfoManager._instance = None
+
+
+def test_refresh_reopens_database_after_download(tmp_path: Path) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "refresh.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db_path)
+    mgr.reader = Mock()
+
+    def _write_file() -> None:
+        db_path.write_bytes(b"refreshed")
+
+    fake_reader = Mock()
+    with (
+        patch.object(mgr, "_download_database", new=MagicMock(side_effect=_write_file)),
+        patch("maxminddb.open_database", return_value=fake_reader),
+    ):
+        mgr.refresh()
+
+    assert mgr.reader is fake_reader
+    IPInfoManager._instance = None
+
+
+def test_refresh_aborts_when_download_fails(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "refresh.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db_path)
+
+    def _raise() -> None:
+        raise RuntimeError("network down")
+
+    with (
+        patch.object(mgr, "close") as mock_close,
+        patch.object(mgr, "_download_database", new=MagicMock(side_effect=_raise)),
+        caplog.at_level("ERROR", logger="guard_core.sync.handlers.ipinfo"),
+    ):
+        mgr.refresh()
+
+    mock_close.assert_called_once()
+    assert mgr.reader is None
+    assert any("IPInfo refresh failed" in r.getMessage() for r in caplog.records)
+    IPInfoManager._instance = None
+
+
+def test_refresh_keeps_reader_unset_when_download_yields_no_file(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "refresh_no_file.mmdb"
+    mgr = IPInfoManager(token="tok", db_path=db_path)
+
+    with (
+        patch.object(mgr, "close") as mock_close,
+        patch.object(mgr, "_download_database", new=MagicMock()),
+    ):
+        mgr.refresh()
+
+    mock_close.assert_called_once()
+    assert mgr.reader is None
     IPInfoManager._instance = None

@@ -158,7 +158,10 @@ class IPInfoManager:
 
     def get_country(self, ip: str) -> str | None:
         if not self.reader:
-            raise RuntimeError("Database not initialized")
+            self.logger.warning(
+                "Geo-IP reader uninitialized; returning None for %s", ip
+            )
+            return None
 
         try:
             result = self.reader.get(ip)
