@@ -1,12 +1,16 @@
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 from unittest.mock import MagicMock
+
+import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.events.metrics import MetricsCollector
 from guard_core.sync.core.responses.context import ResponseContext
 from guard_core.sync.core.responses.factory import ErrorResponseFactory
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.handlers.security_headers_handler import security_headers_manager
 from tests.test_sync.conftest import (
     MockGuardResponse,
     MockGuardResponseFactory,
@@ -118,6 +122,51 @@ def test_apply_modifier_custom() -> None:
     resp = MockGuardResponse("ok", 200)
     result = factory.apply_modifier(resp)
     assert result is resp
+
+
+def test_apply_modifier_logs_and_returns_unmodified_when_modifier_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def modifier(response: object) -> object:
+        raise RuntimeError("boom")
+
+    factory = _make_factory(custom_response_modifier=modifier)
+    resp = MockGuardResponse("ok", 200)
+
+    with caplog.at_level(
+        logging.ERROR, logger="guard_core.sync.core.responses.factory"
+    ):
+        result = factory.apply_modifier(resp)
+
+    assert result is resp
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) == 1
+    record = error_records[0]
+    assert "custom_response_modifier raised" in record.getMessage()
+    assert "returning unmodified response" in record.getMessage()
+    assert "boom" in record.getMessage()
+    assert record.exc_info is not None
+    assert record.exc_info[0] is RuntimeError
+    assert str(record.exc_info[1]) == "boom"
+
+
+def test_apply_cors_headers_writes_each_header() -> None:
+    factory = _make_factory(security_headers={"enabled": True})
+    original_cors = security_headers_manager.cors_config
+    security_headers_manager.cors_config = {
+        "origins": ["https://example.com"],
+        "allow_credentials": False,
+        "allow_methods": ["GET"],
+        "allow_headers": ["X-Test"],
+    }
+    try:
+        resp = MockGuardResponse("ok", 200)
+        result = factory.apply_cors_headers(resp, "https://example.com")
+        assert (
+            result.headers.get("Access-Control-Allow-Origin") == "https://example.com"
+        )
+    finally:
+        security_headers_manager.cors_config = original_cors
 
 
 def test_process_response_basic() -> None:

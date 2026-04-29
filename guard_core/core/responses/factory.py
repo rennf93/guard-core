@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 
 from guard_core.core.responses.context import ResponseContext
@@ -12,6 +13,7 @@ from guard_core.utils import extract_client_ip
 class ErrorResponseFactory:
     def __init__(self, context: ResponseContext):
         self.context = context
+        self.logger = logging.getLogger("guard_core.core.responses.factory")
 
     async def create_error_response(
         self, status_code: int, default_message: str
@@ -61,10 +63,16 @@ class ErrorResponseFactory:
 
     async def apply_modifier(self, response: GuardResponse) -> GuardResponse:
         if self.context.config.custom_response_modifier:
-            result: GuardResponse = await self.context.config.custom_response_modifier(
-                response
-            )
-            return result
+            try:
+                result: GuardResponse = (
+                    await self.context.config.custom_response_modifier(response)
+                )
+                return result
+            except Exception as exc:
+                self.logger.exception(
+                    "custom_response_modifier raised %s; returning unmodified response",
+                    exc,
+                )
         return response
 
     async def process_response(
