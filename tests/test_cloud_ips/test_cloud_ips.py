@@ -9,7 +9,10 @@ from guard_core.handlers.cloud_handler import (
     cloud_handler,
     fetch_aws_ip_ranges,
     fetch_azure_ip_ranges,
+    fetch_digitalocean_ip_ranges,
     fetch_gcp_ip_ranges,
+    fetch_linode_ip_ranges,
+    fetch_vultr_ip_ranges,
 )
 from guard_core.handlers.redis_handler import RedisManager
 from guard_core.models import SecurityConfig
@@ -124,6 +127,21 @@ async def test_cloud_ip_ranges() -> None:
             new_callable=AsyncMock,
             return_value={ipaddress.IPv4Network("10.0.0.0/8")},
         ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
     ):
         await cloud_handler._refresh_providers()
 
@@ -149,6 +167,21 @@ async def test_cloud_ip_refresh() -> None:
             "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
             new_callable=AsyncMock,
             return_value={ipaddress.IPv4Network("10.0.0.0/8")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
         ),
     ):
         mock_aws.return_value = {ipaddress.IPv4Network("192.168.0.0/24")}
@@ -261,6 +294,21 @@ async def test_cloud_manager_refresh_handling() -> None:
             new_callable=AsyncMock,
             return_value={ipaddress.IPv4Network("10.0.0.0/8")},
         ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
     ):
         cloud_handler.ip_ranges["AWS"] = set()
         assert len(cloud_handler.ip_ranges["AWS"]) == 0
@@ -312,6 +360,21 @@ async def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> 
         ),
         patch(
             "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
             new_callable=AsyncMock,
             return_value=set(),
         ),
@@ -388,6 +451,21 @@ async def test_cloud_ip_redis_sync_async(
             new_callable=AsyncMock,
             return_value={ipaddress.IPv4Network("10.0.0.0/8")},
         ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
     ):
         mock_aws.return_value = {ipaddress.IPv4Network("192.168.0.0/24")}
 
@@ -432,3 +510,615 @@ async def test_cloud_ip_redis_error_handling(
         assert len(cloud_handler.ip_ranges["AWS"]) == 0
 
         await redis_handler.close()
+
+
+async def test_fetch_digitalocean_ip_ranges_returns_networks_from_csv_feed(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    csv_body = (
+        "5.101.96.0/21,NL,NL-NH,Amsterdam,1098 XH\n"
+        "24.144.64.0/22,US,US-NJ,North Bergen,07047\n"
+        "2604:a880::/32,US,US-NJ,North Bergen,07047\n"
+    )
+    mock_resp = _mock_aiohttp_response(text_data=csv_body)
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_digitalocean_ip_ranges()
+    assert ipaddress.IPv4Network("5.101.96.0/21") in result
+    assert ipaddress.IPv4Network("24.144.64.0/22") in result
+    assert ipaddress.IPv6Network("2604:a880::/32") in result
+    assert len(result) == 3
+
+
+async def test_fetch_digitalocean_ip_ranges_returns_empty_set_on_http_failure(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_aiohttp_session.get = AsyncMock(side_effect=Exception("API failure"))
+    result = await fetch_digitalocean_ip_ranges()
+    assert result == set()
+
+
+async def test_fetch_digitalocean_ip_ranges_skips_blank_and_invalid_rows(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    csv_body = (
+        "5.101.96.0/21,NL,NL-NH,Amsterdam,1098 XH\n"
+        "\n"
+        ",placeholder,row,with,empty-prefix\n"
+        "not-a-cidr,US,US-NJ,North Bergen,07047\n"
+        "24.144.64.0/22,US,US-NJ,North Bergen,07047\n"
+    )
+    mock_resp = _mock_aiohttp_response(text_data=csv_body)
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_digitalocean_ip_ranges()
+    assert ipaddress.IPv4Network("5.101.96.0/21") in result
+    assert ipaddress.IPv4Network("24.144.64.0/22") in result
+    assert len(result) == 2
+
+
+async def test_fetch_linode_ip_ranges_returns_networks_from_csv_feed(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    csv_body = (
+        "# RFC8805 geofeed\n"
+        "# ip_prefix, alpha2code, region, city, postal_code\n"
+        "2600:3c00::/32,US,US-TX,Richardson,\n"
+        "45.79.0.0/16,US,US-NJ,Cedar Knolls,\n"
+        "172.232.0.0/16,US,US-CA,Fremont,\n"
+    )
+    mock_resp = _mock_aiohttp_response(text_data=csv_body)
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_linode_ip_ranges()
+    assert ipaddress.IPv6Network("2600:3c00::/32") in result
+    assert ipaddress.IPv4Network("45.79.0.0/16") in result
+    assert ipaddress.IPv4Network("172.232.0.0/16") in result
+    assert len(result) == 3
+
+
+async def test_fetch_linode_ip_ranges_returns_empty_set_on_http_failure(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_aiohttp_session.get = AsyncMock(side_effect=Exception("API failure"))
+    result = await fetch_linode_ip_ranges()
+    assert result == set()
+
+
+async def test_fetch_linode_ip_ranges_skips_comments_and_invalid_rows(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    csv_body = (
+        "# header line\n"
+        "\n"
+        ",empty,prefix,row,here\n"
+        "garbage,,,,\n"
+        "45.79.0.0/16,US,US-NJ,Cedar Knolls,\n"
+    )
+    mock_resp = _mock_aiohttp_response(text_data=csv_body)
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_linode_ip_ranges()
+    assert ipaddress.IPv4Network("45.79.0.0/16") in result
+    assert len(result) == 1
+
+
+async def test_fetch_vultr_ip_ranges_returns_networks_from_json_feed(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_resp = _mock_aiohttp_response(
+        json_data={
+            "description": "Constant.com / Vultr.com GeoFeed",
+            "asn": 20473,
+            "subnets": [
+                {
+                    "ip_prefix": "45.32.0.0/21",
+                    "alpha2code": "US",
+                    "region": "US-NJ",
+                    "city": "Piscataway",
+                    "postal_code": "08854",
+                },
+                {
+                    "ip_prefix": "2001:19f0::/29",
+                    "alpha2code": "US",
+                    "region": "US-NJ",
+                    "city": "Piscataway",
+                    "postal_code": "08854",
+                },
+            ],
+        }
+    )
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_vultr_ip_ranges()
+    assert ipaddress.IPv4Network("45.32.0.0/21") in result
+    assert ipaddress.IPv6Network("2001:19f0::/29") in result
+    assert len(result) == 2
+
+
+async def test_fetch_vultr_ip_ranges_returns_empty_set_on_http_failure(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_aiohttp_session.get = AsyncMock(side_effect=Exception("API failure"))
+    result = await fetch_vultr_ip_ranges()
+    assert result == set()
+
+
+async def test_fetch_vultr_ip_ranges_skips_entries_without_prefix(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_resp = _mock_aiohttp_response(
+        json_data={
+            "subnets": [
+                {"ip_prefix": "45.32.0.0/21"},
+                {"alpha2code": "US"},
+                {"ip_prefix": "not-a-cidr"},
+            ]
+        }
+    )
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+
+    result = await fetch_vultr_ip_ranges()
+    assert ipaddress.IPv4Network("45.32.0.0/21") in result
+    assert len(result) == 1
+
+
+async def test_new_providers_wired_into_refresh_pipeline() -> None:
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("5.101.96.0/21")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.79.0.0/16")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.32.0.0/21")},
+        ),
+    ):
+        cloud_handler.redis_handler = None
+        await cloud_handler._refresh_providers()
+        assert cloud_handler.is_cloud_ip("5.101.96.1", {"DigitalOcean"})
+        assert cloud_handler.is_cloud_ip("45.79.0.1", {"Linode"})
+        assert cloud_handler.is_cloud_ip("45.32.0.1", {"Vultr"})
+
+
+async def test_new_providers_wired_into_refresh_async_store_path() -> None:
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
+    cloud_handler.redis_handler = None
+    cloud_handler.ip_ranges = {}
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("5.101.96.0/21")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.79.0.0/16")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.32.0.0/21")},
+        ),
+    ):
+        await cloud_handler.refresh_async({"DigitalOcean", "Linode", "Vultr"})
+        assert cloud_handler.is_cloud_ip("5.101.96.1", {"DigitalOcean"})
+        assert cloud_handler.is_cloud_ip("45.79.0.1", {"Linode"})
+        assert cloud_handler.is_cloud_ip("45.32.0.1", {"Vultr"})
+
+
+async def test_new_providers_wired_into_refresh_via_redis_handler(
+    security_config_redis: SecurityConfig,
+) -> None:
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+    await redis_handler.delete("cloud_ranges", "DigitalOcean")
+    await redis_handler.delete("cloud_ranges", "Linode")
+    await redis_handler.delete("cloud_ranges", "Vultr")
+
+    cloud_handler.redis_handler = redis_handler
+    cloud_handler._store = None
+    cloud_handler.ip_ranges = {}
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("5.101.96.0/21")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.79.0.0/16")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("45.32.0.0/21")},
+        ),
+    ):
+        await cloud_handler._refresh_providers_via_redis_handler(
+            {"DigitalOcean", "Linode", "Vultr"}
+        )
+        assert cloud_handler.is_cloud_ip("5.101.96.1", {"DigitalOcean"})
+        assert cloud_handler.is_cloud_ip("45.79.0.1", {"Linode"})
+        assert cloud_handler.is_cloud_ip("45.32.0.1", {"Vultr"})
+
+        await cloud_handler._refresh_providers_via_redis_handler({"DigitalOcean"})
+        assert cloud_handler.is_cloud_ip("5.101.96.1", {"DigitalOcean"})
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+async def test_refresh_via_redis_handler_falls_back_when_redis_missing() -> None:
+    cloud_handler.redis_handler = None
+    cloud_handler.ip_ranges = {}
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+            new_callable=AsyncMock,
+            return_value={ipaddress.IPv4Network("192.168.0.0/24")},
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+    ):
+        await cloud_handler._refresh_providers_via_redis_handler({"AWS"})
+        assert cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+
+async def test_refresh_via_redis_handler_records_empty_on_fetch_error(
+    security_config_redis: SecurityConfig,
+) -> None:
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+    await redis_handler.delete("cloud_ranges", "AWS")
+
+    cloud_handler.redis_handler = redis_handler
+    cloud_handler._store = None
+    cloud_handler.ip_ranges = {}
+
+    with patch(
+        "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
+        side_effect=Exception("boom"),
+    ):
+        await cloud_handler._refresh_providers_via_redis_handler({"AWS"})
+
+    assert cloud_handler.ip_ranges["AWS"] == set()
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+def test_set_store_replaces_active_store() -> None:
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    fresh_store = InMemoryCloudIpStore()
+    cloud_handler.set_store(fresh_store)
+    assert cloud_handler._store is fresh_store
+
+
+def test_get_cloud_provider_details_returns_match_or_none() -> None:
+    cloud_handler.ip_ranges = {
+        "AWS": {ipaddress.IPv4Network("192.168.0.0/24")},
+        "GCP": set(),
+    }
+    match = cloud_handler.get_cloud_provider_details("192.168.0.5", {"AWS", "GCP"})
+    assert match == ("AWS", "192.168.0.0/24")
+    assert cloud_handler.get_cloud_provider_details("8.8.8.8", {"AWS", "GCP"}) is None
+    assert cloud_handler.get_cloud_provider_details("not-an-ip", {"AWS"}) is None
+
+
+async def test_send_cloud_detection_event_no_op_without_agent() -> None:
+    cloud_handler.agent_handler = None
+    await cloud_handler.send_cloud_detection_event("1.2.3.4", "AWS", "192.168.0.0/24")
+
+
+async def test_send_cloud_detection_event_dispatches_when_agent_present() -> None:
+    agent = MagicMock()
+    agent.send_event = AsyncMock()
+    cloud_handler.agent_handler = agent
+    try:
+        await cloud_handler.send_cloud_detection_event(
+            "1.2.3.4", "AWS", "192.168.0.0/24"
+        )
+        agent.send_event.assert_awaited()
+    finally:
+        cloud_handler.agent_handler = None
+
+
+async def test_send_cloud_event_logs_when_agent_dispatch_raises() -> None:
+    agent = MagicMock()
+    agent.send_event = AsyncMock(side_effect=RuntimeError("agent down"))
+    cloud_handler.agent_handler = agent
+    try:
+        await cloud_handler._send_cloud_event(
+            event_type="cloud_blocked",
+            ip_address="1.2.3.4",
+            action_taken="blocked",
+            reason="test",
+        )
+    finally:
+        cloud_handler.agent_handler = None
+
+
+async def test_fetch_gcp_ip_ranges_skips_unknown_prefix_keys(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_resp = _mock_aiohttp_response(
+        json_data={
+            "prefixes": [
+                {"ipv4Prefix": "172.16.0.0/12"},
+                {"someOtherKey": "ignored"},
+            ]
+        }
+    )
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
+    result = await fetch_gcp_ip_ranges()
+    assert ipaddress.IPv4Network("172.16.0.0/12") in result
+    assert len(result) == 1
+
+
+async def test_initialize_redis_replaces_in_memory_store(
+    security_config_redis: SecurityConfig,
+) -> None:
+    from guard_core.handlers.cloud_ip_stores import (
+        InMemoryCloudIpStore,
+        RedisCloudIpStore,
+    )
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
+    cloud_handler.redis_handler = None
+    cloud_handler.ip_ranges = {}
+
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+    ):
+        await cloud_handler.initialize_redis(redis_handler)
+
+    assert isinstance(cloud_handler._store, RedisCloudIpStore)
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+async def test_initialize_agent_records_handler() -> None:
+    agent = MagicMock()
+    await cloud_handler.initialize_agent(agent)
+    assert cloud_handler.agent_handler is agent
+    cloud_handler.agent_handler = None
+
+
+async def test_initialize_redis_keeps_existing_redis_store(
+    security_config_redis: SecurityConfig,
+) -> None:
+    from guard_core.handlers.cloud_ip_stores import (
+        InMemoryCloudIpStore,
+        RedisCloudIpStore,
+    )
+
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+
+    cloud_handler.set_store(RedisCloudIpStore(redis_handler))
+    cloud_handler.redis_handler = None
+    cloud_handler.ip_ranges = {}
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_gcp_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_azure_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_digitalocean_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_linode_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.fetch_vultr_ip_ranges",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ),
+    ):
+        original_store = cloud_handler._store
+        await cloud_handler.initialize_redis(redis_handler)
+        assert cloud_handler._store is original_store
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+async def test_refresh_via_redis_handler_handles_empty_fetch(
+    security_config_redis: SecurityConfig,
+) -> None:
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+    await redis_handler.delete("cloud_ranges", "AWS")
+
+    cloud_handler.redis_handler = redis_handler
+    cloud_handler._store = None
+
+    with patch(
+        "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
+        return_value=set(),
+    ):
+        await cloud_handler._refresh_providers_via_redis_handler({"AWS"})
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+def test_get_cloud_provider_details_skips_unknown_provider() -> None:
+    cloud_handler.ip_ranges = {"AWS": {ipaddress.IPv4Network("192.168.0.0/24")}}
+    assert cloud_handler.get_cloud_provider_details("8.8.8.8", {"Bogus"}) is None
+
+
+async def test_send_cloud_event_returns_when_agent_handler_missing() -> None:
+    cloud_handler.agent_handler = None
+    await cloud_handler._send_cloud_event(
+        event_type="cloud_blocked",
+        ip_address="1.2.3.4",
+        action_taken="blocked",
+        reason="test",
+    )
+
+
+def test_cloud_manager_returns_existing_singleton() -> None:
+    from guard_core.handlers.cloud_handler import CloudManager
+
+    first = CloudManager()
+    second = CloudManager()
+    assert first is second
+
+
+async def test_refresh_via_redis_handler_keeps_existing_provider_state(
+    security_config_redis: SecurityConfig,
+) -> None:
+    redis_handler = RedisManager(security_config_redis)
+    await redis_handler.initialize()
+    await redis_handler.delete("cloud_ranges", "AWS")
+
+    cloud_handler.redis_handler = redis_handler
+    cloud_handler._store = None
+    cloud_handler.ip_ranges = {"AWS": {ipaddress.IPv4Network("192.168.0.0/24")}}
+
+    with patch(
+        "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
+        new_callable=AsyncMock,
+        side_effect=Exception("fetch failure"),
+    ):
+        await cloud_handler._refresh_providers_via_redis_handler({"AWS"})
+
+    assert cloud_handler.ip_ranges["AWS"] == {ipaddress.IPv4Network("192.168.0.0/24")}
+
+    await redis_handler.close()
+    cloud_handler.redis_handler = None
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    cloud_handler.set_store(InMemoryCloudIpStore())
