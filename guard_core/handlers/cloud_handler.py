@@ -94,7 +94,92 @@ async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6N
         return set()
 
 
-_ALL_PROVIDERS = set({"AWS", "GCP", "Azure"})
+async def fetch_digitalocean_ip_ranges() -> set[
+    ipaddress.IPv4Network | ipaddress.IPv6Network
+]:
+    try:
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                "https://www.digitalocean.com/geo/google.csv",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            body = await response.text()
+
+        networks: set[ipaddress.IPv4Network | ipaddress.IPv6Network] = set()
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            prefix = line.split(",", 1)[0].strip()
+            if not prefix:
+                continue
+            try:
+                networks.add(ipaddress.ip_network(prefix))
+            except ValueError:
+                continue
+        return networks
+    except Exception as e:
+        logging.error(f"Failed to fetch DigitalOcean IP ranges: {str(e)}")
+        return set()
+
+
+async def fetch_linode_ip_ranges() -> set[
+    ipaddress.IPv4Network | ipaddress.IPv6Network
+]:
+    try:
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                "https://geoip.linode.com/",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            body = await response.text()
+
+        networks: set[ipaddress.IPv4Network | ipaddress.IPv6Network] = set()
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            prefix = line.split(",", 1)[0].strip()
+            if not prefix:
+                continue
+            try:
+                networks.add(ipaddress.ip_network(prefix))
+            except ValueError:
+                continue
+        return networks
+    except Exception as e:
+        logging.error(f"Failed to fetch Linode IP ranges: {str(e)}")
+        return set()
+
+
+async def fetch_vultr_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    try:
+        async with aiohttp.ClientSession() as session:
+            response = await session.get(
+                "https://geofeed.constant.com/?json",
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+
+        networks: set[ipaddress.IPv4Network | ipaddress.IPv6Network] = set()
+        for entry in data.get("subnets", []):
+            prefix = entry.get("ip_prefix")
+            if not prefix:
+                continue
+            try:
+                networks.add(ipaddress.ip_network(prefix))
+            except ValueError:
+                continue
+        return networks
+    except Exception as e:
+        logging.error(f"Failed to fetch Vultr IP ranges: {str(e)}")
+        return set()
+
+
+_ALL_PROVIDERS = set({"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"})
 
 
 class CloudManager:
@@ -113,6 +198,9 @@ class CloudManager:
                 "AWS": set(),
                 "GCP": set(),
                 "Azure": set(),
+                "DigitalOcean": set(),
+                "Linode": set(),
+                "Vultr": set(),
             }
             cls._instance.last_updated = {provider: None for provider in _ALL_PROVIDERS}
             cls._instance.redis_handler = None
@@ -146,6 +234,9 @@ class CloudManager:
                     "AWS": fetch_aws_ip_ranges,
                     "GCP": fetch_gcp_ip_ranges,
                     "Azure": fetch_azure_ip_ranges,
+                    "DigitalOcean": fetch_digitalocean_ip_ranges,
+                    "Linode": fetch_linode_ip_ranges,
+                    "Vultr": fetch_vultr_ip_ranges,
                 }[provider]()
                 if ranges:
                     old_ranges = self.ip_ranges.get(provider, set())
@@ -195,6 +286,9 @@ class CloudManager:
                     "AWS": fetch_aws_ip_ranges,
                     "GCP": fetch_gcp_ip_ranges,
                     "Azure": fetch_azure_ip_ranges,
+                    "DigitalOcean": fetch_digitalocean_ip_ranges,
+                    "Linode": fetch_linode_ip_ranges,
+                    "Vultr": fetch_vultr_ip_ranges,
                 }[provider]
 
                 ranges = await fetch_func()
@@ -233,6 +327,9 @@ class CloudManager:
                     "AWS": fetch_aws_ip_ranges,
                     "GCP": fetch_gcp_ip_ranges,
                     "Azure": fetch_azure_ip_ranges,
+                    "DigitalOcean": fetch_digitalocean_ip_ranges,
+                    "Linode": fetch_linode_ip_ranges,
+                    "Vultr": fetch_vultr_ip_ranges,
                 }[provider]
                 ranges = await fetch_func()
                 if ranges:
