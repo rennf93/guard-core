@@ -10,6 +10,36 @@ Release Notes
 
 ___
 
+v3.0.0 (2026-04-29)
+-------------------
+
+Fail-secure by default and broader cloud-provider coverage (v3.0.0)
+-------------------------------------------------------------------
+
+### Breaking changes
+
+- **`SecurityConfig.fail_secure` now defaults to `True`.** Any unhandled exception inside a security check now blocks the request with HTTP 500 instead of logging the error and falling through. Bugs in checks that previously slipped past as silent fail-open responses now surface immediately. To restore the old behavior on deployments that depend on it, set `fail_secure=False` explicitly:
+
+  ```python
+  config = SecurityConfig(fail_secure=False)
+  ```
+
+  Recommended migration: keep the new default and fix any check exceptions that surface — the previous default could mask serious bugs.
+
+### Added
+
+- `fetch_digitalocean_ip_ranges()` — pulls the DigitalOcean geofeed CSV from `https://www.digitalocean.com/geo/google.csv` and returns the set of CIDRs (IPv4 + IPv6).
+- `fetch_linode_ip_ranges()` — pulls the Linode/Akamai RFC8805 CSV from `https://geoip.linode.com/`.
+- `fetch_vultr_ip_ranges()` — pulls the Vultr/Constant geofeed JSON from `https://geofeed.constant.com/?json`.
+- All three providers wired into `_ALL_PROVIDERS`, the `CloudManager` singleton initializer, and the three provider→fetcher dispatch maps (`_refresh_providers`, `refresh_async`, `_refresh_providers_via_redis_handler`). Sync mirrors updated in lockstep using `requests` instead of `aiohttp`.
+- Each fetcher gracefully returns an empty `set()` on any HTTP / parse failure with `logging.error(...)`. Malformed CIDR rows in CSV feeds are skipped silently rather than discarding the entire feed.
+
+### Notes
+
+- Alibaba was evaluated for inclusion but no reliable official public IP-range feed could be confirmed. Deferred to a follow-up rather than ship a guessed URL.
+
+___
+
 v2.2.2 (2026-04-29)
 -------------------
 

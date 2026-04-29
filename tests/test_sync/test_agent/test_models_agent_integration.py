@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -72,6 +72,46 @@ def test_to_agent_config_success() -> None:
     assert result is not None
 
 
+def test_to_agent_config_propagates_encryption_key() -> None:
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-api-key",
+        agent_project_encryption_key="bXlfMzJfYnl0ZV9rZXlfYmFzZTY0X2VuY29kZWRfaGVyZQ==",
+    )
+
+    result = config.to_agent_config()
+
+    assert result is not None
+    assert (
+        result.project_encryption_key
+        == "bXlfMzJfYnl0ZV9rZXlfYmFzZTY0X2VuY29kZWRfaGVyZQ=="
+    )
+
+
+def test_to_agent_config_propagates_guard_version() -> None:
+    """guard_version was added to AgentConfig in guard-agent 2.4.0.
+
+    We assert at the call-site contract level — to_agent_config() must pass
+    guard_version as a kwarg to AgentConfig. Whether the installed AgentConfig
+    actually stores the field is guard-agent's concern (older versions silently
+    drop unknown kwargs via Pydantic's default extra='ignore').
+    """
+    import guard_agent
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-api-key",
+        agent_guard_version="6.7.8",
+    )
+
+    spy = MagicMock(name="AgentConfig")
+    with patch.object(guard_agent, "AgentConfig", spy):
+        config.to_agent_config()
+
+    spy.assert_called_once()
+    assert spy.call_args.kwargs.get("guard_version") == "6.7.8"
+
+
 def test_to_agent_config_import_error() -> None:
     import sys
 
@@ -112,6 +152,8 @@ def test_agent_config_with_all_defaults() -> None:
     assert config.agent_enable_metrics is True
     assert config.agent_timeout == 30
     assert config.agent_retry_attempts == 3
+    assert config.agent_project_encryption_key is None
+    assert config.agent_guard_version is None
     assert config.enable_dynamic_rules is False
     assert config.dynamic_rule_interval == 300
 

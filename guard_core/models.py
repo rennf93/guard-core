@@ -334,6 +334,26 @@ class SecurityConfig(BaseModel):
         default=3, description="Number of retry attempts for failed requests"
     )
 
+    agent_project_encryption_key: str | None = Field(
+        default=None,
+        description=(
+            "Per-project AES-256-GCM key used to encrypt the telemetry payload "
+            "between the agent and the SaaS. When set, the agent posts to "
+            "/api/v1/events/encrypted instead of /api/v1/events. Required for "
+            "API keys that have encryption enforced server-side."
+        ),
+    )
+
+    agent_guard_version: str | None = Field(
+        default=None,
+        description=(
+            "Framework wrapper version (e.g. fastapi-guard's __version__) "
+            "propagated to the agent so the SaaS can attribute telemetry to "
+            "the wrapper version, not just the agent version. Set this to "
+            "your framework integration's __version__ at construction time."
+        ),
+    )
+
     enable_dynamic_rules: bool = Field(
         default=False, description="Enable dynamic rule updates from SaaS platform"
     )
@@ -658,6 +678,8 @@ class SecurityConfig(BaseModel):
                 enable_metrics=self.agent_enable_metrics,
                 timeout=self.agent_timeout,
                 retry_attempts=self.agent_retry_attempts,
+                project_encryption_key=self.agent_project_encryption_key,
+                guard_version=self.agent_guard_version,
             )
         except ImportError:
             return None
