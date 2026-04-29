@@ -284,7 +284,7 @@ class ContentPreprocessor:
         return content
 
     def decode_common_encodings(self, content: str) -> str:
-        max_decode_iterations = 3
+        max_decode_iterations = 7
         iterations = 0
 
         while iterations < max_decode_iterations:

@@ -459,12 +459,97 @@ def test_extract_and_concatenate_attack_regions_multiple_iterations_before_limit
 
 
 async def test_decode_common_encodings_exits_after_max_iterations() -> None:
+    import urllib.parse
+
     from guard_core.detection_engine.preprocessor import ContentPreprocessor
 
     pp = ContentPreprocessor()
-    # "%2525..." decodes to "%25..." which decodes to "%..." which decodes to "..."
-    # across three iterations — loop exits because iterations == max_decode_iterations,
-    # not because content == original.
-    content = "%25%32%35AAA"
+    content = "<"
+    for _ in range(8):
+        content = urllib.parse.quote(content, safe="")
     out = await pp.decode_common_encodings(content)
     assert out != content
+    assert "%" in out
+
+
+@pytest.mark.asyncio
+async def test_decode_common_encodings_unwraps_five_layer_base64_polyglot() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+
+    payload = "<script>alert(1)</script>"
+    encoded = payload
+    for _ in range(5):
+        encoded = base64.b64encode(encoded.encode()).decode()
+
+    result = await preprocessor.decode_common_encodings(encoded)
+
+    assert "<script>" in result
+    assert "</script>" in result
+
+
+def test_decode_base64_candidates_returns_token_when_decoded_is_non_printable() -> None:
+    preprocessor = ContentPreprocessor()
+
+    content = "AAAAAAAAAAAAAAAAAAAA"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
+def test_decode_hex_escapes_replaces_two_digit_escape() -> None:
+    preprocessor = ContentPreprocessor()
+
+    result = preprocessor._decode_hex_escapes("prefix\\x41suffix")
+
+    assert result == "prefixAsuffix"
+
+
+def test_decode_unicode_escapes_replaces_four_digit_escape() -> None:
+    preprocessor = ContentPreprocessor()
+
+    result = preprocessor._decode_unicode_escapes("prefix\\u0041suffix")
+
+    assert result == "prefixAsuffix"
+
+
+def test_build_result_with_attack_regions_skips_gap_when_regions_are_adjacent() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=20)
+
+    content = "AAAAABBBBB" + "C" * 10
+    regions = [(0, 5), (5, 10)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result.startswith("AAAAABBBBB")
+    assert len(result) <= 20
+
+
+def test_build_result_with_attack_regions_skips_gap_when_budget_exhausted() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=10)
+
+    content = "xxxxxAAAAA" + "y" * 5 + "BBBBB"
+    regions = [(5, 10), (15, 20)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result == "AAAAABBBBB"
+
+
+def test_build_result_with_attack_regions_appends_tail_within_budget() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=100)
+
+    content = "prefix" + "<script>alert(1)</script>" + "tail"
+    regions = [(6, 31)]
+
+    result = preprocessor._build_result_with_attack_regions_and_context(
+        content, regions
+    )
+
+    assert result == content
