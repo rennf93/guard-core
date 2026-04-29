@@ -13,8 +13,8 @@ ___
 v3.0.0 (2026-04-29)
 -------------------
 
-Fail-secure by default and broader cloud-provider coverage (v3.0.0)
--------------------------------------------------------------------
+Fail-secure by default, broader cloud-provider coverage, agent encryption + version propagation (v3.0.0)
+--------------------------------------------------------------------------------------------------------
 
 ### Breaking changes
 
@@ -33,6 +33,8 @@ Fail-secure by default and broader cloud-provider coverage (v3.0.0)
 - `fetch_vultr_ip_ranges()` — pulls the Vultr/Constant geofeed JSON from `https://geofeed.constant.com/?json`.
 - All three providers wired into `_ALL_PROVIDERS`, the `CloudManager` singleton initializer, and the three provider→fetcher dispatch maps (`_refresh_providers`, `refresh_async`, `_refresh_providers_via_redis_handler`). Sync mirrors updated in lockstep using `requests` instead of `aiohttp`.
 - Each fetcher gracefully returns an empty `set()` on any HTTP / parse failure with `logging.error(...)`. Malformed CIDR rows in CSV feeds are skipped silently rather than discarding the entire feed.
+- **`SecurityConfig.agent_project_encryption_key: str | None`** — per-project AES-256-GCM key the framework adapter passes through to the agent. When set, the agent posts to `/api/v1/events/encrypted` with the encrypted payload; when `None`, the agent uses the plaintext ingest path. Required for any API key whose SaaS-side configuration enforces payload encryption — without it the SaaS rejects every batch and the agent's ingestion breaker stays tripped. `to_agent_config()` propagates this directly to `AgentConfig.project_encryption_key`.
+- **`SecurityConfig.agent_guard_version: str | None`** — framework wrapper version (e.g. `fastapi_guard.__version__`) propagated to the agent so the SaaS can attribute telemetry to the wrapper version, not just the agent version. `to_agent_config()` propagates this to `AgentConfig.guard_version`. Pairs with `guard-agent >= 2.4.0`'s `EventBatch.guard_version` field; older agents silently drop the kwarg via Pydantic's default `extra='ignore'`.
 
 ### Notes
 
