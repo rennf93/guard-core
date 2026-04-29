@@ -7,7 +7,7 @@
 ___
 
 <p align="center">
-    <strong>guard-core is the framework-agnostic security engine that powers the Guard ecosystem. It provides IP control, rate limiting, penetration detection, security headers, and behavioral analysis through a protocol-based architecture. Framework-specific adapters (fastapi-guard, flaskapi-guard, djapi-guard) consume this library.</strong>
+    <strong>guard-core is the framework-agnostic security engine that powers the Guard ecosystem. It provides IP control, rate limiting, signature-based attack-pattern detection, security headers, and threshold-based behavior tracking through a protocol-based architecture. Framework-specific adapters (fastapi-guard, flaskapi-guard, djapi-guard) consume this library.</strong>
 </p>
 
 <p align="center">
@@ -120,11 +120,23 @@ Features
 - **HTTP Security Headers**: CSP, HSTS, X-Frame-Options, and OWASP best practices.
 - **Cloud Provider IP Blocking**: Block requests from AWS, GCP, Azure IP ranges.
 - **IP Geolocation**: Country-based access control via GeoIP databases.
-- **Behavioral Analysis**: Usage monitoring, return pattern detection, frequency analysis.
+- **Threshold-Based Behavior Tracking**: Per-IP request counting, response-pattern matching, suspicious-frequency triggers (deterministic threshold matching, not learning-based).
 - **Security Decorators**: Route-level security with composable decorator mixins.
 - **Detection Engine**: Multi-layered threat detection with regex, semantic analysis, and performance monitoring.
 - **Distributed State Management**: Redis integration for shared state across instances.
 - **Protocol-Based Architecture**: Framework-agnostic via `GuardRequest`/`GuardResponse` protocols.
+
+___
+
+How Detection Works
+-------------------
+
+1. Request inputs (query, headers, body) are decoded through up to 7 layers covering URL, HTML entities, base64, hex, Unicode escapes, and SQL comments.
+2. Decoded content is matched against ~64 regex patterns across 16 attack categories, with patterns context-filtered to relevant input zones.
+3. Matched payloads receive a multi-metric semantic score combining keyword overlap, Shannon entropy, encoding-layer count, and obfuscation indicators.
+4. ReDoS protection enforces a 0.1s pattern-validation timeout and a 2-5s match timeout per pattern.
+
+The engine is signature-based with multi-metric semantic scoring on top. It is not machine-learning-based and does not learn from traffic.
 
 ___
 
@@ -246,7 +258,7 @@ Multi-layered threat detection:
 - **PatternCompiler**: ReDoS-safe regex compilation with LRU caching and timeout protection.
 - **ContentPreprocessor**: Unicode normalization, encoding detection, attack-region-aware truncation.
 - **SemanticAnalyzer**: Attack probability scoring, entropy analysis, obfuscation detection.
-- **PerformanceMonitor**: Anomaly detection, slow pattern tracking, statistical analysis.
+- **PerformanceMonitor**: Slow-pattern detection via execution-time statistics (mean/stddev thresholds), not anomaly learning.
 
 See the [Detection Engine Internals](https://rennf93.github.io/guard-core/latest/internals/detection-engine/) for details.
 

@@ -364,7 +364,7 @@ v0.1.0 (2026-03-23)
 - **IP Management**: Whitelisting, blacklisting, geolocation, cloud provider blocking.
 - **Rate Limiting**: Sliding window algorithm with in-memory and Redis backends.
 - **Penetration Detection**: Enhanced detection engine with pattern matching, semantic analysis, and performance monitoring.
-- **Security Decorators**: Route-level security controls for access control, authentication, rate limiting, behavioral analysis, content filtering, and advanced features.
+- **Security Decorators**: Route-level security controls for access control, authentication, rate limiting, threshold-based behavior rules, content filtering, and advanced features.
 - **Security Headers**: Comprehensive HTTP security header management following OWASP best practices.
 - **Redis Integration**: Distributed state management for multi-instance deployments.
-- **Behavioral Analysis**: Usage monitoring, return pattern detection, and frequency analysis.
+- **Threshold-Based Behavior Tracking**: Per-IP request counting, response-pattern matching, and suspicious-frequency triggers (deterministic threshold matching, not learning-based).
