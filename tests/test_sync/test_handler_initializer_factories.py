@@ -164,4 +164,7 @@ def test_composite_start_exception_is_logged_not_raised(
     ):
         initializer.initialize_agent_integrations()
 
-    assert any("handler.start failed" in r.message for r in caplog.records)
+    assert any(
+        "failed to start" in r.getMessage() and "boom" in r.getMessage()
+        for r in caplog.records
+    )
