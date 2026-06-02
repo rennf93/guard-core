@@ -18,6 +18,20 @@ class CompositeAgentHandler:
         self._handlers = handlers
         self._event_filter = event_filter or EventFilter()
         self._enricher = enricher
+        self._started = False
+        self._failed_handlers: list[str] = []
+
+    @property
+    def started(self) -> bool:
+        return self._started
+
+    @property
+    def degraded(self) -> bool:
+        return self._started and bool(self._failed_handlers)
+
+    @property
+    def failed_handlers(self) -> list[str]:
+        return list(self._failed_handlers)
 
     def send_event(self, event: Any) -> None:
         event_type = getattr(event, "event_type", None)
@@ -51,11 +65,15 @@ class CompositeAgentHandler:
                 logger.exception("handler.initialize_redis failed")
 
     def start(self) -> None:
+        self._failed_handlers = []
         for handler in self._handlers:
+            handler_name = type(handler).__name__
             try:
                 handler.start()
-            except Exception:
-                logger.exception("handler.start failed")
+            except Exception as e:
+                self._failed_handlers.append(handler_name)
+                logger.error("Handler %s failed to start: %s", handler_name, e)
+        self._started = True
 
     def stop(self) -> None:
         for handler in self._handlers:
