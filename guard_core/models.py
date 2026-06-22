@@ -445,6 +445,19 @@ class SecurityConfig(BaseModel):
         le=100000,
     )
 
+    detection_max_body_inspect_bytes: int = Field(
+        default=262144,
+        description=(
+            "Maximum request body size in bytes read and inspected for penetration "
+            "detection. When the request's Content-Length exceeds this, the body is "
+            "not read or scanned and the request proceeds, bounding memory on the "
+            "detection hot path. Distinct from detection_max_content_length (the regex "
+            "scan window) and max_request_size (the 413 size gate)."
+        ),
+        ge=1024,
+        le=10485760,
+    )
+
     detection_preserve_attack_patterns: bool = Field(
         default=True,
         description="Preserve attack patterns during content truncation",

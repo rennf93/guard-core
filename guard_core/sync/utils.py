@@ -818,6 +818,20 @@ def _build_detection_miss() -> DetectionResult:
     return DetectionResult(is_threat=False, trigger_info="")
 
 
+def _body_exceeds_inspection_cap(
+    request: SyncGuardRequest, config: "SecurityConfig | None"
+) -> bool:
+    if config is None:
+        return False
+    content_length = request.headers.get("content-length")
+    if content_length is None:
+        return False
+    try:
+        return int(content_length) > config.detection_max_body_inspect_bytes
+    except ValueError:
+        return False
+
+
 def detect_penetration_attempt(
     request: SyncGuardRequest,
     config: "SecurityConfig | None" = None,
@@ -858,6 +872,9 @@ def detect_penetration_attempt(
     )
     if detected:
         return _build_detection_hit(trigger, threats)
+
+    if _body_exceeds_inspection_cap(request, config):
+        return _build_detection_miss()
 
     try:
         raw_body = (request.body()).decode()
