@@ -839,10 +839,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fail-open-by-default" class="md-nav__link">
+  <a href="#fail-secure-by-default" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fail-Open by Default
+        Fail-Secure by Default
       
     </span>
   </a>
@@ -2411,10 +2411,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fail-open-by-default" class="md-nav__link">
+  <a href="#fail-secure-by-default" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fail-Open by Default
+        Fail-Secure by Default
       
     </span>
   </a>
@@ -2690,8 +2690,8 @@
 <p>The <code>SecurityCheckPipeline</code> iterates over an ordered list of <code>SecurityCheck</code> instances. Each check either returns <code>None</code> (pass) or a <code>GuardResponse</code> (block). The pipeline short-circuits on the first blocking response.</p>
 <h3 id="passive-mode">Passive Mode<a class="headerlink" href="#passive-mode" title="Permanent link">&para;</a></h3>
 <p>When <code>SecurityConfig.passive_mode = True</code>, checks log violations but return <code>None</code> instead of blocking responses. This allows deploying guard-core in observation mode before enforcing.</p>
-<h3 id="fail-open-by-default">Fail-Open by Default<a class="headerlink" href="#fail-open-by-default" title="Permanent link">&para;</a></h3>
-<p>If a security check raises an exception, the pipeline logs the error and continues to the next check (fail-open). Adapters can opt into fail-secure behavior by setting a <code>fail_secure</code> attribute on the config (not a standard <code>SecurityConfig</code> field — checked via <code>hasattr</code>).</p>
+<h3 id="fail-secure-by-default">Fail-Secure by Default<a class="headerlink" href="#fail-secure-by-default" title="Permanent link">&para;</a></h3>
+<p>If a security check raises an exception, the pipeline logs the error and blocks the request with an HTTP 500 response (fail-secure) so check bugs surface. <code>fail_secure</code> is a standard <code>SecurityConfig</code> field (<code>fail_secure: bool = Field(default=True)</code>). Setting <code>fail_secure = False</code> opts into fail-open behavior, where the pipeline logs the error and falls through to the next check.</p>
 
 
 

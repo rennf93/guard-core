@@ -2389,7 +2389,7 @@
 <tr>
 <td><code>scope</code></td>
 <td><code>dict[str, Any]</code></td>
-<td>ASGI-like scope dict (must contain <code>"app"</code> and <code>"route"</code>)</td>
+<td>ASGI-like scope dict consumed by the adapter to resolve the route and populate <code>request.state</code> (<code>guard_decorator</code>, <code>guard_route_id</code>, <code>guard_endpoint_id</code>). <code>guard-core</code> never reads <code>scope</code> itself, so an empty dict suffices — global-level <code>SecurityConfig</code> settings still apply</td>
 </tr>
 </tbody>
 </table>

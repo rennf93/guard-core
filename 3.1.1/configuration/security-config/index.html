@@ -2782,8 +2782,8 @@
 <tr>
 <td><code>lazy_init</code></td>
 <td><code>bool</code></td>
-<td><code>False</code></td>
-<td>Run the IPInfo MMDB download and cloud-IP provider fetches as a background task during startup instead of awaiting them inline. Cloud and geo layers are inert until the task completes.</td>
+<td><code>True</code></td>
+<td>When <code>True</code> (default), run the IPInfo MMDB download and cloud-IP provider fetches as a background task during startup instead of awaiting them inline, so app boot never blocks on multi-second network calls. Cloud and geo layers are inert until the task completes. Set to <code>False</code> to await them inline for synchronous-init guarantees.</td>
 </tr>
 <tr>
 <td><code>geo_ip_db_max_age</code></td>
