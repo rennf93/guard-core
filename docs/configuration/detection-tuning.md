@@ -153,7 +153,7 @@ SecurityConfig(
 Or per-route via decorators:
 
 ```python
-@security.advanced(enable_suspicious_detection=False)
+@security.suspicious_detection(enabled=False)
 async def health_check():
     return {"status": "ok"}
 ```

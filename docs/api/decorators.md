@@ -201,7 +201,7 @@ from guard_core.decorators import SecurityDecorator
 config = SecurityConfig(
     enable_ip_banning=True,
     enable_rate_limiting=True,
-    rate_limit_requests=100,
+    rate_limit=100,
     rate_limit_window=3600
 )
 

@@ -175,6 +175,6 @@ The `SecurityCheckPipeline` iterates over an ordered list of `SecurityCheck` ins
 
 When `SecurityConfig.passive_mode = True`, checks log violations but return `None` instead of blocking responses. This allows deploying guard-core in observation mode before enforcing.
 
-### Fail-Open by Default
+### Fail-Secure by Default
 
-If a security check raises an exception, the pipeline logs the error and continues to the next check (fail-open). Adapters can opt into fail-secure behavior by setting a `fail_secure` attribute on the config (not a standard `SecurityConfig` field — checked via `hasattr`).
+If a security check raises an exception, the pipeline logs the error and blocks the request with an HTTP 500 response (fail-secure) so check bugs surface. `fail_secure` is a standard `SecurityConfig` field (`fail_secure: bool = Field(default=True)`). Setting `fail_secure = False` opts into fail-open behavior, where the pipeline logs the error and falls through to the next check.

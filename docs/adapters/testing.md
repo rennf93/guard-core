@@ -148,49 +148,43 @@ class MockGuardResponseFactory:
 
 ### Pytest Fixtures
 
-Guard-core's `conftest.py` provides ready-made fixtures:
+`MockGuardRequest`, `MockGuardResponse`, and `MockGuardResponseFactory` are plain classes — instantiate them directly in your tests. The only `SecurityConfig` fixtures `conftest.py` exposes are `security_config` (in-memory) and `security_config_redis` (Redis-backed):
 
 ```python
-@pytest.fixture
-def mock_request() -> MockGuardRequest:
-    return MockGuardRequest()
-
-@pytest.fixture
-def mock_response() -> MockGuardResponse:
-    return MockGuardResponse()
-
-@pytest.fixture
-def mock_response_factory() -> MockGuardResponseFactory:
-    return MockGuardResponseFactory()
-
 @pytest.fixture
 def security_config() -> SecurityConfig:
-    return SecurityConfig(enable_redis=False)
+    return SecurityConfig(
+        enable_redis=False,
+        whitelist=["127.0.0.1"],
+        blacklist=["192.168.1.1"],
+        blocked_user_agents=[r"badbot"],
+        auto_ban_threshold=3,
+        auto_ban_duration=300,
+    )
+
+@pytest.fixture
+def security_config_redis(ipinfo_db_path: Path) -> SecurityConfig:
+    return SecurityConfig(
+        redis_url=REDIS_URL,
+        redis_prefix=REDIS_PREFIX,
+        whitelist=["127.0.0.1"],
+        blacklist=["192.168.1.1"],
+    )
 ```
 
-And singleton cleanup fixtures that run automatically:
+And autouse cleanup fixtures that run automatically. `reset_state` resets the `IPBanManager` singleton and restores `sus_patterns_handler.patterns` (along with the cloud and IPInfo handlers); `redis_cleanup` and `reset_rate_limiter` clear distributed and rate-limit state:
 
 ```python
 @pytest.fixture(autouse=True)
-def cleanup_ipban_singleton() -> None:
+async def reset_state() -> AsyncGenerator[None, None]:
     IPBanManager._instance = None
+    original_patterns = sus_patterns_handler.patterns.copy()
     yield
+    sus_patterns_handler.patterns = original_patterns.copy()
     IPBanManager._instance = None
-
-@pytest.fixture(autouse=True)
-def cleanup_suspatterns_singleton() -> None:
-    SusPatternsManager._instance = None
-    yield
-    SusPatternsManager._instance = None
-
-@pytest.fixture(autouse=True)
-def reset_headers_manager() -> None:
-    SecurityHeadersManager._instance = None
-    yield
-    SecurityHeadersManager._instance = None
 ```
 
-These cleanup fixtures are critical. `IPBanManager`, `SusPatternsManager`, and `SecurityHeadersManager` are singletons. Without resetting them between tests, state leaks across test cases.
+These cleanup fixtures are critical. `IPBanManager` is a singleton and `sus_patterns_handler` holds mutable pattern state. Without resetting them between tests, state leaks across test cases.
 
 Testing Individual Security Checks
 ----------------------------------
@@ -214,6 +208,7 @@ class MockMiddleware:
         self.event_bus = MagicMock()
         self.event_bus.send_middleware_event = AsyncMock()
         self.route_resolver = MagicMock()
+        self.route_resolver.should_bypass_check.return_value = False
         self.response_factory = MagicMock()
         self.rate_limit_handler = MagicMock()
         self.agent_handler = None
@@ -239,8 +234,8 @@ async def test_ip_blacklist_blocks():
     check = IpSecurityCheck(middleware)
 
     request = MockGuardRequest(client_host="192.168.1.100")
-    request.state._guard_client_ip = "192.168.1.100"
-    request.state._guard_route_config = None
+    request.state.client_ip = "192.168.1.100"
+    request.state.route_config = None
 
     response = await check.check(request)
     assert response is not None
@@ -528,7 +523,7 @@ def decorated_app():
     app.add_middleware(SecurityMiddleware, config=config)
 
     @app.get("/limited")
-    @guard.rate_limit(max_requests=2, window=60)
+    @guard.rate_limit(requests=2, window=60)
     async def limited():
         return {"status": "ok"}
 

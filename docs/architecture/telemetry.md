@@ -21,7 +21,7 @@ Ten `SecurityConfig` fields control telemetry:
 |---|---|---|---|
 | `muted_event_types` | `set[str]` | `set()` | Suppress these event types from every exporter. |
 | `muted_metric_types` | `set[str]` | `set()` | Suppress these metric types from every exporter. |
-| `muted_check_logs` | `set[str]` | `set()` | Suppress pipeline + in-check log output for these checks. |
+| `muted_check_logs` | `set[str]` | `set()` | Suppress in-check `log_activity()` output for these checks. |
 | `enable_otel` | `bool` | `False` | Enable OpenTelemetry span/metric export (requires `[otel]` extra). |
 | `otel_service_name` | `str` | `"guard-core"` | Service name for OpenTelemetry resource. |
 | `otel_exporter_endpoint` | `str \| None` | `None` | OTLP/HTTP endpoint. `None` uses OTel's default (`localhost:4318`). |
@@ -38,7 +38,7 @@ Mute is applied globally inside `CompositeAgentHandler.send_event` / `.send_metr
 
 Drawn from constants in `guard_core.core.events.event_types`:
 
-- `EVENT_TYPE_VALUES` (30 values): `access_denied`, `authentication_failed`, `behavior_violation`, `cloud_blocked`, `content_filtered`, `country_blocked`, `csp_violation`, `custom_request_check`, `decoding_error`, `decorator_violation`, `dynamic_rule_applied`, `dynamic_rule_updated`, `emergency_mode_activated`, `emergency_mode_block`, `geo_lookup_failed`, `https_enforced`, `ip_banned`, `ip_blocked`, `ip_unbanned`, `path_excluded`, `pattern_added`, `pattern_detected`, `pattern_removed`, `penetration_attempt`, `rate_limited`, `redis_connection`, `redis_error`, `security_bypass`, `security_headers_applied`, `user_agent_blocked`
+- `EVENT_TYPE_VALUES` (31 values): `access_denied`, `authentication_failed`, `behavior_violation`, `cloud_blocked`, `content_filtered`, `country_blocked`, `csp_violation`, `custom_request_check`, `decoding_error`, `decorator_violation`, `dynamic_rule_applied`, `dynamic_rule_updated`, `emergency_mode_activated`, `emergency_mode_block`, `geo_lookup_failed`, `https_enforced`, `ip_banned`, `ip_blocked`, `ip_unbanned`, `path_excluded`, `pattern_added`, `pattern_detected`, `pattern_removed`, `penetration_attempt`, `rate_limited`, `rate_limit_script_reloaded`, `redis_connection`, `redis_error`, `security_bypass`, `security_headers_applied`, `user_agent_blocked`
 - `METRIC_TYPE_VALUES`: `error_rate`, `request_count`, `response_time`
 - `CHECK_NAME_VALUES`: `authentication`, `cloud_ip_refresh`, `cloud_provider`, `custom_request`, `custom_validators`, `emergency_mode`, `https_enforcement`, `ip_security`, `rate_limit`, `referrer`, `request_logging`, `request_size_content`, `required_headers`, `route_config`, `suspicious_activity`, `time_window`, `user_agent`
 
@@ -51,7 +51,7 @@ When `enable_enrichment=True` the `EventEnricher` runs inside `CompositeAgentHan
 | `guard.project_id` | `str` | `SecurityConfig.agent_project_id` | events + metrics |
 | `guard.service.name` | `str` | `SecurityConfig.otel_service_name` | events + metrics |
 | `guard.deployment.environment` | `str` | `SecurityConfig.otel_resource_attributes["deployment.environment"]` | events + metrics |
-| `guard.threat_score` | `int` (0-100) | Deterministic map of `event_type` → score; matches guard-core-app's `EVENT_SEVERITY` (penetration_attempt=90, ip_banned=70, medium events=50, rate_limited=20, default=20) | events only |
+| `guard.threat_score` | `int` (0-100) | `ThreatScorer.score_for(event_type)` — a deterministic `event_type` → score map in `guard_core.core.events.enricher` (penetration_attempt=90, ip_banned=70, medium events=50, rate_limited=20, default=20). guard-core-app stores the agent-supplied value as-is. | events only |
 | `guard.rule.id` | `str` | `DynamicRuleManager.match_event(event)` when the cached rule's IP / country / event-type matched | events only |
 | `guard.rule.version` | `int` | Same source as `guard.rule.id` | events only |
 | `guard.behavior.correlation_key` | `str` (16-char hex) | SHA-256 prefix of `ip \| service \| floor(now/300)` — stable within a 5-minute window so multiple events from the same IP share a key | events only |
@@ -75,7 +75,7 @@ config = SecurityConfig(
 
 - `muted_event_types` short-circuits `SecurityEventBus.send_middleware_event()` before the event reaches any exporter.
 - `muted_metric_types` short-circuits `MetricsCollector.send_metric()` before the metric reaches any exporter.
-- `muted_check_logs` suppresses both the pipeline's block/error log entries *and* the in-check `log_activity()` calls — both are gated on the same set.
+- `muted_check_logs` suppresses the in-check `log_activity()` calls — each check passes the set into `log_if_allowed`. `SecurityCheckPipeline` *also* accepts a `muted_check_logs` set that would gate its own block/error log entries, but the shipping adapters construct `SecurityCheckPipeline(checks)` without passing it, so those pipeline-level entries are not muted in practice.
 
 ## Enabling OpenTelemetry
 

@@ -8,7 +8,7 @@ keywords: cloud providers, AWS, GCP, Azure, IP ranges, cloud blocking, guard-cor
 Cloud Providers
 ===============
 
-Guard-core can block requests originating from cloud provider IP ranges (AWS, GCP, Azure). The `CloudManager` handler fetches the official IP range lists, caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline.
+Guard-core can block requests originating from cloud provider IP ranges. The `CloudManager` handler fetches the official IP range lists for six providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline. Only AWS, GCP, and Azure are user-blockable via `SecurityConfig.block_cloud_providers` (typed `set[CloudProvider]` where `CloudProvider = Literal["AWS", "GCP", "Azure"]`); the validator drops any other value.
 
 CloudManager
 ------------
@@ -22,16 +22,21 @@ class CloudManager:
     _instance = None
     ip_ranges: dict[str, set[IPv4Network | IPv6Network]]
     last_updated: dict[str, datetime | None]
+    _store: CloudIpStoreProtocol | None
 
     def __new__(cls) -> "CloudManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
+            cls._instance.ip_ranges = {
+                "AWS": set(), "GCP": set(), "Azure": set(),
+                "DigitalOcean": set(), "Linode": set(), "Vultr": set(),
+            }
             cls._instance.last_updated = {p: None for p in _ALL_PROVIDERS}
+            cls._instance._store = InMemoryCloudIpStore()
         return cls._instance
 ```
 
-A module-level instance `cloud_handler` is the canonical access point used throughout guard-core.
+A module-level instance `cloud_handler` is the canonical access point used throughout guard-core. The module-level `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the default provider set for every fetch and check method. `__new__` also seeds `_store` with an `InMemoryCloudIpStore()` instance, so `_store` is never `None` in normal operation.
 
 ___
 
@@ -96,38 +101,66 @@ Caching Strategy
 
 IP ranges are stored as `set[IPv4Network | IPv6Network]` in `CloudManager.ip_ranges`, keyed by provider name. This gives O(n) membership testing against the network set using Python's `ipaddress` module (`ip_obj in network`).
 
-### Redis Cache (Optional)
+### Pluggable Store (`CloudIpStore`)
 
-When Redis is available, `refresh_async` adds a second caching layer:
+The persistent caching layer is a pluggable `CloudIpStoreProtocol` backend held in `CloudManager._store`. The default is `InMemoryCloudIpStore` (seeded in `__new__`). Calling `initialize_redis()` swaps it for `RedisCloudIpStore` **only when the current store is still the default `InMemoryCloudIpStore`** (`isinstance(self._store, InMemoryCloudIpStore)`); a custom store installed via `set_store()` is preserved. When swapped, ranges persist across worker restarts and stay shared across replicas. `refresh_async` reads from and writes back to whichever store is active:
 
 ```python
 async def refresh_async(
     self, providers: set[str] = _ALL_PROVIDERS, ttl: int = 3600
 ) -> None:
+    if self._store is None:
+        await self._refresh_providers_via_redis_handler(providers, ttl=ttl)
+        return
+
     for provider in providers:
-        cached_ranges = await self.redis_handler.get_key("cloud_ranges", provider)
-        if cached_ranges:
-            self.ip_ranges[provider] = {
-                ipaddress.ip_network(ip) for ip in cached_ranges.split(",")
-            }
+        cached = await self._store.get(provider)
+        if cached is not None:
+            self.ip_ranges[provider] = {ipaddress.ip_network(s) for s in cached}
             continue
 
         ranges = await fetch_func()
         if ranges:
             self.ip_ranges[provider] = ranges
-            await self.redis_handler.set_key(
-                "cloud_ranges", provider,
-                ",".join(str(ip) for ip in ranges), ttl=ttl,
+            self.last_updated[provider] = datetime.now(timezone.utc)
+            await self._store.set(
+                provider,
+                {str(network) for network in ranges},
+                ttl=ttl,
             )
 ```
 
 **Flow**:
 
-1. Check Redis for a cached comma-separated string of CIDR blocks.
+1. Ask the store for the provider's cached CIDR set (`self._store.get(provider)`).
 2. If found, deserialize into `ipaddress` networks and populate the in-memory cache.
-3. If not found, fetch from the provider, populate in-memory, and write back to Redis with a TTL.
+3. If not found, fetch from the provider, populate in-memory, and write the CIDR set back to the store with a TTL (`self._store.set(provider, ...)`).
 
-Redis keys follow the pattern `{prefix}cloud_ranges:{provider}` (e.g., `guard:cloud_ranges:AWS`).
+`RedisCloudIpStore` JSON-encodes each provider's CIDR set as a sorted list under the `cloud_ip` namespace. Redis keys follow the pattern `{redis_prefix}cloud_ip:{provider}` (e.g., `guard:cloud_ip:AWS`). See [Cloud IP Store](../api/cloud-ip-store.md) for the store API and namespace details.
+
+### Legacy `cloud_ranges` Path (dead code)
+
+`refresh_async` begins with an `if self._store is None:` branch that delegates to `_refresh_providers_via_redis_handler`, which uses the legacy `cloud_ranges` namespace directly on the Redis handler:
+
+```python
+async def _refresh_providers_via_redis_handler(
+    self, providers: set[str], ttl: int = 3600
+) -> None:
+    if self.redis_handler is None:
+        await self._refresh_providers(providers)
+        return
+
+    for provider in providers:
+        cached = await self.redis_handler.get_key("cloud_ranges", provider)
+        if cached:
+            self.ip_ranges[provider] = {
+                ipaddress.ip_network(ip) for ip in cached.split(",")
+            }
+            continue
+        ...
+```
+
+This path stores a comma-separated CIDR string under keys like `{redis_prefix}cloud_ranges:{provider}`. It is **unreachable at runtime**: `__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing in the codebase sets it back to `None`, so the `if self._store is None:` guard is never satisfied and `refresh_async` always takes the store-based path above. The branch is retained only as dead/back-compat code; the `InMemoryCloudIpStore`/`RedisCloudIpStore` path is what runs in all deployments.
 
 ### Sync vs Async Refresh
 

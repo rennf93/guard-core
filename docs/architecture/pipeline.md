@@ -49,7 +49,7 @@ class SecurityCheckPipeline:
                     exc_info=True,
                 )
 
-                if hasattr(check.config, "fail_secure") and check.config.fail_secure:
+                if check.config.fail_secure:
                     self.logger.warning(
                         f"Blocking request due to check error "
                         f"in fail-secure mode: {check.check_name}"
@@ -324,13 +324,13 @@ ___
 Fail-Open vs Fail-Secure
 -------------------------
 
-By default, the pipeline is **fail-open**: if a security check raises an unhandled exception, the pipeline logs the error and continues to the next check.
+By default, the pipeline is **fail-secure**: if a security check raises an unhandled exception, the pipeline logs the error and blocks the request with an HTTP 500 response so check bugs surface instead of silently passing requests through.
 
 ```python
 except Exception as e:
     self.logger.error(...)
 
-    if hasattr(check.config, "fail_secure") and check.config.fail_secure:
+    if check.config.fail_secure:
         return await check.create_error_response(
             status_code=500,
             default_message="Security check failed",
@@ -339,10 +339,10 @@ except Exception as e:
     continue
 ```
 
-The pipeline checks for `config.fail_secure` using `hasattr` — this attribute is **not** part of the standard `SecurityConfig` model. Adapters can enable fail-secure behavior by adding `fail_secure = True` to a `SecurityConfig` subclass or setting it dynamically. When truthy, any check exception results in a 500 response, blocking the request.
+`fail_secure` is a standard field on the `SecurityConfig` model (`fail_secure: bool = Field(default=True)`). When `True` (the default), any check exception results in a 500 response, blocking the request. Setting `fail_secure = False` opts into fail-open behavior: the pipeline logs the error and falls through to the next check.
 
 !!! tip "Choosing a failure mode"
-    Use fail-open (the default) in most production environments to avoid availability issues from check bugs. Use fail-secure in high-security environments where blocking a request is preferable to allowing an unchecked one through.
+    Keep fail-secure (the default) in production so check bugs surface as 500s rather than letting unchecked requests through. Set `fail_secure = False` to opt into fail-open behavior, intended only for staging diagnostics where availability is preferred over blocking on a check error.
 
 ___
 

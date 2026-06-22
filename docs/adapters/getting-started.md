@@ -84,7 +84,7 @@ The protocol requires these properties and methods:
 | `query_params` | `Mapping[str, str]` | Query string parameters |
 | `body()` | `async -> bytes` | Request body as bytes |
 | `state` | `Any` | Mutable namespace for inter-check data |
-| `scope` | `dict[str, Any]` | ASGI-like scope dict (must contain `"app"` and `"route"`) |
+| `scope` | `dict[str, Any]` | ASGI-like scope dict consumed by the adapter to resolve the route and populate `request.state` (`guard_decorator`, `guard_route_id`, `guard_endpoint_id`). `guard-core` never reads `scope` itself, so an empty dict suffices — global-level `SecurityConfig` settings still apply |
 
 ### 2. GuardResponse Wrapper
 

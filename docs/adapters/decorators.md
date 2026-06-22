@@ -81,10 +81,10 @@ class BaseSecurityDecorator:
             self._route_configs[route_id] = config
         return self._route_configs[route_id]
 
-    def _apply_route_config(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def _apply_route_config(self, func: Callable[..., Any]) -> DecoratedFunction:
         route_id = self._get_route_id(func)
-        func._guard_route_id = route_id
-        return func
+        cast(Any, func)._guard_route_id = route_id
+        return cast(DecoratedFunction, func)
 ```
 
 Key points:
@@ -101,11 +101,11 @@ Guard-core provides six mixin classes, each adding a category of decorators:
 | Mixin | Decorators Provided |
 |---|---|
 | `AccessControlMixin` | `require_ip()`, `block_countries()`, `allow_countries()`, `block_clouds()`, `bypass()` |
-| `RateLimitingMixin` | `rate_limit()` |
-| `AuthenticationMixin` | `require_auth()`, `require_api_key()`, `require_https()` |
-| `ContentFilteringMixin` | `max_body_size()`, `allowed_content_types()`, `require_headers()`, `block_user_agents()`, `require_referrer()` |
-| `BehavioralMixin` | `track_behavior()` |
-| `AdvancedMixin` | `time_window()`, `custom_validator()`, `disable_detection()` |
+| `RateLimitingMixin` | `rate_limit()`, `geo_rate_limit()` |
+| `AuthenticationMixin` | `require_https()`, `require_auth()`, `api_key_auth()`, `require_headers()` |
+| `ContentFilteringMixin` | `block_user_agents()`, `content_type_filter()`, `max_request_size()`, `require_referrer()`, `custom_validation()`, `detection_exclusion()` |
+| `BehavioralMixin` | `usage_monitor()`, `return_monitor()`, `behavior_analysis()`, `suspicious_frequency()` |
+| `AdvancedMixin` | `time_window()`, `suspicious_detection()`, `honeypot_detection()` |
 
 Each mixin follows the same pattern. For example, `AccessControlMixin.require_ip()`:
 
@@ -169,23 +169,26 @@ app.state.guard_decorator = guard
 security_middleware.set_decorator_handler(guard)
 ```
 
-The `RouteConfigResolver` looks for the decorator in two places:
+The `RouteConfigResolver` resolves the decorator from its routing context first, falling back to `request.state.guard_decorator`:
 
 ```python
-def get_guard_decorator(self, app: Any) -> BaseSecurityDecorator | None:
-    if app and hasattr(app, "state") and hasattr(app.state, "guard_decorator"):
-        app_guard_decorator = app.state.guard_decorator
-        if isinstance(app_guard_decorator, BaseSecurityDecorator):
-            return app_guard_decorator
-    return self.context.guard_decorator if self.context.guard_decorator else None
+def get_route_config(self, request: GuardRequest) -> RouteConfig | None:
+    guard_decorator = self.context.guard_decorator
+    if not guard_decorator:
+        guard_decorator = getattr(request.state, "guard_decorator", None)
+    if not guard_decorator:
+        return None
+    ...
 ```
+
+The adapter is responsible for copying `app.state.guard_decorator` onto `request.state.guard_decorator` before the resolver runs (see [Adapter Responsibility](#adapter-responsibility) below). The resolver itself never touches `app.state`.
 
 ### 3. Users Apply Decorators
 
 ```python
 @app.get("/admin")
 @guard.require_ip(whitelist=["10.0.0.0/8"])
-@guard.rate_limit(max_requests=5, window=60)
+@guard.rate_limit(requests=5, window=60)
 @guard.require_https()
 async def admin_panel():
     return {"status": "ok"}
@@ -200,33 +203,24 @@ When a request arrives, the pipeline needs to find the `RouteConfig` for the mat
 
 ### RouteConfigResolver (Middleware Level)
 
-Used by `BypassHandler` and the dispatch method. It iterates the app's route table:
+Used by `BypassHandler` and the dispatch method. It reads everything it needs from `request.state` -- it does **not** inspect the ASGI scope or iterate the app's route table:
 
 ```python
 def get_route_config(self, request: GuardRequest) -> RouteConfig | None:
-    app = request.scope.get("app")
-    guard_decorator = self.get_guard_decorator(app)
+    guard_decorator = self.context.guard_decorator
+    if not guard_decorator:
+        guard_decorator = getattr(request.state, "guard_decorator", None)
     if not guard_decorator:
         return None
-    if not app:
+
+    route_id = getattr(request.state, "guard_route_id", None)
+    if not route_id:
         return None
 
-    path = request.url_path
-    method = request.method
-
-    for route in app.routes:
-        is_match, route_id = self.is_matching_route(route, path, method)
-        if is_match and route_id:
-            return guard_decorator.get_route_config(route_id)
-
-    return None
+    return guard_decorator.get_route_config(route_id)
 ```
 
-A route matches when:
-
-1. `route.path == request.url_path`
-2. `request.method in route.methods`
-3. `route.endpoint` has a `_guard_route_id` attribute (stamped by the decorator)
+The decorator comes from the resolver's routing context (or `request.state.guard_decorator` as a fallback), and the route ID comes from `request.state.guard_route_id`. Matching the request to a route and populating those state values is the adapter's job, not the resolver's (see [Adapter Responsibility](#adapter-responsibility)).
 
 ### get_route_decorator_config (Check Level)
 
@@ -236,25 +230,41 @@ Used inside individual security checks via `guard_core/decorators/base.py`:
 def get_route_decorator_config(
     request: GuardRequest, decorator_handler: BaseSecurityDecorator
 ) -> RouteConfig | None:
-    if hasattr(request, "scope") and "route" in request.scope:
-        route = request.scope["route"]
-        if hasattr(route, "endpoint") and hasattr(route.endpoint, "_guard_route_id"):
-            route_id = route.endpoint._guard_route_id
-            return decorator_handler.get_route_config(route_id)
+    route_id = getattr(request.state, "guard_route_id", None)
+    if route_id:
+        return decorator_handler.get_route_config(route_id)
     return None
 ```
 
-This function looks at `request.scope["route"]` directly, which is populated by the framework's routing system.
+This function reads `request.state.guard_route_id` directly. As with the resolver, that value must already have been set by the adapter -- guard-core never reads `request.scope["route"]` itself.
 
 ### Adapter Responsibility
 
-Your adapter must ensure that:
+Guard-core resolves route config purely from `request.state`. It never inspects the ASGI scope, the app's route table, or `app.state`. So before the security pipeline runs, your adapter must populate `request.state`:
 
-1. `request.scope["app"]` returns the application instance with a `.routes` attribute (list of route objects).
-2. Each route object has `.path`, `.methods`, and `.endpoint` attributes.
-3. `request.scope["route"]` is set to the matched route object (for check-level resolution).
+1. Copy `app.state.guard_decorator` (the `SecurityDecorator` registered in your bootstrap) onto `request.state.guard_decorator`.
+2. Match the incoming request to its route and copy that endpoint's `_guard_route_id` onto `request.state.guard_route_id`.
 
-For ASGI frameworks (Starlette, FastAPI), this is automatic. For WSGI frameworks (Flask, Django), you must populate the scope dict in your `GuardRequest` wrapper.
+The Starlette/FastAPI adapter does this in its middleware. `_resolve_route()` takes `scope["route"]` when the framework already populated it, otherwise walks `scope["app"].routes` matching on `path`, `methods`, and `hasattr(endpoint, ...)`. `_populate_guard_state()` then copies the decorator and the route's `_guard_route_id` onto `request.state`:
+
+```python
+def _populate_guard_state(self, guard_request, request) -> None:
+    app_obj = request.scope.get("app")
+    if app_obj and hasattr(app_obj, "state"):
+        app_decorator = getattr(app_obj.state, "guard_decorator", None)
+        if app_decorator:
+            guard_request.state.guard_decorator = app_decorator
+
+    route = self._resolve_route(request)
+    if not route or not hasattr(route, "endpoint"):
+        return
+
+    ep = route.endpoint
+    if hasattr(ep, "_guard_route_id"):
+        guard_request.state.guard_route_id = ep._guard_route_id
+```
+
+This is **not** automatic -- even on ASGI frameworks the adapter has to read the scope and write these state values itself. WSGI/non-ASGI adapters do the same, sourcing the route from whatever their framework exposes.
 
 The send_decorator_event Mechanism
 ----------------------------------

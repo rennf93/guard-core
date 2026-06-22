@@ -283,8 +283,8 @@ The `state` Property
 The `state` property is a mutable namespace that security checks use to pass data between pipeline stages. For example, the `RouteConfigCheck` stores the resolved `RouteConfig` and `client_ip` on `request.state` so downstream checks can access them without recomputing:
 
 ```python
-request.state._guard_route_config = route_config
-request.state._guard_client_ip = client_ip
+request.state.route_config = route_config
+request.state.client_ip = client_ip
 ```
 
 Your wrapper's `state` must support arbitrary attribute assignment. Starlette's `request.state` does this natively. For Flask and Django, use `types.SimpleNamespace`:
@@ -298,10 +298,10 @@ self._state = SimpleNamespace()
 The `scope` Dictionary
 ----------------------
 
-The `scope` dictionary must contain at least two keys for full guard-core functionality:
+guard-core itself never reads `scope`. The `RouteConfigResolver`, `get_route_decorator_config()`, and `BehavioralProcessor` read only `request.state` — specifically `request.state.guard_decorator`, `request.state.guard_route_id`, and `request.state.guard_endpoint_id`. Reading `scope` and translating it into those `request.state` values is the **adapter's** job. The `scope` dictionary should contain at least two keys so the adapter has the data it needs:
 
-- **`app`**: The application instance. The `RouteConfigResolver` uses `request.scope.get("app")` to access the app's route table and the `guard_decorator` stored on `app.state`.
-- **`route`**: The matched route object. Must have an `endpoint` attribute with `_guard_route_id` set by guard-core's decorator system. Used by `get_route_decorator_config()` and `BehavioralProcessor.get_endpoint_id()`.
+- **`app`**: The application instance. The adapter reads `request.scope.get("app")` to access the app's route table and copies the `guard_decorator` stored on `app.state` into `request.state.guard_decorator`.
+- **`route`**: The matched route object. Must have an `endpoint` attribute with `_guard_route_id` set by guard-core's decorator system. The adapter copies `endpoint._guard_route_id` into `request.state.guard_route_id` and derives `request.state.guard_endpoint_id` from the endpoint. These `request.state` values are what `get_route_decorator_config()` and `BehavioralProcessor.get_endpoint_id()` then read.
 
 If your framework does not natively provide ASGI scope, build it in your wrapper. If route-level decorator support is not needed, an empty dict suffices -- global-level `SecurityConfig` settings will still apply.
 
