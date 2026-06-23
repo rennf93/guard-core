@@ -2051,15 +2051,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" class="md-nav__link">
+  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-bounded-body-inspection-asyncsync-mirror-parity-agent-error-clarity-deprecation-signalling-and-documented-protocols-v320" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)
+        Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)">
+    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2078,6 +2078,28 @@
     <span class="md-ellipsis">
       
         Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
       
     </span>
   </a>
@@ -2917,15 +2939,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" class="md-nav__link">
+  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-bounded-body-inspection-asyncsync-mirror-parity-agent-error-clarity-deprecation-signalling-and-documented-protocols-v320" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)
+        Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)">
+    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2944,6 +2966,28 @@
     <span class="md-ellipsis">
       
         Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
       
     </span>
   </a>
@@ -3760,11 +3804,16 @@
 <h1 id="release-notes">Release Notes<a class="headerlink" href="#release-notes" title="Permanent link">&para;</a></h1>
 <hr />
 <h2 id="v320-2026-06-23">v3.2.0 (2026-06-23)<a class="headerlink" href="#v320-2026-06-23" title="Permanent link">&para;</a></h2>
-<h2 id="cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320">Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)<a class="headerlink" href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" title="Permanent link">&para;</a></h2>
+<h2 id="cloud-ip-region-scoping-ip-allow-list-correctness-bounded-body-inspection-asyncsync-mirror-parity-agent-error-clarity-deprecation-signalling-and-documented-protocols-v320">Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)<a class="headerlink" href="#cloud-ip-region-scoping-ip-allow-list-correctness-bounded-body-inspection-asyncsync-mirror-parity-agent-error-clarity-deprecation-signalling-and-documented-protocols-v320" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Observable agent and middleware errors.</strong> New <code>SecurityConfig.on_error</code> — one best-effort <code>on_error(stage, exc, context)</code> hook (<code>stage</code> ∈ <code>agent_init</code> / <code>geoip</code> / <code>transport_send</code> / <code>encryption</code>) invoked at failure points and guaranteed never to propagate into the request path (a hook that raises is caught and logged). New <code>SecurityConfig.agent_strict</code> (default <code>False</code>): adapters raise at initialization instead of silently degrading to agent-off when an enabled agent cannot be constructed.</li>
-<li><strong>Region/scope carve-outs for cloud-IP blocking.</strong> <code>block_cloud_providers</code> and <code>@block_clouds</code> now accept flat-string region selectors: a bare provider (<code>"GCP"</code>) blocks the whole provider unchanged, while a carve-out (<code>"GCP:!us-central1"</code>) blocks the provider <em>except</em> that region. Region scoping is derived from the real <code>scope</code> field in GCP's <code>cloud.json</code> and the <code>region</code> field in AWS's <code>ip-ranges.json</code> (no hardcoded region lists); Azure remains provider-level. The <code>network</code>→<code>region</code> index is built at refresh/index time so per-request <code>is_cloud_ip</code> stays O(current) — a single dict lookup on a match. <code>block_cloud_providers</code> is now typed <code>set[str]</code> (was <code>set[CloudProvider]</code>); existing bare-provider configs are unchanged. Region data survives Redis via inline <code>"network|region"</code> encoding under versioned keys (<code>cloud_ip_v2</code> / <code>cloud_ranges_v2</code>) — pre-upgrade cache entries are ignored and refetched within <code>cloud_ip_refresh_interval</code>, and older replicas never read the new value shape during a rolling deploy. Async and sync mirrors updated identically.</li>
+<li>
+<p><strong>Region/scope carve-outs for cloud-IP blocking.</strong> <code>block_cloud_providers</code> and <code>@block_clouds</code> now accept flat-string region selectors: a bare provider (<code>"GCP"</code>) blocks the whole provider unchanged, while a carve-out (<code>"GCP:!us-central1"</code>) blocks the provider <em>except</em> that region. Region scoping is derived from the real <code>scope</code> field in GCP's <code>cloud.json</code> and the <code>region</code> field in AWS's <code>ip-ranges.json</code> (no hardcoded region lists); Azure remains provider-level. The <code>network</code>→<code>region</code> index is built at refresh/index time so per-request <code>is_cloud_ip</code> stays O(current) — a single dict lookup on a match. <code>block_cloud_providers</code> is now typed <code>set[str]</code> (was <code>set[CloudProvider]</code>); existing bare-provider configs are unchanged. Region data survives Redis via inline <code>"network|region"</code> encoding under versioned keys (<code>cloud_ip_v2</code> / <code>cloud_ranges_v2</code>) — pre-upgrade cache entries are ignored and refetched within <code>cloud_ip_refresh_interval</code>, and older replicas never read the new value shape during a rolling deploy. Async and sync mirrors updated identically.</p>
+</li>
+<li>
+<p><strong>Bounded request-body inspection.</strong> New <code>SecurityConfig.detection_max_body_inspect_bytes</code> (default <code>262144</code> / 256 KiB; <code>ge=1024, le=10485760</code>). <code>detect_penetration_attempt</code> now skips reading and scanning the body when the request's <code>Content-Length</code> exceeds the cap, so a large body (e.g. ~300MB on a high-traffic proxy) is no longer fully buffered and decoded into memory on the hot path. This bounds the read itself — unlike <code>detection_max_content_length</code>, which only truncates inside the regex preprocessor after the body is already in memory. Async and sync mirrors updated identically.</p>
+</li>
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
@@ -3774,6 +3823,15 @@
 <li><strong>Clear, actionable error when the agent package is missing.</strong> <code>SecurityConfig.to_agent_config()</code> now raises <code>AgentPackageNotInstalledError</code> (naming the package and install command) instead of returning an ambiguous <code>None</code>, so a missing <code>guard-agent</code> can no longer be misreported as an "invalid config / check <code>agent_api_key</code>" error by adapters.</li>
 <li><strong>GeoIP lookups no longer fail silently.</strong> <code>SecurityEventBus._lookup_country</code> now logs at warning and fires the <code>on_error</code> hook (<code>stage="geoip"</code>) instead of swallowing the exception with a bare <code>except Exception: return None</code>.</li>
 <li><strong>Replaced the deprecated redis <code>setex</code> call</strong> with <code>set(..., ex=ttl)</code> in both the async and sync Redis handlers, clearing the redis-py <code>DeprecationWarning</code>.</li>
+</ul>
+<h3 id="deprecated">Deprecated<a class="headerlink" href="#deprecated" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>ipinfo_token</code> and <code>ipinfo_db_path</code> now signal deprecation at runtime.</strong> Both fields — long described as deprecated in favour of a custom <code>geo_ip_handler</code> — now emit a <code>DeprecationWarning</code> when explicitly set, raised once at construction from a <code>model_validator</code> keyed on <code>model_fields_set</code> (so it never fires on the default value or on internal access). Both keep working unchanged; removal is targeted for a future major release. Migrate by passing any <code>GeoIPHandler</code> as <code>geo_ip_handler</code>.</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Documented the integrator-facing Protocols.</strong> Every public <code>Protocol</code> extension point — <code>RedisHandlerProtocol</code>, <code>AgentHandlerProtocol</code>, <code>CloudIpStoreProtocol</code>, <code>GeoIPHandler</code>, <code>GuardRequest</code>, <code>GuardResponse</code>/<code>GuardResponseFactory</code>, <code>GuardMiddlewareProtocol</code> (and their <code>Sync*</code> mirrors) — now carries a WHAT/WHEN/HOW class docstring plus a per-method contract docstring covering return-value semantics (None-on-miss, None vs empty set, bool success, TTL units). Docstrings only; no signature or behavior change.</li>
+<li><strong>Added an API-surface audit</strong> (<code>docs/internals/api-surface-audit.md</code>): an inventory of all <code>SecurityConfig</code> fields and the package exports, grouped by domain with a keep/deprecate/group/remove recommendation per item, the <code>ipinfo_*</code> deprecation path, and the guard_core ↔ fastapi-guard export single-source-of-truth.</li>
 </ul>
 <hr />
 <h2 id="v311-2026-05-27">v3.1.1 (2026-05-27)<a class="headerlink" href="#v311-2026-05-27" title="Permanent link">&para;</a></h2>
