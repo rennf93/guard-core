@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from ipaddress import ip_address, ip_network
@@ -665,6 +666,17 @@ class SecurityConfig(BaseModel):
                 "enable_enrichment=False."
             )
 
+        return self
+
+    @model_validator(mode="after")
+    def warn_deprecated_fields(self) -> Self:
+        for name in sorted({"ipinfo_token", "ipinfo_db_path"} & self.model_fields_set):
+            warnings.warn(
+                f"{name} is deprecated and will be removed in a future release; "
+                "create a custom geo_ip_handler instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self
 
     @field_validator("muted_event_types")

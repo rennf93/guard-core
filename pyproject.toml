@@ -120,6 +120,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
+    "ignore:ipinfo_.* is deprecated:DeprecationWarning",
 ]
 
 [tool.mypy]

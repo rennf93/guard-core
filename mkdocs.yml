@@ -66,6 +66,7 @@ nav:
     - Security Headers: internals/security-headers.md
     - Behavioral Analysis: internals/behavioral.md
     - Redis Integration: internals/redis.md
+    - API Surface Audit: internals/api-surface-audit.md
   - Configuration:
     - SecurityConfig Reference: configuration/security-config.md
     - Detection Tuning: configuration/detection-tuning.md
