@@ -136,7 +136,7 @@ from guard_core.handlers.behavior_handler import BehaviorRule
 
 security = SecurityDecorator(config)
 
-@security.behavioral(rules=[
+@security.behavior_analysis(rules=[
     BehaviorRule(
         rule_type="usage",
         threshold=100,
