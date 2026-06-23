@@ -183,7 +183,7 @@ class RedisManager:
         def _set(conn: Redis) -> bool:
             full_key = f"{self.config.redis_prefix}{namespace}:{key}"
             if ttl:
-                return bool(conn.setex(full_key, ttl, value))
+                return bool(conn.set(full_key, value, ex=ttl))
             return bool(conn.set(full_key, value))
 
         result = self.safe_operation(_set)

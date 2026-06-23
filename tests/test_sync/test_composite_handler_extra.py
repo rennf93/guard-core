@@ -109,3 +109,18 @@ def test_health_check_false_with_single_handler() -> None:
     handler.health_check = MagicMock(return_value=False)
     composite = CompositeAgentHandler([handler])
     assert composite.health_check() is False
+
+
+def test_state_properties_default() -> None:
+    composite = CompositeAgentHandler([])
+    assert composite.started is False
+    assert composite.degraded is False
+    assert composite.failed_handlers == []
+
+
+def test_degraded_true_when_started_with_failed_handlers() -> None:
+    composite = CompositeAgentHandler([])
+    composite._started = True
+    composite._failed_handlers = ["handler_a"]
+    assert composite.degraded is True
+    assert composite.failed_handlers == ["handler_a"]

@@ -8,7 +8,7 @@ from guard_core.core.checks.helpers import (
 )
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
-from guard_core.utils import extract_client_ip, is_ip_allowed
+from guard_core.utils import _check_whitelist, extract_client_ip, is_ip_allowed
 from tests.conftest import MockGuardRequest
 
 
@@ -111,3 +111,25 @@ async def test_global_and_route_agree_on_ipv6_whitelist_match() -> None:
     )
     assert global_allowed is True
     assert route_allowed is True
+
+
+async def test_route_whitelist_non_ip_entry_skipped() -> None:
+    assert is_ip_in_whitelist("1.2.3.4", ip_address("1.2.3.4"), ["not-an-ip"]) is False
+
+
+async def test_route_whitelist_non_ip_entry_string_fallback() -> None:
+    assert is_ip_in_whitelist("token", ip_address("1.2.3.4"), ["token"]) is True
+
+
+async def test_restrictive_route_whitelist_blocks_non_member() -> None:
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["1.2.3.4"]
+    route_config.ip_blacklist = []
+    middleware = MagicMock()
+    middleware.geo_ip_handler = None
+    assert await check_route_ip_access("5.6.7.8", route_config, middleware) is False
+
+
+async def test_check_whitelist_without_whitelist_allows() -> None:
+    config = SecurityConfig()
+    assert await _check_whitelist(ip_address("1.2.3.4"), "1.2.3.4", config) is True

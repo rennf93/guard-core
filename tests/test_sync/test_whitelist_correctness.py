@@ -8,7 +8,7 @@ from guard_core.sync.core.checks.helpers import (
     is_ip_in_whitelist,
 )
 from guard_core.sync.decorators.base import RouteConfig
-from guard_core.sync.utils import extract_client_ip, is_ip_allowed
+from guard_core.sync.utils import _check_whitelist, extract_client_ip, is_ip_allowed
 from tests.test_sync.conftest import SyncMockGuardRequest
 
 
@@ -105,3 +105,25 @@ def test_global_and_route_agree_on_ipv6_whitelist_match() -> None:
     route_allowed = check_route_ip_access("0:0:0:0:0:0:0:1", route_config, middleware)
     assert global_allowed is True
     assert route_allowed is True
+
+
+def test_route_whitelist_non_ip_entry_skipped() -> None:
+    assert is_ip_in_whitelist("1.2.3.4", ip_address("1.2.3.4"), ["not-an-ip"]) is False
+
+
+def test_route_whitelist_non_ip_entry_string_fallback() -> None:
+    assert is_ip_in_whitelist("token", ip_address("1.2.3.4"), ["token"]) is True
+
+
+def test_restrictive_route_whitelist_blocks_non_member() -> None:
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["1.2.3.4"]
+    route_config.ip_blacklist = []
+    middleware = MagicMock()
+    middleware.geo_ip_handler = None
+    assert check_route_ip_access("5.6.7.8", route_config, middleware) is False
+
+
+def test_check_whitelist_without_whitelist_allows() -> None:
+    config = SecurityConfig()
+    assert _check_whitelist(ip_address("1.2.3.4"), "1.2.3.4", config) is True

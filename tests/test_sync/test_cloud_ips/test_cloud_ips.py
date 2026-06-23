@@ -64,6 +64,7 @@ def test_fetch_aws_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
                     "region": "us-east-1",
                 },
                 {"ip_prefix": "10.0.0.0/8", "service": "EC2"},
+                {"ip_prefix": "172.16.0.0/12", "service": "AMAZON"},
             ]
         }
     )
@@ -73,6 +74,8 @@ def test_fetch_aws_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
     assert ipaddress.IPv4Network("192.168.0.0/24") in networks
     assert ipaddress.IPv4Network("10.0.0.0/8") not in networks
     assert regions[str(ipaddress.IPv4Network("192.168.0.0/24"))] == "us-east-1"
+    assert ipaddress.IPv4Network("172.16.0.0/12") in networks
+    assert str(ipaddress.IPv4Network("172.16.0.0/12")) not in regions
 
 
 def test_fetch_gcp_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
