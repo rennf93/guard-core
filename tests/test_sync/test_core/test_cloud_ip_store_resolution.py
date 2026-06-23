@@ -11,6 +11,7 @@ from guard_core.sync.handlers.cloud_ip_stores import RedisCloudIpStore
 def redis_handler() -> MagicMock:
     handler = MagicMock()
     handler.config = MagicMock(redis_prefix="test:")
+    handler.initialize = MagicMock()
     return handler
 
 
@@ -28,9 +29,11 @@ def test_instance_form_passed_to_set_store(redis_handler: MagicMock) -> None:
         patch(
             "guard_core.sync.handlers.cloud_handler.cloud_handler.set_store"
         ) as mock_set,
-        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis"),
         patch(
-            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis"
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis",
+        ),
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis",
         ),
     ):
         init.initialize_redis_handlers()
@@ -59,9 +62,11 @@ def test_callable_form_invoked_with_redis_handler(
         patch(
             "guard_core.sync.handlers.cloud_handler.cloud_handler.set_store"
         ) as mock_set,
-        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis"),
         patch(
-            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis"
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis",
+        ),
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis",
         ),
     ):
         init.initialize_redis_handlers()
@@ -88,9 +93,11 @@ def test_class_object_passed_as_factory_is_invoked(
         patch(
             "guard_core.sync.handlers.cloud_handler.cloud_handler.set_store"
         ) as mock_set,
-        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis"),
         patch(
-            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis"
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis",
+        ),
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis",
         ),
     ):
         init.initialize_redis_handlers()
@@ -113,9 +120,11 @@ def test_none_does_not_call_set_store(redis_handler: MagicMock) -> None:
         patch(
             "guard_core.sync.handlers.cloud_handler.cloud_handler.set_store"
         ) as mock_set,
-        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis"),
         patch(
-            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis"
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager.initialize_redis",
+        ),
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler.initialize_redis",
         ),
     ):
         init.initialize_redis_handlers()

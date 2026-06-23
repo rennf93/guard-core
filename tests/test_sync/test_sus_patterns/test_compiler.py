@@ -290,8 +290,7 @@ def test_clear_cache_thread_safety(compiler: PatternCompiler) -> None:
     def clear_task() -> None:
         compiler.clear_cache()
 
-    compile_task()
-    clear_task()
+    [compile_task(), clear_task()]
 
     assert len(compiler._compiled_cache) == len(compiler._cache_order)
 

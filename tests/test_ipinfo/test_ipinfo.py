@@ -575,7 +575,7 @@ async def test_initialize_failure_emits_geo_event_when_agent_present(
     IPInfoManager._instance = None
 
 
-async def test_get_country_exception_with_agent_dispatches_geo_event(
+async def test_get_country_exception_with_agent_dispatches_geo_event(  # async-only
     tmp_path: Path,
 ) -> None:
     IPInfoManager._instance = None

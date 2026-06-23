@@ -37,7 +37,7 @@ def test_ipban_in_memory_valid() -> None:
 def test_ipban_reset_global_state() -> None:
     IPBanManager._instance = None
     reset_global_state()
-    from guard_core.handlers import ipban_handler
+    from guard_core.sync.handlers import ipban_handler
 
     assert ipban_handler.ip_ban_manager is not None
 

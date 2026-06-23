@@ -8,7 +8,7 @@ from guard_core.sync.decorators.content_filtering import ContentFilteringMixin
 from guard_core.sync.decorators.rate_limiting import RateLimitingMixin
 
 
-class _SyncComposedDecorator(
+class _AsyncComposedDecorator(
     BaseSecurityDecorator,
     AccessControlMixin,
     AdvancedMixin,
@@ -20,8 +20,8 @@ class _SyncComposedDecorator(
     pass
 
 
-def _sync_decorator() -> _SyncComposedDecorator:
-    return _SyncComposedDecorator(SecurityConfig(enable_redis=False))
+def _async_decorator() -> _AsyncComposedDecorator:
+    return _AsyncComposedDecorator(SecurityConfig(enable_redis=False))
 
 
 def _block_target() -> None:
@@ -33,7 +33,7 @@ def _allow_target() -> None:
 
 
 def test_block_countries_uppercases_lowercase_input() -> None:
-    d = _sync_decorator()
+    d = _async_decorator()
     decorated = d.block_countries(["us", "ca", "Mx"])(_block_target)
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None
@@ -41,7 +41,7 @@ def test_block_countries_uppercases_lowercase_input() -> None:
 
 
 def test_allow_countries_uppercases_lowercase_input() -> None:
-    d = _sync_decorator()
+    d = _async_decorator()
     decorated = d.allow_countries(["br", "ar", "Cl"])(_allow_target)
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None

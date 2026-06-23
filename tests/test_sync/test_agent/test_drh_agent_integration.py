@@ -678,13 +678,13 @@ def test_apply_country_rules_blocked_only(
 
     manager = DynamicRuleManager(config)
 
-    blocked = ["XX", "YY"]
+    blocked = ["xx", "yy"]
     allowed: list[str] = []
 
     with caplog.at_level(logging.INFO):
         manager._apply_country_rules(blocked, allowed)
 
-    assert manager.config.blocked_countries == frozenset(blocked)
+    assert manager.config.blocked_countries == frozenset({"XX", "YY"})
 
     assert "Dynamic rule: Blocked countries ['XX', 'YY']" in caplog.text
 
@@ -697,12 +697,12 @@ def test_apply_country_rules_allowed_only(
     manager = DynamicRuleManager(config)
 
     blocked: list[str] = []
-    allowed = ["US", "CA"]
+    allowed = ["us", "ca"]
 
     with caplog.at_level(logging.INFO):
         manager._apply_country_rules(blocked, allowed)
 
-    assert manager.config.whitelist_countries == frozenset(allowed)
+    assert manager.config.whitelist_countries == frozenset({"US", "CA"})
 
     assert "Dynamic rule: Whitelisted countries ['CA', 'US']" in caplog.text
 
@@ -714,14 +714,14 @@ def test_apply_country_rules_both(
 
     manager = DynamicRuleManager(config)
 
-    blocked = ["XX", "YY"]
-    allowed = ["US", "CA"]
+    blocked = ["xx", "yy"]
+    allowed = ["us", "ca"]
 
     with caplog.at_level(logging.INFO):
         manager._apply_country_rules(blocked, allowed)
 
-    assert manager.config.blocked_countries == frozenset(blocked)
-    assert manager.config.whitelist_countries == frozenset(allowed)
+    assert manager.config.blocked_countries == frozenset({"XX", "YY"})
+    assert manager.config.whitelist_countries == frozenset({"US", "CA"})
 
     assert "Dynamic rule: Blocked countries ['XX', 'YY']" in caplog.text
     assert "Dynamic rule: Whitelisted countries ['CA', 'US']" in caplog.text

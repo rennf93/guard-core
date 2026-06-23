@@ -171,22 +171,3 @@ def test_no_redis_handler_returns_immediately() -> None:
     config = SecurityConfig(lazy_init=False, enable_redis=True)
     initializer = HandlerInitializer(config=config, redis_handler=None)
     initializer.initialize_redis_handlers()
-
-
-def test_eager_init_skips_geo_when_handler_none() -> None:
-    config = SecurityConfig(
-        lazy_init=False,
-        enable_redis=True,
-        block_cloud_providers={"AWS"},
-    )
-    redis_handler = MagicMock()
-    redis_handler.initialize = MagicMock()
-    initializer = HandlerInitializer(
-        config=config,
-        redis_handler=redis_handler,
-        geo_ip_handler=None,
-    )
-    with _patch_handlers() as patches:
-        initializer.initialize_redis_handlers()
-        patches["cloud"].initialize_redis.assert_called_once()
-        patches["ipban"].initialize_redis.assert_called_once()

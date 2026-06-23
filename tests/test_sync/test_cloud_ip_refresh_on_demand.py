@@ -96,6 +96,7 @@ def test_handler_initializer_wires_user_supplied_store() -> None:
     custom_store = InMemoryCloudIpStore()
     config = SecurityConfig(
         enable_redis=True,
+        lazy_init=False,
         block_cloud_providers={"AWS"},
         cloud_ip_store=custom_store,
     )

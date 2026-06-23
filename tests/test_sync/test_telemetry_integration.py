@@ -69,7 +69,9 @@ def _build_wired_event_bus(
     )
 
 
-def test_end_to_end_span_emission_with_otel(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_end_to_end_span_emission_with_otel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     exporter = InMemorySpanExporter()
     config = SecurityConfig(enable_otel=True, agent_enable_events=True)
 

@@ -28,6 +28,7 @@ EVENT_PATH_EXCLUDED = "path_excluded"
 EVENT_PATTERN_ADDED = "pattern_added"
 EVENT_PATTERN_REMOVED = "pattern_removed"
 EVENT_RATE_LIMITED = "rate_limited"
+EVENT_RATE_LIMIT_SCRIPT_RELOADED = "rate_limit_script_reloaded"
 EVENT_REDIS_CONNECTION = "redis_connection"
 EVENT_REDIS_ERROR = "redis_error"
 EVENT_SECURITY_BYPASS = "security_bypass"
@@ -61,6 +62,7 @@ EVENT_TYPE_VALUES: frozenset[str] = frozenset(
         EVENT_PATTERN_ADDED,
         EVENT_PATTERN_REMOVED,
         EVENT_RATE_LIMITED,
+        EVENT_RATE_LIMIT_SCRIPT_RELOADED,
         EVENT_REDIS_CONNECTION,
         EVENT_REDIS_ERROR,
         EVENT_SECURITY_BYPASS,

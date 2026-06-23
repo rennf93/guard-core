@@ -2,7 +2,7 @@ import importlib
 import sys
 from collections.abc import Generator
 from types import ModuleType, SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -279,6 +279,7 @@ def test_send_event_no_traceparent_starts_root_span() -> None:
 
 def test_event_bus_attaches_tracestate_from_request_headers() -> None:
     from types import SimpleNamespace as _SN
+    from typing import cast as _cast
 
     from guard_core.sync.core.events.event_types import EVENT_PENETRATION_ATTEMPT
     from guard_core.sync.core.events.middleware_events import SecurityEventBus
@@ -291,7 +292,7 @@ def test_event_bus_attaches_tracestate_from_request_headers() -> None:
     agent = MagicMock()
     agent.send_event = capture_send
 
-    cfg = cast(SecurityConfig, _SN(agent_enable_events=True))
+    cfg = _cast(SecurityConfig, _SN(agent_enable_events=True))
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()
@@ -332,6 +333,8 @@ def test_event_bus_attaches_tracestate_from_request_headers() -> None:
 
 
 def test_event_bus_attaches_traceparent_from_request_headers() -> None:
+    from typing import cast as _cast
+
     from guard_core.sync.core.events.event_types import EVENT_PENETRATION_ATTEMPT
     from guard_core.sync.core.events.middleware_events import SecurityEventBus
 
@@ -344,7 +347,7 @@ def test_event_bus_attaches_traceparent_from_request_headers() -> None:
 
     agent.send_event = capture_send
 
-    cfg = cast(SecurityConfig, SimpleNamespace(agent_enable_events=True))
+    cfg = _cast(SecurityConfig, SimpleNamespace(agent_enable_events=True))
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()

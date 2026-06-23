@@ -62,7 +62,7 @@ def test_ipban_reset_with_redis() -> None:
     mock_conn.delete = MagicMock()
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -84,7 +84,7 @@ def test_ipban_reset_with_redis_no_keys() -> None:
     mock_conn.delete = MagicMock()
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -141,7 +141,7 @@ def test_ratelimit_initialize_redis() -> None:
     mock_conn.script_load = MagicMock(return_value="sha123")
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -173,7 +173,7 @@ def test_ratelimit_redis_count_with_script() -> None:
     mock_conn.evalsha = MagicMock(return_value=5)
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -203,7 +203,7 @@ def test_ratelimit_redis_count_without_script() -> None:
     mock_conn.pipeline = MagicMock(return_value=mock_pipeline)
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -279,7 +279,7 @@ def test_ratelimit_check_redis_exceeded() -> None:
     mock_conn.evalsha = MagicMock(return_value=10)
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -311,7 +311,7 @@ def test_ratelimit_check_redis_ok() -> None:
     mock_conn.evalsha = MagicMock(return_value=2)
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()
@@ -408,7 +408,7 @@ def test_ratelimit_redis_count_with_endpoint() -> None:
     mock_conn.evalsha = MagicMock(return_value=2)
 
     @contextmanager
-    def mock_get_connection() -> Generator[MagicMock, None, None]:
+    def mock_get_connection() -> Generator[MagicMock, None]:
         yield mock_conn
 
     redis = MagicMock()

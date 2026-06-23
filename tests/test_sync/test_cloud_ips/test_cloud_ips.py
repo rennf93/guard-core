@@ -45,7 +45,7 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 
 @pytest.fixture
-def mock_aiohttp_session() -> Generator[MagicMock, None]:
+def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
     with patch("guard_core.sync.handlers.cloud_handler.requests.Session") as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__enter__ = MagicMock(return_value=mock_sess)
@@ -819,11 +819,6 @@ def test_get_cloud_provider_details_returns_match_or_none() -> None:
     assert cloud_handler.get_cloud_provider_details("not-an-ip", {"AWS"}) is None
 
 
-def test_get_cloud_provider_details_skips_unknown_provider() -> None:
-    cloud_handler.ip_ranges = {"AWS": {ipaddress.IPv4Network("192.168.0.0/24")}}
-    assert cloud_handler.get_cloud_provider_details("8.8.8.8", {"Bogus"}) is None
-
-
 def test_send_cloud_detection_event_no_op_without_agent() -> None:
     cloud_handler.agent_handler = None
     cloud_handler.send_cloud_detection_event("1.2.3.4", "AWS", "192.168.0.0/24")
@@ -831,6 +826,7 @@ def test_send_cloud_detection_event_no_op_without_agent() -> None:
 
 def test_send_cloud_detection_event_dispatches_when_agent_present() -> None:
     agent = MagicMock()
+    agent.send_event = MagicMock()
     cloud_handler.agent_handler = agent
     try:
         cloud_handler.send_cloud_detection_event("1.2.3.4", "AWS", "192.168.0.0/24")
@@ -852,16 +848,6 @@ def test_send_cloud_event_logs_when_agent_dispatch_raises() -> None:
         )
     finally:
         cloud_handler.agent_handler = None
-
-
-def test_send_cloud_event_returns_when_agent_handler_missing() -> None:
-    cloud_handler.agent_handler = None
-    cloud_handler._send_cloud_event(
-        event_type="cloud_blocked",
-        ip_address="1.2.3.4",
-        action_taken="blocked",
-        reason="test",
-    )
 
 
 def test_fetch_gcp_ip_ranges_skips_unknown_prefix_keys(
@@ -931,6 +917,13 @@ def test_initialize_redis_replaces_in_memory_store(
     cloud_handler.set_store(InMemoryCloudIpStore())
 
 
+def test_initialize_agent_records_handler() -> None:
+    agent = MagicMock()
+    cloud_handler.initialize_agent(agent)
+    assert cloud_handler.agent_handler is agent
+    cloud_handler.agent_handler = None
+
+
 def test_initialize_redis_keeps_existing_redis_store(
     security_config_redis: SecurityConfig,
 ) -> None:
@@ -981,21 +974,6 @@ def test_initialize_redis_keeps_existing_redis_store(
     cloud_handler.set_store(InMemoryCloudIpStore())
 
 
-def test_initialize_agent_records_handler() -> None:
-    agent = MagicMock()
-    cloud_handler.initialize_agent(agent)
-    assert cloud_handler.agent_handler is agent
-    cloud_handler.agent_handler = None
-
-
-def test_cloud_manager_returns_existing_singleton() -> None:
-    from guard_core.sync.handlers.cloud_handler import CloudManager
-
-    first = CloudManager()
-    second = CloudManager()
-    assert first is second
-
-
 def test_refresh_via_redis_handler_handles_empty_fetch(
     security_config_redis: SecurityConfig,
 ) -> None:
@@ -1017,6 +995,29 @@ def test_refresh_via_redis_handler_handles_empty_fetch(
     from guard_core.sync.handlers.cloud_ip_stores import InMemoryCloudIpStore
 
     cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+def test_get_cloud_provider_details_skips_unknown_provider() -> None:
+    cloud_handler.ip_ranges = {"AWS": {ipaddress.IPv4Network("192.168.0.0/24")}}
+    assert cloud_handler.get_cloud_provider_details("8.8.8.8", {"Bogus"}) is None
+
+
+def test_send_cloud_event_returns_when_agent_handler_missing() -> None:
+    cloud_handler.agent_handler = None
+    cloud_handler._send_cloud_event(
+        event_type="cloud_blocked",
+        ip_address="1.2.3.4",
+        action_taken="blocked",
+        reason="test",
+    )
+
+
+def test_cloud_manager_returns_existing_singleton() -> None:
+    from guard_core.sync.handlers.cloud_handler import CloudManager
+
+    first = CloudManager()
+    second = CloudManager()
+    assert first is second
 
 
 def test_refresh_via_redis_handler_keeps_existing_provider_state(

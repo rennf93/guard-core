@@ -1,4 +1,3 @@
-import concurrent.futures
 import re
 import threading
 import types
@@ -119,6 +118,8 @@ def test_validate_pattern_safety_elapsed_timeout(
 def test_validate_pattern_safety_concurrent_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import concurrent.futures
+
     class FakeExecutor:
         def __enter__(self) -> "FakeExecutor":
             return self
@@ -159,6 +160,8 @@ def test_create_safe_matcher_no_match_returns_none() -> None:
 def test_create_safe_matcher_timeout_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import concurrent.futures
+
     class FakeExecutor:
         def __enter__(self) -> "FakeExecutor":
             return self
@@ -188,6 +191,8 @@ def test_create_safe_matcher_timeout_returns_none(
 def test_create_safe_matcher_exception_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import concurrent.futures
+
     class FakeExecutor:
         def __enter__(self) -> "FakeExecutor":
             return self

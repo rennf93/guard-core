@@ -43,13 +43,3 @@ def test_apply_cloud_provider_rules_all_invalid(
     manager._apply_cloud_provider_rules({"Bogus1", "Bogus2"})
     assert manager.config.block_cloud_providers == set()
     assert "ignored unknown cloud providers" in caplog.text
-
-
-def test_apply_country_rules_normalizes_to_uppercase_frozenset(
-    manager: DynamicRuleManager,
-) -> None:
-    manager._apply_country_rules(["us", "ca"], ["mx", "br"])
-    assert manager.config.blocked_countries == frozenset({"US", "CA"})
-    assert isinstance(manager.config.blocked_countries, frozenset)
-    assert manager.config.whitelist_countries == frozenset({"MX", "BR"})
-    assert isinstance(manager.config.whitelist_countries, frozenset)

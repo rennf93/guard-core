@@ -26,6 +26,12 @@ TEMPLATE_FILES = {
     SYNC_DIR / "py.typed",
 }
 
+HAND_MAINTAINED = {
+    SYNC_DIR / "handlers" / "ratelimit_handler.py",
+    TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
+    TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
+}
+
 SUBS: list[tuple[str, str]] = [
     (
         r"from guard_core\.protocols\.request_protocol import GuardRequest",
@@ -53,7 +59,13 @@ SUBS: list[tuple[str, str]] = [
         "from guard_core.sync.protocols.cloud_ip_store_protocol "
         "import SyncCloudIpStoreProtocol",
     ),
-    (r"from guard_core\.handlers\.", "from guard_core.sync.handlers."),
+    (
+        r"from guard_core\.protocols\.cloud_ip_store_protocol "
+        r"import CloudIpStoreFactory",
+        "from guard_core.sync.protocols.cloud_ip_store_protocol "
+        "import SyncCloudIpStoreFactory",
+    ),
+    (r"from guard_core\.handlers", "from guard_core.sync.handlers"),
     (r"from guard_core\.utils", "from guard_core.sync.utils"),
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
     (r"from guard_core\.detection_engine\b", "from guard_core.sync.detection_engine"),
@@ -65,6 +77,7 @@ SUBS: list[tuple[str, str]] = [
     (r"(?<!Sync)(?<!\w)GuardRequest\b", "SyncGuardRequest"),
     (r"(?<!Sync)(?<!\w)GeoIPHandler\b", "SyncGeoIPHandler"),
     (r"(?<!Sync)(?<!\w)CloudIpStoreProtocol\b", "SyncCloudIpStoreProtocol"),
+    (r"(?<!Sync)(?<!\w)CloudIpStoreFactory\b", "SyncCloudIpStoreFactory"),
     (r"from redis\.asyncio import Redis", "from redis import Redis"),
     (r"redis\.asyncio", "redis"),
     (r"import aiohttp", "import requests"),
@@ -90,7 +103,7 @@ SUBS: list[tuple[str, str]] = [
     (r"AsyncContextManager", "ContextManager"),
     (r"^import asyncio$", "import threading\nimport time"),
     (r"(\s+)import asyncio$", r"\1pass"),
-    (r"asyncio\.Lock\(\)", "threading.Lock()"),
+    (r"asyncio\.Lock\b", "threading.Lock"),
     (r"asyncio\.Event\(\)", "threading.Event()"),
     (r"asyncio\.sleep", "time.sleep"),
     (
@@ -127,6 +140,7 @@ SUBS: list[tuple[str, str]] = [
     (r'"guard_core\.core\.', '"guard_core.sync.core.'),
     (r'"guard_core\.utils', '"guard_core.sync.utils'),
     (r'"guard_core\.detection_engine', '"guard_core.sync.detection_engine'),
+    (r'"guard_core\.decorators"', '"guard_core.sync.decorators"'),
 ]
 
 TEST_SUBS: list[tuple[str, str]] = [
@@ -164,6 +178,8 @@ TEST_SUBS: list[tuple[str, str]] = [
     (r"\.assert_awaited\(\)", ".assert_called()"),
     (r"\.assert_not_awaited\(\)", ".assert_not_called()"),
     (r"\.assert_awaited_with\(", ".assert_called_with("),
+    (r"\.await_count\b", ".call_count"),
+    (r"\.await_args\b", ".call_args"),
     (r"AsyncGenerator", "Generator"),
     (r"\.cancel\(\)", ".join(timeout=1)"),
     (r"\s+try:\n\s+loop_task\n\s+except Exception:\n\s+pass", ""),
@@ -357,6 +373,8 @@ def collect_source_files() -> list[tuple[Path, Path]]:
 
             if dst.resolve() in TEMPLATE_FILES:
                 continue
+            if dst.resolve() in HAND_MAINTAINED:
+                continue
 
             pairs.append((src, dst))
     return pairs
@@ -376,6 +394,8 @@ def collect_test_files() -> list[tuple[Path, Path]]:
 
             src = root_path / f
             dst = TEST_SYNC_DIR / rel / f
+            if dst.resolve() in HAND_MAINTAINED:
+                continue
             pairs.append((src, dst))
     return pairs
 

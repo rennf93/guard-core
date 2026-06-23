@@ -9,7 +9,7 @@ from guard_core.sync.core.initialization.handler_initializer import HandlerIniti
 
 @pytest.fixture
 def security_config() -> SecurityConfig:
-    config = SecurityConfig()
+    config = SecurityConfig(lazy_init=False)
     config.enable_redis = True
     config.enable_agent = True
     config.enable_dynamic_rules = False
@@ -175,7 +175,7 @@ def test_initialize_redis_handlers_sets_cloud_ip_store_when_configured(
         ) as mock_sus,
     ):
         mock_cloud.initialize_redis = MagicMock()
-        mock_cloud.set_store = MagicMock()
+        mock_cloud.set_store = Mock()
         mock_ipban.initialize_redis = MagicMock()
         mock_sus.initialize_redis = MagicMock()
 

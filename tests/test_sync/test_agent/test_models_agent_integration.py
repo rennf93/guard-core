@@ -177,3 +177,67 @@ def test_valid_agent_and_dynamic_rules_config() -> None:
     assert config.enable_agent is True
     assert config.enable_dynamic_rules is True
     assert config.dynamic_rule_interval == 600
+
+
+def test_to_agent_config_forwards_dynamic_rule_interval() -> None:
+    """`dynamic_rule_interval` was added to AgentConfig in guard-agent 2.6.0.
+
+    Asserted at the call-site contract level — to_agent_config() must pass
+    dynamic_rule_interval as a kwarg to AgentConfig. Older installed agents
+    silently drop unknown kwargs.
+    """
+    import guard_agent
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+        dynamic_rule_interval=600,
+    )
+
+    spy = MagicMock(name="AgentConfig")
+    with patch.object(guard_agent, "AgentConfig", spy):
+        config.to_agent_config()
+
+    spy.assert_called_once()
+    assert spy.call_args.kwargs.get("dynamic_rule_interval") == 600
+
+
+def test_to_agent_config_forwards_agent_status_interval() -> None:
+    """`status_interval` was added to AgentConfig in guard-agent 2.6.0.
+
+    Asserted at the call-site contract level — to_agent_config() must pass
+    status_interval as a kwarg to AgentConfig.
+    """
+    import guard_agent
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+        agent_status_interval=900,
+    )
+
+    spy = MagicMock(name="AgentConfig")
+    with patch.object(guard_agent, "AgentConfig", spy):
+        config.to_agent_config()
+
+    spy.assert_called_once()
+    assert spy.call_args.kwargs.get("status_interval") == 900
+
+
+def test_agent_status_interval_defaults_to_300() -> None:
+    config = SecurityConfig()
+    assert config.agent_status_interval == 300
+
+
+def test_agent_status_interval_rejects_below_60() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SecurityConfig(agent_status_interval=30)
+
+
+def test_agent_status_interval_rejects_above_86400() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SecurityConfig(agent_status_interval=86401)

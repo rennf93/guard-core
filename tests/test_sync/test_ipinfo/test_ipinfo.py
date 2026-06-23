@@ -506,6 +506,7 @@ def test_send_geo_event_dispatches_to_agent_handler() -> None:
     IPInfoManager._instance = None
     mgr = IPInfoManager(token="tok")
     mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock()
     mgr._send_geo_event(
         event_type="probe",
         ip_address="2.2.2.2",
@@ -547,6 +548,7 @@ def test_initialize_failure_emits_geo_event_when_agent_present(
     mgr = IPInfoManager(token="tok", db_path=tmp_path / "missing.mmdb")
     mgr.redis_handler = None
     mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock()
 
     def _raise(*_a: object, **_kw: object) -> None:
         raise RuntimeError("download failed")
@@ -559,7 +561,7 @@ def test_initialize_failure_emits_geo_event_when_agent_present(
     IPInfoManager._instance = None
 
 
-def test_get_country_exception_with_agent_dispatches_geo_event(
+def test_get_country_exception_with_agent_handles_create_task_failure(
     tmp_path: Path,
 ) -> None:
     IPInfoManager._instance = None
@@ -567,9 +569,10 @@ def test_get_country_exception_with_agent_dispatches_geo_event(
     mgr.reader = Mock()
     mgr.reader.get.side_effect = RuntimeError("DB error")
     mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock()
 
-    assert mgr.get_country("4.4.4.4") is None
-    mgr.agent_handler.send_event.assert_called_once()
+    with patch("asyncio.create_task", side_effect=RuntimeError("no loop")):
+        assert mgr.get_country("5.5.5.5") is None
     IPInfoManager._instance = None
 
 
@@ -611,6 +614,7 @@ def test_check_country_access_blocks_country_not_in_whitelist(
     mgr.reader = Mock()
     mgr.reader.get.return_value = {"country": "FR"}
     mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock()
 
     allowed, country = mgr.check_country_access(
         "8.8.8.8", blocked_countries=[], whitelist_countries=["US"]
@@ -629,6 +633,7 @@ def test_check_country_access_blocks_country_in_blacklist(
     mgr.reader = Mock()
     mgr.reader.get.return_value = {"country": "RU"}
     mgr.agent_handler = MagicMock()
+    mgr.agent_handler.send_event = MagicMock()
 
     allowed, country = mgr.check_country_access("9.9.9.9", blocked_countries=["RU"])
     assert allowed is False

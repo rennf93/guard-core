@@ -99,7 +99,8 @@ def test_handle_passthrough_no_client(
     mock_request.client_host = None
 
     response = bypass_handler.handle_passthrough(
-        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
     )
 
     assert response is not None
@@ -117,7 +118,8 @@ def test_handle_passthrough_excluded_path(
     mock_validator.is_path_excluded.return_value = True
 
     response = bypass_handler.handle_passthrough(
-        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
     )
 
     assert response is not None
@@ -135,7 +137,8 @@ def test_handle_passthrough_no_bypass(
     mock_validator.is_path_excluded.return_value = False
 
     response = bypass_handler.handle_passthrough(
-        mock_request, cast(Callable[[SyncGuardRequest], GuardResponse], call_next)
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
     )
 
     assert response is None

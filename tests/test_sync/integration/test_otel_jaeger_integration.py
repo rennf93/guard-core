@@ -70,9 +70,9 @@ class _SyntheticEvent:
 
 def _wait_for_service(ui_url: str, service_name: str) -> None:
     timeout = 10
-    with requests.Session() as session:
+    with requests.Session(base_url=ui_url, timeout=timeout) as session:
         for _ in range(10):
-            with session.get(f"{ui_url}/api/services", timeout=timeout) as response:
+            with session.get("/api/services") as response:
                 payload = response.json()
             services = payload.get("data") or []
             if service_name in services:
@@ -85,11 +85,9 @@ def _wait_for_service(ui_url: str, service_name: str) -> None:
 
 def _fetch_penetration_spans(ui_url: str, service_name: str) -> list[dict[str, Any]]:
     timeout = 10
-    with requests.Session() as session:
+    with requests.Session(base_url=ui_url, timeout=timeout) as session:
         params = {"service": service_name, "limit": "10", "lookback": "5m"}
-        with session.get(
-            f"{ui_url}/api/traces", params=params, timeout=timeout
-        ) as response:
+        with session.get("/api/traces", params=params) as response:
             payload = response.json()
     data = payload.get("data") or []
     tags_by_span = [

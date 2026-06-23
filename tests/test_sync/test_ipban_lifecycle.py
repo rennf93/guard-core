@@ -187,7 +187,7 @@ def test_reset_clears_local_state_and_redis_keys() -> None:
     conn.delete.assert_called_once()
 
 
-def test_reset_with_no_redis_keys_skips_delete() -> None:
+def test_reset_with_no_redis_and_no_keys_skips_delete() -> None:
     manager = IPBanManager()
 
     redis = MagicMock()
