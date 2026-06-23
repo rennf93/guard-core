@@ -58,33 +58,39 @@ async def test_fetch_aws_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
     mock_resp = _mock_aiohttp_response(
         json_data={
             "prefixes": [
-                {"ip_prefix": "192.168.0.0/24", "service": "AMAZON"},
+                {
+                    "ip_prefix": "192.168.0.0/24",
+                    "service": "AMAZON",
+                    "region": "us-east-1",
+                },
                 {"ip_prefix": "10.0.0.0/8", "service": "EC2"},
             ]
         }
     )
     mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
 
-    result = await fetch_aws_ip_ranges()
-    assert ipaddress.IPv4Network("192.168.0.0/24") in result
-    assert ipaddress.IPv4Network("10.0.0.0/8") not in result
+    networks, regions = await fetch_aws_ip_ranges()
+    assert ipaddress.IPv4Network("192.168.0.0/24") in networks
+    assert ipaddress.IPv4Network("10.0.0.0/8") not in networks
+    assert regions[str(ipaddress.IPv4Network("192.168.0.0/24"))] == "us-east-1"
 
 
 async def test_fetch_gcp_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
     mock_resp = _mock_aiohttp_response(
         json_data={
             "prefixes": [
-                {"ipv4Prefix": "172.16.0.0/12"},
-                {"ipv6Prefix": "2001:db8::/32"},
+                {"ipv4Prefix": "172.16.0.0/12", "scope": "us-central1"},
+                {"ipv6Prefix": "2001:db8::/32", "scope": "europe-west1"},
             ]
         }
     )
     mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
 
-    result = await fetch_gcp_ip_ranges()
-    assert ipaddress.IPv4Network("172.16.0.0/12") in result
-    assert ipaddress.IPv6Network("2001:db8::/32") in result
-    assert len(result) == 2
+    networks, regions = await fetch_gcp_ip_ranges()
+    assert ipaddress.IPv4Network("172.16.0.0/12") in networks
+    assert ipaddress.IPv6Network("2001:db8::/32") in networks
+    assert len(networks) == 2
+    assert regions[str(ipaddress.IPv4Network("172.16.0.0/12"))] == "us-central1"
 
 
 async def test_fetch_azure_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
@@ -265,16 +271,16 @@ def test_cloud_ip_ranges_invalid_ip() -> None:
 
 async def test_fetch_aws_ip_ranges_error(mock_aiohttp_session: MagicMock) -> None:
     mock_aiohttp_session.get = AsyncMock(side_effect=Exception("API failure"))
-    result = await fetch_aws_ip_ranges()
-    assert result == set()
+    networks, _ = await fetch_aws_ip_ranges()
+    assert networks == set()
 
 
 async def test_fetch_gcp_ip_ranges_error(mock_aiohttp_session: MagicMock) -> None:
     mock_resp = _mock_aiohttp_response()
     mock_resp.json = AsyncMock(side_effect=Exception("Invalid JSON"))
     mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
-    result = await fetch_gcp_ip_ranges()
-    assert result == set()
+    networks, _ = await fetch_gcp_ip_ranges()
+    assert networks == set()
 
 
 async def test_cloud_manager_refresh_handling() -> None:
@@ -389,13 +395,13 @@ async def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> 
         assert cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
         import json as _json
 
-        cached_raw = await redis_handler.get_key("cloud_ip", "AWS")
+        cached_raw = await redis_handler.get_key("cloud_ip_v2", "AWS")
         assert _json.loads(cached_raw) == ["192.168.0.0/24"]
 
         mock_aws.return_value = {ipaddress.IPv4Network("192.168.1.0/24")}
         await cloud_handler.refresh_async()
 
-        await redis_handler.delete("cloud_ip", "AWS")
+        await redis_handler.delete("cloud_ip_v2", "AWS")
         await cloud_handler.refresh_async()
 
         mock_aws.side_effect = Exception("API Error")
@@ -417,7 +423,7 @@ async def test_cloud_ip_redis_cache_hit(
     redis_handler = RedisManager(security_config_redis)
     await redis_handler.initialize()
 
-    await redis_handler.set_key("cloud_ip", "AWS", _json.dumps(["192.168.0.0/24"]))
+    await redis_handler.set_key("cloud_ip_v2", "AWS", _json.dumps(["192.168.0.0/24"]))
 
     await cloud_handler.initialize_redis(redis_handler)
 
@@ -495,8 +501,8 @@ async def test_cloud_ip_redis_error_handling(
         redis_handler = RedisManager(security_config_redis)
         await redis_handler.initialize()
 
-        await redis_handler.delete("cloud_ranges", "AWS")
-        await redis_handler.delete("cloud_ip", "AWS")
+        await redis_handler.delete("cloud_ranges_v2", "AWS")
+        await redis_handler.delete("cloud_ip_v2", "AWS")
 
         mock_aws.side_effect = Exception("API Error")
         await cloud_handler.initialize_redis(redis_handler)
@@ -924,9 +930,9 @@ async def test_fetch_gcp_ip_ranges_skips_unknown_prefix_keys(
         }
     )
     mock_aiohttp_session.get = AsyncMock(return_value=mock_resp)
-    result = await fetch_gcp_ip_ranges()
-    assert ipaddress.IPv4Network("172.16.0.0/12") in result
-    assert len(result) == 1
+    networks, _ = await fetch_gcp_ip_ranges()
+    assert ipaddress.IPv4Network("172.16.0.0/12") in networks
+    assert len(networks) == 1
 
 
 async def test_initialize_redis_replaces_in_memory_store(

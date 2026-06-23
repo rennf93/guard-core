@@ -228,8 +228,13 @@ class SecurityConfig(BaseModel):
         default=600, description="Maximum age of CORS preflight results"
     )
 
-    block_cloud_providers: set[CloudProvider] | None = Field(
-        default=None, description="Set of cloud provider names to block"
+    block_cloud_providers: set[str] | None = Field(
+        default=None,
+        description=(
+            "Cloud providers to block. A bare provider ('GCP') blocks the whole "
+            "provider; a region carve-out ('GCP:!us-central1') blocks the provider "
+            "except that region. Region scoping is supported for GCP and AWS."
+        ),
     )
 
     cloud_ip_refresh_interval: int = Field(
@@ -602,7 +607,7 @@ class SecurityConfig(BaseModel):
     def validate_cloud_providers(cls, v: Any) -> set[str]:
         if v is None:
             return set()
-        return {p for p in v if p in VALID_CLOUD_PROVIDERS}
+        return {sel for sel in v if sel.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
 
     @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:

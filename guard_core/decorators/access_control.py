@@ -1,9 +1,9 @@
 import logging
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
-from guard_core.models import VALID_CLOUD_PROVIDERS, CloudProvider
+from guard_core.models import VALID_CLOUD_PROVIDERS
 
 
 class AccessControlMixin(BaseSecurityMixin):
@@ -48,12 +48,14 @@ class AccessControlMixin(BaseSecurityMixin):
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             if providers is None:
-                route_config.block_cloud_providers = cast(
-                    set[CloudProvider], {"AWS", "GCP", "Azure"}
-                )
+                route_config.block_cloud_providers = {"AWS", "GCP", "Azure"}
             else:
-                valid = {p for p in providers if p in VALID_CLOUD_PROVIDERS}
-                route_config.block_cloud_providers = cast(set[CloudProvider], valid)
+                valid = {
+                    p
+                    for p in providers
+                    if p.partition(":!")[0] in VALID_CLOUD_PROVIDERS
+                }
+                route_config.block_cloud_providers = valid
                 invalid = set(providers) - valid
                 if invalid:
                     logging.getLogger("guard_core.decorators").warning(

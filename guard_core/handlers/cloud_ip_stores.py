@@ -27,7 +27,7 @@ class RedisCloudIpStore:
     def __init__(
         self,
         redis_handler: RedisHandlerProtocol,
-        key_prefix: str = "cloud_ip",
+        key_prefix: str = "cloud_ip_v2",
     ) -> None:
         self._redis = redis_handler
         self._prefix = key_prefix

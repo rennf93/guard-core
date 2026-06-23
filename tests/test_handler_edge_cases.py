@@ -504,9 +504,9 @@ async def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
             return response
 
     with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession", _FakeSession):
-        result = await fetch_gcp_ip_ranges()
+        networks, _ = await fetch_gcp_ip_ranges()
 
-    assert len(result) == 1
+    assert len(networks) == 1
 
 
 async def test_ipban_reset_noop_when_no_redis_handler() -> None:

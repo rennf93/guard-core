@@ -316,7 +316,7 @@ def test_cloud_manager_legacy_redis_handler_writes_back_after_fetch(
     assert ipaddress.ip_network("198.51.100.0/24") in mgr.ip_ranges["AWS"]
     redis_handler.set_key.assert_called_once()
     call = redis_handler.set_key.call_args
-    assert call.args[0] == "cloud_ranges"
+    assert call.args[0] == "cloud_ranges_v2"
     assert call.args[1] == "AWS"
     assert call.kwargs["ttl"] == 900
 
@@ -365,7 +365,7 @@ def test_cloud_manager_legacy_redis_path_skips_write_when_fetch_returns_empty(
 def test_redis_cloud_ip_store_default_key_prefix_is_unprefixed() -> None:
     redis_handler = MagicMock()
     store = RedisCloudIpStore(redis_handler)
-    assert store._prefix == "cloud_ip"
+    assert store._prefix == "cloud_ip_v2"
 
 
 def test_redis_cloud_ip_store_set_uses_unprefixed_namespace() -> None:
@@ -375,7 +375,7 @@ def test_redis_cloud_ip_store_set_uses_unprefixed_namespace() -> None:
 
     redis_handler.set_key.assert_called_once()
     call_args = redis_handler.set_key.call_args
-    assert call_args.args[0] == "cloud_ip"
+    assert call_args.args[0] == "cloud_ip_v2"
     assert call_args.args[1] == "AWS"
 
 

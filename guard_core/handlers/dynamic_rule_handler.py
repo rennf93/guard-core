@@ -3,11 +3,10 @@ import logging
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any
 
 from guard_core.models import (
     VALID_CLOUD_PROVIDERS,
-    CloudProvider,
     DynamicRules,
     SecurityConfig,
 )
@@ -283,8 +282,8 @@ class DynamicRuleManager:
             )
 
     async def _apply_cloud_provider_rules(self, providers: set[str]) -> None:
-        valid = {p for p in providers if p in VALID_CLOUD_PROVIDERS}
-        self.config.block_cloud_providers = cast(set[CloudProvider], valid)
+        valid = {p for p in providers if p.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
+        self.config.block_cloud_providers = valid
         invalid = providers - valid
         if invalid:
             self.logger.warning(
