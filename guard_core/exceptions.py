@@ -7,3 +7,7 @@ class GuardRedisError(GuardCoreError):
         self.status_code = status_code
         self.detail = detail
         super().__init__(detail)
+
+
+class AgentPackageNotInstalledError(GuardCoreError):
+    pass

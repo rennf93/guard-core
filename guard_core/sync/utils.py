@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING, Any, Literal
@@ -13,6 +14,22 @@ from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 if TYPE_CHECKING:
     from guard_core.models import SecurityConfig
     from guard_core.sync.decorators.base import RouteConfig
+
+
+def invoke_error_hook(
+    hook: Callable[[str, BaseException, dict[str, Any]], None] | None,
+    stage: str,
+    exc: BaseException,
+    context: dict[str, Any],
+) -> None:
+    if hook is None:
+        return
+    try:
+        hook(stage, exc, context)
+    except Exception as hook_error:
+        logging.getLogger("guard_core").error(
+            f"on_error hook raised while handling '{stage}': {hook_error}"
+        )
 
 
 def _sanitize_for_log(value: str) -> str:

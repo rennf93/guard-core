@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import Self
 
+from guard_core.exceptions import AgentPackageNotInstalledError
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 from guard_core.protocols.cloud_ip_store_protocol import (
     CloudIpStoreFactory,
@@ -327,6 +328,25 @@ class SecurityConfig(BaseModel):
 
     agent_api_key: str | None = Field(
         default=None, description="API key for Guard Agent SaaS platform"
+    )
+
+    agent_strict: bool = Field(
+        default=False,
+        description=(
+            "When True, an enabled agent that cannot be initialized (package "
+            "missing or construction failure) raises at middleware init instead "
+            "of degrading to agent-off."
+        ),
+    )
+
+    on_error: Callable[[str, BaseException, dict[str, Any]], None] | None = Field(
+        default=None,
+        description=(
+            "Optional best-effort callback invoked when a middleware/agent step "
+            "fails, receiving (stage, exception, context). stage is one of "
+            "'agent_init', 'geoip', 'transport_send', 'encryption'. A callback "
+            "that raises is caught and logged, never propagated."
+        ),
     )
 
     agent_endpoint: str = Field(
@@ -727,8 +747,11 @@ class SecurityConfig(BaseModel):
                 project_encryption_key=self.agent_project_encryption_key,
                 guard_version=self.agent_guard_version,
             )
-        except ImportError:
-            return None
+        except ImportError as e:
+            raise AgentPackageNotInstalledError(
+                "guard-agent is not installed but enable_agent=True. "
+                "Install it with: pip install guard-agent"
+            ) from e
 
 
 class DynamicRules(BaseModel):

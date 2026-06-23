@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from guard_core.exceptions import AgentPackageNotInstalledError
 from guard_core.models import SecurityConfig
 
 
@@ -129,8 +130,8 @@ def test_to_agent_config_import_error() -> None:
     sys.modules["guard_agent"] = mock_module
 
     try:
-        result = config.to_agent_config()
-        assert result is None
+        with pytest.raises(AgentPackageNotInstalledError):
+            config.to_agent_config()
     finally:
         if original_module:
             sys.modules["guard_agent"] = original_module

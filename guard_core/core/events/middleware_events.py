@@ -10,7 +10,11 @@ from guard_core.core.events.event_types import (
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
-from guard_core.utils import extract_client_ip, get_pipeline_response_time
+from guard_core.utils import (
+    extract_client_ip,
+    get_pipeline_response_time,
+    invoke_error_hook,
+)
 
 
 class SecurityEventBus:
@@ -33,7 +37,14 @@ class SecurityEventBus:
         try:
             country: str | None = self.geo_ip_handler.get_country(client_ip)
             return country
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"GeoIP lookup failed for {client_ip}: {e}")
+            invoke_error_hook(
+                getattr(self.config, "on_error", None),
+                "geoip",
+                e,
+                {"client_ip": client_ip},
+            )
             return None
 
     @staticmethod
