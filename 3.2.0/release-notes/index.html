@@ -2021,15 +2021,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-and-asyncsync-mirror-parity-v320" class="md-nav__link">
+  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cloud-IP region scoping, IP allow-list correctness, and async/sync mirror parity (v3.2.0)
+        Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, and async/sync mirror parity (v3.2.0)">
+    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2887,15 +2887,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-and-asyncsync-mirror-parity-v320" class="md-nav__link">
+  <a href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cloud-IP region scoping, IP allow-list correctness, and async/sync mirror parity (v3.2.0)
+        Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, and async/sync mirror parity (v3.2.0)">
+    <nav class="md-nav" aria-label="Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3730,9 +3730,10 @@
 <h1 id="release-notes">Release Notes<a class="headerlink" href="#release-notes" title="Permanent link">&para;</a></h1>
 <hr />
 <h2 id="v320-2026-06-23">v3.2.0 (2026-06-23)<a class="headerlink" href="#v320-2026-06-23" title="Permanent link">&para;</a></h2>
-<h2 id="cloud-ip-region-scoping-ip-allow-list-correctness-and-asyncsync-mirror-parity-v320">Cloud-IP region scoping, IP allow-list correctness, and async/sync mirror parity (v3.2.0)<a class="headerlink" href="#cloud-ip-region-scoping-ip-allow-list-correctness-and-asyncsync-mirror-parity-v320" title="Permanent link">&para;</a></h2>
+<h2 id="cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320">Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)<a class="headerlink" href="#cloud-ip-region-scoping-ip-allow-list-correctness-asyncsync-mirror-parity-and-agent-error-clarity-v320" title="Permanent link">&para;</a></h2>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
+<li><strong>Observable agent and middleware errors.</strong> New <code>SecurityConfig.on_error</code> — one best-effort <code>on_error(stage, exc, context)</code> hook (<code>stage</code> ∈ <code>agent_init</code> / <code>geoip</code> / <code>transport_send</code> / <code>encryption</code>) invoked at failure points and guaranteed never to propagate into the request path (a hook that raises is caught and logged). New <code>SecurityConfig.agent_strict</code> (default <code>False</code>): adapters raise at initialization instead of silently degrading to agent-off when an enabled agent cannot be constructed.</li>
 <li><strong>Region/scope carve-outs for cloud-IP blocking.</strong> <code>block_cloud_providers</code> and <code>@block_clouds</code> now accept flat-string region selectors: a bare provider (<code>"GCP"</code>) blocks the whole provider unchanged, while a carve-out (<code>"GCP:!us-central1"</code>) blocks the provider <em>except</em> that region. Region scoping is derived from the real <code>scope</code> field in GCP's <code>cloud.json</code> and the <code>region</code> field in AWS's <code>ip-ranges.json</code> (no hardcoded region lists); Azure remains provider-level. The <code>network</code>→<code>region</code> index is built at refresh/index time so per-request <code>is_cloud_ip</code> stays O(current) — a single dict lookup on a match. <code>block_cloud_providers</code> is now typed <code>set[str]</code> (was <code>set[CloudProvider]</code>); existing bare-provider configs are unchanged. Region data survives Redis via inline <code>"network|region"</code> encoding under versioned keys (<code>cloud_ip_v2</code> / <code>cloud_ranges_v2</code>) — pre-upgrade cache entries are ignored and refetched within <code>cloud_ip_refresh_interval</code>, and older replicas never read the new value shape during a rolling deploy. Async and sync mirrors updated identically.</li>
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
@@ -3740,6 +3741,9 @@
 <li><strong>IP allow-list is now reliably honored.</strong> An explicit whitelist match overrides the blacklist (dynamic IP bans, evaluated earlier, still win), applied consistently to the global path (<code>is_ip_allowed</code>) and the route path (<code>check_route_ip_access</code>) — previously the blacklist was evaluated first, so a whitelisted IP that also fell inside a blacklisted CIDR was blocked. Bare-IP matching now uses parsed <code>ip_address()</code> equality instead of raw string comparison, so IPv6 compact and expanded forms (<code>::1</code> vs <code>0:0:0:0:0:0:0:1</code>) match correctly. The global and route-level matchers share one primitive (<code>utils._ip_in_list</code>) so they cannot drift, and precedence is documented in the <code>SecurityConfig.whitelist</code> / <code>blacklist</code> field descriptions. Sync mirror updated identically.</li>
 <li><strong><code>X-Forwarded-For</code> client-IP extraction honors <code>trusted_proxy_depth</code>.</strong> <code>_extract_from_forwarded_header</code> previously returned the leftmost (client-spoofable) <code>X-Forwarded-For</code> entry regardless of <code>trusted_proxy_depth</code>; it now returns the <code>trusted_proxy_depth</code>-th entry from the right, so a client prepending fake entries can no longer defeat the IP allow-list behind trusted proxies.</li>
 <li><strong>Restored async/sync mirror parity and enforced it in CI.</strong> The generated <code>guard_core.sync</code> mirror had drifted from its async source (<code>make check-sync</code> was failing across ~33 files). Repaired the <code>unasync</code> generator (bare <code>asyncio.Lock</code> annotations, <code>from guard_core.handlers import …</code> package imports, the <code>CloudIpStoreFactory</code> alias, the decorators logger string, and AsyncMock <code>await_count</code>/<code>await_args</code> assertions) and excluded the genuinely hand-maintained sync files — the <code>RateLimitManager</code> threading lock and its tests — that the regex transform cannot reproduce. A new <code>check-sync</code> pre-commit hook now fails CI on any future async/sync drift.</li>
+<li><strong>Clear, actionable error when the agent package is missing.</strong> <code>SecurityConfig.to_agent_config()</code> now raises <code>AgentPackageNotInstalledError</code> (naming the package and install command) instead of returning an ambiguous <code>None</code>, so a missing <code>guard-agent</code> can no longer be misreported as an "invalid config / check <code>agent_api_key</code>" error by adapters.</li>
+<li><strong>GeoIP lookups no longer fail silently.</strong> <code>SecurityEventBus._lookup_country</code> now logs at warning and fires the <code>on_error</code> hook (<code>stage="geoip"</code>) instead of swallowing the exception with a bare <code>except Exception: return None</code>.</li>
+<li><strong>Replaced the deprecated redis <code>setex</code> call</strong> with <code>set(..., ex=ttl)</code> in both the async and sync Redis handlers, clearing the redis-py <code>DeprecationWarning</code>.</li>
 </ul>
 <hr />
 <h2 id="v311-2026-05-27">v3.1.1 (2026-05-27)<a class="headerlink" href="#v311-2026-05-27" title="Permanent link">&para;</a></h2>
