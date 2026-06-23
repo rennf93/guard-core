@@ -10,6 +10,18 @@ Release Notes
 
 ___
 
+v3.2.1 (2026-06-23)
+-------------------
+
+ipinfo deprecation no longer warns on a null value (v3.2.1)
+-----------------------------------------------------------
+
+### Fixed
+
+- **The `ipinfo_token` / `ipinfo_db_path` `DeprecationWarning` (added in 3.2.0) no longer fires when the field is explicitly set to `None`.** The warning keyed only on whether the field was passed to the constructor, so a caller that forwards an optional setting — e.g. `SecurityConfig(ipinfo_token=settings.ipinfo_token)` where the setting may be `None` — got a spurious deprecation warning even when ipinfo was not in use. The warning now fires only when the deprecated field has a non-`None` value.
+
+___
+
 v3.2.0 (2026-06-23)
 -------------------
 
