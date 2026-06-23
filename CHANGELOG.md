@@ -8,13 +8,14 @@ ___
 v3.2.0 (2026-06-23)
 -------------------
 
-Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, and agent-error clarity (v3.2.0)
+Cloud-IP region scoping, IP allow-list correctness, bounded body inspection, async/sync mirror parity, agent-error clarity, deprecation signalling, and documented Protocols (v3.2.0)
 --------------------------------------------------------------------------------------------------------------
 
 ### Added
 
 - **Observable agent and middleware errors.** New `SecurityConfig.on_error` — one best-effort `on_error(stage, exc, context)` hook (`stage` ∈ `agent_init` / `geoip` / `transport_send` / `encryption`) invoked at failure points and guaranteed never to propagate into the request path (a hook that raises is caught and logged). New `SecurityConfig.agent_strict` (default `False`): adapters raise at initialization instead of silently degrading to agent-off when an enabled agent cannot be constructed.
 - **Region/scope carve-outs for cloud-IP blocking.** `block_cloud_providers` and `@block_clouds` now accept flat-string region selectors: a bare provider (`"GCP"`) blocks the whole provider unchanged, while a carve-out (`"GCP:!us-central1"`) blocks the provider *except* that region. Region scoping is derived from the real `scope` field in GCP's `cloud.json` and the `region` field in AWS's `ip-ranges.json` (no hardcoded region lists); Azure remains provider-level. The `network`→`region` index is built at refresh/index time so per-request `is_cloud_ip` stays O(current) — a single dict lookup on a match. `block_cloud_providers` is now typed `set[str]` (was `set[CloudProvider]`); existing bare-provider configs are unchanged. Region data survives Redis via inline `"network|region"` encoding under versioned keys (`cloud_ip_v2` / `cloud_ranges_v2`) — pre-upgrade cache entries are ignored and refetched within `cloud_ip_refresh_interval`, and older replicas never read the new value shape during a rolling deploy. Async and sync mirrors updated identically.
+- **Bounded request-body inspection.** New `SecurityConfig.detection_max_body_inspect_bytes` (default `262144` / 256 KiB; `ge=1024, le=10485760`). `detect_penetration_attempt` now skips reading and scanning the body when the request's `Content-Length` exceeds the cap, so a large body (e.g. ~300MB on a high-traffic proxy) is no longer fully buffered and decoded into memory on the hot path. This bounds the read itself — unlike `detection_max_content_length`, which only truncates inside the regex preprocessor after the body is already in memory. Async and sync mirrors updated identically.
 
 ### Fixed
 
@@ -24,6 +25,15 @@ Cloud-IP region scoping, IP allow-list correctness, async/sync mirror parity, an
 - **Clear, actionable error when the agent package is missing.** `SecurityConfig.to_agent_config()` now raises `AgentPackageNotInstalledError` (naming the package and install command) instead of returning an ambiguous `None`, so a missing `guard-agent` can no longer be misreported as an "invalid config / check `agent_api_key`" error by adapters.
 - **GeoIP lookups no longer fail silently.** `SecurityEventBus._lookup_country` now logs at warning and fires the `on_error` hook (`stage="geoip"`) instead of swallowing the exception with a bare `except Exception: return None`.
 - **Replaced the deprecated redis `setex` call** with `set(..., ex=ttl)` in both the async and sync Redis handlers, clearing the redis-py `DeprecationWarning`.
+
+### Deprecated
+
+- **`ipinfo_token` and `ipinfo_db_path` now signal deprecation at runtime.** Both fields — long described as deprecated in favour of a custom `geo_ip_handler` — now emit a `DeprecationWarning` when explicitly set, raised once at construction from a `model_validator` keyed on `model_fields_set` (so it never fires on the default value or on internal access). Both keep working unchanged; removal is targeted for a future major release. Migrate by passing any `GeoIPHandler` as `geo_ip_handler`.
+
+### Documentation
+
+- **Documented the integrator-facing Protocols.** Every public `Protocol` extension point — `RedisHandlerProtocol`, `AgentHandlerProtocol`, `CloudIpStoreProtocol`, `GeoIPHandler`, `GuardRequest`, `GuardResponse`/`GuardResponseFactory`, `GuardMiddlewareProtocol` (and their `Sync*` mirrors) — now carries a WHAT/WHEN/HOW class docstring plus a per-method contract docstring covering return-value semantics (None-on-miss, None vs empty set, bool success, TTL units). Docstrings only; no signature or behavior change.
+- **Added an API-surface audit** (`docs/internals/api-surface-audit.md`): an inventory of all `SecurityConfig` fields and the package exports, grouped by domain with a keep/deprecate/group/remove recommendation per item, the `ipinfo_*` deprecation path, and the guard_core ↔ fastapi-guard export single-source-of-truth.
 
 ___
 
