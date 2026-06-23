@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="API reference for CloudIpStoreProtocol, InMemoryCloudIpStore, and RedisCloudIpStore">
+        <meta name="description" content="Framework-agnostic security library for Python web applications">
       
       
       
-        <link rel="canonical" href="https://rennf93.github.io/guard-core/latest/3.2.0/api/cloud-ip-store/">
+        <link rel="canonical" href="https://rennf93.github.io/guard-core/latest/3.2.0/internals/api-surface-audit/">
       
       
-        <link rel="prev" href="../behavior-rules/">
+        <link rel="prev" href="../redis/">
       
       
-        <link rel="next" href="../decorators/">
+        <link rel="next" href="../../configuration/security-config/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Cloud IP Store - Guard Core</title>
+        <title>API Surface Audit - Guard Core</title>
       
     
     
@@ -93,7 +93,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cloud-ip-store" class="md-skip">
+        <a href="#api-surface-audit" class="md-skip">
           Skip to content
         </a>
       
@@ -130,7 +130,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Cloud IP Store
+              API Surface Audit
             
           </span>
         </div>
@@ -326,11 +326,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../internals/checks/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../checks/" class="md-tabs__link">
           
   
   
@@ -370,13 +372,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../protocols/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../api/protocols/" class="md-tabs__link">
           
   
   
@@ -1015,8 +1015,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -1044,19 +1046,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -1074,7 +1079,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1092,7 +1097,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/checks/" class="md-nav__link">
+      <a href="../checks/" class="md-nav__link">
         
   
   
@@ -1120,7 +1125,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/check-implementations/" class="md-nav__link">
+      <a href="../check-implementations/" class="md-nav__link">
         
   
   
@@ -1148,7 +1153,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/ip-management/" class="md-nav__link">
+      <a href="../ip-management/" class="md-nav__link">
         
   
   
@@ -1176,7 +1181,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/rate-limiting/" class="md-nav__link">
+      <a href="../rate-limiting/" class="md-nav__link">
         
   
   
@@ -1204,7 +1209,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/detection-engine/" class="md-nav__link">
+      <a href="../detection-engine/" class="md-nav__link">
         
   
   
@@ -1232,7 +1237,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/cloud-providers/" class="md-nav__link">
+      <a href="../cloud-providers/" class="md-nav__link">
         
   
   
@@ -1260,7 +1265,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/security-headers/" class="md-nav__link">
+      <a href="../security-headers/" class="md-nav__link">
         
   
   
@@ -1288,7 +1293,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/behavioral/" class="md-nav__link">
+      <a href="../behavioral/" class="md-nav__link">
         
   
   
@@ -1316,7 +1321,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../internals/redis/" class="md-nav__link">
+      <a href="../redis/" class="md-nav__link">
         
   
   
@@ -1341,10 +1346,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../internals/api-surface-audit/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Surface Audit
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1360,6 +1392,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#securityconfig-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SecurityConfig fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field-counts-by-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field counts by domain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecations-wired-in-this-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecations (wired in this audit)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grouping-opportunities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grouping opportunities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exports
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validators-methods-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validators &amp; methods (reference)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1527,10 +1645,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -1558,22 +1674,19 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
             
   
   
@@ -1591,7 +1704,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1609,7 +1722,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../protocols/" class="md-nav__link">
+      <a href="../../api/protocols/" class="md-nav__link">
         
   
   
@@ -1637,7 +1750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/" class="md-nav__link">
+      <a href="../../api/models/" class="md-nav__link">
         
   
   
@@ -1665,7 +1778,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../handlers/" class="md-nav__link">
+      <a href="../../api/handlers/" class="md-nav__link">
         
   
   
@@ -1693,7 +1806,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../detection-engine/" class="md-nav__link">
+      <a href="../../api/detection-engine/" class="md-nav__link">
         
   
   
@@ -1721,7 +1834,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../detection-result/" class="md-nav__link">
+      <a href="../../api/detection-result/" class="md-nav__link">
         
   
   
@@ -1749,7 +1862,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ban-config/" class="md-nav__link">
+      <a href="../../api/ban-config/" class="md-nav__link">
         
   
   
@@ -1777,7 +1890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../behavior-rules/" class="md-nav__link">
+      <a href="../../api/behavior-rules/" class="md-nav__link">
         
   
   
@@ -1802,37 +1915,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Cloud IP Store
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../api/cloud-ip-store/" class="md-nav__link">
         
   
   
@@ -1848,131 +1934,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#cloudipstoreprotocol" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CloudIpStoreProtocol
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inmemorycloudipstore" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        InMemoryCloudIpStore
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#rediscloudipstore" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        RedisCloudIpStore
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#backends" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Backends
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Backends">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#default-auto-constructed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Default (auto-constructed)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-prefix-or-implementation-via-callable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom prefix or implementation via callable
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-non-redis-implementation-via-instance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom non-Redis implementation via instance
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#redis-namespace-migration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Redis namespace migration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        See also
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1985,7 +1946,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../decorators/" class="md-nav__link">
+      <a href="../../api/decorators/" class="md-nav__link">
         
   
   
@@ -2013,7 +1974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utilities/" class="md-nav__link">
+      <a href="../../api/utilities/" class="md-nav__link">
         
   
   
@@ -2186,10 +2147,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#cloudipstoreprotocol" class="md-nav__link">
+  <a href="#securityconfig-fields" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CloudIpStoreProtocol
+        SecurityConfig fields
       
     </span>
   </a>
@@ -2197,10 +2158,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#inmemorycloudipstore" class="md-nav__link">
+  <a href="#field-counts-by-domain" class="md-nav__link">
     <span class="md-ellipsis">
       
-        InMemoryCloudIpStore
+        Field counts by domain
       
     </span>
   </a>
@@ -2208,10 +2169,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#rediscloudipstore" class="md-nav__link">
+  <a href="#deprecations-wired-in-this-audit" class="md-nav__link">
     <span class="md-ellipsis">
       
-        RedisCloudIpStore
+        Deprecations (wired in this audit)
       
     </span>
   </a>
@@ -2219,60 +2180,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#backends" class="md-nav__link">
+  <a href="#grouping-opportunities" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Backends
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Backends">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#default-auto-constructed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Default (auto-constructed)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-prefix-or-implementation-via-callable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom prefix or implementation via callable
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-non-redis-implementation-via-instance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom non-Redis implementation via instance
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#redis-namespace-migration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Redis namespace migration
+        Grouping opportunities
       
     </span>
   </a>
@@ -2280,10 +2191,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#exports" class="md-nav__link">
     <span class="md-ellipsis">
       
-        See also
+        Exports
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validators-methods-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validators &amp; methods (reference)
       
     </span>
   </a>
@@ -2310,127 +2232,830 @@
   
 
 
-<h1 id="cloud-ip-store">Cloud IP Store<a class="headerlink" href="#cloud-ip-store" title="Permanent link">&para;</a></h1>
-<p><code>CloudIpStoreProtocol</code> defines the pluggable backend for cached cloud-provider IP ranges. Guard-core ships two concrete implementations — <code>InMemoryCloudIpStore</code> and <code>RedisCloudIpStore</code> — and the active store can be swapped via <code>SecurityConfig.cloud_ip_store</code>.</p>
-<hr />
-<h2 id="cloudipstoreprotocol">CloudIpStoreProtocol<a class="headerlink" href="#cloudipstoreprotocol" title="Permanent link">&para;</a></h2>
-<p><strong>Location</strong>: <code>guard_core/protocols/cloud_ip_store_protocol.py</code></p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">runtime_checkable</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nd">@runtime_checkable</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">CloudIpStoreProtocol</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ranges</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">ttl</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span></code></pre></div>
+<h1 id="api-surface-audit">API Surface Audit<a class="headerlink" href="#api-surface-audit" title="Permanent link">&para;</a></h1>
+<p>A scoped inventory of the guard-core public API surface — the <code>SecurityConfig</code>
+model and the package exports — with a recommended action per item. The goal is
+an intuitive, non-bloated, composable surface. This audit is <strong>non-breaking by
+design</strong>: nothing here removes a field or changes runtime behavior except the
+two already-deprecated <code>ipinfo_*</code> fields, which now emit a runtime
+<code>DeprecationWarning</code> when set.</p>
+<p>Current totals (verified against source):</p>
+<ul>
+<li><code>SecurityConfig</code>: <strong>90 fields</strong>, 13 validators, 1 <code>to_agent_config()</code> method
+  (<code>guard_core/models.py</code>).</li>
+<li><code>guard_core</code> exports: <strong>22</strong> symbols (<code>guard_core/__init__.py</code>).</li>
+<li><code>fastapi-guard</code> re-exports: <strong>24</strong> symbols (the 22 above plus its own
+  <code>SecurityMiddleware</code> and <code>__version__</code>).</li>
+</ul>
+<p>Recommendation legend: <strong>Keep</strong> (core/everyday or stable advanced) · <strong>Deprecate</strong>
+(scheduled for removal, kept working) · <strong>Group?</strong> (candidate for an optional
+nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities</a>) ·
+<strong>Remove</strong> (none in this audit — removals are out of scope).</p>
+<h2 id="securityconfig-fields">SecurityConfig fields<a class="headerlink" href="#securityconfig-fields" title="Permanent link">&para;</a></h2>
+<p>Ordered by domain, then by <code>models.py</code> line.</p>
 <table>
 <thead>
 <tr>
-<th>Method</th>
-<th>Description</th>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Line</th>
+<th>Domain</th>
+<th>Recommendation</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>get(provider)</code></td>
-<td>Return the cached CIDR set for the provider, or <code>None</code> if absent.</td>
+<td><code>enable_agent</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>325</td>
+<td>agent</td>
+<td>Keep</td>
 </tr>
 <tr>
-<td><code>set(provider, ranges, ttl=)</code></td>
-<td>Cache the CIDR set for the provider. <code>ttl</code> is honored by stores that support it.</td>
+<td><code>agent_api_key</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>329</td>
+<td>agent</td>
+<td>Keep</td>
 </tr>
 <tr>
-<td><code>clear()</code></td>
-<td>Drop all cached entries.</td>
+<td><code>agent_strict</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>333</td>
+<td>agent</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>agent_endpoint</code></td>
+<td><code>str</code></td>
+<td><code>"https://api.guard-core.com"</code></td>
+<td>352</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_project_id</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>357</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_buffer_size</code></td>
+<td><code>int</code></td>
+<td><code>100</code></td>
+<td>361</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_flush_interval</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>365</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_enable_events</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>369</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_enable_metrics</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>373</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_timeout</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>377</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_retry_attempts</code></td>
+<td><code>int</code></td>
+<td><code>3</code></td>
+<td>381</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_project_encryption_key</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>385</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_guard_version</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>395</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>agent_status_interval</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>413</td>
+<td>agent</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>auto_ban_threshold</code></td>
+<td><code>int</code></td>
+<td><code>10</code></td>
+<td>117</td>
+<td>auto-ban</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>auto_ban_duration</code></td>
+<td><code>int</code></td>
+<td><code>3600</code></td>
+<td>121</td>
+<td>auto-ban</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>threat_ban_config</code></td>
+<td><code>dict[str, ThreatBanConfig]</code></td>
+<td><code>dict</code></td>
+<td>125</td>
+<td>auto-ban</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>global_behavior_rules</code></td>
+<td><code>list[BehaviorRuleConfig]</code></td>
+<td><code>list</code></td>
+<td>133</td>
+<td>behavioral</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>block_cloud_providers</code></td>
+<td><code>set[str] \| None</code></td>
+<td><code>None</code></td>
+<td>232</td>
+<td>cloud</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>cloud_ip_refresh_interval</code></td>
+<td><code>int</code></td>
+<td><code>3600</code></td>
+<td>241</td>
+<td>cloud</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>cloud_ip_store</code></td>
+<td><code>CloudIpStoreProtocol \| CloudIpStoreFactory \| None</code></td>
+<td><code>None</code></td>
+<td>268</td>
+<td>cloud</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_cors</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>205</td>
+<td>cors</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>cors_allow_origins</code></td>
+<td><code>list[str]</code></td>
+<td><code>["*"]</code></td>
+<td>207</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>cors_allow_methods</code></td>
+<td><code>list[str]</code></td>
+<td><code>[GET,POST,PUT,PATCH,DELETE,OPTIONS]</code></td>
+<td>211</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>cors_allow_headers</code></td>
+<td><code>list[str]</code></td>
+<td><code>["*"]</code></td>
+<td>216</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>cors_allow_credentials</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>220</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>cors_expose_headers</code></td>
+<td><code>list[str]</code></td>
+<td><code>list</code></td>
+<td>224</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>cors_max_age</code></td>
+<td><code>int</code></td>
+<td><code>600</code></td>
+<td>228</td>
+<td>cors</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>whitelist_countries</code></td>
+<td><code>frozenset[str]</code></td>
+<td><code>frozenset</code></td>
+<td>103</td>
+<td>geo/country</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>blocked_countries</code></td>
+<td><code>frozenset[str]</code></td>
+<td><code>frozenset</code></td>
+<td>108</td>
+<td>geo/country</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>geo_ip_handler</code></td>
+<td><code>GeoIPHandler \| None</code></td>
+<td><code>None</code></td>
+<td>66</td>
+<td>geo/country</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>geo_ip_db_max_age</code></td>
+<td><code>int</code></td>
+<td><code>86400</code></td>
+<td>261</td>
+<td>geo/country</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>detection_compiler_timeout</code></td>
+<td><code>float</code></td>
+<td><code>2.0</code></td>
+<td>434</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_max_content_length</code></td>
+<td><code>int</code></td>
+<td><code>10000</code></td>
+<td>441</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_preserve_attack_patterns</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>448</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_semantic_threshold</code></td>
+<td><code>float</code></td>
+<td><code>0.7</code></td>
+<td>453</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_anomaly_threshold</code></td>
+<td><code>float</code></td>
+<td><code>3.0</code></td>
+<td>460</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_slow_pattern_threshold</code></td>
+<td><code>float</code></td>
+<td><code>0.1</code></td>
+<td>467</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_monitor_history_size</code></td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+<td>474</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>detection_max_tracked_patterns</code></td>
+<td><code>int</code></td>
+<td><code>1000</code></td>
+<td>481</td>
+<td>detection</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>enabled_detection_categories</code></td>
+<td><code>set[str]</code></td>
+<td><code>ALL_DETECTION_CATEGORIES</code></td>
+<td>566</td>
+<td>detection</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>excluded_detection_headers</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>547</td>
+<td>detection (excl.)</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>excluded_detection_params</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>554</td>
+<td>detection (excl.)</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>excluded_detection_body_fields</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>560</td>
+<td>detection (excl.)</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_penetration_detection</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>299</td>
+<td>detection</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_dynamic_rules</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>405</td>
+<td>dynamic-rules</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>dynamic_rule_interval</code></td>
+<td><code>int</code></td>
+<td><code>300</code></td>
+<td>409</td>
+<td>dynamic-rules</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>emergency_mode</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>420</td>
+<td>dynamic-rules</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>emergency_whitelist</code></td>
+<td><code>list[str]</code></td>
+<td><code>list</code></td>
+<td>424</td>
+<td>dynamic-rules</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>endpoint_rate_limits</code></td>
+<td><code>dict[str, tuple[int, int]]</code></td>
+<td><code>dict</code></td>
+<td>429</td>
+<td>dynamic-rules</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_enrichment</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>536</td>
+<td>enrichment</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>ipinfo_token</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>313</td>
+<td>ipinfo</td>
+<td><strong>Deprecate (warns)</strong></td>
+</tr>
+<tr>
+<td><code>ipinfo_db_path</code></td>
+<td><code>Path \| None</code></td>
+<td><code>Path("data/ipinfo/country_asn.mmdb")</code></td>
+<td>319</td>
+<td>ipinfo</td>
+<td><strong>Deprecate (warns)</strong></td>
+</tr>
+<tr>
+<td><code>custom_log_file</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>141</td>
+<td>logging</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>log_suspicious_level</code></td>
+<td><code>Literal[...] \| None</code></td>
+<td><code>"WARNING"</code></td>
+<td>146</td>
+<td>logging</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>log_request_level</code></td>
+<td><code>Literal[...] \| None</code></td>
+<td><code>None</code></td>
+<td>150</td>
+<td>logging</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>log_format</code></td>
+<td><code>Literal["text","json"]</code></td>
+<td><code>"text"</code></td>
+<td>154</td>
+<td>logging</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_logfire</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>526</td>
+<td>logfire</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>logfire_service_name</code></td>
+<td><code>str</code></td>
+<td><code>"guard-core"</code></td>
+<td>531</td>
+<td>logfire</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>muted_event_types</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>488</td>
+<td>muted</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>muted_metric_types</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>493</td>
+<td>muted</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>muted_check_logs</code></td>
+<td><code>set[str]</code></td>
+<td><code>set</code></td>
+<td>498</td>
+<td>muted</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_otel</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>503</td>
+<td>otel</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>otel_service_name</code></td>
+<td><code>str</code></td>
+<td><code>"guard-core"</code></td>
+<td>508</td>
+<td>otel</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>otel_exporter_endpoint</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>513</td>
+<td>otel</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>otel_resource_attributes</code></td>
+<td><code>dict[str, str]</code></td>
+<td><code>dict</code></td>
+<td>518</td>
+<td>otel</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>trusted_proxies</code></td>
+<td><code>list[str]</code></td>
+<td><code>list</code></td>
+<td>46</td>
+<td>proxy</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>trusted_proxy_depth</code></td>
+<td><code>int</code></td>
+<td><code>1</code></td>
+<td>51</td>
+<td>proxy</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>trust_x_forwarded_proto</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>56</td>
+<td>proxy</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>rate_limit</code></td>
+<td><code>int</code></td>
+<td><code>10</code></td>
+<td>163</td>
+<td>rate-limit</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>rate_limit_window</code></td>
+<td><code>int</code></td>
+<td><code>60</code></td>
+<td>167</td>
+<td>rate-limit</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_rate_limiting</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>295</td>
+<td>rate-limit</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_redis</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>71</td>
+<td>redis</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>redis_url</code></td>
+<td><code>str \| None</code></td>
+<td><code>"redis://localhost:6379"</code></td>
+<td>76</td>
+<td>redis</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>redis_prefix</code></td>
+<td><code>str</code></td>
+<td><code>"guard_core:"</code></td>
+<td>81</td>
+<td>redis</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>security_headers</code></td>
+<td><code>dict[str, Any] \| None</code></td>
+<td>headers dict</td>
+<td>175</td>
+<td>security-headers</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enforce_https</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>171</td>
+<td>security-headers</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>whitelist</code></td>
+<td><code>list[str] \| None</code></td>
+<td><code>None</code></td>
+<td>86</td>
+<td>allow/deny</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>blacklist</code></td>
+<td><code>list[str]</code></td>
+<td><code>list</code></td>
+<td>95</td>
+<td>allow/deny</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>blocked_user_agents</code></td>
+<td><code>list[str]</code></td>
+<td><code>list</code></td>
+<td>113</td>
+<td>allow/deny</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>enable_ip_banning</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>291</td>
+<td>ip-banning</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>passive_mode</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>61</td>
+<td>mode</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>custom_error_responses</code></td>
+<td><code>dict[int, str]</code></td>
+<td><code>dict</code></td>
+<td>159</td>
+<td>hooks</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>custom_request_check</code></td>
+<td><code>Callable[...] \| None</code></td>
+<td><code>None</code></td>
+<td>194</td>
+<td>hooks</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>custom_response_modifier</code></td>
+<td><code>Callable[...] \| None</code></td>
+<td><code>None</code></td>
+<td>198</td>
+<td>hooks</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>on_error</code></td>
+<td><code>Callable[[str, BaseException, dict], None] \| None</code></td>
+<td><code>None</code></td>
+<td>342</td>
+<td>hooks</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>lazy_init</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>248</td>
+<td>init</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>exclude_paths</code></td>
+<td><code>list[str]</code></td>
+<td>docs/static defaults</td>
+<td>279</td>
+<td>init</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>fail_secure</code></td>
+<td><code>bool</code></td>
+<td><code>True</code></td>
+<td>303</td>
+<td>failure-mode</td>
+<td>Keep</td>
 </tr>
 </tbody>
 </table>
-<p>A sync mirror lives at <code>guard_core/sync/protocols/cloud_ip_store_protocol.py</code> as <code>SyncCloudIpStoreProtocol</code>.</p>
-<hr />
-<h2 id="inmemorycloudipstore">InMemoryCloudIpStore<a class="headerlink" href="#inmemorycloudipstore" title="Permanent link">&para;</a></h2>
-<p><strong>Location</strong>: <code>guard_core/handlers/cloud_ip_stores.py</code></p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">InMemoryCloudIpStore</span><span class="p">:</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ranges</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">ttl</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span></code></pre></div>
-<p>Process-local dictionary backed store. The <code>ttl</code> argument is accepted for protocol compatibility but is not enforced. This is the default store when no Redis is configured.</p>
-<hr />
-<h2 id="rediscloudipstore">RedisCloudIpStore<a class="headerlink" href="#rediscloudipstore" title="Permanent link">&para;</a></h2>
-<p><strong>Location</strong>: <code>guard_core/handlers/cloud_ip_stores.py</code></p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">RedisCloudIpStore</span><span class="p">:</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        <span class="n">redis_handler</span><span class="p">:</span> <span class="n">RedisHandlerProtocol</span><span class="p">,</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        <span class="n">key_prefix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cloud_ip&quot;</span><span class="p">,</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">provider</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ranges</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">ttl</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
-</span></code></pre></div>
-<p>Redis-backed store. Each provider's CIDR set is JSON-encoded as a sorted list and written under <code>&lt;redis_prefix&gt;&lt;key_prefix&gt;:&lt;provider&gt;</code> (the <code>RedisManager.set_key</code> path already prepends <code>config.redis_prefix</code>, so <code>key_prefix</code> should not duplicate it). <code>set()</code> honors the optional <code>ttl</code>. <code>clear()</code> removes every key under the resolved prefix.</p>
-<hr />
-<h2 id="backends">Backends<a class="headerlink" href="#backends" title="Permanent link">&para;</a></h2>
-<h3 id="default-auto-constructed">Default (auto-constructed)<a class="headerlink" href="#default-auto-constructed" title="Permanent link">&para;</a></h3>
-<p>When <code>enable_redis=True</code> and <code>block_cloud_providers</code> is set, guard-core automatically wires a <code>RedisCloudIpStore</code> during <code>HandlerInitializer.initialize_redis_handlers()</code> so cloud-IP ranges persist across worker restarts and stay shared across replicas. No <code>cloud_ip_store=</code> setting is required.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guard_core.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SecurityConfig</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">SecurityConfig</span><span class="p">(</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">enable_redis</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">redis_url</span><span class="o">=</span><span class="s2">&quot;redis://localhost:6379&quot;</span><span class="p">,</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">redis_prefix</span><span class="o">=</span><span class="s2">&quot;myapp:guard:&quot;</span><span class="p">,</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">block_cloud_providers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;AWS&quot;</span><span class="p">,</span> <span class="s2">&quot;GCP&quot;</span><span class="p">,</span> <span class="s2">&quot;Azure&quot;</span><span class="p">},</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">)</span>
-</span></code></pre></div>
-<p>Cloud-IP ranges land at Redis keys like <code>myapp:guard:cloud_ip:AWS</code>. The redundant <code>guard:</code> segment in the previous <code>key_prefix</code> default was removed in this release (see CHANGELOG); <code>RedisManager.set_key</code> already prepends <code>redis_prefix</code>, so the <code>key_prefix</code> no longer duplicates it.</p>
-<p>When <code>enable_redis=False</code> (or no Redis URL is reachable), the same path falls back to <code>InMemoryCloudIpStore</code> — fine for single-process deployments, lost on restart.</p>
-<h3 id="custom-prefix-or-implementation-via-callable">Custom prefix or implementation via callable<a class="headerlink" href="#custom-prefix-or-implementation-via-callable" title="Permanent link">&para;</a></h3>
-<p><code>cloud_ip_store</code> accepts a <code>CloudIpStoreFactory</code> callable: <code>Callable[[RedisHandlerProtocol], CloudIpStoreProtocol]</code>. The handler initializer invokes it with the live Redis handler once Redis is up, so user code never has to construct a throwaway <code>RedisManager</code> purely to feed the store.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guard_core.handlers.cloud_ip_stores</span><span class="w"> </span><span class="kn">import</span> <span class="n">RedisCloudIpStore</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guard_core.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SecurityConfig</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">config</span> <span class="o">=</span> <span class="n">SecurityConfig</span><span class="p">(</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">enable_redis</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">redis_url</span><span class="o">=</span><span class="s2">&quot;redis://localhost:6379&quot;</span><span class="p">,</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">cloud_ip_store</span><span class="o">=</span><span class="k">lambda</span> <span class="n">redis</span><span class="p">:</span> <span class="n">RedisCloudIpStore</span><span class="p">(</span><span class="n">redis</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s2">&quot;cloud_ip_v2&quot;</span><span class="p">),</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
-</span></code></pre></div>
-<h3 id="custom-non-redis-implementation-via-instance">Custom non-Redis implementation via instance<a class="headerlink" href="#custom-non-redis-implementation-via-instance" title="Permanent link">&para;</a></h3>
-<p>If the store does not need a Redis handle (in-memory, DynamoDB, SQL, etc.), pass an instance directly:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">guard_core.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">SecurityConfig</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">SecurityConfig</span><span class="p">(</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">cloud_ip_store</span><span class="o">=</span><span class="n">MyDynamoDBCloudIpStore</span><span class="p">(</span><span class="n">table_name</span><span class="o">=</span><span class="s2">&quot;cloud_ips&quot;</span><span class="p">),</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">)</span>
-</span></code></pre></div>
-<p>The instance is wired straight into <code>cloud_handler.set_store(...)</code> after Redis bootstrap. Combined with <code>lazy_init=True</code> (the default), the first cloud-IP fetch happens in a background task — application startup does not block on it.</p>
-<hr />
-<h2 id="redis-namespace-migration">Redis namespace migration<a class="headerlink" href="#redis-namespace-migration" title="Permanent link">&para;</a></h2>
-<p>The v2.0.0 release moved the cloud-IP cache from the legacy <code>cloud_ranges</code> namespace (comma-separated CSV values per provider) to <code>cloud_ip</code> (JSON-encoded sorted list per provider, prefixed by <code>redis_prefix</code>).</p>
+<p>No field is required (every field has a default or <code>default_factory</code>).</p>
+<h2 id="field-counts-by-domain">Field counts by domain<a class="headerlink" href="#field-counts-by-domain" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Default writers</strong> — <code>RedisCloudIpStore</code> writes to <code>&lt;redis_prefix&gt;cloud_ip:&lt;provider&gt;</code>.</li>
-<li><strong>Legacy reader (dead code)</strong> — the legacy CSV path under <code>cloud_ranges</code> is gated behind <code>CloudManager._store is None</code>. Because <code>CloudManager.__new__</code> always seeds <code>_store</code> with an <code>InMemoryCloudIpStore()</code> and nothing resets it to <code>None</code>, that branch is unreachable at runtime; the default and the Redis store both use the new <code>cloud_ip</code> namespace.</li>
+<li>agent: 14</li>
+<li>detection (incl. 3 <code>excluded_detection_*</code> + <code>enable_penetration_detection</code>): 13</li>
+<li>hooks: 4 · logging: 4 · geo/country: 4 · otel: 4</li>
+<li>cors: 7 · dynamic-rules: 5</li>
+<li>auto-ban: 3 · cloud: 3 · muted: 3 · proxy: 3 · rate-limit: 3 · redis: 3 · allow/deny: 3</li>
+<li>security-headers: 2 · ipinfo: 2 · logfire: 2 · init: 2</li>
+<li>behavioral: 1 · enrichment: 1 · ip-banning: 1 · mode: 1 · failure-mode: 1</li>
 </ul>
-<p>Any ops tooling, dashboards, or sidecars reading those Redis keys directly must switch to the new namespace. On upgrade from a previous release, the cache invalidates once and repopulates within <code>cloud_ip_refresh_interval</code>.</p>
-<hr />
-<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<p><strong>Total: 90 fields.</strong></p>
+<h2 id="deprecations-wired-in-this-audit">Deprecations (wired in this audit)<a class="headerlink" href="#deprecations-wired-in-this-audit" title="Permanent link">&para;</a></h2>
+<p><code>ipinfo_token</code> and <code>ipinfo_db_path</code> have self-described as <em>Deprecated</em> for some
+time, directing users to a custom <code>geo_ip_handler</code>. They now emit a runtime
+<code>DeprecationWarning</code> <strong>when explicitly set</strong> — the warning is raised from a
+<code>model_validator</code> keyed on <code>model_fields_set</code>, so it fires once at construction
+and never on internal access or when the field is left at its default.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ipinfo_token is deprecated and will be removed in a future release;
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>create a custom geo_ip_handler instead.
+</span></code></pre></div>
 <ul>
-<li><a href="../../configuration/security-config/#ip-lifecycle-controls">SecurityConfig - IP Lifecycle Controls</a></li>
-<li><a href="../../internals/cloud-providers/">Internals - Cloud Providers</a></li>
+<li>Non-breaking: both fields keep working; the engine still auto-builds an
+  <code>IPInfoManager</code> from them when country lists are set and no <code>geo_ip_handler</code>
+  is supplied (<code>validate_geo_ip_handler_exists</code>).</li>
+<li>Removal target: a future <strong>major</strong> release. Until then, migrate by passing a
+  <code>geo_ip_handler</code> (any <code>GeoIPHandler</code>) directly.</li>
+<li>The suite filters this specific warning (<code>pyproject.toml</code> <code>filterwarnings</code>)
+  so existing fixtures stay quiet; dedicated tests assert it still fires.</li>
 </ul>
+<h2 id="grouping-opportunities">Grouping opportunities<a class="headerlink" href="#grouping-opportunities" title="Permanent link">&para;</a></h2>
+<p>Four prefixes dominate the field count and are good candidates for <strong>optional</strong>
+nested sub-config models (e.g. <code>config.agent.*</code>, <code>config.cors.*</code>,
+<code>config.detection.*</code>, <code>config.otel.*</code>): agent (14), detection (13), cors (7),
+otel (4). Presented as an option, <strong>not applied</strong>, because of the trade-offs:</p>
+<ul>
+<li><strong>For:</strong> smaller top-level namespace; related knobs discoverable together;
+  clearer typing per concern.</li>
+<li><strong>Against (breaking unless aliased):</strong> the current flat construction
+  (<code>SecurityConfig(agent_api_key=..., cors_allow_origins=...)</code>) is the documented,
+  intuitive surface the design partner likes. Any grouping must ship as a
+  <strong>non-breaking additive alias layer</strong> (accept both flat and nested, keep flat
+  in <code>__init__</code> signatures) or it breaks every existing call site.</li>
+</ul>
+<p>Recommendation: defer. If pursued, do it as an additive alias layer behind its
+own change with a migration note, never as a silent restructure.</p>
+<h2 id="exports">Exports<a class="headerlink" href="#exports" title="Permanent link">&para;</a></h2>
+<p><code>guard_core/__init__.py</code> <code>__all__</code> (22): <code>SecurityConfig</code>, <code>SecurityDecorator</code>,
+<code>RouteConfig</code>, <code>BehaviorTracker</code>, <code>BehaviorRule</code>, <code>ip_ban_manager</code>,
+<code>IPBanManager</code>, <code>cloud_handler</code>, <code>CloudManager</code>, <code>IPInfoManager</code>,
+<code>rate_limit_handler</code>, <code>RateLimitManager</code>, <code>redis_handler</code>, <code>RedisManager</code>,
+<code>security_headers_manager</code>, <code>SecurityHeadersManager</code>, <code>sus_patterns_handler</code>,
+<code>GeoIPHandler</code>, <code>RedisHandlerProtocol</code>, <code>GuardRequest</code>, <code>GuardResponse</code>,
+<code>GuardResponseFactory</code>.</p>
+<p><code>fastapi-guard/guard/__init__.py</code> <code>__all__</code> (24): the 22 above + the
+fastapi-guard-only <code>SecurityMiddleware</code> and <code>__version__</code>.</p>
+<p><strong>Drift status: none today</strong> — the two lists agree (24 = 22 + 2). The risk is
+future drift, because fastapi-guard hand-duplicates the 22 names. Single source
+of truth: fastapi-guard derives its <code>__all__</code> from <code>guard_core.__all__</code> plus its
+two locals, and a test asserts every exported name is importable, so a new
+guard-core export can't silently go missing downstream. <code>IPInfoManager</code> stays
+exported even though <code>ipinfo_*</code> config is deprecated — custom <code>geo_ip_handler</code>
+implementations may still construct it directly.</p>
+<h2 id="validators-methods-reference">Validators &amp; methods (reference)<a class="headerlink" href="#validators-methods-reference" title="Permanent link">&para;</a></h2>
+<p><code>validate_ip_lists</code> (574) · <code>validate_trusted_proxies</code> (592) ·
+<code>validate_proxy_depth</code> (610) · <code>coerce_country_set</code> (616) ·
+<code>validate_cloud_providers</code> (626) · <code>validate_geo_ip_handler_exists</code> (632) ·
+<code>validate_agent_config</code> (651) · <code>warn_deprecated_fields</code> (672, this audit) ·
+<code>validate_muted_event_types</code> · <code>validate_muted_metric_types</code> ·
+<code>validate_enabled_detection_categories</code> · <code>validate_threat_ban_config</code> ·
+<code>validate_muted_check_logs</code> · <code>to_agent_config</code> (method).</p>
 
 
 
 
 
 
-
-  
-  
 
 
 
