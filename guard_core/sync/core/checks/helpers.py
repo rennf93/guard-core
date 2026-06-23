@@ -1,5 +1,5 @@
 import re
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlparse
 
@@ -7,17 +7,11 @@ from guard_core.models import SecurityConfig
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-from guard_core.sync.utils import detect_penetration_attempt
+from guard_core.sync.utils import _ip_in_list, detect_penetration_attempt
 
 
 def is_ip_in_blacklist(client_ip: str, ip_addr: object, blacklist: list[str]) -> bool:
-    for blocked in blacklist:
-        if "/" in blocked:
-            if ip_addr in ip_network(blocked, strict=False):
-                return True
-        elif client_ip == blocked:
-            return True
-    return False
+    return _ip_in_list(ip_addr, client_ip, blacklist)
 
 
 def is_ip_in_whitelist(
@@ -25,14 +19,7 @@ def is_ip_in_whitelist(
 ) -> bool | None:
     if not whitelist:
         return None
-
-    for allowed in whitelist:
-        if "/" in allowed:
-            if ip_addr in ip_network(allowed, strict=False):
-                return True
-        elif client_ip == allowed:
-            return True
-    return False
+    return _ip_in_list(ip_addr, client_ip, whitelist)
 
 
 def check_country_access(
@@ -79,12 +66,14 @@ def check_route_ip_access(
     try:
         ip_addr = ip_address(client_ip)
 
-        if _check_ip_blacklist(client_ip, ip_addr, route_config):
+        whitelist_result = _check_ip_whitelist(client_ip, ip_addr, route_config)
+        if whitelist_result is True:
+            return True
+        if whitelist_result is False:
             return False
 
-        whitelist_result = _check_ip_whitelist(client_ip, ip_addr, route_config)
-        if whitelist_result is not None:
-            return whitelist_result
+        if _check_ip_blacklist(client_ip, ip_addr, route_config):
+            return False
 
         country_result = check_country_access(
             client_ip, route_config, middleware.geo_ip_handler

@@ -83,11 +83,20 @@ class SecurityConfig(BaseModel):
     )
 
     whitelist: list[str] | None = Field(
-        default=None, description="Allowed IP addresses or CIDR ranges"
+        default=None,
+        description=(
+            "Allowed IP addresses or CIDR ranges. A non-empty whitelist is "
+            "restrictive: only listed IPs pass the global IP check. An explicit "
+            "whitelist match overrides the blacklist; dynamic IP bans still apply."
+        ),
     )
 
     blacklist: list[str] = Field(
-        default_factory=list, description="Blocked IP addresses or CIDR ranges"
+        default_factory=list,
+        description=(
+            "Blocked IP addresses or CIDR ranges. Enforced ahead of country and "
+            "cloud-provider checks, but overridden by an explicit whitelist match."
+        ),
     )
 
     whitelist_countries: frozenset[str] = Field(

@@ -154,8 +154,7 @@ def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str 
     ips = [ip.strip() for ip in forwarded_for.split(",")]
 
     if len(ips) >= proxy_depth:
-        client_ip_index = 0
-        return ips[client_ip_index]
+        return ips[-proxy_depth]
 
     return None
 
@@ -402,26 +401,30 @@ def check_ip_country(
     return is_blocked
 
 
+def _ip_in_list(ip_addr: Any, ip: str, entries: list[str] | None) -> bool:
+    if not entries:
+        return False
+    for entry in entries:
+        if "/" in entry:
+            if ip_addr in ip_network(entry, strict=False):
+                return True
+        else:
+            try:
+                if ip_addr == ip_address(entry):
+                    return True
+            except ValueError:
+                if ip == entry:
+                    return True
+    return False
+
+
 def _check_blacklist(ip_addr: Any, ip: str, config: Any) -> bool:
-    if config.blacklist:
-        for blocked in config.blacklist:
-            if "/" in blocked:
-                if ip_addr in ip_network(blocked, strict=False):
-                    return False
-            elif ip == blocked:
-                return False
-    return True
+    return not _ip_in_list(ip_addr, ip, config.blacklist)
 
 
 def _check_whitelist(ip_addr: Any, ip: str, config: Any) -> bool:
     if config.whitelist:
-        for allowed in config.whitelist:
-            if "/" in allowed:
-                if ip_addr in ip_network(allowed, strict=False):
-                    return True
-            elif ip == allowed:
-                return True
-        return False
+        return _ip_in_list(ip_addr, ip, config.whitelist)
     return True
 
 
@@ -453,10 +456,10 @@ def is_ip_allowed(
     try:
         ip_addr = ip_address(ip)
 
-        if not _check_blacklist(ip_addr, ip, config):
-            return False
-
-        if not _check_whitelist(ip_addr, ip, config):
+        if config.whitelist:
+            if not _check_whitelist(ip_addr, ip, config):
+                return False
+        elif not _check_blacklist(ip_addr, ip, config):
             return False
 
         if not _check_blocked_countries(ip, config, geo_ip_handler):
