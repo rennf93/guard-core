@@ -1,0 +1,5 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+search?q=hello%20world%20coffee
+filter?category=books&sort=price_asc
+page?id=42&ref=newsletter

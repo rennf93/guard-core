@@ -1,0 +1,5 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+I would like to SELECT a coffee from the menu and discuss my order
+Please update me when the union meeting is scheduled for the team
+We will select candidates from the applicant pool where appropriate

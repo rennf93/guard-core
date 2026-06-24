@@ -1,0 +1,4 @@
+# source: project-authored, representative of NoSQL-injection techniques
+# license: guard-core (project)
+{"$gt": ""}
+{"$where": "this.password.length > 0"}

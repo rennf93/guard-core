@@ -1,0 +1,4 @@
+# source: project-authored, representative of LDAP-injection techniques
+# license: guard-core (project)
+*)(uid=*))(|(uid=*
+admin)(&(password=*))

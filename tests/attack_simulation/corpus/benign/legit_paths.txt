@@ -1,0 +1,5 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+/api/v1/users/profile/settings
+/static/css/main.theme.css
+/docs/getting-started/installation

@@ -1,0 +1,4 @@
+# source: project-authored, representative of OWASP path-traversal techniques
+# license: guard-core (project)
+../../../../etc/passwd
+....//....//etc/passwd
