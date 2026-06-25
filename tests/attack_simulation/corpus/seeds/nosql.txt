@@ -2,3 +2,6 @@
 # license: guard-core (project)
 {"$gt": ""}
 {"$where": "this.password.length > 0"}
+# source: campaign-derived, verified
+{"$ne":null}
+{"$type":"string"}

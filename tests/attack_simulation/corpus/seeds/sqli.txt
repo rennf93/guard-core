@@ -2,3 +2,7 @@
 # license: guard-core (project)
 SELECT password FROM users WHERE id=1
 1' OR '1'='1
+# source: campaign-derived, verified
+'; DROP TABLE users;--
+1' ORDER BY 1--
+1' /*!50000OR*/ '1'='1
