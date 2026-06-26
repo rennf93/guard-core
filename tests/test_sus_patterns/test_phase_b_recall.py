@@ -44,3 +44,18 @@ async def test_order_by_enumeration_detected(sus_patterns_manager_with_detection
 @pytest.mark.asyncio
 async def test_benign_order_prose_not_flagged(sus_patterns_manager_with_detection):
     assert not await _detected(sus_patterns_manager_with_detection, "please order by phone or email when you can")
+
+
+@pytest.mark.asyncio
+async def test_quoted_nosql_gt_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, '{"$gt":""}')
+
+
+@pytest.mark.asyncio
+async def test_quoted_nosql_ne_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, '{"$ne":null}')
+
+
+@pytest.mark.asyncio
+async def test_benign_json_dollar_value_not_flagged(sus_patterns_manager_with_detection):
+    assert not await _detected(sus_patterns_manager_with_detection, '{"price":"$25","name":"coffee"}')

@@ -199,6 +199,7 @@ class SusPatternsManager:
             "nosql",
         ),
         (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL, "nosql"),
+        (r'"\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|all|size|exists|type|mod|options|expr|jsonSchema)"\s*:', _CTX_NOSQL, "nosql"),
         (
             r"(?i)filename=[\"'].*?\.(?:php\d*|phar|phtml|exe|jsp|asp|aspx|sh|"
             r"bash|rb|py|pl|cgi|com|bat|cmd|vbs|vbe|js|ws|wsf|msi|hta)[\"\']",
