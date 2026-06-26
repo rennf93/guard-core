@@ -27,3 +27,34 @@ async def test_regex_threat_dict_carries_weight(sus_patterns_manager_with_detect
     regex_threats = [t for t in result["threats"] if t["type"] == "regex"]
     assert regex_threats
     assert all(t["weight"] == 1.0 for t in regex_threats)
+
+
+from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+
+@pytest.mark.asyncio
+async def test_single_match_still_flagged_at_default_threshold(
+    sus_patterns_manager_with_detection,
+):
+    result = await sus_patterns_manager_with_detection.detect(
+        "<script>alert(1)</script>", "127.0.0.1", context="unknown"
+    )
+    assert result["is_threat"] is True
+    assert result["threat_score"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_threshold_gate_suppresses_below_threshold():
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    config = SecurityConfig(detection_threat_score_threshold=2.0)
+    manager = SusPatternsManager(config)
+    try:
+        result = await manager.detect(
+            "<script>alert(1)</script>", "127.0.0.1", context="unknown"
+        )
+        assert result["is_threat"] is False
+    finally:
+        await manager.reset()
+        SusPatternsManager._instance = None
+        SusPatternsManager._config = None

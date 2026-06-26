@@ -88,6 +88,10 @@ def _resolve_pattern_weight(pattern: str, category: str) -> float:
     return DETECTION_CATEGORY_WEIGHTS.get(category, 1.0)
 
 
+def _regex_anomaly(regex_threats: list) -> float:
+    return sum(t.get("weight", 1.0) for t in regex_threats)
+
+
 class SusPatternsManager:
     _instance = None
     _config = None
@@ -444,12 +448,16 @@ class SusPatternsManager:
                     max_tracked_patterns=config.detection_max_tracked_patterns,
                 )
                 cls._instance._semantic_threshold = config.detection_semantic_threshold
+                cls._instance._threat_score_threshold = (
+                    config.detection_threat_score_threshold
+                )
             else:
                 cls._instance._compiler = None
                 cls._instance._preprocessor = None
                 cls._instance._semantic_analyzer = None
                 cls._instance._performance_monitor = None
                 cls._instance._semantic_threshold = 0.7
+                cls._instance._threat_score_threshold = 1.0
 
         return cls._instance
 
@@ -695,12 +703,12 @@ class SusPatternsManager:
         if not (regex_threats or semantic_threats):
             return 0.0
 
-        regex_score = 1.0 if regex_threats else 0.0
+        anomaly = _regex_anomaly(regex_threats)
         semantic_scores = [
             t.get("probability", t.get("threat_score", 0.0)) for t in semantic_threats
         ]
         semantic_max = max(semantic_scores) if semantic_scores else 0.0
-        return max(regex_score, semantic_max)
+        return min(max(anomaly, semantic_max), 1.0)
 
     async def detect(
         self,
@@ -728,7 +736,10 @@ class SusPatternsManager:
         )
 
         threats = regex_threats + semantic_threats
-        is_threat = len(threats) > 0
+        is_threat = (
+            _regex_anomaly(regex_threats) >= self._threat_score_threshold
+            or len(semantic_threats) > 0
+        )
 
         threat_score = await self._calculate_threat_score(
             regex_threats, semantic_threats
