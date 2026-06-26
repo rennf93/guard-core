@@ -26,6 +26,8 @@ _CTX_HTTP_SPLIT = frozenset({"header", "query_param", "request_body", "unknown"}
 _CTX_SENSITIVE_FILE = frozenset({"url_path", "request_body", "unknown"})
 _CTX_CMS_PROBING = frozenset({"url_path", "request_body", "unknown"})
 _CTX_RECON = frozenset({"url_path", "unknown"})
+_CTX_PROTO_POLLUTION = frozenset({"query_param", "request_body", "unknown"})
+_CTX_CODE_INJECTION = frozenset({"query_param", "request_body", "unknown"})
 _CTX_ALL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
 
 
@@ -47,6 +49,8 @@ ALL_DETECTION_CATEGORIES: frozenset[str] = frozenset(
         "sensitive_file",
         "cms_probing",
         "recon",
+        "proto_pollution",
+        "code_injection",
     }
 )
 
@@ -67,6 +71,8 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "sensitive_file": _CTX_SENSITIVE_FILE,
     "cms_probing": _CTX_CMS_PROBING,
     "recon": _CTX_RECON,
+    "proto_pollution": _CTX_PROTO_POLLUTION,
+    "code_injection": _CTX_CODE_INJECTION,
 }
 
 
@@ -344,6 +350,8 @@ class SusPatternsManager:
         (r"(?:^|/)autodiscover/", _CTX_RECON, "recon"),
         (r"^/dns-query(?:\?|$)", _CTX_RECON, "recon"),
         (r"(?:^|/)\.git/(?:refs|index|HEAD|objects|logs)(?:/|$)", _CTX_RECON, "recon"),
+        (r"(?:__proto__|constructor)\s*(?:\[\s*[\"']prototype[\"']\s*\]|\.\s*prototype)|[\"']__proto__[\"']\s*:", _CTX_PROTO_POLLUTION, "proto_pollution"),
+        (r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(", _CTX_CODE_INJECTION, "code_injection"),
     ]
 
     patterns: list[str] = [p[0] for p in _pattern_definitions]

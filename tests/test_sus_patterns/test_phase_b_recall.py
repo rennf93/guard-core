@@ -99,3 +99,13 @@ async def test_fullwidth_semicolon_command_detected(sus_patterns_manager_with_de
 @pytest.mark.asyncio
 async def test_benign_semicolon_text_not_flagged(sus_patterns_manager_with_detection):
     assert not await _detected(sus_patterns_manager_with_detection, "first do this; then enjoy your day")
+
+
+@pytest.mark.asyncio
+async def test_prototype_pollution_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, '{"__proto__":{"isAdmin":true}}')
+
+
+@pytest.mark.asyncio
+async def test_dotnet_process_start_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, 'System.Diagnostics.Process.Start("powershell","-c whoami")')
