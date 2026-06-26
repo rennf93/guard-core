@@ -210,3 +210,4 @@ __marimo__/
 manual_testing/
 ZZZ/
 .claude/
+tests/attack_simulation/out/

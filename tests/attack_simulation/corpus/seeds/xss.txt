@@ -1,0 +1,4 @@
+# source: project-authored, representative of OWASP XSS techniques
+# license: guard-core (project)
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>

@@ -6,6 +6,7 @@ import pytest
 from guard_core.handlers.suspatterns_handler import (
     _CTX_CMD_INJECTION,
     _CTX_CMS_PROBING,
+    _CTX_CODE_INJECTION,
     _CTX_DIR_TRAVERSAL,
     _CTX_FILE_INCLUSION,
     _CTX_FILE_UPLOAD,
@@ -13,6 +14,7 @@ from guard_core.handlers.suspatterns_handler import (
     _CTX_LDAP,
     _CTX_NOSQL,
     _CTX_PATH_TRAVERSAL,
+    _CTX_PROTO_POLLUTION,
     _CTX_RECON,
     _CTX_SENSITIVE_FILE,
     _CTX_SQLI,
@@ -43,6 +45,8 @@ EXPECTED_CATEGORIES = frozenset(
         "sensitive_file",
         "cms_probing",
         "recon",
+        "proto_pollution",
+        "code_injection",
     }
 )
 
@@ -82,6 +86,8 @@ def test_category_context_map_identity_with_existing_constants() -> None:
     assert CATEGORY_CONTEXT_MAP["sensitive_file"] is _CTX_SENSITIVE_FILE
     assert CATEGORY_CONTEXT_MAP["cms_probing"] is _CTX_CMS_PROBING
     assert CATEGORY_CONTEXT_MAP["recon"] is _CTX_RECON
+    assert CATEGORY_CONTEXT_MAP["proto_pollution"] is _CTX_PROTO_POLLUTION
+    assert CATEGORY_CONTEXT_MAP["code_injection"] is _CTX_CODE_INJECTION
 
 
 @pytest.fixture

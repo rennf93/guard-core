@@ -50,13 +50,9 @@ class ContentPreprocessor:
     )
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
-    _SQL_BLOCK_COMMENT_INNER_UPPER_RE = re.compile(
-        r"(?<=[A-Z])/\*.*?\*/(?=[A-Z])", re.DOTALL
+    _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
+        r"(?<!\w)/\*(?!!).*?\*/|/\*(?!!).*?\*/(?!\w)", re.DOTALL
     )
-    _SQL_BLOCK_COMMENT_INNER_LOWER_RE = re.compile(
-        r"(?<=[a-z])/\*.*?\*/(?=[a-z])", re.DOTALL
-    )
-    _SQL_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
     _SQL_LINE_COMMENT_RE = re.compile(r"(--|#)[^\n]*")
 
     def _send_preprocessor_event(
@@ -122,6 +118,9 @@ class ContentPreprocessor:
             "\u2216": "\\",
             "\uff1c": "<",
             "\uff1e": ">",
+            "\uff1b": ";",
+            "\uff5c": "|",
+            "\uff06": "&",
         }
 
         for char, replacement in lookalikes.items():
@@ -277,9 +276,7 @@ class ContentPreprocessor:
         return self._UNICODE_ESCAPE_RE.sub(_replace, content)
 
     def _strip_sql_comments(self, content: str) -> str:
-        content = self._SQL_BLOCK_COMMENT_INNER_UPPER_RE.sub("", content)
-        content = self._SQL_BLOCK_COMMENT_INNER_LOWER_RE.sub("", content)
-        content = self._SQL_BLOCK_COMMENT_RE.sub(" ", content)
+        content = self._SQL_BLOCK_COMMENT_STRIP_RE.sub(" ", content)
         content = self._SQL_LINE_COMMENT_RE.sub(" ", content)
         return content
 

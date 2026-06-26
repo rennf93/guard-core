@@ -1,0 +1,7 @@
+# source: project-authored, representative of SSTI techniques
+# license: guard-core (project)
+{{7*7}}
+${7*7}
+# source: campaign-derived, verified
+<%= 7*7 %>
+${(#r=@java.lang.Runtime@getRuntime()).exec('id')}
