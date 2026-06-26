@@ -124,6 +124,9 @@ class SusPatternsManager:
         ),
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
         (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
+        (r"(?i)(?:^|;)\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b", _CTX_SQLI, "sqli"),
+        (r"(?i);\s*(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", _CTX_SQLI, "sqli"),
+        (r"(?i)\bORDER\s+BY\s+\d+\b", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
