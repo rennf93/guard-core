@@ -1,16 +1,19 @@
 import pytest
+from pydantic import ValidationError
 
-from guard_core.models import SecurityConfig
 from guard_core.handlers.suspatterns_handler import (
     DETECTION_CATEGORY_WEIGHTS,
+    SusPatternsManager,
     _resolve_pattern_weight,
 )
+from guard_core.models import SecurityConfig
 
 
 def test_threshold_field_default_and_bounds():
     assert SecurityConfig().detection_threat_score_threshold == 1.0
-    assert SecurityConfig(detection_threat_score_threshold=2.5).detection_threat_score_threshold == 2.5
-    with pytest.raises(Exception):
+    raised = SecurityConfig(detection_threat_score_threshold=2.5)
+    assert raised.detection_threat_score_threshold == 2.5
+    with pytest.raises(ValidationError):
         SecurityConfig(detection_threat_score_threshold=-1.0)
 
 
@@ -27,9 +30,6 @@ async def test_regex_threat_dict_carries_weight(sus_patterns_manager_with_detect
     regex_threats = [t for t in result["threats"] if t["type"] == "regex"]
     assert regex_threats
     assert all(t["weight"] == 1.0 for t in regex_threats)
-
-
-from guard_core.handlers.suspatterns_handler import SusPatternsManager
 
 
 @pytest.mark.asyncio
