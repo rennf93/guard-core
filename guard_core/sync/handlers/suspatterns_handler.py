@@ -75,6 +75,18 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
+DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
+    category: 1.0 for category in ALL_DETECTION_CATEGORIES
+}
+
+DETECTION_PATTERN_WEIGHT_OVERRIDES: dict[str, float] = {}
+
+
+def _resolve_pattern_weight(pattern: str, category: str) -> float:
+    if pattern in DETECTION_PATTERN_WEIGHT_OVERRIDES:
+        return DETECTION_PATTERN_WEIGHT_OVERRIDES[pattern]
+    return DETECTION_CATEGORY_WEIGHTS.get(category, 1.0)
+
 
 class SusPatternsManager:
     _instance = None
@@ -525,6 +537,7 @@ class SusPatternsManager:
                     "position": match.start(),
                     "execution_time": time.time() - pattern_start,
                     "category": category,
+                    "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
         else:
             match, timeout_occurred = self._check_pattern_with_timeout(
@@ -538,6 +551,7 @@ class SusPatternsManager:
                     "position": match.start(),
                     "execution_time": time.time() - pattern_start,
                     "category": category,
+                    "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
 
         return None, timeout_occurred
