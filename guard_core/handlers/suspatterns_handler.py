@@ -222,6 +222,8 @@ class SusPatternsManager:
             _CTX_TEMPLATE,
             "template",
         ),
+        (r"<%[=#]?[^%]*%>", _CTX_TEMPLATE, "template"),
+        (r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}", _CTX_TEMPLATE, "template"),
         (
             r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)",
             _CTX_HTTP_SPLIT,
