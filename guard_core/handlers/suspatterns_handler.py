@@ -130,8 +130,16 @@ class SusPatternsManager:
         ),
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
         (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
-        (r"(?i)(?:^|;)\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b", _CTX_SQLI, "sqli"),
-        (r"(?i);\s*(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b", _CTX_SQLI, "sqli"),
+        (
+            r"(?i)(?:^|;)\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
+            _CTX_SQLI,
+            "sqli",
+        ),
+        (
+            r"(?i);\s*(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b",
+            _CTX_SQLI,
+            "sqli",
+        ),
         (r"(?i)\bORDER\s+BY\s+\d+\b", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
@@ -173,8 +181,16 @@ class SusPatternsManager:
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
-        (r"[;|&]\s*(?:ls|cat|rm|id|whoami|uname|wget|curl|nc|netcat|socat|bash|sh|python|perl)\b", _CTX_CMD_INJECTION, "cmd_injection"),
-        (r"(?i)\b(?:nc|netcat|ncat)\s+-[a-z]*e\b|/dev/tcp/\d", _CTX_CMD_INJECTION, "cmd_injection"),
+        (
+            r"[;|&]\s*(?:ls|cat|rm|id|whoami|uname|wget|curl|nc|netcat|socat|bash|sh|python|perl)\b",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            r"(?i)\b(?:nc|netcat|ncat)\s+-[a-z]*e\b|/dev/tcp/\d",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
         (
             r"(?:php|data|zip|rar|file|glob|expect|input|phpinfo|zlib|phar|ssh2|"
             r"rar|ogg|expect)://[^\s]+",
@@ -207,7 +223,11 @@ class SusPatternsManager:
             "nosql",
         ),
         (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL, "nosql"),
-        (r'"\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|all|size|exists|type|mod|options|expr|jsonSchema)"\s*:', _CTX_NOSQL, "nosql"),
+        (
+            r'"\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|all|size|exists|type|mod|options|expr|jsonSchema)"\s*:',
+            _CTX_NOSQL,
+            "nosql",
+        ),
         (
             r"(?i)filename=[\"'].*?\.(?:php\d*|phar|phtml|exe|jsp|asp|aspx|sh|"
             r"bash|rb|py|pl|cgi|com|bat|cmd|vbs|vbe|js|ws|wsf|msi|hta)[\"\']",
@@ -231,7 +251,11 @@ class SusPatternsManager:
             "template",
         ),
         (r"<%[=#]?[^%]*%>", _CTX_TEMPLATE, "template"),
-        (r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}", _CTX_TEMPLATE, "template"),
+        (
+            r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}",
+            _CTX_TEMPLATE,
+            "template",
+        ),
         (
             r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)",
             _CTX_HTTP_SPLIT,
@@ -350,8 +374,16 @@ class SusPatternsManager:
         (r"(?:^|/)autodiscover/", _CTX_RECON, "recon"),
         (r"^/dns-query(?:\?|$)", _CTX_RECON, "recon"),
         (r"(?:^|/)\.git/(?:refs|index|HEAD|objects|logs)(?:/|$)", _CTX_RECON, "recon"),
-        (r"(?:__proto__|constructor)\s*(?:\[\s*[\"']prototype[\"']\s*\]|\.\s*prototype)|[\"']__proto__[\"']\s*:", _CTX_PROTO_POLLUTION, "proto_pollution"),
-        (r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(", _CTX_CODE_INJECTION, "code_injection"),
+        (
+            r"(?:__proto__|constructor)\s*(?:\[\s*[\"']prototype[\"']\s*\]|\.\s*prototype)|[\"']__proto__[\"']\s*:",
+            _CTX_PROTO_POLLUTION,
+            "proto_pollution",
+        ),
+        (
+            r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(",
+            _CTX_CODE_INJECTION,
+            "code_injection",
+        ),
     ]
 
     patterns: list[str] = [p[0] for p in _pattern_definitions]

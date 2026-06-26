@@ -33,8 +33,7 @@ def _unicode_homograph(value: str) -> str:
 
 def _mixed_case(value: str) -> str:
     return "".join(
-        char.upper() if index % 2 else char.lower()
-        for index, char in enumerate(value)
+        char.upper() if index % 2 else char.lower() for index, char in enumerate(value)
     )
 
 
@@ -51,9 +50,7 @@ def _unicode_escape(value: str) -> str:
 
 
 def _hex_escape(value: str) -> str:
-    return "".join(
-        f"\\x{ord(char):02x}" if ord(char) < 256 else char for char in value
-    )
+    return "".join(f"\\x{ord(char):02x}" if ord(char) < 256 else char for char in value)
 
 
 def _null_byte(value: str) -> str:

@@ -11,7 +11,14 @@ def _metrics():
         "per_class": {"xss": 1.0, "sqli": 0.8},
         "evasion_matrix": {"unmutated": 1.0, "base64_wrap": 0.5},
         "per_benign_category": {"prose_sql_keywords": 0.6},
-        "totals": {"tp": 9, "fp": 1, "fn": 1, "tn": 4, "n_malicious": 10, "n_benign": 5},
+        "totals": {
+            "tp": 9,
+            "fp": 1,
+            "fn": 1,
+            "tn": 4,
+            "n_malicious": 10,
+            "n_benign": 5,
+        },
     }
 
 

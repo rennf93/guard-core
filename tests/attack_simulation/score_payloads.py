@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from guard_core.models import SecurityConfig
-
 from tests.attack_simulation.runner import SCAN_IP, detection_manager
 
 

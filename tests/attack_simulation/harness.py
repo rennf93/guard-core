@@ -4,12 +4,15 @@ from pathlib import Path
 from typing import Any
 
 from guard_core.models import SecurityConfig
-
 from tests.attack_simulation.loaders import load_benign, load_seeds
 from tests.attack_simulation.metrics import Result, score
 from tests.attack_simulation.mutations import generate_variants
 from tests.attack_simulation.reporter import build_report
-from tests.attack_simulation.runner import build_detection_config, detection_manager, scan
+from tests.attack_simulation.runner import (
+    build_detection_config,
+    detection_manager,
+    scan,
+)
 
 _DETECTION_FIELDS = (
     "detection_compiler_timeout",
@@ -44,10 +47,18 @@ async def run_benchmark(
     started = time.perf_counter()
     async with detection_manager(config) as manager:
         for seed in seeds:
-            for variant in generate_variants(seed.seed_id, seed.attack_class, seed.payload):
+            for variant in generate_variants(
+                seed.seed_id, seed.attack_class, seed.payload
+            ):
                 detected = await scan(manager, variant.payload)
                 results.append(
-                    Result(True, detected, variant.attack_class, variant.technique_chain, None)
+                    Result(
+                        True,
+                        detected,
+                        variant.attack_class,
+                        variant.technique_chain,
+                        None,
+                    )
                 )
         for sample in benign:
             detected = await scan(manager, sample.text)

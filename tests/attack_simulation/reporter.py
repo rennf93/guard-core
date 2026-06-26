@@ -38,8 +38,12 @@ def _render_markdown(report: dict[str, Any]) -> str:
         f"- Totals: {totals}",
         "",
         _rate_table("Recall per attack class", report["per_class"]),
-        _rate_table("Evasion-resistance (recall per technique)", report["evasion_matrix"]),
-        _rate_table("False-positive rate per benign category", report["per_benign_category"]),
+        _rate_table(
+            "Evasion-resistance (recall per technique)", report["evasion_matrix"]
+        ),
+        _rate_table(
+            "False-positive rate per benign category", report["per_benign_category"]
+        ),
     ]
     return "\n".join(sections)
 

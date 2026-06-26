@@ -19,7 +19,12 @@ def test_score_computes_rates_and_breakdowns():
     ]
     out = score(results)
     assert out["totals"] == {
-        "tp": 2, "fp": 1, "fn": 1, "tn": 1, "n_malicious": 3, "n_benign": 2,
+        "tp": 2,
+        "fp": 1,
+        "fn": 1,
+        "tn": 1,
+        "n_malicious": 3,
+        "n_benign": 2,
     }
     assert out["detection_rate"] == 2 / 3
     assert out["fp_rate"] == 1 / 2

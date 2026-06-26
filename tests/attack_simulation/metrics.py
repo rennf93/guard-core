@@ -54,7 +54,9 @@ def score(results: list[Result]) -> dict[str, Any]:
     }
     evasion_matrix = {
         _chain_label(key): _recall(group)
-        for key, group in _group_by(malicious, lambda item: item.technique_chain).items()
+        for key, group in _group_by(
+            malicious, lambda item: item.technique_chain
+        ).items()
     }
     per_benign_category = {
         key: _recall(group)

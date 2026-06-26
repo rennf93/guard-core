@@ -40,7 +40,13 @@ def load_seeds(seeds_dir: Path) -> list[Seed]:
         source, license_name, payloads = _parse_file(path)
         for index, payload in enumerate(payloads):
             seeds.append(
-                Seed(f"{attack_class}-{index}", attack_class, payload, source, license_name)
+                Seed(
+                    f"{attack_class}-{index}",
+                    attack_class,
+                    payload,
+                    source,
+                    license_name,
+                )
             )
     return seeds
 
