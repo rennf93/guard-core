@@ -122,6 +122,8 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
+        (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
+        (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
