@@ -118,6 +118,9 @@ class ContentPreprocessor:
             "\u2216": "\\",
             "\uff1c": "<",
             "\uff1e": ">",
+            "\uff1b": ";",
+            "\uff5c": "|",
+            "\uff06": "&",
         }
 
         for char, replacement in lookalikes.items():

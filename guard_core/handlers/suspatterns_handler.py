@@ -167,6 +167,8 @@ class SusPatternsManager:
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
+        (r"[;|&]\s*(?:ls|cat|rm|id|whoami|uname|wget|curl|nc|netcat|socat|bash|sh|python|perl)\b", _CTX_CMD_INJECTION, "cmd_injection"),
+        (r"(?i)\b(?:nc|netcat|ncat)\s+-[a-z]*e\b|/dev/tcp/\d", _CTX_CMD_INJECTION, "cmd_injection"),
         (
             r"(?:php|data|zip|rar|file|glob|expect|input|phpinfo|zlib|phar|ssh2|"
             r"rar|ogg|expect)://[^\s]+",

