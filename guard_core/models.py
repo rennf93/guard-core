@@ -499,6 +499,13 @@ class SecurityConfig(BaseModel):
         le=5000,
     )
 
+    detection_threat_score_threshold: float = Field(
+        default=1.0,
+        description="Anomaly score required to flag a request as a threat",
+        ge=0.0,
+        le=10.0,
+    )
+
     muted_event_types: set[str] = Field(
         default_factory=set,
         description="Event types to mute from telemetry dispatch",
