@@ -1,0 +1,7 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+render <%= @user.name %> inside your erb view
+the template shows <%= product.title %> at the top
+use ${user.displayName} for the greeting in the layout
+set the variable with export PATH=${HOME}/bin
+the docs mention {{ page.title }} as a placeholder

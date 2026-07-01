@@ -1,0 +1,10 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+first do this; then list the remaining steps for the team
+run ls -la in your notes to remember the layout
+to listen on the port use nc as described in the manual
+please remove the old files and copy the summary over
+let me cat the photos of my pet and the dog she adopted
+evaluate the plan before you execute the next phase
+the system will ping you when the export is ready
+we ship via socat logistics on tuesdays and fridays
