@@ -1,0 +1,12 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+I'll select a few items from the catalog for you
+we will select candidates from the applicant pool where appropriate
+please sort the results, order by 1 ascending then by name
+drop table 7 is reserved for the wedding party tonight
+the union meeting is scheduled; bring your badge and lunch
+we should update users about the new schedule next week
+let me select the best photo from the album for the cover
+the order form asks you to select a size from the dropdown
+group discounts apply when you order by the dozen
+insert the card into the reader and wait for the beep

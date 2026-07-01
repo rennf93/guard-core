@@ -1,0 +1,7 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+search?q=hello%20world%20coffee&sort=relevance
+/api/v1/orders/history?from=2026-01-01&to=2026-06-30
+/docs/getting-started/installation#configuration
+filter?category=books&order=title&direction=asc
+the price range is $10 to $50 for the order

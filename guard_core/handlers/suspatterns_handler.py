@@ -75,11 +75,19 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
+_SELECT_FROM_RE = r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+"
+_SELECT_STAR_RE = r"(?i)SELECT\s+\*"
+_WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
+
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
     category: 1.0 for category in ALL_DETECTION_CATEGORIES
 }
 
-DETECTION_PATTERN_WEIGHT_OVERRIDES: dict[str, float] = {}
+DETECTION_PATTERN_WEIGHT_OVERRIDES: dict[str, float] = {
+    _SELECT_FROM_RE: 0.5,
+    _SELECT_STAR_RE: 0.5,
+    _WHERE_CLAUSE_RE: 0.5,
+}
 
 
 def _resolve_pattern_weight(pattern: str, category: str) -> float:
@@ -120,7 +128,9 @@ class SusPatternsManager:
         (r"(?:<object[^>]*>[\s\S]*<\/object\s*>)", _CTX_XSS, "xss"),
         (r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)", _CTX_XSS, "xss"),
         (r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)", _CTX_XSS, "xss"),
-        (r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+", _CTX_SQLI, "sqli"),
+        (_SELECT_FROM_RE, _CTX_SQLI, "sqli"),
+        (_SELECT_STAR_RE, _CTX_SQLI, "sqli"),
+        (_WHERE_CLAUSE_RE, _CTX_SQLI, "sqli"),
         (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
         (
             r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?[\d\w]+\s*(?:=|LIKE|<|>|<=|>=)\s*"
@@ -147,7 +157,7 @@ class SusPatternsManager:
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
         (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
         (
-            r"(?i)(?:^|;)\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
+            r"(?i);\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
             _CTX_SQLI,
             "sqli",
         ),
@@ -156,7 +166,7 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
-        (r"(?i)\bORDER\s+BY\s+\d+\b", _CTX_SQLI, "sqli"),
+        (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|$)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
@@ -240,7 +250,13 @@ class SusPatternsManager:
         ),
         (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL, "nosql"),
         (
-            r'"\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|all|size|exists|type|mod|options|expr|jsonSchema)"\s*:',
+            r'"\$(?:where|regex|expr|jsonSchema|function|accumulator|type|exists|size)"\s*:',
+            _CTX_NOSQL,
+            "nosql",
+        ),
+        (
+            r'"\$(?:gt|gte|lt|lte|ne|eq|in|nin|all|mod)"'
+            r'\s*:\s*(?:""|null|\{|\[)',
             _CTX_NOSQL,
             "nosql",
         ),
@@ -266,7 +282,12 @@ class SusPatternsManager:
             _CTX_TEMPLATE,
             "template",
         ),
-        (r"<%[=#]?[^%]*%>", _CTX_TEMPLATE, "template"),
+        (
+            r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
+            r"|\d+\s*[-+*/]\s*\d+)[^%]*%>",
+            _CTX_TEMPLATE,
+            "template",
+        ),
         (
             r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}",
             _CTX_TEMPLATE,

@@ -1,0 +1,9 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+{"price":"$25","name":"coffee","size":"large"}
+{"filter":{"$gt":5},"limit":20}
+{"age":{"$gte":18},"active":true}
+{"sort":{"created":-1},"page":2}
+{"type":"string","name":"coffee","price":"$25"}
+{"user":"renzo","role":"admin","tier":"team"}
+{"range":{"$lt":100,"$gt":10}}

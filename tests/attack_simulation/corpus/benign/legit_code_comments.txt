@@ -1,0 +1,7 @@
+# source: project-authored false-positive probes
+# license: guard-core (project)
+color: red; /* main theme */ font-size: 14px
+const total = price /* legacy adjustment */ + tax
+avoid modifying Object.prototype or __proto__ in your code
+call the helper to launch the app when ready
+the config sets a = b in the default section
