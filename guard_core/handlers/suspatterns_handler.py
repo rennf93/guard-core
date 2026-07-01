@@ -96,8 +96,8 @@ def _resolve_pattern_weight(pattern: str, category: str) -> float:
     return DETECTION_CATEGORY_WEIGHTS.get(category, 1.0)
 
 
-def _regex_anomaly(regex_threats: list) -> float:
-    return sum(t.get("weight", 1.0) for t in regex_threats)
+def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
+    return float(sum(t.get("weight", 1.0) for t in regex_threats))
 
 
 class SusPatternsManager:
@@ -435,6 +435,7 @@ class SusPatternsManager:
     _semantic_analyzer: SemanticAnalyzer | None
     _performance_monitor: PerformanceMonitor | None
     _semantic_threshold: float
+    _threat_score_threshold: float
 
     def __new__(
         cls: type["SusPatternsManager"], config: Any = None

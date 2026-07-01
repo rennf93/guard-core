@@ -34,3 +34,15 @@ def test_no_deprecation_warning_when_ipinfo_unset() -> None:
         if "ipinfo" in str(record.message) and "deprecated" in str(record.message)
     ]
     assert ipinfo_deprecations == []
+
+
+def test_no_deprecation_warning_when_ipinfo_explicitly_none() -> None:
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        SecurityConfig(ipinfo_token=None, ipinfo_db_path=None)
+    ipinfo_deprecations = [
+        record
+        for record in records
+        if "ipinfo" in str(record.message) and "deprecated" in str(record.message)
+    ]
+    assert ipinfo_deprecations == []

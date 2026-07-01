@@ -691,6 +691,8 @@ class SecurityConfig(BaseModel):
     @model_validator(mode="after")
     def warn_deprecated_fields(self) -> Self:
         for name in sorted({"ipinfo_token", "ipinfo_db_path"} & self.model_fields_set):
+            if getattr(self, name) is None:
+                continue
             warnings.warn(
                 f"{name} is deprecated and will be removed in a future release; "
                 "create a custom geo_ip_handler instead.",

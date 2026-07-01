@@ -10,6 +10,28 @@ Release Notes
 
 ___
 
+v3.3.0 (2026-07-01)
+-------------------
+
+Detection overhaul — recall 0.42 → 0.86, false positives 0.125 → 0.0, graduated anomaly scoring, and an attack-simulation benchmark harness (v3.3.0)
+--------------------------------------------------------------------------------------------------------------
+
+### Added
+
+- **Graduated anomaly scoring.** New `SecurityConfig.detection_threat_score_threshold` (`float`, default `1.0`, `ge=0.0, le=10.0`): the anomaly score a request must reach before it is flagged as a threat. Detection now accumulates a graduated per-request anomaly score instead of relying on a single binary pattern match. The default threshold of `1.0` reproduces the prior flag-on-any-match behavior, so upgrading is behavior-neutral unless you deliberately raise the threshold (fewer, higher-confidence flags) or lower it (more sensitive). Async and sync mirrors updated identically.
+- **Attack-simulation benchmark harness.** A reproducible benchmark (`make attack-sim`) that scores the detector against a labelled corpus of malicious and benign payloads and reports detection (recall) and false-positive rates against a committed `baseline.json`, plus an AI-coordinated red-team campaign generator with verified attack seeds. Test/CI infrastructure only — no runtime or public API surface.
+
+### Changed
+
+- **Detection recall raised from 0.42 to 0.86.** Repaired the content preprocessor's comment stripping — SQL block/line comments and several encoded payload forms were not normalized before pattern matching — and expanded coverage across the suspicious-pattern set, so a large class of previously-missed injection and traversal attempts is now caught. Async and sync mirrors updated identically.
+- **False-positive rate reduced from 0.125 to 0.0, with recall held.** Tightened patterns to require genuine attack context instead of matching benign traffic: `SELECT … FROM` is now scored by corroboration rather than a bare keyword, and the `ORDER BY`, DDL, ERB-template, and NoSQL-operator patterns require surrounding attack context. The benign corpus was expanded and the baseline re-measured. Async and sync mirrors updated identically.
+
+### Fixed
+
+- **`ipinfo_token` / `ipinfo_db_path` deprecation warning no longer fires on `None`.** The `DeprecationWarning` added in 3.2.0 keyed only on whether the field was passed to the constructor, so a caller forwarding an optional setting — e.g. `SecurityConfig(ipinfo_token=settings.ipinfo_token)` where the setting may be `None` — received a spurious warning even when ipinfo was not in use. The warning now fires only when the deprecated field has a non-`None` value. Async and sync mirrors updated identically.
+
+___
+
 v3.2.0 (2026-06-23)
 -------------------
 
