@@ -157,7 +157,7 @@ class SusPatternsManager:
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
         (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
         (
-            r"(?i)(?:^|;)\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
+            r"(?i);\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
             _CTX_SQLI,
             "sqli",
         ),
@@ -166,7 +166,7 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
-        (r"(?i)\bORDER\s+BY\s+\d+\b", _CTX_SQLI, "sqli"),
+        (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|$)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
@@ -250,7 +250,13 @@ class SusPatternsManager:
         ),
         (r"(?:\{\s*\$[a-zA-Z]+\s*:\s*(?:\{|\[))", _CTX_NOSQL, "nosql"),
         (
-            r'"\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|all|size|exists|type|mod|options|expr|jsonSchema)"\s*:',
+            r'"\$(?:where|regex|expr|jsonSchema|function|accumulator|type|exists|size)"\s*:',
+            _CTX_NOSQL,
+            "nosql",
+        ),
+        (
+            r'"\$(?:gt|gte|lt|lte|ne|eq|in|nin|all|mod)"'
+            r'\s*:\s*(?:""|null|\{|\[)',
             _CTX_NOSQL,
             "nosql",
         ),
@@ -276,7 +282,12 @@ class SusPatternsManager:
             _CTX_TEMPLATE,
             "template",
         ),
-        (r"<%[=#]?[^%]*%>", _CTX_TEMPLATE, "template"),
+        (
+            r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
+            r"|\d+\s*[-+*/]\s*\d+)[^%]*%>",
+            _CTX_TEMPLATE,
+            "template",
+        ),
         (
             r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}",
             _CTX_TEMPLATE,
