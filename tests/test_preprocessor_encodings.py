@@ -30,11 +30,11 @@ async def test_js_unicode_escape_decoded(pp: ContentPreprocessor) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sql_block_comment_stripped(pp: ContentPreprocessor) -> None:
+async def test_sql_block_comment_retained_not_fused(pp: ContentPreprocessor) -> None:
     payload = "SELE/**/CT password FRO/**/M users"
     result = await pp.preprocess(payload)
-    assert "select" in result.lower()
-    assert "from" in result.lower()
+    assert "/**/" in result
+    assert "select" not in result.lower()
 
 
 @pytest.mark.asyncio
@@ -106,7 +106,7 @@ def test_decode_unicode_escapes_directly(pp: ContentPreprocessor) -> None:
 
 
 def test_strip_sql_comments_block(pp: ContentPreprocessor) -> None:
-    assert pp._strip_sql_comments("SEL/*x*/ECT") == "SELECT"
+    assert pp._strip_sql_comments("SEL/*x*/ECT") == "SEL/*x*/ECT"
 
 
 def test_strip_sql_comments_line(pp: ContentPreprocessor) -> None:
@@ -159,37 +159,33 @@ def test_unicode_escape_value_error_path(pp: ContentPreprocessor) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sql_between_token_comment_preserves_word_boundaries(
+async def test_sql_between_token_comment_retained(
     pp: ContentPreprocessor,
 ) -> None:
     payload = "WHERE id=1/**/OR/**/x=2"
     result = await pp.preprocess(payload)
-    lower = result.lower()
-    assert "1or" not in lower
-    assert "orx" not in lower
-    assert " or " in lower
+    assert "/**/" in result
+    assert "1or" not in result.lower()
 
 
 @pytest.mark.asyncio
-async def test_sql_lowercase_keyword_comment_reconstructs(
+async def test_sql_lowercase_keyword_comment_retained(
     pp: ContentPreprocessor,
 ) -> None:
     payload = "sele/**/ct password fro/**/m users"
     result = await pp.preprocess(payload)
-    lower = result.lower()
-    assert "select" in lower
-    assert "from" in lower
+    assert "/**/" in result
+    assert "select" not in result.lower()
 
 
 @pytest.mark.asyncio
-async def test_sql_uppercase_keyword_then_lowercase_identifier_no_fusion(
+async def test_sql_uppercase_keyword_comment_retained(
     pp: ContentPreprocessor,
 ) -> None:
     payload = "WHERE id=1 OR/**/x=2"
     result = await pp.preprocess(payload)
-    lower = result.lower()
-    assert "orx" not in lower
-    assert " or " in lower or lower.endswith(" or") or lower.startswith("or ")
+    assert "/**/" in result
+    assert "orx" not in result.lower()
 
 
 @pytest.mark.asyncio

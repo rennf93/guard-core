@@ -136,8 +136,6 @@ class MockGuardResponseFactory:
 async def reset_state() -> AsyncGenerator[None, None]:
     IPBanManager._instance = None
 
-    original_patterns = sus_patterns_handler.patterns.copy()
-
     cloud_instance = cloud_handler._instance
     if cloud_instance:
         from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
@@ -154,7 +152,12 @@ async def reset_state() -> AsyncGenerator[None, None]:
         IPInfoManager._instance = None
 
     yield
-    sus_patterns_handler.patterns = original_patterns.copy()
+    spm = type(sus_patterns_handler)
+    spm._instance = sus_patterns_handler
+    spm._config = None
+    sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
+    sus_patterns_handler.custom_patterns = set()
+    sus_patterns_handler.compiled_custom_patterns = set()
 
     IPBanManager._instance = None
 
