@@ -75,11 +75,19 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
+_SELECT_FROM_RE = r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+"
+_SELECT_STAR_RE = r"(?i)SELECT\s+\*"
+_WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
+
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
     category: 1.0 for category in ALL_DETECTION_CATEGORIES
 }
 
-DETECTION_PATTERN_WEIGHT_OVERRIDES: dict[str, float] = {}
+DETECTION_PATTERN_WEIGHT_OVERRIDES: dict[str, float] = {
+    _SELECT_FROM_RE: 0.5,
+    _SELECT_STAR_RE: 0.5,
+    _WHERE_CLAUSE_RE: 0.5,
+}
 
 
 def _resolve_pattern_weight(pattern: str, category: str) -> float:
@@ -120,7 +128,9 @@ class SusPatternsManager:
         (r"(?:<object[^>]*>[\s\S]*<\/object\s*>)", _CTX_XSS, "xss"),
         (r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)", _CTX_XSS, "xss"),
         (r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)", _CTX_XSS, "xss"),
-        (r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+", _CTX_SQLI, "sqli"),
+        (_SELECT_FROM_RE, _CTX_SQLI, "sqli"),
+        (_SELECT_STAR_RE, _CTX_SQLI, "sqli"),
+        (_WHERE_CLAUSE_RE, _CTX_SQLI, "sqli"),
         (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
         (
             r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?[\d\w]+\s*(?:=|LIKE|<|>|<=|>=)\s*"
