@@ -1,0 +1,98 @@
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
+from guard_core.core.checks.implementations.ip_security import IpSecurityCheck
+from guard_core.core.checks.implementations.rate_limit import RateLimitCheck
+from guard_core.core.checks.implementations.suspicious_activity import (
+    SuspiciousActivityCheck,
+)
+from guard_core.decorators.base import RouteConfig
+from guard_core.detection_result import DetectionResult
+from guard_core.models import SecurityConfig
+
+
+def _mw(cfg: SecurityConfig) -> Mock:
+    mw = Mock()
+    mw.config = cfg
+    mw.logger = Mock()
+    mw.event_bus = Mock()
+    mw.event_bus.send_middleware_event = AsyncMock()
+    mw.create_error_response = AsyncMock(return_value=Mock(status_code=403))
+    mw.route_resolver = Mock()
+    mw.route_resolver.should_bypass_check = Mock(return_value=False)
+    mw.geo_ip_handler = None
+    mw.suspicious_request_counts = {}
+    return mw
+
+
+def _req(rc: RouteConfig, ip: str = "1.2.3.4") -> Mock:
+    r = Mock()
+    r.state = Mock()
+    r.state.client_ip = ip
+    r.state.route_config = rc
+    del r.state.is_whitelisted
+    return r
+
+
+@patch("guard_core.core.checks.implementations.ip_security.log_activity")
+@patch("guard_core.core.checks.implementations.ip_security.ip_ban_manager")
+async def test_route_whitelist_is_not_global_trust(
+    mock_ban_manager: Any, _mock_log: Any
+) -> None:
+    mock_ban_manager.is_ip_banned = AsyncMock(return_value=False)
+    cfg = SecurityConfig()
+    cfg.passive_mode = False
+    cfg.blacklist = ["1.2.3.4"]
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    rc.rate_limit = 1
+    req = _req(rc)
+
+    result = await IpSecurityCheck(_mw(cfg)).check(req)
+
+    assert result is None
+    assert req.state.is_whitelisted is False
+
+
+async def test_route_whitelisted_ip_still_rate_limited() -> None:
+    cfg = SecurityConfig()
+    cfg.passive_mode = False
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    rc.rate_limit = 1
+    req = _req(rc)
+    req.state.is_whitelisted = False
+
+    mw = _mw(cfg)
+    mw.rate_limit_handler = Mock()
+    mw.rate_limit_handler.check_rate_limit = AsyncMock(
+        return_value=Mock(status_code=429)
+    )
+
+    result = await RateLimitCheck(mw).check(req)
+
+    assert result is not None
+    mw.rate_limit_handler.check_rate_limit.assert_awaited_once()
+
+
+@patch("guard_core.core.checks.implementations.suspicious_activity.log_activity")
+async def test_route_whitelisted_ip_still_scanned_for_attacks(_mock_log: Any) -> None:
+    cfg = SecurityConfig()
+    cfg.passive_mode = False
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    req = _req(rc)
+    req.state.is_whitelisted = False
+
+    threat = DetectionResult(
+        is_threat=True, trigger_info="xss", threat_categories=["xss"]
+    )
+    with patch(
+        "guard_core.core.checks.implementations.suspicious_activity."
+        "detect_penetration_patterns",
+        new=AsyncMock(return_value=threat),
+    ) as mock_detect:
+        result = await SuspiciousActivityCheck(_mw(cfg)).check(req)
+
+    assert result is not None
+    mock_detect.assert_awaited_once()

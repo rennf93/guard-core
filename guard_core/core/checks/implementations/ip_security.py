@@ -1,8 +1,7 @@
-from ipaddress import ip_address
 from typing import Any
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import check_route_ip_access, is_ip_in_whitelist
+from guard_core.core.checks.helpers import check_route_ip_access
 from guard_core.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_IP_BLOCKED,
@@ -12,19 +11,6 @@ from guard_core.handlers.ipban_handler import ip_ban_manager
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import is_ip_allowed, log_activity
-
-
-def _route_whitelist_matches(client_ip: str, route_config: RouteConfig | None) -> bool:
-    if not route_config or not route_config.ip_whitelist:
-        return False
-    try:
-        return bool(
-            is_ip_in_whitelist(
-                client_ip, ip_address(client_ip), route_config.ip_whitelist
-            )
-        )
-    except ValueError:
-        return False
 
 
 def _route_overrides_ip_lists(route_config: RouteConfig | None) -> bool:
@@ -42,9 +28,7 @@ def _resolve_is_whitelisted(
     is_allowed: bool,
     skip_ip_lists: bool,
 ) -> bool:
-    return _route_whitelist_matches(client_ip, route_config) or (
-        is_allowed and bool(config.whitelist) and not skip_ip_lists
-    )
+    return is_allowed and bool(config.whitelist) and not skip_ip_lists
 
 
 class IpSecurityCheck(SecurityCheck):
