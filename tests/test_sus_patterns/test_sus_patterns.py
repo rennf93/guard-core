@@ -1,4 +1,5 @@
 import concurrent.futures
+import logging
 import re
 from unittest.mock import MagicMock, patch
 
@@ -66,8 +67,9 @@ async def test_get_custom_patterns() -> None:
 async def test_invalid_pattern_rejected_without_raising() -> None:
     pattern = r"invalid(regex"
 
-    await sus_patterns_handler.add_pattern(pattern, custom=True)
+    ok = await sus_patterns_handler.add_pattern(pattern, custom=True)
 
+    assert ok is False
     assert pattern not in sus_patterns_handler.custom_patterns
 
 
@@ -893,6 +895,25 @@ async def test_initialize_redis_skips_patterns_already_in_custom() -> None:
     redis_handler.get_key = AsyncMock(return_value="existing_pattern")
     await mgr.initialize_redis(redis_handler)
     assert "existing_pattern" in mgr.custom_patterns
+
+
+async def test_initialize_redis_warns_on_rejected_persisted_pattern(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = AsyncMock()
+    redis_handler.get_key = AsyncMock(return_value="invalid(regex")
+
+    with caplog.at_level(logging.WARNING):
+        await mgr.initialize_redis(redis_handler)
+
+    assert "invalid(regex" not in mgr.custom_patterns
+    assert "Skipped restoring persisted pattern" in caplog.text
 
 
 async def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:

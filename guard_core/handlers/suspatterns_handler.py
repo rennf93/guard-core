@@ -506,7 +506,17 @@ class SusPatternsManager:
                 patterns = cached_patterns.split(",")
                 for pattern in patterns:
                     if pattern not in self.custom_patterns:
-                        await self.add_pattern(pattern, custom=True)
+                        restored = await self.add_pattern(pattern, custom=True)
+                        if not restored:
+                            import logging
+
+                            logger = logging.getLogger(
+                                "guard_core.handlers.suspatterns"
+                            )
+                            logger.warning(
+                                f"Skipped restoring persisted pattern: "
+                                f"{pattern[:50]}..."
+                            )
 
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
@@ -885,7 +895,7 @@ class SusPatternsManager:
         return False, None
 
     @classmethod
-    async def add_pattern(cls, pattern: str, custom: bool = False) -> None:
+    async def add_pattern(cls, pattern: str, custom: bool = False) -> bool:
         instance = cls()
 
         compiler = instance._compiler or PatternCompiler()
@@ -896,7 +906,7 @@ class SusPatternsManager:
             logging.getLogger("guard_core.handlers.suspatterns").warning(
                 f"Rejected unsafe pattern ({reason}): {pattern[:50]}..."
             )
-            return
+            return False
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
         compiled_tuple = (compiled_pattern, _CTX_ALL, "custom")
@@ -928,6 +938,8 @@ class SusPatternsManager:
                 if custom
                 else len(instance.patterns),
             )
+
+        return True
 
     async def _remove_custom_pattern(self, pattern: str) -> bool:
         if pattern not in self.custom_patterns:

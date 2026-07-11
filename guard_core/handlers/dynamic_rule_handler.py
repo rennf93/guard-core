@@ -298,9 +298,13 @@ class DynamicRuleManager:
     async def _apply_pattern_rules(self, patterns: list[str]) -> None:
         from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
-        for pattern in patterns:
-            await sus_patterns_handler.add_pattern(pattern)
-        self.logger.info(f"Dynamic rule: Added suspicious patterns {patterns}")
+        added = [p for p in patterns if await sus_patterns_handler.add_pattern(p)]
+        if added:
+            self.logger.info(f"Dynamic rule: Added suspicious patterns {added}")
+
+        rejected = [p for p in patterns if p not in added]
+        if rejected:
+            self.logger.warning(f"Dynamic rule: rejected patterns {rejected}")
 
     async def _apply_feature_toggles(self, rules: DynamicRules) -> None:
         if rules.enable_penetration_detection is not None:
