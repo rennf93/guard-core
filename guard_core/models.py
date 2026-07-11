@@ -671,6 +671,7 @@ class SecurityConfig(BaseModel):
                 self.geo_ip_handler = IPInfoManager(
                     token=self.ipinfo_token,
                     db_path=self.ipinfo_db_path,
+                    max_age=self.geo_ip_db_max_age,
                 )
             else:
                 raise ValueError(

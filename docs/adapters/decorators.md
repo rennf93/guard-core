@@ -46,8 +46,12 @@ class RouteConfig:
         self.enable_suspicious_detection: bool = True
         self.require_referrer: list[str] | None = None
         self.api_key_required: bool = False
-        self.session_limits: dict[str, int] | None = None
         self.geo_rate_limits: dict[str, tuple[int, int]] | None = None
+        self.excluded_detection_headers: set[str] | None = None
+        self.excluded_detection_params: set[str] | None = None
+        self.excluded_detection_body_fields: set[str] | None = None
+        self.enabled_detection_categories: set[str] | None = None
+        self.detection_scan_body: bool | None = None
 ```
 
 When a decorator is applied to a route function, it creates or updates a `RouteConfig` and associates it with that function's route ID.
@@ -309,7 +313,7 @@ class MyFrameworkMixin(BaseSecurityMixin):
     def require_session(self, session_key: str):
         def decorator(func):
             route_config = self._ensure_route_config(func)
-            route_config.session_limits = {session_key: 1}
+            route_config.session_quota = {session_key: 1}
             return self._apply_route_config(func)
         return decorator
 

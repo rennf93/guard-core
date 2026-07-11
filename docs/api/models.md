@@ -142,6 +142,9 @@ class SecurityConfig(BaseModel):
     detection_max_content_length: int = Field(
         default=10000, ge=1000, le=100000
     )
+    detection_max_body_inspect_bytes: int = Field(
+        default=262144, ge=1024, le=10485760
+    )
     detection_preserve_attack_patterns: bool = Field(default=True)
     detection_semantic_threshold: float = Field(
         default=0.7, ge=0.0, le=1.0
@@ -158,6 +161,10 @@ class SecurityConfig(BaseModel):
     detection_max_tracked_patterns: int = Field(
         default=1000, ge=100, le=5000
     )
+    detection_threat_score_threshold: float = Field(
+        default=1.0, ge=0.0, le=10.0
+    )
+    detection_scan_body: bool = Field(default=True)
 
     def to_agent_config(self) -> "AgentConfig | None":
         """
@@ -182,7 +189,7 @@ class SecurityConfig(BaseModel):
 
 ### Detection Exclusion Fields
 
-These fields opt specific request components out of penetration detection. Headers, params, and body-field exclusion sets are merged with the hardcoded default header list (`host`, `user-agent`, `sec-fetch-*`, etc.). `enabled_detection_categories` narrows the scan to a subset of the 16 known threat categories.
+These fields opt specific request components out of penetration detection. Headers, params, and body-field exclusion sets are merged with the hardcoded default header list (`host`, `user-agent`, `sec-fetch-*`, etc.). `enabled_detection_categories` narrows the scan to a subset of the 18 known threat categories.
 
 | Field                              | Type        | Default                          | Description                                                                |
 |------------------------------------|-------------|----------------------------------|----------------------------------------------------------------------------|
@@ -191,7 +198,7 @@ These fields opt specific request components out of penetration detection. Heade
 | `excluded_detection_body_fields`   | `set[str]`  | `set()`                          | Top-level JSON body keys skipped by detection.                             |
 | `enabled_detection_categories`     | `set[str]`  | `set(ALL_DETECTION_CATEGORIES)`  | Categories scanned for. Validator rejects unknown labels.                  |
 
-`ALL_DETECTION_CATEGORIES` is defined in `guard_core.handlers.suspatterns_handler` and contains: `xss`, `sqli`, `dir_traversal`, `path_traversal`, `cmd_injection`, `file_inclusion`, `ldap`, `xml`, `ssrf`, `nosql`, `file_upload`, `template`, `http_split`, `sensitive_file`, `cms_probing`, `recon`. Custom user patterns carry the literal category `"custom"` and run regardless of `enabled_detection_categories` filtering.
+`ALL_DETECTION_CATEGORIES` is defined in `guard_core.handlers.suspatterns_handler` and contains: `xss`, `sqli`, `dir_traversal`, `path_traversal`, `cmd_injection`, `file_inclusion`, `ldap`, `xml`, `ssrf`, `nosql`, `file_upload`, `template`, `http_split`, `sensitive_file`, `cms_probing`, `recon`, `proto_pollution`, `code_injection`. Custom user patterns carry the literal category `"custom"` and run regardless of `enabled_detection_categories` filtering.
 
 ### Per-Category Ban Configuration
 

@@ -122,7 +122,7 @@ Provides content and request filtering decorators.
 - `@guard_deco.max_request_size(size_bytes)` - Limit request size
 - `@guard_deco.require_referrer(allowed_domains=[])` - Require specific referrers
 - `@guard_deco.custom_validation(validator)` - Add custom validation logic
-- `@guard_deco.detection_exclusion(headers=None, params=None, body_fields=None, categories=None)` - Per-route detection scoping
+- `@guard_deco.detection_exclusion(headers=None, params=None, body_fields=None, categories=None, scan_body=None)` - Per-route detection scoping
 
 **`detection_exclusion` semantics**
 
@@ -133,16 +133,18 @@ def detection_exclusion(
     params: set[str] | None = None,
     body_fields: set[str] | None = None,
     categories: set[str] | None = None,
+    scan_body: bool | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     ...
 ```
 
-All four kwargs are optional `set[str] | None`. Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset — the route inherits the global `SecurityConfig` value at request time. Passing a set replaces the inherited value at this route only.
+All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset — the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
 
 - `headers` — header names skipped by detection. Merged with `SecurityConfig.excluded_detection_headers` and the hardcoded default exclusion list.
 - `params` — query parameter names skipped by detection. Replaces (does not merge with) the global set when set.
 - `body_fields` — top-level JSON body keys skipped by detection. Replaces the global set when set.
 - `categories` — categories the regex scanner runs at this route. Replaces the global `enabled_detection_categories`. Custom user patterns always run regardless.
+- `scan_body` — whether to scan the request body at this route. Replaces the global `detection_scan_body` when set.
 
 ```python
 @app.post("/api/markdown-editor/save")
@@ -312,3 +314,5 @@ Security settings are applied in the following priority order:
 3. Default Settings (lowest priority)
 
 This allows for flexible override behavior where routes can customize their security requirements while maintaining global defaults.
+
+Decorator settings override global settings only for the aspects they configure — they do not shadow the global settings wholesale. This matters most for IP and country access control: a route-level allow (`ip_whitelist` or `whitelist_countries`) suppresses only the corresponding global gate; a route-level deny (`ip_blacklist` or `blocked_countries`) is purely additive, enforced at the route step, and never disables the global IP or country rules, which still run afterward.

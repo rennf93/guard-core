@@ -13,6 +13,7 @@ EVENT_BEHAVIOR_VIOLATION = "behavior_violation"
 EVENT_PATTERN_DETECTED = "pattern_detected"
 EVENT_DYNAMIC_RULE_UPDATED = "dynamic_rule_updated"
 EVENT_DYNAMIC_RULE_APPLIED = "dynamic_rule_applied"
+EVENT_DYNAMIC_RULE_VIOLATION = "dynamic_rule_violation"
 EVENT_EMERGENCY_MODE = "emergency_mode_activated"
 
 EVENT_ACCESS_DENIED = "access_denied"
@@ -48,6 +49,7 @@ EVENT_TYPE_VALUES: frozenset[str] = frozenset(
         EVENT_PATTERN_DETECTED,
         EVENT_DYNAMIC_RULE_UPDATED,
         EVENT_DYNAMIC_RULE_APPLIED,
+        EVENT_DYNAMIC_RULE_VIOLATION,
         EVENT_EMERGENCY_MODE,
         EVENT_ACCESS_DENIED,
         EVENT_AUTHENTICATION_FAILED,

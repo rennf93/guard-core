@@ -1,5 +1,6 @@
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.events.event_types import EVENT_CUSTOM_REQUEST_CHECK
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
@@ -15,7 +16,7 @@ class CustomRequestCheck(SecurityCheck):
         custom_response = self.config.custom_request_check(request)
         if custom_response:
             self.middleware.event_bus.send_middleware_event(
-                event_type="custom_request_check",
+                event_type=EVENT_CUSTOM_REQUEST_CHECK,
                 request=request,
                 action_taken="request_blocked"
                 if not self.config.passive_mode

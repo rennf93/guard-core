@@ -69,7 +69,7 @@ These are the `event_type` strings used throughout guard-core:
 | `emergency_mode_block` | `EmergencyModeCheck` | Request blocked during emergency lockdown |
 | `https_enforced` | `SecurityEventBus.send_https_violation_event` | HTTP request redirected to HTTPS (global config) |
 | `decorator_violation` | Multiple checks | Route-level security rule violated (generic) |
-| `ip_blocked` | `IpSecurityCheck` | IP blocked by global allowlist/blocklist |
+| `ip_blocked` | `IpSecurityCheck` | IP blocked by global allowlist/blocklist (`filter_type="global"`) or a banned IP (`filter_type="banned"`) |
 | `path_excluded` | `RequestValidator.is_path_excluded` | Request path excluded from security checks |
 | `security_bypass` | `BypassHandler` | Route configured to bypass all checks |
 | `dynamic_rule_violation` | `RateLimitCheck` | Endpoint-specific rate limit (from dynamic rules) exceeded |

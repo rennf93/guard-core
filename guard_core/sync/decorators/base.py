@@ -36,7 +36,6 @@ class RouteConfig:
         self.enable_suspicious_detection: bool = True
         self.require_referrer: list[str] | None = None
         self.api_key_required: bool = False
-        self.session_limits: dict[str, int] | None = None
         self.geo_rate_limits: dict[str, tuple[int, int]] | None = None
         self.excluded_detection_headers: set[str] | None = None
         self.excluded_detection_params: set[str] | None = None

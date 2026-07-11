@@ -159,12 +159,12 @@ def test_validate_pattern_safety_timeout() -> None:
 
     pattern = r"test_pattern"
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         is_safe, reason = compiler.validate_pattern_safety(pattern)
 
@@ -197,13 +197,13 @@ def test_create_safe_matcher_with_timeout(compiler: PatternCompiler) -> None:
     pattern = r"test.*"
     matcher = compiler.create_safe_matcher(pattern, timeout=0.1)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
         mock_future.cancel.return_value = True
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         result = matcher("test123")
         assert result is None
@@ -214,12 +214,12 @@ def test_create_safe_matcher_with_exception(compiler: PatternCompiler) -> None:
     pattern = r"test.*"
     matcher = compiler.create_safe_matcher(pattern)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = Exception("Test error")
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         result = matcher("test123")
         assert result is None

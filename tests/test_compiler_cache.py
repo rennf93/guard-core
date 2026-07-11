@@ -126,13 +126,9 @@ def test_validate_pattern_safety_concurrent_timeout(
 ) -> None:
     import concurrent.futures
 
+    from guard_core.detection_engine import compiler as compiler_module
+
     class FakeExecutor:
-        def __enter__(self) -> "FakeExecutor":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            pass
-
         def submit(self, _fn: object) -> "FakeFuture":
             return FakeFuture()
 
@@ -140,9 +136,7 @@ def test_validate_pattern_safety_concurrent_timeout(
         def result(self, timeout: float = 0) -> None:
             raise concurrent.futures.TimeoutError()
 
-    monkeypatch.setattr(
-        concurrent.futures, "ThreadPoolExecutor", lambda **kw: FakeExecutor()
-    )
+    monkeypatch.setattr(compiler_module, "shared_regex_executor", FakeExecutor)
     compiler = PatternCompiler()
     safe, msg = compiler.validate_pattern_safety("safe", test_strings=["x"])
     assert safe is False
@@ -168,14 +162,10 @@ def test_create_safe_matcher_timeout_returns_none(
 ) -> None:
     import concurrent.futures
 
+    from guard_core.detection_engine import compiler as compiler_module
+
     class FakeExecutor:
-        def __enter__(self) -> "FakeExecutor":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            pass
-
-        def submit(self, _fn: object) -> "FakeFuture":
+        def submit(self, _fn: object, *args: object) -> "FakeFuture":
             return FakeFuture()
 
     class FakeFuture:
@@ -185,9 +175,7 @@ def test_create_safe_matcher_timeout_returns_none(
         def cancel(self) -> None:
             pass
 
-    monkeypatch.setattr(
-        concurrent.futures, "ThreadPoolExecutor", lambda **kw: FakeExecutor()
-    )
+    monkeypatch.setattr(compiler_module, "shared_regex_executor", FakeExecutor)
     compiler = PatternCompiler()
     matcher = compiler.create_safe_matcher("x")
     result = matcher("test")
@@ -197,25 +185,17 @@ def test_create_safe_matcher_timeout_returns_none(
 def test_create_safe_matcher_exception_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import concurrent.futures
+    from guard_core.detection_engine import compiler as compiler_module
 
     class FakeExecutor:
-        def __enter__(self) -> "FakeExecutor":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            pass
-
-        def submit(self, _fn: object) -> "FakeFuture":
+        def submit(self, _fn: object, *args: object) -> "FakeFuture":
             return FakeFuture()
 
     class FakeFuture:
         def result(self, timeout: float = 0) -> None:
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(
-        concurrent.futures, "ThreadPoolExecutor", lambda **kw: FakeExecutor()
-    )
+    monkeypatch.setattr(compiler_module, "shared_regex_executor", FakeExecutor)
     compiler = PatternCompiler()
     matcher = compiler.create_safe_matcher("x")
     result = matcher("test")

@@ -37,6 +37,12 @@ Maximum character count for content passed to the detection engine. Content exce
 | `10000`   | Balanced for most APIs.                                     |
 | `50000`   | Thorough scanning. Higher memory and CPU usage per request. |
 
+### `detection_max_body_inspect_bytes`
+
+**Type**: `int` | **Default**: `262144` | **Range**: 1024 - 10485760
+
+Maximum request body size in bytes read and inspected during detection. Bodies whose `Content-Length` exceeds this are never read or scanned, bounding memory on the detection hot path. Distinct from `detection_max_content_length` (the regex scan window over already-decoded content) and `max_request_size` (the request-size gate that returns a 413).
+
 ### `detection_preserve_attack_patterns`
 
 **Type**: `bool` | **Default**: `True`
@@ -87,6 +93,18 @@ Number of recent performance metrics retained in the `PerformanceMonitor`. Large
 **Type**: `int` | **Default**: `1000` | **Range**: 100 - 5000
 
 Maximum number of unique patterns tracked by the performance monitor. When exceeded, the oldest pattern's stats are evicted. Also controls the `PatternCompiler` cache size.
+
+### `detection_threat_score_threshold`
+
+**Type**: `float` | **Default**: `1.0` | **Range**: 0.0 - 10.0
+
+Anomaly/threat score required to flag a request as a threat.
+
+### `detection_scan_body`
+
+**Type**: `bool` | **Default**: `True`
+
+Whether to scan the request body during detection. Set to `False` to restrict detection to the URL path, query parameters, and headers — the body is then never read or matched, regardless of its shape.
 
 ___
 

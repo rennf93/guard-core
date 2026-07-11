@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+v3.5.0 (2026-07-11)
+-------------------
+
+Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS hardening (v3.5.0)
+-----------------------------------------------------------------------------------------------
+
+### Added
+
+- `guard_core.core.checks.build_default_pipeline(middleware)`: assembles the canonical 17-check pipeline. Framework adapters should use this instead of hand-listing check classes, so new checks ship to every adapter without adapter changes.
+
+### Changed
+
+- Detection regex matching now uses one shared worker pool instead of constructing a thread pool per pattern match, and built-in (compile-time-vetted) patterns match directly without the timeout wrapper. Custom patterns keep the ReDoS timeout guard. Substantially reduces per-request detection overhead; detection results are unchanged (attack-simulation baseline holds).
+
+### Fixed
+
+- Registered `dynamic_rule_violation` as a first-class event type; it can now be muted via `muted_event_types` (was rejected by validation despite being emitted by endpoint rate limiting).
+- Blocking a banned IP now emits an `ip_blocked` event (`filter_type="banned"`); repeat requests from banned IPs were previously invisible to telemetry.
+- Global IP whitelist/blacklist and country rules are now enforced on routes that carry per-route decorator config. Previously, any decorated route (for example one using only `@rate_limit`) silently skipped every global IP and country rule; per-route settings now override the global gate only for the aspect they explicitly allow (a route `ip_whitelist` or country allowlist match), while a route-level `ip_blacklist` or blocked-country entry is purely additive and never disables the global IP or country rules.
+- `request.state.is_whitelisted` is now populated on decorated routes, so whitelist short-circuits in downstream checks work there too.
+- `geo_ip_db_max_age` is now passed to the auto-constructed IPInfo handler; the setting previously had no runtime effect.
+- Suspicious-pattern registration (`add_pattern`, used by Redis custom-pattern restore and dynamic-rule push) now rejects unsafe or malformed regexes via the ReDoS safety validator instead of compiling them straight into the live matcher.
+
+### Removed
+
+- Dead `RouteConfig.session_limits` attribute (never set by any decorator, never read by any check).
+
+___
+
 v3.4.0 (2026-07-02)
 -------------------
 

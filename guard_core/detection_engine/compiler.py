@@ -1,11 +1,19 @@
 import asyncio
+import concurrent.futures
 import re
 import time
 from collections.abc import Callable
 
+_shared_executor: concurrent.futures.ThreadPoolExecutor | None = None
 
-class TimeoutError(Exception):
-    pass
+
+def shared_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _shared_executor
+    if _shared_executor is None:
+        _shared_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="guard-regex"
+        )
+    return _shared_executor
 
 
 class PatternCompiler:
@@ -73,7 +81,6 @@ class PatternCompiler:
 
         try:
             compiled = self.compile_pattern_sync(pattern)
-            import concurrent.futures
 
             for test_str in test_strings:
                 start_time = time.time()
@@ -81,16 +88,14 @@ class PatternCompiler:
                 def _search(text: str = test_str) -> re.Match | None:
                     return compiled.search(text)
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_search)
-                    try:
-                        future.result(timeout=0.1)
-                    except concurrent.futures.TimeoutError:
-                        return (
-                            False,
-                            f"Pattern timed out on test string of length "
-                            f"{len(test_str)}",
-                        )
+                future = shared_regex_executor().submit(_search)
+                try:
+                    future.result(timeout=0.1)
+                except concurrent.futures.TimeoutError:
+                    return (
+                        False,
+                        f"Pattern timed out on test string of length {len(test_str)}",
+                    )
 
                 elapsed = time.time() - start_time
                 if elapsed > 0.05:
@@ -110,20 +115,14 @@ class PatternCompiler:
         match_timeout = timeout or self.default_timeout
 
         def safe_match(text: str) -> re.Match | None:
-            import concurrent.futures
-
-            def _search() -> re.Match | None:
-                return compiled.search(text)
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_search)
-                try:
-                    return future.result(timeout=match_timeout)
-                except concurrent.futures.TimeoutError:
-                    future.cancel()
-                    return None
-                except Exception:
-                    return None
+            future = shared_regex_executor().submit(compiled.search, text)
+            try:
+                return future.result(timeout=match_timeout)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                return None
+            except Exception:
+                return None
 
         return safe_match
 

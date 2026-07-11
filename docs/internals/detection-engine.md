@@ -25,7 +25,9 @@ flowchart TD
     WHITESPACE["Normalize whitespace"]
     TRUNCATE["Truncate safely"]
     REGEX["2. Regex matching"]
-    SAFE["Safe matcher with timeout"]
+    KIND{"Built-in or custom pattern?"}
+    DIRECT["pattern.search() directly, no timeout wrapper"]
+    SAFE["Safe matcher: shared thread pool + timeout"]
     PERF["Record performance metrics"]
     SEMANTIC["3. Semantic analysis"]
     PROB["Attack probability scoring"]
@@ -36,11 +38,15 @@ flowchart TD
     DETECT --> PREPROCESS
     PREPROCESS --> NORM --> DECODE --> NULL --> WHITESPACE --> TRUNCATE
     TRUNCATE --> REGEX
-    REGEX --> SAFE --> PERF
+    REGEX --> KIND
+    KIND -- Built-in --> DIRECT --> PERF
+    KIND -- Custom --> SAFE --> PERF
     PERF --> SEMANTIC
     SEMANTIC --> PROB --> OBFUSC --> INJECT
     INJECT --> AGG
 ```
+
+Built-in (compile-time-vetted) patterns match directly via `pattern.search()`, with no per-match thread or timeout. Only custom patterns (added via `add_pattern(..., custom=True)`) are routed through the safe-matcher timeout wrapper.
 
 ___
 
@@ -80,7 +86,7 @@ Validates a pattern against ReDoS vulnerability:
 
 **`create_safe_matcher(pattern, timeout) -> Callable[[str], Match | None]`**
 
-Returns a closure that executes the regex in a thread pool with a timeout. If the match exceeds the timeout, the future is cancelled and `None` is returned.
+Returns a closure that submits the regex to the shared `shared_regex_executor()` thread pool (`max_workers=4`) with a timeout. If the match exceeds the timeout, the future is cancelled and `None` is returned.
 
 ```python
 safe_match = compiler.create_safe_matcher(r"<script.*?>", timeout=2.0)

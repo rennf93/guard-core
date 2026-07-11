@@ -469,17 +469,23 @@ def is_ip_allowed(
     ip: str,
     config: Any,
     geo_ip_handler: SyncGeoIPHandler | None = None,
+    *,
+    skip_ip_lists: bool = False,
+    skip_countries: bool = False,
 ) -> bool:
     try:
         ip_addr = ip_address(ip)
 
-        if config.whitelist:
-            if not _check_whitelist(ip_addr, ip, config):
+        if not skip_ip_lists:
+            if config.whitelist:
+                if not _check_whitelist(ip_addr, ip, config):
+                    return False
+            elif not _check_blacklist(ip_addr, ip, config):
                 return False
-        elif not _check_blacklist(ip_addr, ip, config):
-            return False
 
-        if not _check_blocked_countries(ip, config, geo_ip_handler):
+        if not skip_countries and not _check_blocked_countries(
+            ip, config, geo_ip_handler
+        ):
             return False
 
         if not _check_cloud_providers(ip, config):

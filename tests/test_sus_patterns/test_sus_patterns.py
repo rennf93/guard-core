@@ -63,9 +63,12 @@ async def test_get_custom_patterns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_pattern_handling() -> None:
-    with pytest.raises(re.error):
-        await sus_patterns_handler.add_pattern(r"invalid(regex", custom=True)
+async def test_invalid_pattern_rejected_without_raising() -> None:
+    pattern = r"invalid(regex"
+
+    await sus_patterns_handler.add_pattern(pattern, custom=True)
+
+    assert pattern not in sus_patterns_handler.custom_patterns
 
 
 @pytest.mark.asyncio
@@ -255,11 +258,12 @@ async def test_regex_timeout_fallback() -> None:
 
     evil_content = "a" * 100 + "b"
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_submit = mock_executor.return_value.__enter__.return_value.submit
-        mock_submit.return_value = mock_future
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         with patch("logging.getLogger") as mock_logger:
             mock_logger.return_value.warning = MagicMock()
@@ -337,20 +341,17 @@ async def test_pattern_timeout_with_compiler(
 ) -> None:
     manager = sus_patterns_manager_with_detection
 
-    evil_pattern = r"(a+)+"
-    await manager.add_pattern(evil_pattern, custom=True)
+    custom_pattern = r"timeout_sim_pattern"
+    await manager.add_pattern(custom_pattern, custom=True)
 
     evil_content = "a" * 1000 + "b"
 
-    time_counter = 0
+    current_time = 0.0
 
     def mock_time() -> float:
-        nonlocal time_counter
-        time_counter += 1
-        if time_counter % 2 == 1:
-            return 0.0
-        else:
-            return 2.0
+        nonlocal current_time
+        current_time += 2.0
+        return current_time
 
     with patch.object(manager._compiler, "create_safe_matcher") as mock_create:
         mock_matcher = MagicMock(return_value=None)
@@ -363,18 +364,17 @@ async def test_pattern_timeout_with_compiler(
 
                 result = await manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
-                if mock_log_instance.warning.called:
-                    warning_calls = [
-                        call[0][0] for call in mock_log_instance.warning.call_args_list
-                    ]
-                    timeout_warnings = [
-                        msg for msg in warning_calls if "Pattern timeout:" in msg
-                    ]
-                    assert len(timeout_warnings) > 0
+                warning_calls = [
+                    call[0][0] for call in mock_log_instance.warning.call_args_list
+                ]
+                timeout_warnings = [
+                    msg for msg in warning_calls if "Pattern timeout:" in msg
+                ]
+                assert len(timeout_warnings) > 0
 
-                    assert len(result["timeouts"]) > 0
+                assert len(result["timeouts"]) > 0
 
-    await manager.remove_pattern(evil_pattern, custom=True)
+    await manager.remove_pattern(custom_pattern, custom=True)
 
 
 @pytest.mark.asyncio
@@ -388,11 +388,12 @@ async def test_regex_search_exception_fallback() -> None:
     test_pattern = r"test_pattern"
     await manager.add_pattern(test_pattern, custom=True)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = RuntimeError("Test exception")
-        mock_submit = mock_executor.return_value.__enter__.return_value.submit
-        mock_submit.return_value = mock_future
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         with patch("logging.getLogger") as mock_logger:
             mock_log_instance = MagicMock()

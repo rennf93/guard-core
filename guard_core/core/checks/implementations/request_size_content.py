@@ -1,4 +1,5 @@
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.core.events.event_types import EVENT_CONTENT_FILTERED
 from guard_core.decorators.base import RouteConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
@@ -34,7 +35,7 @@ class RequestSizeContentCheck(SecurityCheck):
         )
 
         await self.middleware.event_bus.send_middleware_event(
-            event_type="content_filtered",
+            event_type=EVENT_CONTENT_FILTERED,
             request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode
@@ -76,7 +77,7 @@ class RequestSizeContentCheck(SecurityCheck):
         message = f"Content type {content_type} not in allowed types"
 
         await self.middleware.event_bus.send_middleware_event(
-            event_type="content_filtered",
+            event_type=EVENT_CONTENT_FILTERED,
             request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode

@@ -75,7 +75,7 @@ ___
 IP Allow/Block Logic
 --------------------
 
-The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. It is called by `IpSecurityCheck` for requests without route-level overrides.
+The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. `IpSecurityCheck` calls it for every request that reaches this step (after any route-level check has run and not blocked), passing `skip_ip_lists` / `skip_countries` flags that suppress the IP-list or country gate when the route explicitly allows that aspect (`ip_whitelist` / `whitelist_countries`).
 
 ### Evaluation Order
 

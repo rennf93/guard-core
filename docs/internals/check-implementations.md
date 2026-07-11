@@ -213,8 +213,10 @@ ___
 **Evaluation order**:
 
 1. **Banned IP check**: Consults `IPBanManager`. Returns `403 IP address banned`.
-2. **Route-level IP restrictions**: If a `RouteConfig` exists, evaluates its `ip_blacklist`, `ip_whitelist`, `blocked_countries`, and `whitelist_countries`. Returns `403 Forbidden`.
-3. **Global IP restrictions**: Evaluates `config.blacklist`, `config.whitelist`, `config.blocked_countries`, and `config.block_cloud_providers`. Returns `403 Forbidden`.
+2. **Route-level IP restrictions**: If a `RouteConfig` exists, evaluates its `ip_blacklist`, `ip_whitelist`, `blocked_countries`, and `whitelist_countries` first. Returns `403 Forbidden` if the route denies the request.
+3. **Global IP restrictions**: Always evaluated afterward, even when the route-level check ran and passed. Evaluates `config.blacklist`, `config.whitelist`, `config.blocked_countries`, and `config.block_cloud_providers`. Returns `403 Forbidden`.
+
+A route setting overrides the global gate only for the aspect it explicitly allows: a route `ip_whitelist` suppresses the global IP-list gate, and a route `whitelist_countries` suppresses the global country gate. A route-level deny (`ip_blacklist` / `blocked_countries`) is purely additive — it is enforced at the route step and never disables the global IP or country rules.
 
 Also sets `request.state.is_whitelisted` for downstream checks (rate limiting and suspicious activity skip whitelisted IPs).
 

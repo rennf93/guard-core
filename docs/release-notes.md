@@ -10,6 +10,35 @@ Release Notes
 
 ___
 
+v3.5.0 (2026-07-11)
+-------------------
+
+Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS hardening (v3.5.0)
+-----------------------------------------------------------------------------------------------
+
+### Added
+
+- **`build_default_pipeline()` — one source of truth for the check pipeline.** New `guard_core.core.checks.build_default_pipeline(middleware)` assembles the canonical 17-check pipeline in its defined order. Framework adapters call it instead of hand-listing check classes, so a new engine check reaches every adapter (FastAPI, Flask, Django) without an adapter-side change.
+
+### Changed
+
+- **Detection regex matching now uses one shared worker pool.** Instead of constructing a thread pool per pattern match, matching uses a single shared executor, and built-in (compile-time-vetted) patterns match directly without the per-match timeout wrapper; custom patterns keep the ReDoS timeout guard. This substantially lowers per-request detection overhead. Detection results are unchanged — the attack-simulation baseline (recall 0.857, false-positive rate 0.0) holds bit-for-bit.
+
+### Fixed
+
+- **Global IP and country rules now apply on decorated routes (security behavior change).** Previously, any route carrying per-route decorator config — even one using only `@rate_limit` — silently bypassed every global IP allowlist/blocklist and country rule. Those global rules now always run on decorated routes. A per-route setting overrides the global gate only for the aspect it explicitly *allows*: a route `ip_whitelist` suppresses the global IP-list gate and a route `whitelist_countries` suppresses the global country gate, while a route-level `ip_blacklist` or blocked-country entry is purely additive and never disables the global rules. If you relied on a decorator to exempt a route from global IP or country policy, review those routes after upgrading and add an explicit route `ip_whitelist` where an exemption is intended.
+- **Suspicious-pattern registration now rejects unsafe regexes.** `add_pattern` — used when restoring custom patterns from Redis and when applying dynamic-rule pattern pushes — now runs each pattern through the ReDoS safety validator before it reaches the live matcher. Unsafe or malformed patterns are logged and skipped rather than compiled in, so a single bad pattern can no longer wedge detection.
+- **`geo_ip_db_max_age` now takes effect.** It is passed to the auto-constructed IPInfo handler; the setting was previously silently inert.
+- **Banned-IP blocks are now visible to telemetry.** Blocking a banned IP emits an `ip_blocked` event with `filter_type="banned"`; repeat requests from already-banned IPs were previously invisible.
+- **`dynamic_rule_violation` is now a registered, mutable event type.** It can be suppressed via `muted_event_types`; it was emitted by endpoint rate limiting but previously rejected by config validation.
+- **`request.state.is_whitelisted` is now set on decorated routes,** so downstream whitelist short-circuits (rate limiting, suspicious-activity detection) apply there too.
+
+### Removed
+
+- **Dead `RouteConfig.session_limits`** attribute — never set by any decorator, never read by any check.
+
+___
+
 v3.4.0 (2026-07-02)
 -------------------
 
