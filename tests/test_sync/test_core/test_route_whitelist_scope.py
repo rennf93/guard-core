@@ -96,3 +96,24 @@ def test_route_whitelisted_ip_still_scanned_for_attacks(_mock_log: Any) -> None:
 
     assert result is not None
     mock_detect.assert_called_once()
+
+
+@patch("guard_core.sync.core.checks.implementations.ip_security.log_activity")
+@patch("guard_core.sync.core.checks.implementations.ip_security.ip_ban_manager")
+def test_cloud_block_on_route_whitelisted_ip_is_coherent(
+    mock_ban_manager: Any, _mock_log: Any
+) -> None:
+    mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
+    cfg = SecurityConfig()
+    cfg.passive_mode = False
+    cfg.block_cloud_providers = ["AWS"]
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    req = _req(rc)
+
+    with patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as cloud:
+        cloud.is_cloud_ip = Mock(return_value=True)
+        result = IpSecurityCheck(_mw(cfg)).check(req)
+
+    assert result is not None
+    assert req.state.is_whitelisted is False
