@@ -140,8 +140,8 @@ class SusPatternsManager:
             "sqli",
         ),
         (
-            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+(?:NULL[,\s]*)+|\(\s*SELECT\s+"
-            r"(?:@@|VERSION))",
+            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+NULL(?:[,\s]*NULL)*[,\s]*|"
+            r"\(\s*SELECT\s+(?:@@|VERSION))",
             _CTX_SQLI,
             "sqli",
         ),

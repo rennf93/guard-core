@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 import pytest
 
+from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import SusPatternsManager
 
 mp.set_start_method("fork", force=True)
@@ -92,6 +93,32 @@ def test_select_from_still_matches_real_sqli() -> None:
     rx = _compiled("sqli", "FROM")
     assert rx.search("SELECT username, password FROM users")
     assert rx.search("select * from accounts where 1=1")
+
+
+def test_union_select_null_still_matches_real_sqli() -> None:
+    rx = _compiled("sqli", r"NULL(?:[,\s]*NULL)*")
+    assert rx.search("UNION SELECT NULL")
+    assert rx.search("union all select null,null,null--")
+    assert rx.search("(SELECT @@version)")
+    assert rx.search("( select version())")
+
+
+def test_union_select_null_resists_unterminated_separator_padding() -> None:
+    rx = _compiled("sqli", r"NULL(?:[,\s]*NULL)*")
+    sizes = [4000, 8000, 16000]
+    times = linear_search_time(
+        rx.pattern, lambda n: "UNION SELECT NULL" + ", " * n, sizes, timeout=2.0
+    )
+    assert all(t is not None for t in times), (
+        f"unterminated-separator-padding input did not finish: {rx.pattern!r}"
+    )
+    first, last = times[0], times[-1]
+    assert first is not None and last is not None
+    ratio = last / first if first > 0 else 0.0
+    assert ratio < 8.0, (
+        f"unterminated-separator-padding input grew {ratio:.1f}x over a 4x size "
+        f"increase (quadratic behavior): {rx.pattern!r} times={times}"
+    )
 
 
 def test_recon_ext_still_matches_real_probe() -> None:
@@ -190,3 +217,15 @@ def test_sensitive_file_source_still_matches_multidot_filenames(path: str) -> No
 def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
     rx = _compiled("cms_probing", "bak|backup|old")
     assert rx.search(path), f"multi-dot backup probe regressed: {path}"
+
+
+def test_every_builtin_passes_the_safety_validator() -> None:
+    pc = PatternCompiler()
+    bad = []
+    for pat, _c, cat in SusPatternsManager._pattern_definitions:
+        ok, reason = pc.validate_pattern_safety(pat)
+        if not ok:
+            bad.append((cat, reason, pat))
+    assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(
+        f"  [{c}] {r} :: {p[:80]}" for c, r, p in bad
+    )
