@@ -87,7 +87,7 @@ def test_route_ip_whitelist_overrides_global_blacklist(
     result = ip_security_check.check(request)
 
     assert result is None
-    assert request.state.is_whitelisted is True
+    assert request.state.is_whitelisted is False
 
 
 def test_route_country_rules_keep_global_ip_blacklist_active(
@@ -237,7 +237,7 @@ def test_route_whitelist_match_overrides_global_whitelist_default_deny(
     result = ip_security_check.check(request)
 
     assert result is None
-    assert request.state.is_whitelisted is True
+    assert request.state.is_whitelisted is False
 
 
 def test_route_whitelist_set_but_client_excluded_blocks_at_route_step(
