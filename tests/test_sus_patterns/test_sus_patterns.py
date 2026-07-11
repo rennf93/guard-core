@@ -359,7 +359,7 @@ async def test_pattern_timeout_with_compiler(
         mock_matcher = MagicMock(return_value=None)
         mock_create.return_value = mock_matcher
 
-        with patch("time.time", mock_time):
+        with patch("time.monotonic", mock_time):
             with patch("logging.getLogger") as mock_logger:
                 mock_log_instance = MagicMock()
                 mock_logger.return_value = mock_log_instance

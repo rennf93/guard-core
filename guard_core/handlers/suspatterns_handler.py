@@ -582,7 +582,7 @@ class SusPatternsManager:
             if category == "custom":
                 safe_matcher = self._compiler.create_safe_matcher(pattern.pattern)
                 match = safe_matcher(content)
-                if match is None and time.time() - pattern_start >= 0.9 * 2.0:
+                if match is None and time.monotonic() - pattern_start >= 0.9 * 2.0:
                     timeout_occurred = True
                     import logging
 
@@ -598,7 +598,7 @@ class SusPatternsManager:
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -612,7 +612,7 @@ class SusPatternsManager:
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -685,7 +685,7 @@ class SusPatternsManager:
             ):
                 continue
 
-            pattern_start = time.time()
+            pattern_start = time.monotonic()
 
             threat, timeout_occurred = await self._check_regex_pattern(
                 pattern, content, ip_address, pattern_start, category
@@ -701,7 +701,7 @@ class SusPatternsManager:
             if self._performance_monitor:
                 await self._performance_monitor.record_metric(
                     pattern=pattern.pattern,
-                    execution_time=time.time() - pattern_start,
+                    execution_time=time.monotonic() - pattern_start,
                     content_length=len(content),
                     matched=bool(threat),
                     timeout=timeout_occurred,
@@ -767,7 +767,7 @@ class SusPatternsManager:
         enabled_categories: set[str] | None = None,
     ) -> dict[str, Any]:
         original_content = content
-        execution_start = time.time()
+        execution_start = time.monotonic()
 
         processed_content = await self._preprocess_content(content, correlation_id)
 
@@ -793,7 +793,7 @@ class SusPatternsManager:
             regex_threats, semantic_threats
         )
 
-        total_execution_time = time.time() - execution_start
+        total_execution_time = time.monotonic() - execution_start
 
         if self._performance_monitor:
             await self._performance_monitor.record_metric(

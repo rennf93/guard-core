@@ -1,18 +1,22 @@
 import asyncio
 import concurrent.futures
 import re
+import threading
 import time
 from collections.abc import Callable
 
 _shared_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
 
 
 def shared_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
     global _shared_executor
     if _shared_executor is None:
-        _shared_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="guard-regex"
-        )
+        with _executor_lock:
+            if _shared_executor is None:
+                _shared_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4, thread_name_prefix="guard-regex"
+                )
     return _shared_executor
 
 
