@@ -6,7 +6,10 @@ from collections.abc import Callable
 import pytest
 
 from guard_core.detection_engine.compiler import PatternCompiler
-from guard_core.handlers.suspatterns_handler import SusPatternsManager
+from guard_core.handlers.suspatterns_handler import (
+    _DEFAULT_MAX_SCAN_LENGTH,
+    SusPatternsManager,
+)
 
 mp.set_start_method("fork", force=True)
 IM = re.IGNORECASE | re.MULTILINE
@@ -230,11 +233,13 @@ def test_every_builtin_passes_the_safety_validator() -> None:
 
 async def test_match_path_caps_input_length_in_legacy_mode() -> None:
     mgr = SusPatternsManager()
-    await SusPatternsManager.add_pattern(r"A+B", custom=True)
-    try:
-        big = "A" * 5_000_000
-        start = time.monotonic()
-        await mgr.detect(big, "1.2.3.4", context="request_body")
-        assert time.monotonic() - start < 3.0
-    finally:
-        await SusPatternsManager.remove_pattern(r"A+B", custom=True)
+    mgr._preprocessor = None
+
+    big = "A" * 5_000_000
+    capped = await mgr._preprocess_content(big, None)
+
+    cap = getattr(
+        mgr._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
+    )
+    assert len(capped) == min(len(big), cap)
+    assert len(capped) < len(big)
