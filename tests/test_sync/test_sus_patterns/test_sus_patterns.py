@@ -1,4 +1,5 @@
 import concurrent.futures
+import logging
 import re
 from unittest.mock import MagicMock, patch
 
@@ -60,8 +61,9 @@ def test_get_custom_patterns() -> None:
 def test_invalid_pattern_rejected_without_raising() -> None:
     pattern = r"invalid(regex"
 
-    sus_patterns_handler.add_pattern(pattern, custom=True)
+    ok = sus_patterns_handler.add_pattern(pattern, custom=True)
 
+    assert ok is False
     assert pattern not in sus_patterns_handler.custom_patterns
 
 
@@ -335,7 +337,7 @@ def test_pattern_timeout_with_compiler(
         mock_matcher = MagicMock(return_value=None)
         mock_create.return_value = mock_matcher
 
-        with patch("time.time", mock_time):
+        with patch("time.monotonic", mock_time):
             with patch("logging.getLogger") as mock_logger:
                 mock_log_instance = MagicMock()
                 mock_logger.return_value = mock_log_instance
@@ -863,6 +865,25 @@ def test_initialize_redis_skips_patterns_already_in_custom() -> None:
     redis_handler.get_key = MagicMock(return_value="existing_pattern")
     mgr.initialize_redis(redis_handler)
     assert "existing_pattern" in mgr.custom_patterns
+
+
+def test_initialize_redis_warns_on_rejected_persisted_pattern(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = MagicMock()
+    redis_handler.get_key = MagicMock(return_value="invalid(regex")
+
+    with caplog.at_level(logging.WARNING):
+        mgr.initialize_redis(redis_handler)
+
+    assert "invalid(regex" not in mgr.custom_patterns
+    assert "Skipped restoring persisted pattern" in caplog.text
 
 
 def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:

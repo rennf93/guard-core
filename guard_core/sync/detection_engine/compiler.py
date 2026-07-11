@@ -5,14 +5,17 @@ import time
 from collections.abc import Callable
 
 _shared_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
 
 
 def shared_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
     global _shared_executor
     if _shared_executor is None:
-        _shared_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="guard-regex"
-        )
+        with _executor_lock:
+            if _shared_executor is None:
+                _shared_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4, thread_name_prefix="guard-regex"
+                )
     return _shared_executor
 
 
@@ -74,9 +77,14 @@ class PatternCompiler:
             test_strings = [
                 "a" * 10,
                 "a" * 100,
-                "a" * 1000,
+                "a" * 2000,
+                " " * 2000,
+                "/" * 2000,
+                "<" * 2000,
+                "(" * 2000,
+                "SELECT " + " " * 2000,
                 "x" * 50 + "y" * 50,
-                "<" * 100 + ">" * 100,
+                "<div " + "a" * 2000 + ">",
             ]
 
         try:

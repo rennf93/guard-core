@@ -11,6 +11,8 @@ from guard_core.sync.detection_engine import (
     SemanticAnalyzer,
 )
 
+_DEFAULT_MAX_SCAN_LENGTH = 10000
+
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
 _CTX_DIR_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
@@ -76,7 +78,7 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
-_SELECT_FROM_RE = r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+"
+_SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
 
@@ -115,13 +117,13 @@ class SusPatternsManager:
             "xss",
         ),
         (
-            r"(?:<[^>]+\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
+            r"(?:<[^<>]*\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
             r"vbscript|data):)",
             _CTX_XSS,
             "xss",
         ),
         (
-            r"(?:<[^>]+style\s*=[\s\"\']*[^>\"\']*(?:expression|behavior|url)\s*\("
+            r"(?:<[^<>]*style\s*=[\s\"\']*[^<>\"\']*(?:expression|behavior|url)\s*\("
             r"[^)]*\))",
             _CTX_XSS,
             "xss",
@@ -140,8 +142,8 @@ class SusPatternsManager:
             "sqli",
         ),
         (
-            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+(?:NULL[,\s]*)+|\(\s*SELECT\s+"
-            r"(?:@@|VERSION))",
+            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+NULL(?:[,\s]*NULL)*[,\s]*|"
+            r"\(\s*SELECT\s+(?:@@|VERSION))",
             _CTX_SQLI,
             "sqli",
         ),
@@ -306,9 +308,9 @@ class SusPatternsManager:
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
-        (r"(?:^|/)[\w./-]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
+        (r"(?:^|/)[^/]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
-            r"(?:^|/)[\w./-]*\."
+            r"(?:^|/)[^/]*\."
             r"(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)(?:\?|$)",
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
@@ -326,7 +328,7 @@ class SusPatternsManager:
             "cms_probing",
         ),
         (
-            r"(?:^|/)[\w./-]*\."
+            r"(?:^|/)[^/]*\."
             r"(?:bak|backup|old|orig|save|swp|swo|tmp|temp)(?:\?|$)",
             _CTX_CMS_PROBING,
             "cms_probing",
@@ -338,7 +340,7 @@ class SusPatternsManager:
             "cms_probing",
         ),
         (
-            r"(?:^|/)[\w./-]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
+            r"(?:^|/)[^/]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
             r"|lua|inc|woa|nsf|esp)(?:\?|$)",
             _CTX_RECON,
             "recon",
@@ -404,7 +406,7 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            r"(?:^|/)[\w./-]*(?:secrets?|credentials?)"
+            r"(?:^|/)[^/]*(?:secrets?|credentials?)"
             r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:\?|$)",
             _CTX_RECON,
             "recon",
@@ -504,7 +506,17 @@ class SusPatternsManager:
                 patterns = cached_patterns.split(",")
                 for pattern in patterns:
                     if pattern not in self.custom_patterns:
-                        self.add_pattern(pattern, custom=True)
+                        restored = self.add_pattern(pattern, custom=True)
+                        if not restored:
+                            import logging
+
+                            logger = logging.getLogger(
+                                "guard_core.sync.handlers.suspatterns"
+                            )
+                            logger.warning(
+                                f"Skipped restoring persisted pattern: "
+                                f"{pattern[:50]}..."
+                            )
 
     def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
@@ -541,7 +553,10 @@ class SusPatternsManager:
 
     def _preprocess_content(self, content: str, correlation_id: str | None) -> str:
         if not self._preprocessor:
-            return content
+            max_length = getattr(
+                self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
+            )
+            return content[:max_length]
 
         context_preprocessor = ContentPreprocessor(
             max_content_length=self._preprocessor.max_content_length,
@@ -565,7 +580,7 @@ class SusPatternsManager:
             if category == "custom":
                 safe_matcher = self._compiler.create_safe_matcher(pattern.pattern)
                 match = safe_matcher(content)
-                if match is None and time.time() - pattern_start >= 0.9 * 2.0:
+                if match is None and time.monotonic() - pattern_start >= 0.9 * 2.0:
                     timeout_occurred = True
                     import logging
 
@@ -581,7 +596,7 @@ class SusPatternsManager:
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -595,7 +610,7 @@ class SusPatternsManager:
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -668,7 +683,7 @@ class SusPatternsManager:
             ):
                 continue
 
-            pattern_start = time.time()
+            pattern_start = time.monotonic()
 
             threat, timeout_occurred = self._check_regex_pattern(
                 pattern, content, ip_address, pattern_start, category
@@ -684,7 +699,7 @@ class SusPatternsManager:
             if self._performance_monitor:
                 self._performance_monitor.record_metric(
                     pattern=pattern.pattern,
-                    execution_time=time.time() - pattern_start,
+                    execution_time=time.monotonic() - pattern_start,
                     content_length=len(content),
                     matched=bool(threat),
                     timeout=timeout_occurred,
@@ -750,7 +765,7 @@ class SusPatternsManager:
         enabled_categories: set[str] | None = None,
     ) -> dict[str, Any]:
         original_content = content
-        execution_start = time.time()
+        execution_start = time.monotonic()
 
         processed_content = self._preprocess_content(content, correlation_id)
 
@@ -774,7 +789,7 @@ class SusPatternsManager:
 
         threat_score = self._calculate_threat_score(regex_threats, semantic_threats)
 
-        total_execution_time = time.time() - execution_start
+        total_execution_time = time.monotonic() - execution_start
 
         if self._performance_monitor:
             self._performance_monitor.record_metric(
@@ -876,7 +891,7 @@ class SusPatternsManager:
         return False, None
 
     @classmethod
-    def add_pattern(cls, pattern: str, custom: bool = False) -> None:
+    def add_pattern(cls, pattern: str, custom: bool = False) -> bool:
         instance = cls()
 
         compiler = instance._compiler or PatternCompiler()
@@ -887,7 +902,7 @@ class SusPatternsManager:
             logging.getLogger("guard_core.sync.handlers.suspatterns").warning(
                 f"Rejected unsafe pattern ({reason}): {pattern[:50]}..."
             )
-            return
+            return False
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
         compiled_tuple = (compiled_pattern, _CTX_ALL, "custom")
@@ -919,6 +934,8 @@ class SusPatternsManager:
                 if custom
                 else len(instance.patterns),
             )
+
+        return True
 
     def _remove_custom_pattern(self, pattern: str) -> bool:
         if pattern not in self.custom_patterns:

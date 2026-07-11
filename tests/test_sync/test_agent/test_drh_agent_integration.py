@@ -906,6 +906,48 @@ def test_apply_pattern_rules(
         )
 
 
+def test_apply_pattern_rules_logs_rejected_patterns(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    patterns = ["../", "(a+)+$"]
+
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_patterns:
+        mock_patterns.add_pattern = MagicMock(side_effect=[True, False])
+
+        with caplog.at_level(logging.INFO):
+            manager._apply_pattern_rules(patterns)
+
+        assert "Dynamic rule: Added suspicious patterns ['../']" in caplog.text
+        assert "Dynamic rule: rejected patterns ['(a+)+$']" in caplog.text
+
+
+def test_apply_pattern_rules_all_rejected_logs_no_added_line(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    patterns = ["(a+)+$"]
+
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_patterns:
+        mock_patterns.add_pattern = MagicMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            manager._apply_pattern_rules(patterns)
+
+        assert "Dynamic rule: Added suspicious patterns" not in caplog.text
+        assert "Dynamic rule: rejected patterns ['(a+)+$']" in caplog.text
+
+
 def test_apply_feature_toggles_all_enabled(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:

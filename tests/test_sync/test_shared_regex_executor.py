@@ -75,3 +75,22 @@ def test_custom_category_keeps_timeout_wrapper(
 
     assert threat is not None
     assert calls == ["evil"]
+
+
+def test_custom_category_timeout_heuristic_ignores_wall_clock_jump(
+    fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.suspatterns_handler.time.time", lambda: 5_000.0
+    )
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.suspatterns_handler.time.monotonic", lambda: 100.01
+    )
+    pattern_start = 100.0
+    pattern = re.compile(r"zzz_never_matches_zzz")
+
+    _, timed_out = fresh_manager._check_regex_pattern(
+        pattern, "no match in here", "1.2.3.4", pattern_start, "custom"
+    )
+
+    assert timed_out is False
