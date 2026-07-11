@@ -91,7 +91,7 @@ class PatternCompiler:
             compiled = self.compile_pattern_sync(pattern)
 
             for test_str in test_strings:
-                start_time = time.time()
+                start_time = time.monotonic()
 
                 def _search(text: str = test_str) -> re.Match | None:
                     return compiled.search(text)
@@ -105,7 +105,7 @@ class PatternCompiler:
                         f"Pattern timed out on test string of length {len(test_str)}",
                     )
 
-                elapsed = time.time() - start_time
+                elapsed = time.monotonic() - start_time
                 if elapsed > 0.05:
                     return (
                         False,
@@ -117,9 +117,13 @@ class PatternCompiler:
         return True, "Pattern appears safe"
 
     def create_safe_matcher(
-        self, pattern: str, timeout: float | None = None
+        self, pattern: str | re.Pattern, timeout: float | None = None
     ) -> Callable[[str], re.Match | None]:
-        compiled = self.compile_pattern_sync(pattern)
+        compiled = (
+            pattern
+            if isinstance(pattern, re.Pattern)
+            else self.compile_pattern_sync(pattern)
+        )
         match_timeout = timeout or self.default_timeout
 
         def safe_match(text: str) -> re.Match | None:

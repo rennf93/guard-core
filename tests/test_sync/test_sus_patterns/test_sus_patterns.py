@@ -243,15 +243,15 @@ def test_regex_timeout_fallback() -> None:
     evil_content = "a" * 100 + "b"
 
     with patch(
-        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+        "guard_core.sync.handlers.suspatterns_handler.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("logging.getLogger") as mock_logger:
-            mock_logger.return_value.warning = MagicMock()
-
+        with patch(
+            "guard_core.sync.handlers.suspatterns_handler.logger"
+        ) as mock_logger:
             matched, pattern = manager.detect_pattern_match(
                 evil_content, "127.0.0.1", "test_timeout"
             )
@@ -259,8 +259,8 @@ def test_regex_timeout_fallback() -> None:
             assert not matched
             assert pattern is None
 
-            mock_logger.return_value.warning.assert_called()
-            warning_msg = mock_logger.return_value.warning.call_args[0][0]
+            mock_logger.warning.assert_called()
+            warning_msg = mock_logger.warning.call_args[0][0]
             assert "Regex timeout exceeded" in warning_msg
 
     manager._compiler = original_compiler
@@ -338,14 +338,13 @@ def test_pattern_timeout_with_compiler(
         mock_create.return_value = mock_matcher
 
         with patch("time.monotonic", mock_time):
-            with patch("logging.getLogger") as mock_logger:
-                mock_log_instance = MagicMock()
-                mock_logger.return_value = mock_log_instance
-
+            with patch(
+                "guard_core.sync.handlers.suspatterns_handler.logger"
+            ) as mock_logger:
                 result = manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
                 warning_calls = [
-                    call[0][0] for call in mock_log_instance.warning.call_args_list
+                    call[0][0] for call in mock_logger.warning.call_args_list
                 ]
                 timeout_warnings = [
                     msg for msg in warning_calls if "Pattern timeout:" in msg
@@ -368,22 +367,21 @@ def test_regex_search_exception_fallback() -> None:
     manager.add_pattern(test_pattern, custom=True)
 
     with patch(
-        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+        "guard_core.sync.handlers.suspatterns_handler.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = RuntimeError("Test exception")
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("logging.getLogger") as mock_logger:
-            mock_log_instance = MagicMock()
-            mock_logger.return_value = mock_log_instance
-
+        with patch(
+            "guard_core.sync.handlers.suspatterns_handler.logger"
+        ) as mock_logger:
             result = manager.detect("test content", "127.0.0.1", "test_exception")
 
             assert not result["is_threat"]
 
-            mock_log_instance.error.assert_called()
-            error_msg = mock_log_instance.error.call_args[0][0]
+            mock_logger.error.assert_called()
+            error_msg = mock_logger.error.call_args[0][0]
             assert "Error in regex search" in error_msg
 
     manager._compiler = original_compiler

@@ -1,4 +1,5 @@
 import concurrent.futures
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -10,6 +11,9 @@ from guard_core.sync.detection_engine import (
     PerformanceMonitor,
     SemanticAnalyzer,
 )
+from guard_core.sync.detection_engine.compiler import shared_regex_executor
+
+logger = logging.getLogger("guard_core.sync.handlers.suspatterns")
 
 _DEFAULT_MAX_SCAN_LENGTH = 10000
 
@@ -508,11 +512,6 @@ class SusPatternsManager:
                     if pattern not in self.custom_patterns:
                         restored = self.add_pattern(pattern, custom=True)
                         if not restored:
-                            import logging
-
-                            logger = logging.getLogger(
-                                "guard_core.sync.handlers.suspatterns"
-                            )
                             logger.warning(
                                 f"Skipped restoring persisted pattern: "
                                 f"{pattern[:50]}..."
@@ -545,11 +544,7 @@ class SusPatternsManager:
             )
             self.agent_handler.send_event(event)
         except Exception as e:
-            import logging
-
-            logging.getLogger("guard_core.sync.handlers.suspatterns").error(
-                f"Failed to send pattern event to agent: {e}"
-            )
+            logger.error(f"Failed to send pattern event to agent: {e}")
 
     def _preprocess_content(self, content: str, correlation_id: str | None) -> str:
         if not self._preprocessor:
@@ -578,15 +573,11 @@ class SusPatternsManager:
 
         if self._compiler:
             if category == "custom":
-                safe_matcher = self._compiler.create_safe_matcher(pattern.pattern)
+                safe_matcher = self._compiler.create_safe_matcher(pattern)
                 match = safe_matcher(content)
                 if match is None and time.monotonic() - pattern_start >= 0.9 * 2.0:
                     timeout_occurred = True
-                    import logging
-
-                    logging.getLogger("guard_core.sync.handlers.suspatterns").warning(
-                        f"Pattern timeout: {pattern.pattern[:50]}..."
-                    )
+                    logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
             else:
                 match = pattern.search(content)
 
@@ -620,16 +611,11 @@ class SusPatternsManager:
     def _check_pattern_with_timeout(
         self, pattern: re.Pattern, content: str, ip_address: str, pattern_start: float
     ) -> tuple[re.Match | None, bool]:
-        from guard_core.sync.detection_engine.compiler import shared_regex_executor
-
         future = shared_regex_executor().submit(pattern.search, content)
         try:
             match = future.result(timeout=2.0)
             return match, False
         except concurrent.futures.TimeoutError:
-            import logging
-
-            logger = logging.getLogger("guard_core.sync.handlers.suspatterns")
             logger.warning(
                 f"Regex timeout exceeded for pattern: "
                 f"{pattern.pattern[:50]}... "
@@ -638,9 +624,6 @@ class SusPatternsManager:
             future.cancel()
             return None, True
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger("guard_core.sync.handlers.suspatterns")
             logger.error(
                 f"Error in regex search for pattern {pattern.pattern[:50]}...: {e}"
             )
@@ -897,11 +880,7 @@ class SusPatternsManager:
         compiler = instance._compiler or PatternCompiler()
         is_safe, reason = compiler.validate_pattern_safety(pattern)
         if not is_safe:
-            import logging
-
-            logging.getLogger("guard_core.sync.handlers.suspatterns").warning(
-                f"Rejected unsafe pattern ({reason}): {pattern[:50]}..."
-            )
+            logger.warning(f"Rejected unsafe pattern ({reason}): {pattern[:50]}...")
             return False
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)

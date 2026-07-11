@@ -108,7 +108,7 @@ def test_validate_pattern_safety_elapsed_timeout(
             return 0.0
         return 1.0
 
-    monkeypatch.setattr(time_mod, "time", fake_time)
+    monkeypatch.setattr(time_mod, "monotonic", fake_time)
     compiler = PatternCompiler()
     safe, msg = compiler.validate_pattern_safety("safe", test_strings=["x"])
     assert safe is False
