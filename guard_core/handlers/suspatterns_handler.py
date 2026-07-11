@@ -76,7 +76,7 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
-_SELECT_FROM_RE = r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+"
+_SELECT_FROM_RE = r"(?i)\bSELECT\b[\w\s,\*().]{0,256}?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
 
@@ -115,13 +115,13 @@ class SusPatternsManager:
             "xss",
         ),
         (
-            r"(?:<[^>]+\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
+            r"(?:<[^>]{1,256}\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
             r"vbscript|data):)",
             _CTX_XSS,
             "xss",
         ),
         (
-            r"(?:<[^>]+style\s*=[\s\"\']*[^>\"\']*(?:expression|behavior|url)\s*\("
+            r"(?:<[^>]{1,256}style\s*=[\s\"\']*[^>\"\']{0,256}(?:expression|behavior|url)\s*\("
             r"[^)]*\))",
             _CTX_XSS,
             "xss",
@@ -338,7 +338,7 @@ class SusPatternsManager:
             "cms_probing",
         ),
         (
-            r"(?:^|/)[\w./-]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
+            r"(?:^|/)[\w-]+\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
             r"|lua|inc|woa|nsf|esp)(?:\?|$)",
             _CTX_RECON,
             "recon",
@@ -404,7 +404,7 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            r"(?:^|/)[\w./-]*(?:secrets?|credentials?)"
+            r"(?:^|/)[\w-]*(?:secrets?|credentials?)"
             r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:\?|$)",
             _CTX_RECON,
             "recon",
