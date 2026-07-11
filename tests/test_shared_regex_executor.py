@@ -59,10 +59,10 @@ async def test_builtin_category_skips_safe_matcher(
 async def test_custom_category_keeps_timeout_wrapper(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[str] = []
+    calls: list[Any] = []
     real = fresh_manager._compiler.create_safe_matcher
 
-    def _tracking(pattern: str, timeout: float | None = None) -> Any:
+    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
         calls.append(pattern)
         return real(pattern, timeout)
 
@@ -74,7 +74,7 @@ async def test_custom_category_keeps_timeout_wrapper(
     )
 
     assert threat is not None
-    assert calls == ["evil"]
+    assert calls == [pattern]
 
 
 async def test_custom_category_timeout_heuristic_ignores_wall_clock_jump(

@@ -116,7 +116,7 @@ def test_validate_pattern_safety_slow_pattern(compiler: PatternCompiler) -> None
     slow_pattern = r"^[a-z]+$"
 
     call_count = 0
-    start_time = time.time()
+    start_time = time.monotonic()
 
     def mock_time() -> float:
         nonlocal call_count
@@ -126,7 +126,7 @@ def test_validate_pattern_safety_slow_pattern(compiler: PatternCompiler) -> None
         else:
             return start_time
 
-    with patch("time.time", side_effect=mock_time):
+    with patch("time.monotonic", side_effect=mock_time):
         is_safe, reason = compiler.validate_pattern_safety(slow_pattern)
         assert is_safe is False
         assert "timed out on test string" in reason
