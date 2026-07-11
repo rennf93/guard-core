@@ -11,22 +11,30 @@ v3.5.0 (2026-07-11)
 Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS hardening (v3.5.0)
 -----------------------------------------------------------------------------------------------
 
+### Breaking changes
+
+- Global IP whitelist/blacklist and country rules are now enforced on routes that carry per-route decorator config. Previously any decorated route (for example one using only `@rate_limit`) silently skipped every global IP and country rule. If you rely on a global `whitelist`, clients not in it now receive `403` on decorated routes that previously served them. Per-route settings override the global gate only for the aspect they explicitly allow — a route `ip_whitelist` or `whitelist_countries` match — while a route-level `ip_blacklist` or blocked-country entry is purely additive. To keep a decorated route reachable by clients outside the global whitelist, give the route its own `ip_whitelist`.
+- A route-level `@ip_whitelist` match now grants **access only**, not trust. The matched request passes the IP gate but is still rate-limited, user-agent-filtered, cloud-provider-checked, and scanned for attack patterns. Previously a route `ip_whitelist` match set `request.state.is_whitelisted=True`, exempting the request from every downstream check — so a route's own `@rate_limit` was silently a no-op for its whitelisted IPs. Global `whitelist` membership still confers full trust; a client that is in both the global whitelist and a route's `ip_whitelist` is treated as access-only on that route.
+
 ### Added
 
 - `guard_core.core.checks.build_default_pipeline(middleware)`: assembles the canonical 17-check pipeline. Framework adapters should use this instead of hand-listing check classes, so new checks ship to every adapter without adapter changes.
 
 ### Changed
 
-- Detection regex matching now uses one shared worker pool instead of constructing a thread pool per pattern match, and built-in (compile-time-vetted) patterns match directly without the timeout wrapper. Custom patterns keep the ReDoS timeout guard. Substantially reduces per-request detection overhead; detection results are unchanged (attack-simulation baseline holds).
+- Detection regex matching now uses one shared worker pool instead of constructing a thread pool per pattern match. Built-in patterns are verified linear — a test gate runs every built-in through the ReDoS safety validator — and matched directly; scan input is capped to `detection_max_content_length` before matching in every mode, bounding worst-case match time (a thread-pool timeout cannot interrupt a regex already running on the interpreter). Detection results are unchanged (attack-simulation baseline holds).
+- `add_pattern` now returns `bool` (`True` registered, `False` rejected) instead of `None`, so callers can distinguish a rejected pattern from a registered one.
 
 ### Fixed
 
+- Built-in detection patterns that could backtrack super-linearly on crafted input (SQL `SELECT ... FROM` and `UNION SELECT NULL`, several recon file-extension/source-map/backup patterns, and two XSS patterns) are rewritten to run in linear time, closing a request-triggered ReDoS on the detection path.
+- `build_default_pipeline` now propagates `SecurityConfig.muted_check_logs` to the pipeline, so muting a check's block/error logs takes effect.
+- `add_pattern` (used by Redis custom-pattern restore and dynamic-rule push) rejects unsafe or malformed regexes via the ReDoS safety validator instead of compiling them into the live matcher, and no longer logs "Added" for a pattern it rejected.
+- The shared regex executor is initialized under a lock, preventing a first-call race that could leak a worker pool.
+- Pattern timeout heuristics use a monotonic clock, so a wall-clock/NTP step cannot misclassify a match as timed out.
 - Registered `dynamic_rule_violation` as a first-class event type; it can now be muted via `muted_event_types` (was rejected by validation despite being emitted by endpoint rate limiting).
 - Blocking a banned IP now emits an `ip_blocked` event (`filter_type="banned"`); repeat requests from banned IPs were previously invisible to telemetry.
-- Global IP whitelist/blacklist and country rules are now enforced on routes that carry per-route decorator config. Previously, any decorated route (for example one using only `@rate_limit`) silently skipped every global IP and country rule; per-route settings now override the global gate only for the aspect they explicitly allow (a route `ip_whitelist` or country allowlist match), while a route-level `ip_blacklist` or blocked-country entry is purely additive and never disables the global IP or country rules.
-- `request.state.is_whitelisted` is now populated on decorated routes, so whitelist short-circuits in downstream checks work there too.
 - `geo_ip_db_max_age` is now passed to the auto-constructed IPInfo handler; the setting previously had no runtime effect.
-- Suspicious-pattern registration (`add_pattern`, used by Redis custom-pattern restore and dynamic-rule push) now rejects unsafe or malformed regexes via the ReDoS safety validator instead of compiling them straight into the live matcher.
 
 ### Removed
 
