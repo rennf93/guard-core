@@ -11,6 +11,8 @@ from guard_core.detection_engine import (
     SemanticAnalyzer,
 )
 
+_DEFAULT_MAX_SCAN_LENGTH = 10000
+
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
 _CTX_DIR_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
@@ -543,7 +545,10 @@ class SusPatternsManager:
         self, content: str, correlation_id: str | None
     ) -> str:
         if not self._preprocessor:
-            return content
+            max_length = getattr(
+                self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
+            )
+            return content[:max_length]
 
         context_preprocessor = ContentPreprocessor(
             max_content_length=self._preprocessor.max_content_length,

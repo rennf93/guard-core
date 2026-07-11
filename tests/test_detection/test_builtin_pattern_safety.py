@@ -229,3 +229,15 @@ def test_every_builtin_passes_the_safety_validator() -> None:
     assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(
         f"  [{c}] {r} :: {p[:80]}" for c, r, p in bad
     )
+
+
+async def test_match_path_caps_input_length_in_legacy_mode() -> None:
+    mgr = SusPatternsManager()
+    await SusPatternsManager.add_pattern(r"A+B", custom=True)
+    try:
+        big = "A" * 5_000_000
+        start = time.time()
+        await mgr.detect(big, "1.2.3.4", context="request_body")
+        assert time.time() - start < 1.0
+    finally:
+        await SusPatternsManager.remove_pattern(r"A+B", custom=True)
