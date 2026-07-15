@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import re
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -372,6 +373,74 @@ async def test_pattern_timeout_with_compiler(
                 assert len(result["timeouts"]) > 0
 
     await manager.remove_pattern(custom_pattern, custom=True)
+
+
+@pytest.mark.asyncio
+async def test_custom_category_timeout_heuristic_uses_configured_compiler_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    SusPatternsManager._instance = None
+    config = SecurityConfig(detection_compiler_timeout=0.5)
+    manager = SusPatternsManager(config)
+    assert manager._compiler is not None
+    assert manager._compiler.default_timeout == 0.5
+
+    def _never_matches(
+        pattern: object, timeout: float | None = None
+    ) -> Callable[[str], None]:
+        return lambda text: None
+
+    monkeypatch.setattr(manager._compiler, "create_safe_matcher", _never_matches)
+    monkeypatch.setattr(
+        "guard_core.handlers.suspatterns_handler.time.monotonic", lambda: 100.5
+    )
+
+    pattern = re.compile(r"zzz_custom_zzz")
+    _, timed_out = await manager._check_regex_pattern(
+        pattern, "no match here", "1.2.3.4", 100.0, "custom"
+    )
+
+    assert timed_out is True
+
+    SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_legacy_pattern_timeout_uses_configured_compiler_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    assert manager._compiler is None
+    manager._config = MagicMock(detection_compiler_timeout=7.5)
+
+    captured_timeouts = []
+
+    class FakeFuture:
+        def result(self, timeout: float = 0) -> None:
+            captured_timeouts.append(timeout)
+            raise concurrent.futures.TimeoutError()
+
+        def cancel(self) -> None:
+            pass
+
+    class FakeExecutor:
+        def submit(self, fn: object, *args: object) -> "FakeFuture":
+            return FakeFuture()
+
+    with patch(
+        "guard_core.handlers.suspatterns_handler.shared_regex_executor",
+        return_value=FakeExecutor(),
+    ):
+        match, timed_out = await manager._check_pattern_with_timeout(
+            re.compile("x"), "content", "1.2.3.4", 0.0
+        )
+
+    assert match is None
+    assert timed_out is True
+    assert captured_timeouts == [7.5]
+
+    SusPatternsManager._instance = None
 
 
 @pytest.mark.asyncio

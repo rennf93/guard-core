@@ -163,11 +163,11 @@ def test_validate_pattern_safety_timeout() -> None:
     pattern = r"test_pattern"
 
     with patch(
-        "guard_core.detection_engine.compiler.shared_regex_executor"
-    ) as mock_shared_executor:
+        "guard_core.detection_engine.compiler.validation_regex_executor"
+    ) as mock_validation_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_shared_executor.return_value.submit.return_value = mock_future
+        mock_validation_executor.return_value.submit.return_value = mock_future
 
         is_safe, reason = compiler.validate_pattern_safety(pattern)
 

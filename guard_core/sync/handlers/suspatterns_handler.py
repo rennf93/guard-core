@@ -11,11 +11,16 @@ from guard_core.sync.detection_engine import (
     PerformanceMonitor,
     SemanticAnalyzer,
 )
-from guard_core.sync.detection_engine.compiler import shared_regex_executor
+from guard_core.sync.detection_engine.compiler import (
+    report_scan_success,
+    report_scan_timeout,
+    shared_regex_executor,
+)
 
 logger = logging.getLogger("guard_core.sync.handlers.suspatterns")
 
 _DEFAULT_MAX_SCAN_LENGTH = 10000
+_DEFAULT_COMPILER_TIMEOUT = 2.0
 
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
@@ -575,7 +580,11 @@ class SusPatternsManager:
             if category == "custom":
                 safe_matcher = self._compiler.create_safe_matcher(pattern)
                 match = safe_matcher(content)
-                if match is None and time.monotonic() - pattern_start >= 0.9 * 2.0:
+                timeout_threshold = 0.9 * self._compiler.default_timeout
+                if (
+                    match is None
+                    and time.monotonic() - pattern_start >= timeout_threshold
+                ):
                     timeout_occurred = True
                     logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
             else:
@@ -611,9 +620,13 @@ class SusPatternsManager:
     def _check_pattern_with_timeout(
         self, pattern: re.Pattern, content: str, ip_address: str, pattern_start: float
     ) -> tuple[re.Match | None, bool]:
+        timeout = getattr(
+            self._config, "detection_compiler_timeout", _DEFAULT_COMPILER_TIMEOUT
+        )
         future = shared_regex_executor().submit(pattern.search, content)
         try:
-            match = future.result(timeout=2.0)
+            match = future.result(timeout=timeout)
+            report_scan_success()
             return match, False
         except concurrent.futures.TimeoutError:
             logger.warning(
@@ -622,6 +635,7 @@ class SusPatternsManager:
                 f"Potential ReDoS attack blocked. IP: {ip_address}"
             )
             future.cancel()
+            report_scan_timeout()
             return None, True
         except Exception as e:
             logger.error(

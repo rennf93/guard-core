@@ -136,7 +136,7 @@ def test_validate_pattern_safety_concurrent_timeout(
         def result(self, timeout: float = 0) -> None:
             raise concurrent.futures.TimeoutError()
 
-    monkeypatch.setattr(compiler_module, "shared_regex_executor", FakeExecutor)
+    monkeypatch.setattr(compiler_module, "validation_regex_executor", FakeExecutor)
     compiler = PatternCompiler()
     safe, msg = compiler.validate_pattern_safety("safe", test_strings=["x"])
     assert safe is False

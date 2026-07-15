@@ -11,32 +11,40 @@ from guard_core.handlers.suspatterns_handler import (
     SusPatternsManager,
 )
 
-mp.set_start_method("fork", force=True)
 IM = re.IGNORECASE | re.MULTILINE
 
 
-def _child(pat: str, text: str, q: mp.Queue) -> None:
-    t0 = time.time()
-    re.compile(pat, IM).search(text)
-    q.put(time.time() - t0)
+def _child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
+    compiled = re.compile(pat, IM)
+    times = []
+    for text in texts:
+        t0 = time.time()
+        compiled.search(text)
+        times.append(time.time() - t0)
+    q.put(times)
 
 
-def _timed(pat: str, text: str, timeout: float) -> float | None:
-    q: mp.Queue = mp.Queue()
-    p = mp.Process(target=_child, args=(pat, text, q))
+def _timed_batch(pat: str, texts: list[str], timeout: float) -> list[float] | None:
+    ctx = mp.get_context("fork")
+    q: mp.Queue[list[float]] = ctx.Queue()
+    p = ctx.Process(target=_child, args=(pat, texts, q))
     p.start()
     p.join(timeout)
     if p.is_alive():
         p.terminate()
         p.join()
         return None
-    return q.get() if not q.empty() else 0.0
+    return q.get() if not q.empty() else [0.0] * len(texts)
 
 
 def linear_search_time(
     pattern: str, mk_input: Callable[[int], str], sizes: list[int], timeout: float = 2.0
 ) -> list[float | None]:
-    return [_timed(pattern, mk_input(size), timeout) for size in sizes]
+    texts = [mk_input(size) for size in sizes]
+    results = _timed_batch(pattern, texts, timeout * len(sizes))
+    if results is None:
+        return [None] * len(sizes)
+    return list(results)
 
 
 _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
@@ -54,12 +62,12 @@ _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
 def test_builtin_pattern_is_not_catastrophic(
     pat: str, _ctx: frozenset[str], cat: str
 ) -> None:
-    for mk in _ADVERSARIAL_INPUTS:
-        elapsed = linear_search_time(pat, mk, [80000], timeout=6.0)[0]
-        assert elapsed is not None, (
-            f"{cat} pattern did not finish in 6s on 80k adversarial input "
-            f"(super-linear): {pat!r}"
-        )
+    texts = [mk(80000) for mk in _ADVERSARIAL_INPUTS]
+    results = _timed_batch(pat, texts, timeout=6.0 * len(texts))
+    assert results is not None, (
+        f"{cat} pattern did not finish in 6s on some 80k adversarial input "
+        f"(super-linear): {pat!r}"
+    )
 
 
 def test_select_from_resists_repeated_anchor_padding() -> None:
@@ -238,8 +246,6 @@ async def test_match_path_caps_input_length_in_legacy_mode() -> None:
     big = "A" * 5_000_000
     capped = await mgr._preprocess_content(big, None)
 
-    cap = getattr(
-        mgr._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
-    )
+    cap = getattr(mgr._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH)
     assert len(capped) == min(len(big), cap)
     assert len(capped) < len(big)

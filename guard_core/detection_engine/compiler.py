@@ -1,12 +1,23 @@
 import asyncio
 import concurrent.futures
+import logging
 import re
 import threading
 import time
 from collections.abc import Callable
 
+logger = logging.getLogger("guard_core.detection_engine.compiler")
+
+_SHARED_EXECUTOR_MAX_WORKERS = 4
+
 _shared_executor: concurrent.futures.ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
+
+_consecutive_timeouts = 0
+_timeout_lock = threading.Lock()
+
+_validation_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_validation_executor_lock = threading.Lock()
 
 
 def shared_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
@@ -15,9 +26,51 @@ def shared_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
         with _executor_lock:
             if _shared_executor is None:
                 _shared_executor = concurrent.futures.ThreadPoolExecutor(
-                    max_workers=4, thread_name_prefix="guard-regex"
+                    max_workers=_SHARED_EXECUTOR_MAX_WORKERS,
+                    thread_name_prefix="guard-regex",
                 )
     return _shared_executor
+
+
+def validation_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _validation_executor
+    if _validation_executor is None:
+        with _validation_executor_lock:
+            if _validation_executor is None:
+                _validation_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="guard-regex-validate"
+                )
+    return _validation_executor
+
+
+def report_scan_success() -> None:
+    global _consecutive_timeouts
+    if _consecutive_timeouts:
+        with _timeout_lock:
+            _consecutive_timeouts = 0
+
+
+def report_scan_timeout() -> None:
+    global _shared_executor, _consecutive_timeouts
+    with _timeout_lock:
+        _consecutive_timeouts += 1
+        if _consecutive_timeouts < _SHARED_EXECUTOR_MAX_WORKERS:
+            return
+        stale_count = _consecutive_timeouts
+        _consecutive_timeouts = 0
+        with _executor_lock:
+            stale_executor = _shared_executor
+            _shared_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_SHARED_EXECUTOR_MAX_WORKERS,
+                thread_name_prefix="guard-regex",
+            )
+    if stale_executor is not None:
+        stale_executor.shutdown(wait=False)
+    logger.warning(
+        "guard_core shared regex scan pool replaced after %d consecutive "
+        "timeouts; a slow pattern may have permanently occupied all workers",
+        stale_count,
+    )
 
 
 class PatternCompiler:
@@ -92,21 +145,21 @@ class PatternCompiler:
             compiled = self.compile_pattern_sync(pattern)
 
             for test_str in test_strings:
-                start_time = time.monotonic()
 
-                def _search(text: str = test_str) -> re.Match | None:
-                    return compiled.search(text)
+                def _timed_search(text: str = test_str) -> float:
+                    probe_start = time.monotonic()
+                    compiled.search(text)
+                    return time.monotonic() - probe_start
 
-                future = shared_regex_executor().submit(_search)
+                future = validation_regex_executor().submit(_timed_search)
                 try:
-                    future.result(timeout=0.1)
+                    elapsed = future.result(timeout=1.0)
                 except concurrent.futures.TimeoutError:
                     return (
                         False,
                         f"Pattern timed out on test string of length {len(test_str)}",
                     )
 
-                elapsed = time.monotonic() - start_time
                 if elapsed > 0.05:
                     return (
                         False,
@@ -130,9 +183,12 @@ class PatternCompiler:
         def safe_match(text: str) -> re.Match | None:
             future = shared_regex_executor().submit(compiled.search, text)
             try:
-                return future.result(timeout=match_timeout)
+                result = future.result(timeout=match_timeout)
+                report_scan_success()
+                return result
             except concurrent.futures.TimeoutError:
                 future.cancel()
+                report_scan_timeout()
                 return None
             except Exception:
                 return None

@@ -1,8 +1,10 @@
 import logging
+import threading
 from collections.abc import Iterator
 
 import pytest
 
+from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers import suspatterns_handler as sph
 from guard_core.handlers.suspatterns_handler import SusPatternsManager
 
@@ -92,3 +94,26 @@ async def test_enhanced_mode_rejects_catastrophic_pattern_via_instance_compiler(
     await manager.add_pattern(pattern, custom=True)
 
     assert pattern not in manager.custom_patterns
+
+
+async def test_add_pattern_validates_safety_off_the_calling_thread(  # async-only
+    fresh_legacy_singleton: SusPatternsManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = fresh_legacy_singleton
+    caller_thread = threading.get_ident()
+    seen_thread_ids: list[int] = []
+    original = PatternCompiler.validate_pattern_safety
+
+    def _tracking(
+        self: PatternCompiler, pattern: str, test_strings: list[str] | None = None
+    ) -> tuple[bool, str]:
+        seen_thread_ids.append(threading.get_ident())
+        return original(self, pattern, test_strings)
+
+    monkeypatch.setattr(PatternCompiler, "validate_pattern_safety", _tracking)
+
+    await manager.add_pattern(r"attackterm456", custom=True)
+
+    assert seen_thread_ids
+    assert caller_thread not in seen_thread_ids

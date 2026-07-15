@@ -30,6 +30,7 @@ HAND_MAINTAINED = {
     SYNC_DIR / "handlers" / "ratelimit_handler.py",
     TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
+    TEST_SYNC_DIR / "test_detection" / "test_builtin_pattern_safety.py",
 }
 
 SUBS: list[tuple[str, str]] = [
@@ -106,6 +107,10 @@ SUBS: list[tuple[str, str]] = [
     (r"asyncio\.Lock\b", "threading.Lock"),
     (r"asyncio\.Event\(\)", "threading.Event()"),
     (r"asyncio\.sleep", "time.sleep"),
+    (
+        r"asyncio\.to_thread\(\s*([^,\n]+),\s*([^)\n]+?)\s*\)",
+        r"\1(\2)",
+    ),
     (
         r"asyncio\.create_task\(self\.(\w+)\(",
         r"threading.Thread(target=self.\1, args=(",

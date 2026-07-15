@@ -1,9 +1,11 @@
+import concurrent.futures
 import re
 import time
 from typing import Any
 
 import pytest
 
+from guard_core.detection_engine import compiler as compiler_module
 from guard_core.detection_engine.compiler import (
     PatternCompiler,
     shared_regex_executor,
@@ -14,6 +16,70 @@ from guard_core.models import SecurityConfig
 
 def test_shared_regex_executor_is_a_singleton() -> None:
     assert shared_regex_executor() is shared_regex_executor()
+
+
+def test_validate_pattern_safety_never_touches_shared_scan_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailIfUsed:
+        def submit(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError("shared scan pool used during validation")
+
+    monkeypatch.setattr(compiler_module, "shared_regex_executor", _FailIfUsed)
+
+    pc = PatternCompiler()
+    is_safe, reason = pc.validate_pattern_safety("hello", test_strings=["hi there"])
+
+    assert is_safe is True
+    assert reason == "Pattern appears safe"
+
+
+class _FakeTimeoutFuture:
+    def result(self, timeout: float = 0) -> None:
+        raise concurrent.futures.TimeoutError()
+
+    def cancel(self) -> None:
+        pass
+
+
+class _FakeTimeoutExecutor:
+    def submit(self, fn: object, *args: object) -> "_FakeTimeoutFuture":
+        return _FakeTimeoutFuture()
+
+    def shutdown(self, wait: bool = True) -> None:
+        pass
+
+
+def test_poisoned_shared_pool_is_replaced_and_scans_work_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale_executor = _FakeTimeoutExecutor()
+    monkeypatch.setattr(compiler_module, "_shared_executor", stale_executor)
+    monkeypatch.setattr(compiler_module, "_consecutive_timeouts", 0)
+
+    pc = PatternCompiler()
+    poisoned_matcher = pc.create_safe_matcher("x", timeout=0.01)
+
+    for _ in range(compiler_module._SHARED_EXECUTOR_MAX_WORKERS):
+        assert poisoned_matcher("anything") is None
+
+    assert compiler_module._shared_executor is not stale_executor
+    assert compiler_module._consecutive_timeouts == 0
+
+    recovered_matcher = pc.create_safe_matcher("hello")
+    assert recovered_matcher("say hello") is not None
+
+
+def test_consecutive_timeout_counter_resets_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(compiler_module, "_consecutive_timeouts", 3)
+
+    pc = PatternCompiler()
+    matcher = pc.create_safe_matcher("hello")
+
+    assert matcher("say hello") is not None
+    assert compiler_module._consecutive_timeouts == 0
 
 
 def test_safe_matcher_times_out_on_catastrophic_pattern() -> None:
@@ -32,11 +98,16 @@ def test_safe_matcher_still_works_after_a_timeout() -> None:
 
 @pytest.fixture
 def fresh_manager() -> Any:
+    saved_instance = SusPatternsManager._instance
+    saved_config = SusPatternsManager._config
+
     SusPatternsManager._instance = None
     manager = SusPatternsManager()
     manager.configure(SecurityConfig())
     yield manager
-    SusPatternsManager._instance = None
+
+    SusPatternsManager._instance = saved_instance
+    SusPatternsManager._config = saved_config
 
 
 async def test_builtin_category_skips_safe_matcher(
