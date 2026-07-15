@@ -214,17 +214,27 @@ cloud_ip_refresh_interval: int = Field(
 )
 ```
 
-The `CloudIpRefreshCheck` pipeline check triggers a refresh when enough time has elapsed:
+The `CloudIpRefreshCheck` pipeline check schedules a refresh when enough time has elapsed:
 
 ```python
 class CloudIpRefreshCheck(SecurityCheck):
     async def check(self, request: GuardRequest) -> GuardResponse | None:
+        if not self.config.block_cloud_providers:
+            return None
+
         if (
-            self.config.block_cloud_providers
-            and time.time() - self.middleware.last_cloud_ip_refresh
+            time.time() - self.middleware.last_cloud_ip_refresh
             > self.config.cloud_ip_refresh_interval
         ):
-            await self.middleware.refresh_cloud_ip_ranges()
+            previous_refresh = self.middleware.last_cloud_ip_refresh
+            self.middleware.last_cloud_ip_refresh = int(time.time())
+            scheduled = await cloud_handler.schedule_refresh(
+                {str(provider) for provider in self.config.block_cloud_providers},
+                ttl=self.config.cloud_ip_refresh_interval,
+                refresh=self.middleware.refresh_cloud_ip_ranges,
+            )
+            if not scheduled:
+                self.middleware.last_cloud_ip_refresh = previous_refresh
         return None
 ```
 
@@ -232,6 +242,20 @@ This check runs on every request but only performs work when:
 
 - `block_cloud_providers` is configured.
 - The elapsed time since the last refresh exceeds `cloud_ip_refresh_interval`.
+
+The refresh itself never runs on the request path. `schedule_refresh` fires the
+middleware's `refresh_cloud_ip_ranges()` as a single-flight background task:
+while one refresh is in flight, further calls are no-ops, so a slow provider
+fetch cannot block or stampede request handling. The debounce timestamp is
+bumped up front so concurrent requests don't all try to schedule, and restored
+if scheduling fails so the next request retries instead of waiting a full
+interval. Because the background task calls the middleware protocol method,
+adapter overrides of `refresh_cloud_ip_ranges` stay on the periodic path.
+
+The in-memory cloud-IP store honors the `ttl` passed at refresh time (the
+Redis-backed store always did), so cached ranges expire after
+`cloud_ip_refresh_interval` and the next refresh fetches fresh data in
+non-Redis deployments too.
 
 The default interval is **3600 seconds (1 hour)**. The minimum allowed value is **60 seconds**.
 

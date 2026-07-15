@@ -52,8 +52,10 @@ def test_scheduled_refresh_still_fires_when_interval_elapsed() -> None:
     middleware.refresh_cloud_ip_ranges = MagicMock()
 
     check = CloudIpRefreshCheck(middleware)
-    check.check(MagicMock())
-    middleware.refresh_cloud_ip_ranges.assert_called_once()
+    with patch.object(cloud_handler, "schedule_refresh") as schedule:
+        check.check(MagicMock())
+    schedule.assert_called_once()
+    middleware.refresh_cloud_ip_ranges.assert_not_called()
 
 
 def test_lazy_init_with_empty_block_cloud_returns_immediately() -> None:
@@ -83,8 +85,10 @@ def test_lazy_init_scheduled_refresh_fires_when_interval_elapsed() -> None:
     middleware.refresh_cloud_ip_ranges = MagicMock()
 
     check = CloudIpRefreshCheck(middleware)
-    check.check(MagicMock())
-    middleware.refresh_cloud_ip_ranges.assert_called_once()
+    with patch.object(cloud_handler, "schedule_refresh") as schedule:
+        check.check(MagicMock())
+    schedule.assert_called_once()
+    middleware.refresh_cloud_ip_ranges.assert_not_called()
 
 
 def test_handler_initializer_wires_user_supplied_store() -> None:

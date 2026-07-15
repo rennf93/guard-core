@@ -245,7 +245,7 @@ def test_check_ip_country_no_countries_configured(
     mock_ipinfo.reader = True
     mock_ipinfo.get_country.return_value = "US"
 
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.DEBUG, logger="guard_core"):
         result = check_ip_country("1.1.1.1", config, mock_ipinfo)
         assert not result
         assert "No countries blocked or whitelisted" in caplog.text
@@ -410,7 +410,7 @@ def test_detect_penetration_attempt_regex_exception() -> None:
         patch.object(
             sus_patterns_handler, "detect", side_effect=mock_detect_with_exception
         ),
-        patch("logging.error") as mock_error,
+        patch("logging.Logger.error") as mock_error,
     ):
         _dpa = detect_penetration_attempt(request)
 
@@ -546,7 +546,7 @@ def test_detect_penetration_fallback_pattern_match() -> None:
             "get_all_compiled_patterns",
             return_value=[(mock_pattern, _all_ctx, "custom")],
         ),
-        patch("logging.error") as mock_error,
+        patch("logging.Logger.error") as mock_error,
     ):
         _dpa = detect_penetration_attempt(request)
 
@@ -588,7 +588,7 @@ def test_detect_penetration_fallback_pattern_exception() -> None:
             "get_all_compiled_patterns",
             return_value=[(mock_pattern, _all_ctx, "custom")],
         ),
-        patch("logging.error") as mock_log_error,
+        patch("logging.Logger.error") as mock_log_error,
     ):
         _dpa = detect_penetration_attempt(request)
 
@@ -617,7 +617,7 @@ def test_detect_penetration_short_body() -> None:
         body_content=short_body,
     )
 
-    with patch("logging.warning") as mock_warning:
+    with patch("logging.Logger.warning") as mock_warning:
         _dpa = detect_penetration_attempt(request)
 
         result, trigger = _dpa.is_threat, _dpa.trigger_info

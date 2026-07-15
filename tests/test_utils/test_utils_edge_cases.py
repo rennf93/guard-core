@@ -77,7 +77,7 @@ async def test_extract_client_ip_logs_warning_on_error() -> None:
             "guard_core.utils._extract_from_forwarded_header",
             side_effect=IndexError("Test error"),
         ),
-        patch("guard_core.utils.logging") as mock_logging,
+        patch("guard_core.utils.logger") as mock_logging,
     ):
         result = await extract_client_ip(request, config, None)
 

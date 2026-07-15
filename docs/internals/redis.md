@@ -36,7 +36,9 @@ redis_manager = RedisManager(config)
 await redis_manager.initialize()
 ```
 
-Creates a `redis.asyncio.Redis` connection from `config.redis_url` with `decode_responses=True`. Pings to verify connectivity. Raises `GuardRedisError(503)` on failure.
+Creates a `redis.asyncio.Redis` connection from `config.redis_url` with `decode_responses=True`, applying the configured socket timeouts (`redis_socket_timeout`, `redis_socket_connect_timeout`), pool cap (`redis_max_connections`), health-check interval (`redis_health_check_interval`), and — when `redis_retries > 0` — a client-level `Retry` with exponential backoff on connection/timeout errors. Pings to verify connectivity. Raises `GuardRedisError(503)` on failure.
+
+Note that the client-level retry re-sends non-idempotent commands: a lost reply after the server already committed an `INCR` over-counts by one. For guard-core's rate-limit counters that fails closed (mildly over-restrictive, self-heals next window); callers needing exactly-once semantics should not build on `incr()`.
 
 **Close**:
 
@@ -134,16 +136,24 @@ class GuardRedisError(GuardCoreError):
 
 Adapters should catch `GuardRedisError` during initialization and handle it according to their framework's error model.
 
+When a `GuardRedisError` escapes a security check at request time (a Redis outage mid-request), the pipeline honors `fail_secure` by default: the request is blocked with a 500. Setting `redis_fail_open=True` opts into skipping the failing check and letting the request through, treating Redis outages as an availability concern distinct from other check failures.
+
 ___
 
 Configuration
 -------------
 
-| Field          | Type          | Default                   | Description                              |
-|----------------|---------------|---------------------------|------------------------------------------|
-| `enable_redis` | `bool`        | `True`                    | Master switch for Redis integration      |
-| `redis_url`    | `str \| None` | `"redis://localhost:6379"`| Redis connection URL                     |
-| `redis_prefix` | `str`         | `"guard_core:"`           | Key prefix for namespace isolation       |
+| Field                            | Type           | Default                   | Description                              |
+|----------------------------------|----------------|---------------------------|------------------------------------------|
+| `enable_redis`                   | `bool`         | `True`                    | Master switch for Redis integration      |
+| `redis_url`                      | `str \| None`  | `"redis://localhost:6379"`| Redis connection URL                     |
+| `redis_prefix`                   | `str`          | `"guard_core:"`           | Key prefix for namespace isolation       |
+| `redis_socket_connect_timeout`   | `float \| None`| `2.0`                     | Seconds to wait establishing a TCP connection (must be positive; `None` disables) |
+| `redis_socket_timeout`           | `float \| None`| `2.0`                     | Seconds to wait on a read/write (must be positive; `None` disables) |
+| `redis_health_check_interval`    | `int`          | `30`                      | Seconds between pooled-connection health checks (`0` disables) |
+| `redis_max_connections`          | `int \| None`  | `None`                    | Connection-pool cap (`None` uses redis-py's default) |
+| `redis_retries`                  | `int`          | `1`                       | Client-level retries with exponential backoff (`0` disables) |
+| `redis_fail_open`                | `bool`         | `False`                   | On Redis outage, skip the failing check instead of honoring `fail_secure` |
 
 ### Adapter Considerations
 

@@ -259,7 +259,7 @@ This check runs first because all subsequent checks depend on `request.state.cli
 | **Module** | `guard_core.core.checks.implementations.cloud_ip_refresh` |
 | **Purpose** | Periodically refreshes cloud provider IP ranges based on `config.cloud_ip_refresh_interval` |
 | **Blocks?** | Never. Always returns `None` |
-| **Side Effects** | Triggers `middleware.refresh_cloud_ip_ranges()` when the interval has elapsed |
+| **Side Effects** | Schedules a single-flight background refresh (running `middleware.refresh_cloud_ip_ranges()` off the request path) when the interval has elapsed |
 
 ### 12. IpSecurityCheck
 

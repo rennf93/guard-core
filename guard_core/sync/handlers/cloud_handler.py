@@ -2,6 +2,8 @@ import html
 import ipaddress
 import logging
 import re
+import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -11,6 +13,8 @@ from guard_core.sync.handlers.cloud_ip_stores import InMemoryCloudIpStore
 from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol
 from guard_core.sync.protocols.cloud_ip_store_protocol import SyncCloudIpStoreProtocol
 from guard_core.sync.protocols.redis_protocol import SyncRedisHandlerProtocol
+
+logger = logging.getLogger("guard_core.sync.handlers.cloud")
 
 
 def fetch_aws_ip_ranges() -> tuple[
@@ -36,7 +40,7 @@ def fetch_aws_ip_ranges() -> tuple[
                 regions[str(network)] = region
         return networks, regions
     except Exception as e:
-        logging.error(f"Failed to fetch AWS IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch AWS IP ranges: {str(e)}")
         return set(), {}
 
 
@@ -64,7 +68,7 @@ def fetch_gcp_ip_ranges() -> tuple[
                 regions[str(network)] = scope
         return networks, regions
     except Exception as e:
-        logging.error(f"Failed to fetch GCP IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch GCP IP ranges: {str(e)}")
         return set(), {}
 
 
@@ -103,7 +107,7 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
             for ip_range in data["values"][0]["properties"]["addressPrefixes"]
         }
     except Exception as e:
-        logging.error(f"Failed to fetch Azure IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch Azure IP ranges: {str(e)}")
         return set()
 
 
@@ -133,7 +137,7 @@ def fetch_digitalocean_ip_ranges() -> set[
                 continue
         return networks
     except Exception as e:
-        logging.error(f"Failed to fetch DigitalOcean IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch DigitalOcean IP ranges: {str(e)}")
         return set()
 
 
@@ -161,7 +165,7 @@ def fetch_linode_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Networ
                 continue
         return networks
     except Exception as e:
-        logging.error(f"Failed to fetch Linode IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch Linode IP ranges: {str(e)}")
         return set()
 
 
@@ -186,7 +190,7 @@ def fetch_vultr_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
                 continue
         return networks
     except Exception as e:
-        logging.error(f"Failed to fetch Vultr IP ranges: {str(e)}")
+        logger.error(f"Failed to fetch Vultr IP ranges: {str(e)}")
         return set()
 
 
@@ -258,6 +262,9 @@ class CloudManager:
     logger: logging.Logger
     last_updated: dict[str, datetime | None]
     _store: SyncCloudIpStoreProtocol | None
+    _refresh_task: threading.Thread | None
+    _refresh_in_flight: bool
+    _refresh_lock: threading.Lock
 
     def __new__(cls: type["CloudManager"]) -> "CloudManager":
         if cls._instance is None:
@@ -278,10 +285,57 @@ class CloudManager:
             cls._instance.agent_handler = None
             cls._instance.logger = logging.getLogger("guard_core.sync.handlers.cloud")
             cls._instance._store = InMemoryCloudIpStore()
+            cls._instance._refresh_task = None
+            cls._instance._refresh_in_flight = False
+            cls._instance._refresh_lock = threading.Lock()
         return cls._instance
 
     def set_store(self, store: SyncCloudIpStoreProtocol) -> None:
         self._store = store
+
+    def schedule_refresh(
+        self,
+        providers: set[str] = _ALL_PROVIDERS,
+        ttl: int = 3600,
+        refresh: Callable[[], None] | None = None,
+    ) -> bool:
+        """Refresh cloud IP ranges in the background without blocking the caller.
+
+        Cloud-provider range fetches are multi-second network calls; running them
+        inline on the request path blocks request handling for every caller. This
+        fires the refresh as a single-flight background task instead: while one is in
+        flight, further calls are no-ops. The gate is lock-guarded so concurrent
+        callers (multi-threaded sync deployments) can't start duplicate refreshes.
+        Passing ``refresh`` runs that callable as the background refresh instead of
+        this manager's own ``refresh_async`` — middleware callers use it to keep
+        adapter overrides of ``refresh_cloud_ip_ranges`` on the periodic path.
+        Returns True if a task was started.
+        """
+
+        def _run_refresh() -> None:
+            try:
+                if refresh is None:
+                    self.refresh_async(providers, ttl=ttl)
+                else:
+                    refresh()
+            except Exception:
+                self.logger.exception("Background cloud IP refresh failed")
+            finally:
+                self._refresh_in_flight = False
+
+        with self._refresh_lock:
+            if self._refresh_in_flight:
+                return False
+            self._refresh_in_flight = True
+            try:
+                self._refresh_task = threading.Thread(target=_run_refresh, daemon=True)
+
+                self._refresh_task.start()
+            except RuntimeError:
+                self.logger.exception("Could not schedule cloud IP refresh")
+                self._refresh_in_flight = False
+                return False
+            return True
 
     def _log_range_changes(
         self,

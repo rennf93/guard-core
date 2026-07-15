@@ -65,9 +65,13 @@ async def test_cloud_ip_refresh_check_uses_config_value() -> None:
 
     check = CloudIpRefreshCheck(middleware)
     request = MagicMock()
-    await check.check(request)
+    with patch.object(
+        cloud_handler, "schedule_refresh", new_callable=AsyncMock
+    ) as schedule:
+        await check.check(request)
 
-    middleware.refresh_cloud_ip_ranges.assert_awaited_once()
+    schedule.assert_called_once()
+    middleware.refresh_cloud_ip_ranges.assert_not_awaited()
 
 
 @pytest.mark.asyncio

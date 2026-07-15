@@ -777,15 +777,22 @@ def test_cloud_ip_refresh_no_block() -> None:
 
 
 def test_cloud_ip_refresh_triggers() -> None:
+    from guard_core.sync.handlers.cloud_handler import cloud_handler
+
     mw = _make_middleware()
     mw.config.block_cloud_providers = {"AWS"}
     mw.config.cloud_ip_refresh_interval = 1
     mw.last_cloud_ip_refresh = 0
     check = CloudIpRefreshCheck(mw)
     req = SyncMockGuardRequest()
-    result = check.check(req)
+
+    with patch.object(cloud_handler, "schedule_refresh") as schedule:
+        result = check.check(req)
+
     assert result is None
-    mw.refresh_cloud_ip_ranges.assert_called_once()
+    schedule.assert_called_once_with({"AWS"}, ttl=1, refresh=mw.refresh_cloud_ip_ranges)
+    assert mw.last_cloud_ip_refresh > 0
+    mw.refresh_cloud_ip_ranges.assert_not_called()
 
 
 def test_cloud_provider_check_name() -> None:

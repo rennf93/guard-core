@@ -30,6 +30,7 @@ HAND_MAINTAINED = {
     SYNC_DIR / "handlers" / "ratelimit_handler.py",
     TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
+    TEST_SYNC_DIR / "test_cloud_ips" / "test_nonblocking_refresh.py",
 }
 
 SUBS: list[tuple[str, str]] = [
@@ -67,6 +68,7 @@ SUBS: list[tuple[str, str]] = [
     ),
     (r"from guard_core\.handlers", "from guard_core.sync.handlers"),
     (r"from guard_core\.utils", "from guard_core.sync.utils"),
+    (r"from guard_core import utils\b", "from guard_core.sync import utils"),
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
     (r"from guard_core\.detection_engine\b", "from guard_core.sync.detection_engine"),
     (r"from guard_core\.detection_result\b", "from guard_core.sync.detection_result"),
@@ -184,6 +186,7 @@ TEST_SUBS: list[tuple[str, str]] = [
     (r"\.cancel\(\)", ".join(timeout=1)"),
     (r"\s+try:\n\s+loop_task\n\s+except Exception:\n\s+pass", ""),
     (r"\s+try:\n\s+manager\.update_task\n\s+except Exception:\n\s+pass", ""),
+    (r"\n[ \t]+with contextlib\.suppress\(Exception\):\n[ \t]+task\n", "\n"),
     (r"^\s+loop_task\s*$", ""),
 ]
 
