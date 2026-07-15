@@ -19,11 +19,17 @@ Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS ha
 ### Added
 
 - `guard_core.core.checks.build_default_pipeline(middleware)`: assembles the canonical 17-check pipeline. Framework adapters should use this instead of hand-listing check classes, so new checks ship to every adapter without adapter changes.
+- **Redis resilience settings**: `redis_socket_connect_timeout` (default `2.0`s) and `redis_socket_timeout` (default `2.0`s) bound how long any Redis call can hold a request (both must be positive — `0` would mean a non-blocking socket, not "no timeout"; `None` disables); `redis_health_check_interval` (default `30`s, `0` disables) recycles stale pooled connections; `redis_max_connections` (default `None` = redis-py default) caps the pool; `redis_retries` (default `1`, `0` disables) adds client-level retries with exponential backoff on connection/timeout errors. Note the client-level retry can re-send a non-idempotent `INCR` whose reply was lost after the server committed it, over-counting by one — fail-closed for guard-core's rate-limit counters and self-healing next window.
+- **`redis_fail_open`** (`bool`, default `False`): when a Redis outage surfaces as a `GuardRedisError` inside a security check, `fail_secure` governs by default (the request is blocked). Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures.
+- **`log_country_check_level`**: per-request country verdicts that are not blocks (whitelisted / not-affected) now log at a configurable level (default `"INFO"`, `None` silences them) via the named `guard_core` logger instead of the root logger. Blocked-country hits still log at `WARNING`; no-rules / no-geolocation cases at `DEBUG`. Penetration-detection hits likewise honour `log_suspicious_level` (previously a second hardcoded-`WARNING` root-logger path), and the remaining bare root-logger calls in `utils.py` / `cloud_handler.py` moved onto named `guard_core` loggers. Async and sync mirrors updated identically.
 
 ### Changed
 
 - Detection regex matching now uses one shared worker pool instead of constructing a thread pool per pattern match. Built-in patterns are verified linear — a test gate runs every built-in through the ReDoS safety validator — and matched directly, without the per-match thread-pool timeout wrapper (only custom and legacy-mode patterns pay that cost); scan input is capped to `detection_max_content_length` before matching in every mode — including legacy/no-preprocessor mode, which previously scanned unbounded content — bounding worst-case match time (a thread-pool timeout cannot interrupt a regex already running on the interpreter). Detection results are unchanged (attack-simulation baseline holds).
 - `add_pattern` now returns `bool` (`True` registered, `False` rejected) instead of `None`, so callers can distinguish a rejected pattern from a registered one.
+- **Cloud-provider IP refresh no longer runs on the request path.** The request that crosses `cloud_ip_refresh_interval` schedules a single-flight background refresh (`cloud_handler.schedule_refresh`) instead of awaiting multi-second provider fetches inline; while one refresh is in flight, further requests are no-ops. The background task runs the middleware's `refresh_cloud_ip_ranges()`, so adapter overrides stay on the periodic path; the debounce timestamp is restored when scheduling fails so the next request retries instead of waiting a full interval; and the in-memory cloud-IP store now honors the refresh TTL, so non-Redis deployments refetch provider ranges each interval instead of caching them for the process lifetime. Async and sync mirrors updated identically.
+- **guard-agent's telemetry models are opted out of pydantic plugin instrumentation** at `guard_core` import: `SecurityEvent`/`SecurityMetric`/`EventBatch` set `plugin_settings={"logfire": {"record": "off"}}`, so a host app running `logfire.instrument_pydantic()` no longer emits a span per security event. A model that cannot be force-rebuilt degrades with a logged warning instead of crashing the import.
+- **The pipeline handles Redis outages per `redis_fail_open`**: a `GuardRedisError` escaping a check is either skipped with a warning (`redis_fail_open=True`) or handed to the standard `fail_secure` path (default). Async and sync mirrors updated identically.
 
 ### Fixed
 
@@ -39,6 +45,8 @@ Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS ha
 - Registered `dynamic_rule_violation` as a first-class event type; it can now be muted via `muted_event_types` (was rejected by validation despite being emitted by endpoint rate limiting).
 - Blocking a banned IP now emits an `ip_blocked` event (`filter_type="banned"`); repeat requests from banned IPs were previously invisible to telemetry.
 - `geo_ip_db_max_age` is now passed to the auto-constructed IPInfo handler; the setting previously had no runtime effect.
+
+The Redis resilience settings, `redis_fail_open`, `log_country_check_level`, the non-blocking cloud-IP refresh, and the pydantic-instrumentation opt-out were contributed by [@davidsmfreire](https://github.com/davidsmfreire) in [#39](https://github.com/rennf93/guard-core/pull/39).
 
 ### Removed
 
