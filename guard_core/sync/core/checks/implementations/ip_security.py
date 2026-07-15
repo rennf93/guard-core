@@ -2,7 +2,10 @@ from typing import Any
 
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import check_route_ip_access
+from guard_core.sync.core.checks.helpers import (
+    check_country_access,
+    check_route_ip_access,
+)
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_IP_BLOCKED,
@@ -17,8 +20,12 @@ def _route_overrides_ip_lists(route_config: RouteConfig | None) -> bool:
     return bool(route_config and route_config.ip_whitelist)
 
 
-def _route_overrides_countries(route_config: RouteConfig | None) -> bool:
-    return bool(route_config and route_config.whitelist_countries)
+def _route_country_whitelist_matched(
+    client_ip: str, route_config: RouteConfig | None, geo_ip_handler: Any
+) -> bool:
+    if not route_config:
+        return False
+    return check_country_access(client_ip, route_config, geo_ip_handler) is True
 
 
 def _resolve_is_whitelisted(
@@ -123,7 +130,9 @@ class IpSecurityCheck(SecurityCheck):
         route_config: RouteConfig | None = None,
     ) -> GuardResponse | None:
         skip_ip_lists = _route_overrides_ip_lists(route_config)
-        skip_countries = _route_overrides_countries(route_config)
+        skip_countries = _route_country_whitelist_matched(
+            client_ip, route_config, self.middleware.geo_ip_handler
+        )
 
         is_allowed = is_ip_allowed(
             client_ip,

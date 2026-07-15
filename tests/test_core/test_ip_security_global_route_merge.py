@@ -208,7 +208,7 @@ async def test_route_blocked_countries_only_still_enforces_global_blocked_countr
 ) -> None:
     security_config.whitelist = []
     security_config.blacklist = []
-    security_config.blocked_countries = ["CN"]
+    security_config.blocked_countries = frozenset({"CN"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
     route_config = RouteConfig()
@@ -252,3 +252,78 @@ async def test_route_whitelist_set_but_client_excluded_blocks_at_route_step(
         Any, ip_security_check.middleware
     ).event_bus.send_middleware_event.await_args
     assert event_call.kwargs["event_type"] == "decorator_violation"
+
+
+async def test_route_ip_whitelist_match_still_denied_by_route_country_mismatch(
+    ip_security_check: IpSecurityCheck,
+    security_config: SecurityConfig,
+    mock_middleware: Mock,
+) -> None:
+    mock_middleware.geo_ip_handler = Mock()
+    mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["1.2.3.4"]
+    route_config.whitelist_countries = ["US"]
+    request = _request_for(route_config)
+
+    result = await ip_security_check.check(request)
+
+    assert result is not None
+    event_call = cast(
+        Any, ip_security_check.middleware
+    ).event_bus.send_middleware_event.await_args
+    assert event_call.kwargs["event_type"] == "decorator_violation"
+
+
+async def test_route_ip_whitelist_match_does_not_bypass_global_blocked_countries(
+    ip_security_check: IpSecurityCheck,
+    security_config: SecurityConfig,
+    mock_middleware: Mock,
+) -> None:
+    security_config.blocked_countries = frozenset({"CN"})
+    mock_middleware.geo_ip_handler = Mock()
+    mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["1.2.3.4"]
+    request = _request_for(route_config)
+
+    result = await ip_security_check.check(request)
+
+    assert result is not None
+    event_call = cast(
+        Any, ip_security_check.middleware
+    ).event_bus.send_middleware_event.await_args
+    assert event_call.kwargs["event_type"] == "ip_blocked"
+    assert event_call.kwargs["filter_type"] == "global"
+
+
+async def test_route_whitelist_countries_match_skips_global_blocked_countries(
+    ip_security_check: IpSecurityCheck,
+    security_config: SecurityConfig,
+    mock_middleware: Mock,
+) -> None:
+    security_config.blocked_countries = frozenset({"US"})
+    mock_middleware.geo_ip_handler = Mock()
+    mock_middleware.geo_ip_handler.get_country = Mock(return_value="US")
+    route_config = RouteConfig()
+    route_config.whitelist_countries = ["US"]
+    request = _request_for(route_config)
+
+    result = await ip_security_check.check(request)
+
+    assert result is None
+    assert request.state.is_whitelisted is False
+
+
+async def test_route_ip_whitelist_overrides_route_ip_blacklist_same_ip(
+    ip_security_check: IpSecurityCheck, security_config: SecurityConfig
+) -> None:
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["1.2.3.4"]
+    route_config.ip_blacklist = ["1.2.3.4"]
+    request = _request_for(route_config)
+
+    result = await ip_security_check.check(request)
+
+    assert result is None
+    assert request.state.is_whitelisted is False

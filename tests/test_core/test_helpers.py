@@ -165,6 +165,28 @@ async def test_check_route_ip_access_country() -> None:
     assert result is False
 
 
+async def test_check_route_ip_access_ip_whitelist_match_still_checks_country() -> None:
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    rc.whitelist_countries = ["US"]
+    mw = MagicMock()
+    mw.geo_ip_handler = MagicMock()
+    mw.geo_ip_handler.get_country = MagicMock(return_value="CN")
+    result = await check_route_ip_access("1.2.3.4", rc, mw)
+    assert result is False
+
+
+async def test_check_route_ip_access_ip_whitelist_and_country_both_match() -> None:
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    rc.whitelist_countries = ["US"]
+    mw = MagicMock()
+    mw.geo_ip_handler = MagicMock()
+    mw.geo_ip_handler.get_country = MagicMock(return_value="US")
+    result = await check_route_ip_access("1.2.3.4", rc, mw)
+    assert result is True
+
+
 async def test_check_user_agent_blocked_by_route() -> None:
     rc = RouteConfig()
     rc.blocked_user_agents = ["badbot"]
