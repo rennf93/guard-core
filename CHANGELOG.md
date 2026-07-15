@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 
 ___
 
-v3.5.0 (2026-07-11)
+v3.5.0 (2026-07-15)
 -------------------
 
 Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS hardening (v3.5.0)
