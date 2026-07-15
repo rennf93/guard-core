@@ -75,30 +75,35 @@ ___
 IP Allow/Block Logic
 --------------------
 
-The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. `IpSecurityCheck` calls it for every request that reaches this step (after any route-level check has run and not blocked), passing `skip_ip_lists` / `skip_countries` flags that suppress the IP-list or country gate when the route explicitly allows that aspect (`ip_whitelist` / `whitelist_countries`).
+The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. `IpSecurityCheck` calls it for every request that reaches this step (after any route-level check has run and not blocked), passing `skip_ip_lists` / `skip_countries` flags that suppress the IP-list or country gate independently: `skip_ip_lists` is `True` whenever the route declares a non-empty `ip_whitelist` (a non-matching IP would already have been denied by the route-level step above, so reaching here means it matched); `skip_countries` is `True` only when the route's `whitelist_countries` actually matches the resolved country for this request. A route `ip_whitelist` match does not, by itself, suppress country enforcement.
 
 ### Evaluation Order
 
 ```mermaid
 flowchart TD
     START["is_ip_allowed()"]
-    BL{"1. IP in blacklist?"}
-    WL{"2. IP not in whitelist?"}
-    CC{"3. Country blocked?"}
-    CL{"4. Cloud provider blocked?"}
+    WLSET{"1. whitelist configured?"}
+    WL{"2. IP in whitelist?"}
+    BL{"3. IP in blacklist?"}
+    CC{"4. Country blocked?"}
+    CL{"5. Cloud provider blocked?"}
     ALLOW["return True"]
     DENY["return False"]
 
-    START --> BL
+    START --> WLSET
+    WLSET -- Yes --> WL
+    WL -- Yes --> CC
+    WL -- No --> DENY
+    WLSET -- No --> BL
     BL -- Yes --> DENY
-    BL -- No --> WL
-    WL -- Yes --> DENY
-    WL -- No --> CC
+    BL -- No --> CC
     CC -- Yes --> DENY
     CC -- No --> CL
     CL -- Yes --> DENY
     CL -- No --> ALLOW
 ```
+
+When `config.whitelist` is configured, it alone governs the IP-list gate — a whitelist match is allowed even if the same IP also falls inside `config.blacklist` (explicit allow overrides deny, since v3.2.0). The blacklist is only consulted when no whitelist is configured.
 
 ### Blacklist Check
 
@@ -193,12 +198,12 @@ async def check_route_ip_access(client_ip, route_config, middleware) -> bool | N
 
 **Returns**:
 
-- `False` -- IP is denied (blacklisted, not whitelisted, or country-blocked).
-- `True` -- IP is explicitly allowed.
-- `None` -- No route-level IP rules apply; fall through to global rules.
+- `False` -- the route denies the request: an `ip_blacklist` match (only consulted when `ip_whitelist` did not itself match), a configured `ip_whitelist` the IP failed to match, a `blocked_countries` match, or a `whitelist_countries` miss.
+- `True` -- an `ip_whitelist` match, or (independently) a `whitelist_countries` match.
+- `None` -- neither the IP aspect nor the country aspect produced a decision; fall through to global rules.
 
-**Evaluation**:
+**Evaluation** — the IP aspect and the country aspect are computed independently and then combined: either aspect returning `False` denies the request; otherwise either aspect returning `True` allows it.
 
-1. `RouteConfig.ip_blacklist` -- deny if matched.
-2. `RouteConfig.ip_whitelist` -- allow if matched, deny if list exists but IP is not in it.
-3. Country access via `RouteConfig.blocked_countries` and `RouteConfig.whitelist_countries` using `GeoIPHandler`.
+1. `RouteConfig.ip_whitelist` is checked first: a match allows, a non-empty list with no match denies, an empty/unset list defers (`None`).
+2. `RouteConfig.ip_blacklist` is only checked when the whitelist deferred: a match denies. A route `ip_whitelist` match therefore wins over that same route's `ip_blacklist` (v3.2.0 precedence, unchanged).
+3. Country access is computed independently via `RouteConfig.blocked_countries` and `RouteConfig.whitelist_countries` using `GeoIPHandler` — an `ip_whitelist` match does **not** skip this step.

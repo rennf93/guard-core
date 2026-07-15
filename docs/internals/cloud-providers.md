@@ -311,7 +311,7 @@ Two security checks in the pipeline handle cloud provider logic:
 
 `CloudProviderCheck` respects:
 
-- **Whitelisted IPs**: Skipped if `request.state.is_whitelisted` is `True`.
+- **Whitelisted IPs**: Skipped if `request.state.is_whitelisted` is `True` — set only for a **global** `whitelist` match; a route-level `ip_whitelist` match alone does not set it, so it does not skip this check.
 - **Route-level bypass**: Skipped if the route config disables the `clouds` check.
 - **Provider scoping**: Only checks providers returned by `get_cloud_providers_to_check()`, which can be narrowed per-route via decorators.
 - **Passive mode**: Logs but does not block when `config.passive_mode` is enabled.
