@@ -54,7 +54,7 @@ def test_log_country_check_result_unknown_type_is_noop(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.DEBUG, logger="root"):
-        _log_country_check_result("1.2.3.4", "US", "not_a_known_type")
+        _log_country_check_result("1.2.3.4", "US", "not_a_known_type", MagicMock())
     assert not any("1.2.3.4" in r.getMessage() for r in caplog.records)
 
 

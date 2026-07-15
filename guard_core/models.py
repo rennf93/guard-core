@@ -84,6 +84,56 @@ class SecurityConfig(BaseModel):
         description="Prefix for Redis keys to avoid collisions with other apps",
     )
 
+    redis_socket_connect_timeout: float | None = Field(
+        default=2.0,
+        gt=0.0,
+        description=(
+            "Seconds to wait establishing a Redis TCP connection before giving up. "
+            "Must be positive: 0 would put the socket in non-blocking mode, not "
+            "disable the timeout. None disables the timeout (a partitioned/"
+            "black-holed Redis then blocks the request indefinitely), so a bounded "
+            "default is strongly recommended."
+        ),
+    )
+
+    redis_socket_timeout: float | None = Field(
+        default=2.0,
+        gt=0.0,
+        description=(
+            "Seconds to wait on a Redis read/write before raising. Must be "
+            "positive: 0 would put the socket in non-blocking mode, not disable "
+            "the timeout. None means no timeout. Keep this low: every blocked "
+            "Redis call blocks a request."
+        ),
+    )
+
+    redis_health_check_interval: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Seconds between health checks on pooled connections; recycles stale "
+            "sockets so the first request after an idle period doesn't fail. "
+            "0 disables health checks."
+        ),
+    )
+
+    redis_max_connections: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Cap on the Redis connection pool size. None uses redis-py's default."
+        ),
+    )
+
+    redis_retries: int = Field(
+        default=1,
+        ge=0,
+        description=(
+            "Number of retries (with exponential backoff) on transient Redis "
+            "connection/timeout errors before surfacing it. 0 disables retries."
+        ),
+    )
+
     whitelist: list[str] | None = Field(
         default=None,
         description=(
@@ -151,6 +201,18 @@ class SecurityConfig(BaseModel):
     log_request_level: (
         Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None
     ) = Field(default=None, description="Log level for requests")
+
+    log_country_check_level: (
+        Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None
+    ) = Field(
+        default="INFO",
+        description=(
+            "Log level for per-request country verdicts that are not blocks "
+            "(whitelisted / not-affected). Set to None to silence them. "
+            "Blocked-country hits always log at WARNING; no-rules and "
+            "no-geolocation cases always log at DEBUG."
+        ),
+    )
 
     log_format: Literal["text", "json"] = Field(
         default="text",
@@ -308,6 +370,18 @@ class SecurityConfig(BaseModel):
             "True (default) returns HTTP 500 so check bugs surface; "
             "False logs and falls through (fail-open) - "
             "opt-in only for staging diagnostics."
+        ),
+    )
+
+    redis_fail_open: bool = Field(
+        default=False,
+        description=(
+            "On GuardRedisError (Redis unreachable), skip the failing check "
+            "and let the request through instead of honoring fail_secure. "
+            "Defaults to False so fail_secure is the single source of truth "
+            "for every check failure, including Redis outages. Set True to "
+            "opt into treating Redis outages as an availability concern "
+            "distinct from other check failures."
         ),
     )
 

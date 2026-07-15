@@ -199,9 +199,9 @@ ___
 
 **Purpose**: Periodically refreshes cloud provider IP ranges.
 
-**Blocks**: Never.
+**Blocks**: Never. The refresh runs as a single-flight background task (via `cloud_handler.schedule_refresh`, which invokes the middleware's `refresh_cloud_ip_ranges()`), so the request that crosses the interval is never delayed by provider fetches.
 
-**Triggers when**: `config.block_cloud_providers` is set and `cloud_ip_refresh_interval` seconds have elapsed since the last refresh.
+**Triggers when**: `config.block_cloud_providers` is set and `cloud_ip_refresh_interval` seconds have elapsed since the last refresh. If scheduling fails, the debounce timestamp is restored so the next request retries.
 
 ___
 

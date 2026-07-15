@@ -283,11 +283,17 @@ ___
 Redis
 -----
 
-| Field          | Type          | Default                   | Description                           |
-|----------------|---------------|---------------------------|---------------------------------------|
-| `enable_redis` | `bool`        | `True`                    | Master switch for Redis.              |
-| `redis_url`    | `str \| None` | `"redis://localhost:6379"`| Redis connection URL.                 |
-| `redis_prefix` | `str`         | `"guard_core:"`           | Key prefix for namespace isolation.   |
+| Field                            | Type          | Default                   | Description                                             |
+|----------------------------------|---------------|---------------------------|----------------------------------------------------------|
+| `enable_redis`                   | `bool`        | `True`                    | Master switch for Redis.                                |
+| `redis_url`                      | `str \| None` | `"redis://localhost:6379"`| Redis connection URL.                                   |
+| `redis_prefix`                   | `str`         | `"guard_core:"`           | Key prefix for namespace isolation.                      |
+| `redis_socket_connect_timeout`   | `float \| None`| `2.0`                    | Seconds to wait establishing a TCP connection. Must be positive; `None` disables (blocks indefinitely on a partitioned Redis). |
+| `redis_socket_timeout`           | `float \| None`| `2.0`                    | Seconds to wait on a read/write before raising. Must be positive; `None` means no timeout. |
+| `redis_health_check_interval`    | `int`         | `30`                      | Seconds between pooled-connection health checks. `0` disables. |
+| `redis_max_connections`          | `int \| None` | `None`                    | Cap on the connection pool size. `None` uses redis-py's default. |
+| `redis_retries`                  | `int`         | `1`                       | Retries (with exponential backoff) on transient connection/timeout errors. `0` disables. |
+| `redis_fail_open`                | `bool`        | `False`                   | On Redis outage, `fail_secure` governs by default. Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures. |
 
 ___
 
@@ -318,6 +324,7 @@ Logging
 |-----------------------|-------------------------------------------------|------------|------------------------------------------|
 | `log_suspicious_level`| `"INFO" \| "DEBUG" \| "WARNING" \| "ERROR" \| "CRITICAL" \| None` | `"WARNING"` | Log level for suspicious requests. `None` disables. |
 | `log_request_level`   | Same as above                                   | `None`     | Log level for all requests. `None` disables. |
+| `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits always log at `WARNING`; no-rules / no-geolocation always log at `DEBUG`. |
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
 

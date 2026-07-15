@@ -77,7 +77,7 @@ def test_extract_client_ip_logs_warning_on_error() -> None:
             "guard_core.sync.utils._extract_from_forwarded_header",
             side_effect=IndexError("Test error"),
         ),
-        patch("guard_core.sync.utils.logging") as mock_logging,
+        patch("guard_core.sync.utils.logger") as mock_logging,
     ):
         result = extract_client_ip(request, config, None)
 

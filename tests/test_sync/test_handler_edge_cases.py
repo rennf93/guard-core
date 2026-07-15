@@ -155,7 +155,7 @@ def test_utils_extract_ip_null_client_host() -> None:
 def test_utils_log_country_check_no_geolocation() -> None:
     from guard_core.sync.utils import _log_country_check_result
 
-    _log_country_check_result("1.2.3.4", None, "no_geolocation")
+    _log_country_check_result("1.2.3.4", None, "no_geolocation", MagicMock())
 
 
 def test_utils_check_country_no_geolocation() -> None:
@@ -269,7 +269,13 @@ def test_utils_detect_header_threat() -> None:
         return_value=(True, "XSS detected", []),
     ):
         detected, trigger, threats = _check_request_component(
-            "<script>", "header:X-Evil", "header 'X-Evil'", "1.2.3.4", "corr-1"
+            "<script>",
+            "header:X-Evil",
+            "header 'X-Evil'",
+            "1.2.3.4",
+            "corr-1",
+            None,
+            "WARNING",
         )
     assert detected is True
     assert threats == []
@@ -288,6 +294,7 @@ def test_utils_detect_penetration_header_match() -> None:
             client_ip: str,
             correlation_id: str,
             enabled_categories: set[str] | None = None,
+            log_level: str | None = "WARNING",
         ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1
