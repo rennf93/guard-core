@@ -1,7 +1,10 @@
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import check_user_agent_allowed
-from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
+from guard_core.sync.core.events.event_types import (
+    EVENT_DECORATOR_VIOLATION,
+    EVENT_USER_AGENT_BLOCKED,
+)
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
@@ -44,7 +47,7 @@ class UserAgentCheck(SecurityCheck):
                 )
             else:
                 self.middleware.event_bus.send_middleware_event(
-                    event_type="user_agent_blocked",
+                    event_type=EVENT_USER_AGENT_BLOCKED,
                     request=request,
                     action_taken="request_blocked"
                     if not self.config.passive_mode

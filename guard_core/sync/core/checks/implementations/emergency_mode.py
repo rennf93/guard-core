@@ -1,5 +1,6 @@
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.events.event_types import EVENT_EMERGENCY_MODE_BLOCK
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import extract_client_ip, log_activity
 
@@ -32,7 +33,7 @@ class EmergencyModeCheck(SecurityCheck):
             )
 
             self.middleware.event_bus.send_middleware_event(
-                event_type="emergency_mode_block",
+                event_type=EVENT_EMERGENCY_MODE_BLOCK,
                 request=request,
                 action_taken="request_blocked"
                 if not self.config.passive_mode

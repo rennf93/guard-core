@@ -409,9 +409,9 @@ class ApiKeyCheck(SecurityCheck):
 In your adapter's middleware, after building the default pipeline, add the check:
 
 ```python
-from guard_core.core.checks.pipeline import SecurityCheckPipeline
+from guard_core.core.checks import build_default_pipeline
 
-pipeline = SecurityCheckPipeline(checks=[...])
+pipeline = build_default_pipeline(middleware)
 
 pipeline.add_check(ApiKeyCheck(middleware))
 

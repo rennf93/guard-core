@@ -1,5 +1,7 @@
 import concurrent.futures
+import logging
 import re
+from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,9 +59,13 @@ def test_get_custom_patterns() -> None:
     assert default_pattern not in patterns
 
 
-def test_invalid_pattern_handling() -> None:
-    with pytest.raises(re.error):
-        sus_patterns_handler.add_pattern(r"invalid(regex", custom=True)
+def test_invalid_pattern_rejected_without_raising() -> None:
+    pattern = r"invalid(regex"
+
+    ok = sus_patterns_handler.add_pattern(pattern, custom=True)
+
+    assert ok is False
+    assert pattern not in sus_patterns_handler.custom_patterns
 
 
 def test_remove_nonexistent_pattern() -> None:
@@ -237,15 +243,16 @@ def test_regex_timeout_fallback() -> None:
 
     evil_content = "a" * 100 + "b"
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_submit = mock_executor.return_value.__enter__.return_value.submit
-        mock_submit.return_value = mock_future
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("logging.getLogger") as mock_logger:
-            mock_logger.return_value.warning = MagicMock()
-
+        with patch(
+            "guard_core.sync.handlers.suspatterns_handler.logger"
+        ) as mock_logger:
             matched, pattern = manager.detect_pattern_match(
                 evil_content, "127.0.0.1", "test_timeout"
             )
@@ -253,8 +260,8 @@ def test_regex_timeout_fallback() -> None:
             assert not matched
             assert pattern is None
 
-            mock_logger.return_value.warning.assert_called()
-            warning_msg = mock_logger.return_value.warning.call_args[0][0]
+            mock_logger.warning.assert_called()
+            warning_msg = mock_logger.warning.call_args[0][0]
             assert "Regex timeout exceeded" in warning_msg
 
     manager._compiler = original_compiler
@@ -315,44 +322,105 @@ def test_pattern_timeout_with_compiler(
 ) -> None:
     manager = sus_patterns_manager_with_detection
 
-    evil_pattern = r"(a+)+"
-    manager.add_pattern(evil_pattern, custom=True)
+    custom_pattern = r"timeout_sim_pattern"
+    manager.add_pattern(custom_pattern, custom=True)
 
     evil_content = "a" * 1000 + "b"
 
-    time_counter = 0
+    current_time = 0.0
 
     def mock_time() -> float:
-        nonlocal time_counter
-        time_counter += 1
-        if time_counter % 2 == 1:
-            return 0.0
-        else:
-            return 2.0
+        nonlocal current_time
+        current_time += 2.0
+        return current_time
 
     with patch.object(manager._compiler, "create_safe_matcher") as mock_create:
         mock_matcher = MagicMock(return_value=None)
         mock_create.return_value = mock_matcher
 
-        with patch("time.time", mock_time):
-            with patch("logging.getLogger") as mock_logger:
-                mock_log_instance = MagicMock()
-                mock_logger.return_value = mock_log_instance
-
+        with patch("time.monotonic", mock_time):
+            with patch(
+                "guard_core.sync.handlers.suspatterns_handler.logger"
+            ) as mock_logger:
                 result = manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
-                if mock_log_instance.warning.called:
-                    warning_calls = [
-                        call[0][0] for call in mock_log_instance.warning.call_args_list
-                    ]
-                    timeout_warnings = [
-                        msg for msg in warning_calls if "Pattern timeout:" in msg
-                    ]
-                    assert len(timeout_warnings) > 0
+                warning_calls = [
+                    call[0][0] for call in mock_logger.warning.call_args_list
+                ]
+                timeout_warnings = [
+                    msg for msg in warning_calls if "Pattern timeout:" in msg
+                ]
+                assert len(timeout_warnings) > 0
 
-                    assert len(result["timeouts"]) > 0
+                assert len(result["timeouts"]) > 0
 
-    manager.remove_pattern(evil_pattern, custom=True)
+    manager.remove_pattern(custom_pattern, custom=True)
+
+
+def test_custom_category_timeout_heuristic_uses_configured_compiler_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    SusPatternsManager._instance = None
+    config = SecurityConfig(detection_compiler_timeout=0.5)
+    manager = SusPatternsManager(config)
+    assert manager._compiler is not None
+    assert manager._compiler.default_timeout == 0.5
+
+    def _never_matches(
+        pattern: object, timeout: float | None = None
+    ) -> Callable[[str], None]:
+        return lambda text: None
+
+    monkeypatch.setattr(manager._compiler, "create_safe_matcher", _never_matches)
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.suspatterns_handler.time.monotonic", lambda: 100.5
+    )
+
+    pattern = re.compile(r"zzz_custom_zzz")
+    _, timed_out = manager._check_regex_pattern(
+        pattern, "no match here", "1.2.3.4", 100.0, "custom"
+    )
+
+    assert timed_out is True
+
+    SusPatternsManager._instance = None
+
+
+def test_legacy_pattern_timeout_uses_configured_compiler_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    assert manager._compiler is None
+    manager._config = MagicMock(detection_compiler_timeout=7.5)
+
+    captured_timeouts = []
+
+    class FakeFuture:
+        def result(self, timeout: float = 0) -> None:
+            captured_timeouts.append(timeout)
+            raise concurrent.futures.TimeoutError()
+
+        def cancel(self) -> None:
+            pass
+
+    class FakeExecutor:
+        def submit(self, fn: object, *args: object) -> "FakeFuture":
+            return FakeFuture()
+
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.shared_regex_executor",
+        return_value=FakeExecutor(),
+    ):
+        match, timed_out = manager._check_pattern_with_timeout(
+            re.compile("x"), "content", "1.2.3.4", 0.0
+        )
+
+    assert match is None
+    assert timed_out is True
+    assert captured_timeouts == [7.5]
+
+    SusPatternsManager._instance = None
 
 
 def test_regex_search_exception_fallback() -> None:
@@ -365,22 +433,22 @@ def test_regex_search_exception_fallback() -> None:
     test_pattern = r"test_pattern"
     manager.add_pattern(test_pattern, custom=True)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = RuntimeError("Test exception")
-        mock_submit = mock_executor.return_value.__enter__.return_value.submit
-        mock_submit.return_value = mock_future
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("logging.getLogger") as mock_logger:
-            mock_log_instance = MagicMock()
-            mock_logger.return_value = mock_log_instance
-
+        with patch(
+            "guard_core.sync.handlers.suspatterns_handler.logger"
+        ) as mock_logger:
             result = manager.detect("test content", "127.0.0.1", "test_exception")
 
             assert not result["is_threat"]
 
-            mock_log_instance.error.assert_called()
-            error_msg = mock_log_instance.error.call_args[0][0]
+            mock_logger.error.assert_called()
+            error_msg = mock_logger.error.call_args[0][0]
             assert "Error in regex search" in error_msg
 
     manager._compiler = original_compiler
@@ -862,6 +930,25 @@ def test_initialize_redis_skips_patterns_already_in_custom() -> None:
     redis_handler.get_key = MagicMock(return_value="existing_pattern")
     mgr.initialize_redis(redis_handler)
     assert "existing_pattern" in mgr.custom_patterns
+
+
+def test_initialize_redis_warns_on_rejected_persisted_pattern(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = MagicMock()
+    redis_handler.get_key = MagicMock(return_value="invalid(regex")
+
+    with caplog.at_level(logging.WARNING):
+        mgr.initialize_redis(redis_handler)
+
+    assert "invalid(regex" not in mgr.custom_patterns
+    assert "Skipped restoring persisted pattern" in caplog.text
 
 
 def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:

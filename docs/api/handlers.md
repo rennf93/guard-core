@@ -424,7 +424,7 @@ SusPatternsManager
 Orchestrates the detection engine for threat pattern matching and semantic analysis.
 
 !!! note "Compiled-pattern tuples are 3-tuples"
-    Each compiled pattern carries a category label as its third element: `(re.Pattern, frozenset[str], str)`. Built-in patterns use one of the 16 labels in `ALL_DETECTION_CATEGORIES` (`"xss"`, `"sqli"`, ...). Custom user patterns added via `add_pattern(..., custom=True)` carry the literal label `"custom"` and run regardless of any `enabled_categories` filtering.
+    Each compiled pattern carries a category label as its third element: `(re.Pattern, frozenset[str], str)`. Built-in patterns use one of the 18 labels in `ALL_DETECTION_CATEGORIES` (`"xss"`, `"sqli"`, ...). Custom user patterns added via `add_pattern(..., custom=True)` carry the literal label `"custom"` and run regardless of any `enabled_categories` filtering.
 
 ```python
 class SusPatternsManager:
@@ -486,6 +486,9 @@ class SusPatternsManager:
     ) -> None:
         """
         Add a regex pattern to the detection engine.
+        Rejects unsafe or malformed patterns via the ReDoS safety
+        validator: logs a warning and returns without adding the
+        pattern or raising.
         """
 
     @classmethod

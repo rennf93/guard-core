@@ -116,7 +116,7 @@ def test_validate_pattern_safety_slow_pattern(compiler: PatternCompiler) -> None
     slow_pattern = r"^[a-z]+$"
 
     call_count = 0
-    start_time = time.time()
+    start_time = time.monotonic()
 
     def mock_time() -> float:
         nonlocal call_count
@@ -126,7 +126,7 @@ def test_validate_pattern_safety_slow_pattern(compiler: PatternCompiler) -> None
         else:
             return start_time
 
-    with patch("time.time", side_effect=mock_time):
+    with patch("time.monotonic", side_effect=mock_time):
         is_safe, reason = compiler.validate_pattern_safety(slow_pattern)
         assert is_safe is False
         assert "timed out on test string" in reason
@@ -162,12 +162,12 @@ def test_validate_pattern_safety_timeout() -> None:
 
     pattern = r"test_pattern"
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.detection_engine.compiler.validation_regex_executor"
+    ) as mock_validation_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_validation_executor.return_value.submit.return_value = mock_future
 
         is_safe, reason = compiler.validate_pattern_safety(pattern)
 
@@ -200,13 +200,13 @@ def test_create_safe_matcher_with_timeout(compiler: PatternCompiler) -> None:
     pattern = r"test.*"
     matcher = compiler.create_safe_matcher(pattern, timeout=0.1)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
         mock_future.cancel.return_value = True
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         result = matcher("test123")
         assert result is None
@@ -217,12 +217,12 @@ def test_create_safe_matcher_with_exception(compiler: PatternCompiler) -> None:
     pattern = r"test.*"
     matcher = compiler.create_safe_matcher(pattern)
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
+    with patch(
+        "guard_core.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = Exception("Test error")
-        mock_executor.return_value.__enter__.return_value.submit.return_value = (
-            mock_future
-        )
+        mock_shared_executor.return_value.submit.return_value = mock_future
 
         result = matcher("test123")
         assert result is None

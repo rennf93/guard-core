@@ -140,7 +140,7 @@ ___
 Detection Exclusions
 --------------------
 
-These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, and all `sec-ch-ua*` headers. `enabled_detection_categories` narrows the regex scan to a subset of the 16 known categories; custom user patterns always run regardless.
+These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, and all `sec-ch-ua*` headers. `enabled_detection_categories` narrows the regex scan to a subset of the 18 known categories; custom user patterns always run regardless.
 
 | Field                              | Type        | Default                          | Description                                                                |
 |------------------------------------|-------------|----------------------------------|----------------------------------------------------------------------------|
@@ -311,6 +311,9 @@ Detection Engine
 | `detection_slow_pattern_threshold`  | `float` | `0.1`   | 0.01 - 1.0   | Seconds to consider a pattern slow.          |
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
+| `detection_max_body_inspect_bytes`  | `int`   | `262144`| 1024 - 10485760 | Body size cap read/scanned for detection; distinct from `detection_max_content_length` and `max_request_size`. |
+| `detection_threat_score_threshold`  | `float` | `1.0`   | 0.0 - 10.0    | Anomaly/threat score required to flag a request. |
+| `detection_scan_body`               | `bool`  | `True`  | N/A           | Scan the request body during detection; `False` restricts detection to path/query/headers. |
 
 ___
 

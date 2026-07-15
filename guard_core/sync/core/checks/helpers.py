@@ -66,21 +66,18 @@ def check_route_ip_access(
     try:
         ip_addr = ip_address(client_ip)
 
-        whitelist_result = _check_ip_whitelist(client_ip, ip_addr, route_config)
-        if whitelist_result is True:
-            return True
-        if whitelist_result is False:
-            return False
-
-        if _check_ip_blacklist(client_ip, ip_addr, route_config):
-            return False
+        ip_result = _check_ip_whitelist(client_ip, ip_addr, route_config)
+        if ip_result is None and _check_ip_blacklist(client_ip, ip_addr, route_config):
+            ip_result = False
 
         country_result = check_country_access(
             client_ip, route_config, middleware.geo_ip_handler
         )
-        if country_result is not None:
-            return country_result
 
+        if ip_result is False or country_result is False:
+            return False
+        if ip_result is True or country_result is True:
+            return True
         return None
     except ValueError:
         return False

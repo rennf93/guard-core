@@ -406,26 +406,7 @@ from guard_core.core.routing import RoutingContext, RouteConfigResolver
 from guard_core.core.validation import ValidationContext, RequestValidator
 from guard_core.core.bypass import BypassContext, BypassHandler
 from guard_core.core.behavioral import BehavioralContext, BehavioralProcessor
-from guard_core.core.checks import SecurityCheckPipeline
-from guard_core.core.checks import (
-    RouteConfigCheck,
-    EmergencyModeCheck,
-    HttpsEnforcementCheck,
-    RequestLoggingCheck,
-    RequestSizeContentCheck,
-    RequiredHeadersCheck,
-    AuthenticationCheck,
-    ReferrerCheck,
-    CustomValidatorsCheck,
-    TimeWindowCheck,
-    CloudIpRefreshCheck,
-    IpSecurityCheck,
-    CloudProviderCheck,
-    UserAgentCheck,
-    RateLimitCheck,
-    SuspiciousActivityCheck,
-    CustomRequestCheck,
-)
+from guard_core.core.checks import build_default_pipeline
 
 
 class MyAdapterMiddleware:
@@ -463,25 +444,7 @@ class MyAdapterMiddleware:
         behavioral_ctx = BehavioralContext(config, self.logger, self.event_bus, None)
         self.behavioral_processor = BehavioralProcessor(behavioral_ctx)
 
-        self.pipeline = SecurityCheckPipeline([
-            RouteConfigCheck(self),
-            EmergencyModeCheck(self),
-            HttpsEnforcementCheck(self),
-            RequestLoggingCheck(self),
-            RequestSizeContentCheck(self),
-            RequiredHeadersCheck(self),
-            AuthenticationCheck(self),
-            ReferrerCheck(self),
-            CustomValidatorsCheck(self),
-            TimeWindowCheck(self),
-            CloudIpRefreshCheck(self),
-            IpSecurityCheck(self),
-            CloudProviderCheck(self),
-            UserAgentCheck(self),
-            RateLimitCheck(self),
-            SuspiciousActivityCheck(self),
-            CustomRequestCheck(self),
-        ])
+        self.pipeline = build_default_pipeline(self)
 
     async def startup(self):
         initializer = HandlerInitializer(

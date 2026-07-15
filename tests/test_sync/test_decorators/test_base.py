@@ -35,7 +35,6 @@ def test_route_config_initialization() -> None:
     assert config.enable_suspicious_detection is True
     assert config.require_referrer is None
     assert config.api_key_required is False
-    assert config.session_limits is None
 
 
 def test_base_security_mixin_not_implemented() -> None:

@@ -9,7 +9,7 @@ two already-deprecated `ipinfo_*` fields, which now emit a runtime
 
 Current totals (verified against source):
 
-- `SecurityConfig`: **90 fields**, 13 validators, 1 `to_agent_config()` method
+- `SecurityConfig`: **92 fields**, 13 validators, 1 `to_agent_config()` method
   (`guard_core/models.py`).
 - `guard_core` exports: **22** symbols (`guard_core/__init__.py`).
 - `fastapi-guard` re-exports: **24** symbols (the 22 above plus its own
@@ -60,12 +60,15 @@ Ordered by domain, then by `models.py` line.
 | `geo_ip_db_max_age` | `int` | `86400` | 261 | geo/country | Keep |
 | `detection_compiler_timeout` | `float` | `2.0` | 434 | detection | Keep · Group? |
 | `detection_max_content_length` | `int` | `10000` | 441 | detection | Keep · Group? |
+| `detection_max_body_inspect_bytes` | `int` | `262144` | 449 | detection | Keep · Group? |
 | `detection_preserve_attack_patterns` | `bool` | `True` | 448 | detection | Keep · Group? |
 | `detection_semantic_threshold` | `float` | `0.7` | 453 | detection | Keep · Group? |
 | `detection_anomaly_threshold` | `float` | `3.0` | 460 | detection | Keep · Group? |
 | `detection_slow_pattern_threshold` | `float` | `0.1` | 467 | detection | Keep · Group? |
 | `detection_monitor_history_size` | `int` | `1000` | 474 | detection | Keep · Group? |
 | `detection_max_tracked_patterns` | `int` | `1000` | 481 | detection | Keep · Group? |
+| `detection_threat_score_threshold` | `float` | `1.0` | 502 | detection | Keep · Group? |
+| `detection_scan_body` | `bool` | `True` | 589 | detection | Keep · Group? |
 | `enabled_detection_categories` | `set[str]` | `ALL_DETECTION_CATEGORIES` | 566 | detection | Keep |
 | `excluded_detection_headers` | `set[str]` | `set` | 547 | detection (excl.) | Keep |
 | `excluded_detection_params` | `set[str]` | `set` | 554 | detection (excl.) | Keep |
@@ -121,14 +124,14 @@ No field is required (every field has a default or `default_factory`).
 ## Field counts by domain
 
 - agent: 14
-- detection (incl. 3 `excluded_detection_*` + `enable_penetration_detection`): 13
+- detection (incl. 3 `excluded_detection_*` + `enable_penetration_detection`): 16
 - hooks: 4 · logging: 4 · geo/country: 4 · otel: 4
 - cors: 7 · dynamic-rules: 5
 - auto-ban: 3 · cloud: 3 · muted: 3 · proxy: 3 · rate-limit: 3 · redis: 3 · allow/deny: 3
 - security-headers: 2 · ipinfo: 2 · logfire: 2 · init: 2
 - behavioral: 1 · enrichment: 1 · ip-banning: 1 · mode: 1 · failure-mode: 1
 
-**Total: 90 fields.**
+**Total: 92 fields.**
 
 ## Deprecations (wired in this audit)
 
@@ -155,7 +158,7 @@ create a custom geo_ip_handler instead.
 
 Four prefixes dominate the field count and are good candidates for **optional**
 nested sub-config models (e.g. `config.agent.*`, `config.cors.*`,
-`config.detection.*`, `config.otel.*`): agent (14), detection (13), cors (7),
+`config.detection.*`, `config.otel.*`): agent (14), detection (16), cors (7),
 otel (4). Presented as an option, **not applied**, because of the trade-offs:
 
 - **For:** smaller top-level namespace; related knobs discoverable together;

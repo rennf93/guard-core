@@ -1,7 +1,10 @@
 from typing import Any
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
+from guard_core.core.events.event_types import (
+    EVENT_DECORATOR_VIOLATION,
+    EVENT_DYNAMIC_RULE_VIOLATION,
+)
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
@@ -66,7 +69,7 @@ class RateLimitCheck(SecurityCheck):
             client_ip,
             rate_limit,
             window,
-            "dynamic_rule_violation",
+            EVENT_DYNAMIC_RULE_VIOLATION,
             {
                 "reason": (
                     f"Endpoint-specific rate limit exceeded: {rate_limit} "

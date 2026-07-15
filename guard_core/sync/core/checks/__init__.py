@@ -1,4 +1,8 @@
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.checks.factory import (
+    DEFAULT_CHECK_CLASSES,
+    build_default_pipeline,
+)
 from guard_core.sync.core.checks.implementations import (
     AuthenticationCheck,
     CloudIpRefreshCheck,
@@ -23,6 +27,8 @@ from guard_core.sync.core.checks.pipeline import SecurityCheckPipeline
 __all__ = [
     "SecurityCheck",
     "SecurityCheckPipeline",
+    "DEFAULT_CHECK_CLASSES",
+    "build_default_pipeline",
     "RouteConfigCheck",
     "EmergencyModeCheck",
     "HttpsEnforcementCheck",

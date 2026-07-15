@@ -231,55 +231,17 @@ Each context is a `@dataclass` with explicit dependencies:
 
 ### Step 3: Build the Security Pipeline
 
-Import check implementations from `guard_core.core.checks.implementations` and assemble them in order:
+Build the canonical 17-check pipeline with `build_default_pipeline`, then add any custom checks:
 
 ```python
-from guard_core.core.checks.implementations import (
-    AuthenticationCheck,
-    CloudIpRefreshCheck,
-    CloudProviderCheck,
-    CustomRequestCheck,
-    CustomValidatorsCheck,
-    EmergencyModeCheck,
-    HttpsEnforcementCheck,
-    IpSecurityCheck,
-    RateLimitCheck,
-    ReferrerCheck,
-    RequestLoggingCheck,
-    RequestSizeContentCheck,
-    RequiredHeadersCheck,
-    RouteConfigCheck,
-    SuspiciousActivityCheck,
-    TimeWindowCheck,
-    UserAgentCheck,
-)
-from guard_core.core.checks.pipeline import SecurityCheckPipeline
+from guard_core.core.checks import build_default_pipeline
 
 
 def _build_security_pipeline(self) -> None:
-    checks = [
-        RouteConfigCheck(self),
-        EmergencyModeCheck(self),
-        HttpsEnforcementCheck(self),
-        RequestLoggingCheck(self),
-        RequestSizeContentCheck(self),
-        RequiredHeadersCheck(self),
-        AuthenticationCheck(self),
-        ReferrerCheck(self),
-        CustomValidatorsCheck(self),
-        TimeWindowCheck(self),
-        CloudIpRefreshCheck(self),
-        IpSecurityCheck(self),
-        CloudProviderCheck(self),
-        UserAgentCheck(self),
-        RateLimitCheck(self),
-        SuspiciousActivityCheck(self),
-        CustomRequestCheck(self),
-    ]
-    self.security_pipeline = SecurityCheckPipeline(checks)
+    self.security_pipeline = build_default_pipeline(self)
 ```
 
-Each check receives `self` (your middleware instance) and accesses everything it needs through the `GuardMiddlewareProtocol` interface.
+Each check receives `self` (your middleware instance) and accesses everything it needs through the `GuardMiddlewareProtocol` interface. Add custom checks with `self.security_pipeline.add_check(...)`.
 
 ### Step 4: Use HandlerInitializer
 

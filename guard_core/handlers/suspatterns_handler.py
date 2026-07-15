@@ -1,3 +1,6 @@
+import asyncio
+import concurrent.futures
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -9,6 +12,16 @@ from guard_core.detection_engine import (
     PerformanceMonitor,
     SemanticAnalyzer,
 )
+from guard_core.detection_engine.compiler import (
+    report_scan_success,
+    report_scan_timeout,
+    shared_regex_executor,
+)
+
+logger = logging.getLogger("guard_core.handlers.suspatterns")
+
+_DEFAULT_MAX_SCAN_LENGTH = 10000
+_DEFAULT_COMPILER_TIMEOUT = 2.0
 
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
@@ -75,7 +88,7 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "code_injection": _CTX_CODE_INJECTION,
 }
 
-_SELECT_FROM_RE = r"(?i)SELECT\s+[\w\s,\*]+\s+FROM\s+[\w\s\._]+"
+_SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
 
@@ -114,13 +127,13 @@ class SusPatternsManager:
             "xss",
         ),
         (
-            r"(?:<[^>]+\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
+            r"(?:<[^<>]*\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
             r"vbscript|data):)",
             _CTX_XSS,
             "xss",
         ),
         (
-            r"(?:<[^>]+style\s*=[\s\"\']*[^>\"\']*(?:expression|behavior|url)\s*\("
+            r"(?:<[^<>]*style\s*=[\s\"\']*[^<>\"\']*(?:expression|behavior|url)\s*\("
             r"[^)]*\))",
             _CTX_XSS,
             "xss",
@@ -139,8 +152,8 @@ class SusPatternsManager:
             "sqli",
         ),
         (
-            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+(?:NULL[,\s]*)+|\(\s*SELECT\s+"
-            r"(?:@@|VERSION))",
+            r"(?i)(UNION\s+(?:ALL\s+)?SELECT\s+NULL(?:[,\s]*NULL)*[,\s]*|"
+            r"\(\s*SELECT\s+(?:@@|VERSION))",
             _CTX_SQLI,
             "sqli",
         ),
@@ -305,9 +318,9 @@ class SusPatternsManager:
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
-        (r"(?:^|/)[\w./-]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
+        (r"(?:^|/)[^/]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
-            r"(?:^|/)[\w./-]*\."
+            r"(?:^|/)[^/]*\."
             r"(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)(?:\?|$)",
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
@@ -325,7 +338,7 @@ class SusPatternsManager:
             "cms_probing",
         ),
         (
-            r"(?:^|/)[\w./-]*\."
+            r"(?:^|/)[^/]*\."
             r"(?:bak|backup|old|orig|save|swp|swo|tmp|temp)(?:\?|$)",
             _CTX_CMS_PROBING,
             "cms_probing",
@@ -337,7 +350,7 @@ class SusPatternsManager:
             "cms_probing",
         ),
         (
-            r"(?:^|/)[\w./-]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
+            r"(?:^|/)[^/]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
             r"|lua|inc|woa|nsf|esp)(?:\?|$)",
             _CTX_RECON,
             "recon",
@@ -403,7 +416,7 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            r"(?:^|/)[\w./-]*(?:secrets?|credentials?)"
+            r"(?:^|/)[^/]*(?:secrets?|credentials?)"
             r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:\?|$)",
             _CTX_RECON,
             "recon",
@@ -503,7 +516,12 @@ class SusPatternsManager:
                 patterns = cached_patterns.split(",")
                 for pattern in patterns:
                     if pattern not in self.custom_patterns:
-                        await self.add_pattern(pattern, custom=True)
+                        restored = await self.add_pattern(pattern, custom=True)
+                        if not restored:
+                            logger.warning(
+                                f"Skipped restoring persisted pattern: "
+                                f"{pattern[:50]}..."
+                            )
 
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
@@ -532,17 +550,16 @@ class SusPatternsManager:
             )
             await self.agent_handler.send_event(event)
         except Exception as e:
-            import logging
-
-            logging.getLogger("guard_core.handlers.suspatterns").error(
-                f"Failed to send pattern event to agent: {e}"
-            )
+            logger.error(f"Failed to send pattern event to agent: {e}")
 
     async def _preprocess_content(
         self, content: str, correlation_id: str | None
     ) -> str:
         if not self._preprocessor:
-            return content
+            max_length = getattr(
+                self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
+            )
+            return content[:max_length]
 
         context_preprocessor = ContentPreprocessor(
             max_content_length=self._preprocessor.max_content_length,
@@ -563,23 +580,26 @@ class SusPatternsManager:
         timeout_occurred = False
 
         if self._compiler:
-            safe_matcher = self._compiler.create_safe_matcher(pattern.pattern)
-            match = safe_matcher(content)
+            if category == "custom":
+                safe_matcher = self._compiler.create_safe_matcher(pattern)
+                match = safe_matcher(content)
+                timeout_threshold = 0.9 * self._compiler.default_timeout
+                if (
+                    match is None
+                    and time.monotonic() - pattern_start >= timeout_threshold
+                ):
+                    timeout_occurred = True
+                    logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+            else:
+                match = pattern.search(content)
 
-            if match is None and time.time() - pattern_start >= 0.9 * 2.0:
-                timeout_occurred = True
-                import logging
-
-                logging.getLogger("guard_core.handlers.suspatterns").warning(
-                    f"Pattern timeout: {pattern.pattern[:50]}..."
-                )
-            elif match:
+            if match:
                 return {
                     "type": "regex",
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -593,7 +613,7 @@ class SusPatternsManager:
                     "pattern": pattern.pattern,
                     "match": match.group(),
                     "position": match.start(),
-                    "execution_time": time.time() - pattern_start,
+                    "execution_time": time.monotonic() - pattern_start,
                     "category": category,
                     "weight": _resolve_pattern_weight(pattern.pattern, category),
                 }, timeout_occurred
@@ -603,36 +623,28 @@ class SusPatternsManager:
     async def _check_pattern_with_timeout(
         self, pattern: re.Pattern, content: str, ip_address: str, pattern_start: float
     ) -> tuple[re.Match | None, bool]:
-        import concurrent.futures
-
-        def _search(p: re.Pattern = pattern) -> re.Match | None:
-            return p.search(content)
-
-        executor_class = concurrent.futures.ThreadPoolExecutor
-        with executor_class(max_workers=1) as executor:
-            future = executor.submit(_search)
-            try:
-                match = future.result(timeout=2.0)
-                return match, False
-            except concurrent.futures.TimeoutError:
-                import logging
-
-                logger = logging.getLogger("guard_core.handlers.suspatterns")
-                logger.warning(
-                    f"Regex timeout exceeded for pattern: "
-                    f"{pattern.pattern[:50]}... "
-                    f"Potential ReDoS attack blocked. IP: {ip_address}"
-                )
-                future.cancel()
-                return None, True
-            except Exception as e:
-                import logging
-
-                logger = logging.getLogger("guard_core.handlers.suspatterns")
-                logger.error(
-                    f"Error in regex search for pattern {pattern.pattern[:50]}...: {e}"
-                )
-                return None, False
+        timeout = getattr(
+            self._config, "detection_compiler_timeout", _DEFAULT_COMPILER_TIMEOUT
+        )
+        future = shared_regex_executor().submit(pattern.search, content)
+        try:
+            match = future.result(timeout=timeout)
+            report_scan_success()
+            return match, False
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                f"Regex timeout exceeded for pattern: "
+                f"{pattern.pattern[:50]}... "
+                f"Potential ReDoS attack blocked. IP: {ip_address}"
+            )
+            future.cancel()
+            report_scan_timeout()
+            return None, True
+        except Exception as e:
+            logger.error(
+                f"Error in regex search for pattern {pattern.pattern[:50]}...: {e}"
+            )
+            return None, False
 
     _KNOWN_CONTEXTS = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -671,7 +683,7 @@ class SusPatternsManager:
             ):
                 continue
 
-            pattern_start = time.time()
+            pattern_start = time.monotonic()
 
             threat, timeout_occurred = await self._check_regex_pattern(
                 pattern, content, ip_address, pattern_start, category
@@ -687,7 +699,7 @@ class SusPatternsManager:
             if self._performance_monitor:
                 await self._performance_monitor.record_metric(
                     pattern=pattern.pattern,
-                    execution_time=time.time() - pattern_start,
+                    execution_time=time.monotonic() - pattern_start,
                     content_length=len(content),
                     matched=bool(threat),
                     timeout=timeout_occurred,
@@ -753,7 +765,7 @@ class SusPatternsManager:
         enabled_categories: set[str] | None = None,
     ) -> dict[str, Any]:
         original_content = content
-        execution_start = time.time()
+        execution_start = time.monotonic()
 
         processed_content = await self._preprocess_content(content, correlation_id)
 
@@ -779,7 +791,7 @@ class SusPatternsManager:
             regex_threats, semantic_threats
         )
 
-        total_execution_time = time.time() - execution_start
+        total_execution_time = time.monotonic() - execution_start
 
         if self._performance_monitor:
             await self._performance_monitor.record_metric(
@@ -881,8 +893,16 @@ class SusPatternsManager:
         return False, None
 
     @classmethod
-    async def add_pattern(cls, pattern: str, custom: bool = False) -> None:
+    async def add_pattern(cls, pattern: str, custom: bool = False) -> bool:
         instance = cls()
+
+        compiler = instance._compiler or PatternCompiler()
+        is_safe, reason = await asyncio.to_thread(
+            compiler.validate_pattern_safety, pattern
+        )
+        if not is_safe:
+            logger.warning(f"Rejected unsafe pattern ({reason}): {pattern[:50]}...")
+            return False
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
         compiled_tuple = (compiled_pattern, _CTX_ALL, "custom")
@@ -914,6 +934,8 @@ class SusPatternsManager:
                 if custom
                 else len(instance.patterns),
             )
+
+        return True
 
     async def _remove_custom_pattern(self, pattern: str) -> bool:
         if pattern not in self.custom_patterns:

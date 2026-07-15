@@ -10,6 +10,55 @@ Release Notes
 
 ___
 
+v3.5.0 (2026-07-15)
+-------------------
+
+Pipeline factory, decorated-route IP/country enforcement, and detection ReDoS hardening (v3.5.0)
+-----------------------------------------------------------------------------------------------
+
+### Breaking changes
+
+- **Global IP and country rules now apply on decorated routes.** Previously, any route carrying per-route decorator config — even one using only `@rate_limit` — silently skipped every global IP allowlist/blocklist and country rule; those global rules now always run on decorated routes, so a client excluded by a global `whitelist` can receive `403` on a decorated route that previously served it. A per-route setting overrides the global gate only for the aspect it explicitly allows, and the IP and country aspects are evaluated **independently**: a route `ip_whitelist` match wins over that route's own `ip_blacklist` (unchanged since v3.2.0) and over the global blacklist, but it does **not** extend to the country aspect — the route's own country rules and the global `blocked_countries` still run. Only an actual route `whitelist_countries` match for the resolved country skips the global country gate. To keep a decorated route reachable by clients outside the global whitelist, give the route its own `ip_whitelist`.
+- **A route-level `ip_whitelist` match now grants access only, not trust.** The matched request still passes through rate limiting, user-agent filtering, cloud-provider blocking, and attack-pattern scanning. Previously a route `ip_whitelist` match set `request.state.is_whitelisted=True`, exempting the request from every downstream check — so a route's own `@rate_limit` was silently a no-op for its whitelisted IPs. Global `whitelist` membership still confers full trust; a client in both the global whitelist and a route's `ip_whitelist` is treated as access-only on that route.
+
+### Added
+
+- **`build_default_pipeline()` — one source of truth for the check pipeline.** New `guard_core.core.checks.build_default_pipeline(middleware)` assembles the canonical 17-check pipeline in its defined order. Framework adapters call it instead of hand-listing check classes, so a new engine check reaches every adapter (FastAPI, Flask, Django) without an adapter-side change.
+- **Redis resilience settings**: `redis_socket_connect_timeout` (default `2.0`s) and `redis_socket_timeout` (default `2.0`s) bound how long any Redis call can hold a request (both must be positive — `0` would mean a non-blocking socket, not "no timeout"; `None` disables); `redis_health_check_interval` (default `30`s, `0` disables) recycles stale pooled connections; `redis_max_connections` (default `None` = redis-py default) caps the pool; `redis_retries` (default `1`, `0` disables) adds client-level retries with exponential backoff on connection/timeout errors. Note the client-level retry can re-send a non-idempotent `INCR` whose reply was lost after the server committed it, over-counting by one — fail-closed for guard-core's rate-limit counters and self-healing next window.
+- **`redis_fail_open`** (`bool`, default `False`): when a Redis outage surfaces as a `GuardRedisError` inside a security check, `fail_secure` governs by default (the request is blocked). Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures.
+- **`log_country_check_level`**: per-request country verdicts that are not blocks (whitelisted / not-affected) now log at a configurable level (default `"INFO"`, `None` silences them) via the named `guard_core` logger instead of the root logger. Blocked-country hits still log at `WARNING`; no-rules / no-geolocation cases at `DEBUG`. Penetration-detection hits likewise honour `log_suspicious_level` (previously a second hardcoded-`WARNING` root-logger path), and the remaining bare root-logger calls in `utils.py` / `cloud_handler.py` moved onto named `guard_core` loggers. Async and sync mirrors updated identically.
+
+### Changed
+
+- **Detection regex matching now uses one shared worker pool.** Instead of constructing a thread pool per pattern match, matching uses a single shared executor, and built-in (compile-time-vetted) patterns match directly without the per-match timeout wrapper — only custom and legacy-mode patterns pay that cost. Scan input is now capped to `detection_max_content_length` before matching in every mode, including legacy/no-preprocessor mode, which previously scanned unbounded content (a thread-pool timeout cannot interrupt a regex already running on the interpreter, so the cap bounds the worst case directly). Detection results are unchanged — the attack-simulation baseline (recall 0.857, false-positive rate 0.0) holds bit-for-bit.
+- **`add_pattern` now returns `bool`** (`True` registered, `False` rejected) instead of `None`, so callers can distinguish a rejected pattern from a registered one.
+- **Cloud-provider IP refresh no longer runs on the request path.** The request that crosses `cloud_ip_refresh_interval` schedules a single-flight background refresh (`cloud_handler.schedule_refresh`) instead of awaiting multi-second provider fetches inline; while one refresh is in flight, further requests are no-ops. The background task runs the middleware's `refresh_cloud_ip_ranges()`, so adapter overrides stay on the periodic path; the debounce timestamp is restored when scheduling fails so the next request retries instead of waiting a full interval; and the in-memory cloud-IP store now honors the refresh TTL, so non-Redis deployments refetch provider ranges each interval instead of caching them for the process lifetime. Async and sync mirrors updated identically.
+- **guard-agent's telemetry models are opted out of pydantic plugin instrumentation** at `guard_core` import: `SecurityEvent`/`SecurityMetric`/`EventBatch` set `plugin_settings={"logfire": {"record": "off"}}`, so a host app running `logfire.instrument_pydantic()` no longer emits a span per security event. A model that cannot be force-rebuilt degrades with a logged warning instead of crashing the import.
+- **The pipeline handles Redis outages per `redis_fail_open`**: a `GuardRedisError` escaping a check is either skipped with a warning (`redis_fail_open=True`) or handed to the standard `fail_secure` path (default). Async and sync mirrors updated identically.
+
+### Fixed
+
+- **Built-in detection patterns rewritten to close a ReDoS.** Several patterns — SQL `SELECT ... FROM` and `UNION SELECT NULL`, a handful of recon file-extension/source-map/backup patterns, and two XSS patterns — could backtrack super-linearly on crafted input; they now run in linear time, closing a request-triggered ReDoS on the detection path.
+- **`build_default_pipeline` now propagates `SecurityConfig.muted_check_logs`** to the pipeline, so muting a check's block/error logs takes effect.
+- **Suspicious-pattern registration now rejects unsafe regexes.** `add_pattern` — used when restoring custom patterns from Redis and when applying dynamic-rule pattern pushes — runs each pattern through the ReDoS safety validator before it reaches the live matcher, and no longer logs "Added" for a pattern it rejects. Unsafe or malformed patterns are logged and skipped instead of compiled into the live matcher.
+- **The shared regex executor is now initialized under a lock**, closing a first-call race that could leak a worker pool.
+- **Custom-pattern safety validation no longer false-rejects safe patterns under scan load.** `validate_pattern_safety` probes now run on a dedicated single-worker validation executor, isolated from the shared scan pool used for live request matching, and elapsed time is measured from when a probe starts executing rather than when it was queued — a busy scan pool can no longer silently drop a pushed dynamic rule or a Redis-restored custom pattern.
+- **The shared regex scan pool can no longer be permanently wedged by a slow custom pattern.** Four consecutive timed-out submissions now swap in a fresh pool — the stale pool is shut down non-blocking and a warning names the leaked workers — and the counter resets on any successful scan.
+- **The custom-pattern timeout heuristic now honours `detection_compiler_timeout`** (falling back to its 2.0s field default in legacy/no-compiler mode) instead of a hardcoded 2.0s, so tuning the timeout actually changes when a custom pattern is flagged — and logged/reported — as timed out.
+- **Registering a custom pattern no longer blocks the event loop.** `add_pattern`'s ReDoS validation (up to ~1s of probes on Redis restore or dynamic-rule push) is now offloaded to a worker thread in the async API; the sync API is unchanged.
+- **Pattern timeout heuristics now use a monotonic clock**, so a wall-clock/NTP step can no longer misclassify a match as timed out.
+- **`dynamic_rule_violation` is now a registered, mutable event type.** It can be suppressed via `muted_event_types`; it was emitted by endpoint rate limiting but previously rejected by config validation.
+- **Banned-IP blocks are now visible to telemetry.** Blocking a banned IP emits an `ip_blocked` event with `filter_type="banned"`; repeat requests from already-banned IPs were previously invisible.
+- **`geo_ip_db_max_age` now takes effect.** It is passed to the auto-constructed IPInfo handler; the setting was previously silently inert.
+
+The Redis resilience settings, `redis_fail_open`, `log_country_check_level`, the non-blocking cloud-IP refresh, and the pydantic-instrumentation opt-out were contributed by [@davidsmfreire](https://github.com/davidsmfreire) in [#39](https://github.com/rennf93/guard-core/pull/39).
+
+### Removed
+
+- **Dead `RouteConfig.session_limits`** attribute — never set by any decorator, never read by any check.
+
+___
+
 v3.4.0 (2026-07-02)
 -------------------
 
