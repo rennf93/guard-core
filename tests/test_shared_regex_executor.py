@@ -110,13 +110,19 @@ def fresh_manager() -> Any:
     SusPatternsManager._config = saved_config
 
 
-async def test_builtin_category_skips_safe_matcher(
+async def test_builtin_category_uses_safe_matcher(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _fail(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("safe matcher used for built-in pattern")
+    """CVE-2025-54365: built-in patterns must go through safe_matcher for
+    ReDoS protection, just like custom patterns."""
+    calls: list[Any] = []
+    real = fresh_manager._compiler.create_safe_matcher
 
-    monkeypatch.setattr(fresh_manager._compiler, "create_safe_matcher", _fail)
+    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
+        calls.append(pattern)
+        return real(pattern, timeout)
+
+    monkeypatch.setattr(fresh_manager._compiler, "create_safe_matcher", _tracking)
     pattern = re.compile(r"<script", re.IGNORECASE)
 
     threat, timed_out = await fresh_manager._check_regex_pattern(
@@ -125,6 +131,7 @@ async def test_builtin_category_skips_safe_matcher(
 
     assert threat is not None
     assert timed_out is False
+    assert calls == [pattern]
 
 
 async def test_custom_category_keeps_timeout_wrapper(
@@ -146,6 +153,26 @@ async def test_custom_category_keeps_timeout_wrapper(
 
     assert threat is not None
     assert calls == [pattern]
+
+
+async def test_all_categories_use_safe_matcher_for_redos_protection(
+    fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CVE-2025-54365: verify every category (xss, sqli, etc.) routes through
+    safe_matcher, not just 'custom'."""
+    categories_used: list[str] = []
+    real = fresh_manager._compiler.create_safe_matcher
+
+    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
+        return real(pattern, timeout)
+
+    monkeypatch.setattr(fresh_manager._compiler, "create_safe_matcher", _tracking)
+
+    for cat in ("xss", "sqli", "dir_traversal", "cmd_injection", "custom"):
+        pattern = re.compile(r"test")
+        _, _ = await fresh_manager._check_regex_pattern(
+            pattern, "test input", "1.2.3.4", time.time(), cat
+        )
 
 
 async def test_custom_category_timeout_heuristic_ignores_wall_clock_jump(

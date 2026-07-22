@@ -577,18 +577,17 @@ class SusPatternsManager:
         timeout_occurred = False
 
         if self._compiler:
-            if category == "custom":
-                safe_matcher = self._compiler.create_safe_matcher(pattern)
-                match = safe_matcher(content)
-                timeout_threshold = 0.9 * self._compiler.default_timeout
-                if (
-                    match is None
-                    and time.monotonic() - pattern_start >= timeout_threshold
-                ):
-                    timeout_occurred = True
-                    logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
-            else:
-                match = pattern.search(content)
+            # CVE-2025-54365: ALL patterns (built-in and custom) must use
+            # safe_matcher to get ReDoS timeout protection, not just custom.
+            safe_matcher = self._compiler.create_safe_matcher(pattern)
+            match = safe_matcher(content)
+            timeout_threshold = 0.9 * self._compiler.default_timeout
+            if (
+                match is None
+                and time.monotonic() - pattern_start >= timeout_threshold
+            ):
+                timeout_occurred = True
+                logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
 
             if match:
                 return {
