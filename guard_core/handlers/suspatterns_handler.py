@@ -180,6 +180,7 @@ class SusPatternsManager:
             "sqli",
         ),
         (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|$)", _CTX_SQLI, "sqli"),
+        (r"'\s*[\);]*\s*(?:--|#\s*$)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
