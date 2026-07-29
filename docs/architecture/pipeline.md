@@ -165,7 +165,7 @@ The checks are listed here in the order they execute within the pipeline. This o
 | **check_name** | `route_config` |
 | **Module** | `guard_core.core.checks.implementations.route_config` |
 | **Purpose** | Resolves the route-level decorator configuration and extracts the client IP |
-| **Blocks?** | Never. Always returns `None` |
+| **Blocks?** | Only under `route_resolution_strict`, when the adapter reports it could not resolve the route -- `500 Route resolution failed` |
 | **Side Effects** | Sets `request.state.route_config` and `request.state.client_ip` |
 
 This check runs first because all subsequent checks depend on `request.state.client_ip` and `request.state.route_config`.

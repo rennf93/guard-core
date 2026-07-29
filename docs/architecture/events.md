@@ -76,6 +76,7 @@ These are the `event_type` strings used throughout guard-core:
 | `access_denied` | `BaseSecurityDecorator` | Decorator-level access denial |
 | `authentication_failed` | `BaseSecurityDecorator` | Authentication check failed |
 | `rate_limited` | `BaseSecurityDecorator` | Decorator-level rate limit exceeded |
+| `route_unresolved` | `RouteConfigCheck` | Adapter could not resolve the route, so per-route config could not be applied (only under `route_resolution_strict`) |
 
 ### Specialized Event Methods
 
