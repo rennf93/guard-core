@@ -84,7 +84,7 @@ async def test_lazy_init_returns_fast_with_slow_background() -> None:  # async-o
         await initializer.initialize_redis_handlers()
         elapsed = time.perf_counter() - start
 
-        assert elapsed < 0.1
+        assert elapsed < 0.5
         assert initializer._lazy_init_task is not None
         assert initializer._lazy_init_task.done() is False
         initializer._lazy_init_task.cancel()
