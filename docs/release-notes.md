@@ -10,6 +10,23 @@ Release Notes
 
 ___
 
+v3.7.0 (2026-07-29)
+-------------------
+
+Opt-in enforcement when an adapter cannot resolve the route (v3.7.0)
+--------------------------------------------------------------------
+
+### Added
+
+- `SecurityConfig.route_resolution_strict` (default `False`). A missing `RouteConfig` has always meant two different things — the route carries no decorators, or the adapter failed to match the request to its route — and every per-route check treats both as "nothing to enforce". The first is correct and unchanged; the second silently disables the checks the route does declare, which is how [GHSA-f2vm-w8gq-h378](https://github.com/rennf93/fastapi-guard/security/advisories/GHSA-f2vm-w8gq-h378) turned a route-matching bug in the Starlette adapter into an unauthenticated bypass of `@require_auth`. Adapters now report a failed match by setting `request.state.guard_route_unresolved = True`, and with `route_resolution_strict=True` those requests are logged, emit the new `route_unresolved` event, and are blocked with `500` (or logged only under `passive_mode`). See `docs/adapters/decorators.md`.
+- `EVENT_ROUTE_UNRESOLVED` (`route_unresolved`) event type.
+
+### Behaviour changes
+
+- None by default. `route_resolution_strict` defaults to `False` because guard-core cannot tell a failed match from a request the app simply does not route, so enforcing on every unresolved request would reject those too — with it on, a request to a path the app does not serve returns `500` rather than `404`. Enable it where every reachable path is a known route. Adapters that never set `guard_route_unresolved` are unaffected under either setting.
+
+___
+
 v3.6.0 (2026-07-28)
 -------------------
 

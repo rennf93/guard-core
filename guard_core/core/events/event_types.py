@@ -32,6 +32,7 @@ EVENT_RATE_LIMITED = "rate_limited"
 EVENT_RATE_LIMIT_SCRIPT_RELOADED = "rate_limit_script_reloaded"
 EVENT_REDIS_CONNECTION = "redis_connection"
 EVENT_REDIS_ERROR = "redis_error"
+EVENT_ROUTE_UNRESOLVED = "route_unresolved"
 EVENT_SECURITY_BYPASS = "security_bypass"
 EVENT_SECURITY_HEADERS_APPLIED = "security_headers_applied"
 EVENT_USER_AGENT_BLOCKED = "user_agent_blocked"
@@ -67,6 +68,7 @@ EVENT_TYPE_VALUES: frozenset[str] = frozenset(
         EVENT_RATE_LIMIT_SCRIPT_RELOADED,
         EVENT_REDIS_CONNECTION,
         EVENT_REDIS_ERROR,
+        EVENT_ROUTE_UNRESOLVED,
         EVENT_SECURITY_BYPASS,
         EVENT_SECURITY_HEADERS_APPLIED,
         EVENT_USER_AGENT_BLOCKED,

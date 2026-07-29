@@ -270,6 +270,23 @@ def _populate_guard_state(self, guard_request, request) -> None:
 
 This is **not** automatic -- even on ASGI frameworks the adapter has to read the scope and write these state values itself. WSGI/non-ASGI adapters do the same, sourcing the route from whatever their framework exposes.
 
+### Reporting a Failed Match
+
+A missing `guard_route_id` is ambiguous on its own: it means either "this route carries no decorators" or "matching failed and the decorators on this route will not be applied". The first is normal and every per-route check correctly skips itself. The second silently disables those checks, which is how [GHSA-f2vm-w8gq-h378](https://github.com/rennf93/fastapi-guard/security/advisories/GHSA-f2vm-w8gq-h378) turned a route-matching bug into an authentication bypass.
+
+Adapters disambiguate by setting `request.state.guard_route_unresolved = True` on the branch where matching itself failed, and leaving it unset once a route was matched -- decorated or not:
+
+```python
+route = self._resolve_route(request)
+if not route or not hasattr(route, "endpoint"):
+    guard_request.state.guard_route_unresolved = True
+    return
+```
+
+`RouteConfigCheck` reads that flag. By default nothing changes, because a failed match is indistinguishable from a request the app simply does not route. When `SecurityConfig.route_resolution_strict` is `True` it logs the failure, emits a `route_unresolved` event, and blocks the request with `500` unless `passive_mode` is on. Adapters that never set the flag keep their current behaviour under either setting.
+
+Strict mode is a deliberate trade: because that ambiguity is unresolvable from inside guard-core, turning it on also rejects requests to paths the app does not serve, so a `404` becomes a `500`. Enable it where every reachable path is a known route and an unattributable request is worth refusing.
+
 The send_decorator_event Mechanism
 ----------------------------------
 
