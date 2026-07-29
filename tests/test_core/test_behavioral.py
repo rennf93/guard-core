@@ -58,6 +58,7 @@ def mock_request() -> Mock:
     request.state = Mock()
     request.state.guard_endpoint_id = "test_module.test_function"
     request.state.guard_route_id = None
+    request.state.guard_decorator = None
     return request
 
 
@@ -390,6 +391,32 @@ async def test_process_usage_rules_returns_when_no_tracker_anywhere(
     await processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
 
     event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_process_usage_rules_uses_request_state_decorator_tracker(
+    mock_request: Mock,
+) -> None:
+    request_tracker = Mock()
+    request_tracker.track_endpoint_usage = AsyncMock(return_value=False)
+    request_decorator = Mock()
+    request_decorator.behavior_tracker = request_tracker
+    mock_request.state.guard_decorator = request_decorator
+
+    context = BehavioralContext(
+        config=Mock(),
+        logger=Mock(),
+        event_bus=Mock(),
+        guard_decorator=None,
+        behavior_tracker=None,
+    )
+    processor = BehavioralProcessor(context)
+
+    rule = BehaviorRule(rule_type="usage", threshold=5, window=60, action="ban")
+    route_config = create_route_config_with_rules([rule])
+
+    await processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
+
+    request_tracker.track_endpoint_usage.assert_awaited_once()
 
 
 async def test_process_return_rules_uses_context_behavior_tracker_when_present(

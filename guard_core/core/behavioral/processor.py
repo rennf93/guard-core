@@ -12,17 +12,24 @@ class BehavioralProcessor:
     def __init__(self, context: BehavioralContext) -> None:
         self.context = context
 
-    def _behavior_tracker(self) -> Any | None:
+    def _behavior_tracker(self, request: GuardRequest) -> Any | None:
+        # Adapters snapshot this context at construction, before the application
+        # attaches its decorator, so fall back to the per-request decorator the
+        # same way RouteConfigResolver does. Without it every behavioural rule is
+        # silently inert on a decorator-only setup.
         if self.context.behavior_tracker is not None:
             return self.context.behavior_tracker
-        if self.context.guard_decorator is not None:
-            return getattr(self.context.guard_decorator, "behavior_tracker", None)
+        guard_decorator = self.context.guard_decorator
+        if guard_decorator is None:
+            guard_decorator = getattr(request.state, "guard_decorator", None)
+        if guard_decorator is not None:
+            return getattr(guard_decorator, "behavior_tracker", None)
         return None
 
     async def process_usage_rules(
         self, request: GuardRequest, client_ip: str, route_config: RouteConfig
     ) -> None:
-        behavior_tracker = self._behavior_tracker()
+        behavior_tracker = self._behavior_tracker(request)
         if behavior_tracker is None:
             return
 
@@ -64,7 +71,7 @@ class BehavioralProcessor:
         client_ip: str,
         route_config: RouteConfig,
     ) -> None:
-        behavior_tracker = self._behavior_tracker()
+        behavior_tracker = self._behavior_tracker(request)
         if behavior_tracker is None:
             return
 
@@ -105,7 +112,7 @@ class BehavioralProcessor:
         client_ip: str,
         rules: list[BehaviorRule],
     ) -> None:
-        tracker = self._behavior_tracker()
+        tracker = self._behavior_tracker(request)
         if tracker is None:
             return
 

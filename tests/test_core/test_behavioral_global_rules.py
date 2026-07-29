@@ -48,6 +48,7 @@ def _make_request() -> MagicMock:
     request.url_path = "/x"
     request.state = MagicMock()
     request.state.guard_endpoint_id = None
+    request.state.guard_decorator = None
     return request
 
 

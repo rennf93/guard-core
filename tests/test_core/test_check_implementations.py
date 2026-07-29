@@ -28,9 +28,11 @@ from guard_core.core.checks.implementations.suspicious_activity import (
 )
 from guard_core.core.checks.implementations.time_window import TimeWindowCheck
 from guard_core.core.checks.implementations.user_agent import UserAgentCheck
+from guard_core.core.events.event_types import EVENT_ROUTE_UNRESOLVED
 from guard_core.decorators.base import RouteConfig
 from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 from tests.conftest import MockGuardRequest, MockGuardResponse
 
 _IMPL = "guard_core.core.checks.implementations"
@@ -101,6 +103,68 @@ async def test_route_config_check_sets_state() -> None:
     assert result is None
     assert req.state.route_config is rc
     assert req.state.client_ip == "1.2.3.4"
+
+
+async def _run_route_config_check(
+    mw: MagicMock, req: MockGuardRequest
+) -> GuardResponse | None:
+    check = RouteConfigCheck(mw)
+    with (
+        patch(
+            f"{_IMPL}.route_config.extract_client_ip",
+            new_callable=AsyncMock,
+            return_value="1.2.3.4",
+        ),
+        patch(f"{_IMPL}.route_config.log_activity", new_callable=AsyncMock),
+    ):
+        return await check.check(req)
+
+
+async def test_route_config_unresolved_route_allowed_by_default() -> None:
+    mw = _make_middleware()
+    req = MockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    assert await _run_route_config_check(mw, req) is None
+    mw.event_bus.send_middleware_event.assert_not_awaited()
+
+
+async def test_route_config_unresolved_route_blocked_when_strict() -> None:
+    mw = _make_middleware(route_resolution_strict=True)
+    mw.create_error_response = AsyncMock(
+        return_value=MockGuardResponse("unresolved", 500)
+    )
+    req = MockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    result = await _run_route_config_check(mw, req)
+
+    assert result is not None
+    assert result.status_code == 500
+    assert (
+        mw.event_bus.send_middleware_event.await_args.kwargs["event_type"]
+        == EVENT_ROUTE_UNRESOLVED
+    )
+
+
+async def test_route_config_undecorated_route_allowed_when_strict() -> None:
+    mw = _make_middleware(route_resolution_strict=True)
+    req = MockGuardRequest()
+
+    assert await _run_route_config_check(mw, req) is None
+    mw.event_bus.send_middleware_event.assert_not_awaited()
+
+
+async def test_route_config_unresolved_route_logged_only_in_passive_mode() -> None:
+    mw = _make_middleware(passive_mode=True, route_resolution_strict=True)
+    req = MockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    assert await _run_route_config_check(mw, req) is None
+    assert (
+        mw.event_bus.send_middleware_event.await_args.kwargs["action_taken"]
+        == "logged_only"
+    )
 
 
 async def test_emergency_mode_check_name() -> None:

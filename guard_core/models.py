@@ -385,6 +385,21 @@ class SecurityConfig(BaseModel):
         ),
     )
 
+    route_resolution_strict: bool = Field(
+        default=False,
+        description=(
+            "Block the request when the adapter reports that it could not "
+            "resolve the route, instead of running the pipeline with no "
+            "per-route config. A missing route config normally means the route "
+            "carries no decorators, so the default (False) preserves that and "
+            "lets undecorated routes and unrouted requests through. Set True "
+            "when every request must be attributable to a known route, so a "
+            "resolution failure cannot silently skip per-route checks - note "
+            "that this also turns requests to paths the app does not serve "
+            "into 500s instead of 404s."
+        ),
+    )
+
     ipinfo_token: str | None = Field(
         default=None,
         description="IPInfo API token for IP geolocation. Deprecated. "

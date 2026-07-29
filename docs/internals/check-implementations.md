@@ -15,7 +15,7 @@ Execution Order
 
 | #  | Check Name              | Class                     | Blocks? | Passive-Aware? |
 |----|-------------------------|---------------------------|---------|----------------|
-| 1  | `route_config`          | `RouteConfigCheck`        | Never   | N/A            |
+| 1  | `route_config`          | `RouteConfigCheck`        | Strict  | Yes            |
 | 2  | `emergency_mode`        | `EmergencyModeCheck`      | Yes     | Yes            |
 | 3  | `https_enforcement`     | `HttpsEnforcementCheck`   | Yes     | Yes            |
 | 4  | `request_logging`       | `RequestLoggingCheck`     | Never   | N/A            |
@@ -35,6 +35,8 @@ Execution Order
 
 **Passive-Aware** means the check respects `SecurityConfig.passive_mode` -- it logs and emits events but does not return a blocking response.
 
+**Strict** in the Blocks column means the check only blocks when a non-default setting turns it on; `route_config` blocks solely under `SecurityConfig.route_resolution_strict`.
+
 ___
 
 1. RouteConfigCheck
@@ -42,12 +44,14 @@ ___
 
 **Purpose**: Populates `request.state` with route configuration and client IP for all subsequent checks.
 
-**Blocks**: Never. Always returns `None`.
+**Blocks when**: `config.route_resolution_strict` is `True` and the adapter set `request.state.guard_route_unresolved`, meaning it could not match the request to a route. Off by default, in which case this check never blocks.
+
+**Response**: `500 Route resolution failed`, alongside a suspicious-activity log and a `route_unresolved` event. Under `passive_mode` the log and event still fire and the request proceeds.
 
 **What it does**:
 
 - Calls `middleware.route_resolver.get_route_config(request)` to resolve decorator-applied `RouteConfig`.
-- Sets `request.state.route_config` (may be `None` if no decorator is applied).
+- Sets `request.state.route_config`, which is `None` both when no decorator is applied and when the adapter could not resolve the route. Only the adapter can tell those apart, which is why it reports the second case separately -- see [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match).
 - Calls `extract_client_ip()` and sets `request.state.client_ip`.
 
 !!! important "Must Run First"

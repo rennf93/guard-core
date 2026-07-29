@@ -2,6 +2,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.implementations.authentication import (
     AuthenticationCheck,
 )
@@ -41,6 +42,7 @@ from guard_core.sync.core.checks.implementations.suspicious_activity import (
 )
 from guard_core.sync.core.checks.implementations.time_window import TimeWindowCheck
 from guard_core.sync.core.checks.implementations.user_agent import UserAgentCheck
+from guard_core.sync.core.events.event_types import EVENT_ROUTE_UNRESOLVED
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from tests.test_sync.conftest import MockGuardResponse, SyncMockGuardRequest
@@ -112,6 +114,67 @@ def test_route_config_check_sets_state() -> None:
     assert result is None
     assert req.state.route_config is rc
     assert req.state.client_ip == "1.2.3.4"
+
+
+def _run_route_config_check(
+    mw: MagicMock, req: SyncMockGuardRequest
+) -> GuardResponse | None:
+    check = RouteConfigCheck(mw)
+    with (
+        patch(
+            f"{_IMPL}.route_config.extract_client_ip",
+            return_value="1.2.3.4",
+        ),
+        patch(f"{_IMPL}.route_config.log_activity"),
+    ):
+        return check.check(req)
+
+
+def test_route_config_unresolved_route_allowed_by_default() -> None:
+    mw = _make_middleware()
+    req = SyncMockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    assert _run_route_config_check(mw, req) is None
+    mw.event_bus.send_middleware_event.assert_not_called()
+
+
+def test_route_config_unresolved_route_blocked_when_strict() -> None:
+    mw = _make_middleware(route_resolution_strict=True)
+    mw.create_error_response = MagicMock(
+        return_value=MockGuardResponse("unresolved", 500)
+    )
+    req = SyncMockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    result = _run_route_config_check(mw, req)
+
+    assert result is not None
+    assert result.status_code == 500
+    assert (
+        mw.event_bus.send_middleware_event.call_args.kwargs["event_type"]
+        == EVENT_ROUTE_UNRESOLVED
+    )
+
+
+def test_route_config_undecorated_route_allowed_when_strict() -> None:
+    mw = _make_middleware(route_resolution_strict=True)
+    req = SyncMockGuardRequest()
+
+    assert _run_route_config_check(mw, req) is None
+    mw.event_bus.send_middleware_event.assert_not_called()
+
+
+def test_route_config_unresolved_route_logged_only_in_passive_mode() -> None:
+    mw = _make_middleware(passive_mode=True, route_resolution_strict=True)
+    req = SyncMockGuardRequest()
+    req.state.guard_route_unresolved = True
+
+    assert _run_route_config_check(mw, req) is None
+    assert (
+        mw.event_bus.send_middleware_event.call_args.kwargs["action_taken"]
+        == "logged_only"
+    )
 
 
 def test_emergency_mode_check_name() -> None:

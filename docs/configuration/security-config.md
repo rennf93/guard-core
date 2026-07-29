@@ -21,6 +21,7 @@ Core Settings
 | `enforce_https`           | `bool`                      | `False`  | Redirect HTTP requests to HTTPS globally.              |
 | `custom_request_check`    | `Callable \| None`          | `None`   | Global async function for custom request validation.   |
 | `custom_response_modifier`| `Callable \| None`          | `None`   | Global async function to modify responses.             |
+| `route_resolution_strict` | `bool`                      | `False`  | Block with `500` when the adapter reports it could not resolve the route, instead of running the pipeline with no per-route config. Also turns requests to paths the app does not serve into `500`s rather than `404`s. See [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match). |
 
 **Default `exclude_paths`**: `["/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/favicon.ico", "/static"]`
 
