@@ -10,6 +10,22 @@ Release Notes
 
 ___
 
+v3.6.0 (2026-07-28)
+-------------------
+
+SQL comment-terminator detection (v3.6.0)
+------------------------------------------
+
+### Behaviour changes
+
+- Requests carrying a closing quote followed by a SQL comment — `admin'--`, `1'--`, `admin'#`, `admin')--` — are now detected as `sqli` and blocked. Values that previously reached your routes may now be rejected. The match requires the quote and the comment marker to be adjacent (optionally separated by whitespace, `)` or `;`), and `#` must end the value, so quoted fragments such as `querySelector('#app')` and `href='#top'` are unaffected.
+
+### Fixed
+
+- Closed a SQL-injection detection gap: the authentication-bypass form that closes a string literal and comments out the rest of the statement (`WHERE user='admin'--' AND pass='...'`) passed detection. The tautology variants (`' OR '1'='1`) were already covered, but no pattern matched a quote followed by a comment terminator. The attack-simulation baseline is unchanged (`detection_rate` 0.857, `fp_rate` 0.000 across all benign categories).
+
+___
+
 v3.5.0 (2026-07-15)
 -------------------
 

@@ -111,6 +111,24 @@ def test_union_select_null_still_matches_real_sqli() -> None:
     assert rx.search("( select version())")
 
 
+def test_quote_comment_matches_authentication_bypass() -> None:
+    rx = _compiled("sqli", r"(?:--|#\s*$)")
+    assert rx.search("admin'--")
+    assert rx.search("1'--")
+    assert rx.search("admin'#")
+    assert rx.search("admin')--")
+    assert rx.search("1'; --")
+    assert rx.search("admin'-- -")
+
+
+def test_quote_comment_ignores_quoted_fragments_and_prose() -> None:
+    rx = _compiled("sqli", r"(?:--|#\s*$)")
+    assert not rx.search("document.querySelector('#app')")
+    assert not rx.search("href='#top'")
+    assert not rx.search("I'll select a few items from the catalog")
+    assert not rx.search("O'Brien")
+
+
 def test_union_select_null_resists_unterminated_separator_padding() -> None:
     rx = _compiled("sqli", r"NULL(?:[,\s]*NULL)*")
     sizes = [4000, 8000, 16000]
