@@ -1,7 +1,7 @@
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import maxminddb
 import pytest
@@ -129,7 +129,13 @@ async def test_database_retry_success(tmp_path: Path) -> None:
 
         assert call_count == 2
         mock_file.write.assert_called_with(b"test data")
-        mock_sleep.assert_called_once_with(1)
+        # Membership, not assert_called_once_with: patching sleep replaces the
+        # attribute on the shared module, so this mock records every sleep in
+        # the process, including background handler threads left running by
+        # earlier tests (dynamic_rule_handler's updater loops on
+        # sleep(dynamic_rule_interval), and a mocked sleep returns instantly,
+        # so it spins). call_count above already pins the retry to exactly one.
+        assert call(1) in mock_sleep.call_args_list
 
 
 def test_db_age_check(tmp_path: Path) -> None:
