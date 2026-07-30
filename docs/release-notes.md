@@ -10,6 +10,23 @@ Release Notes
 
 ___
 
+v3.7.1 (2026-07-30)
+-------------------
+
+Detect when the app server has already resolved the client from X-Forwarded-For (v3.7.1)
+-----------------------------------------------------------------------------------------
+
+### Added
+
+- A one-time warning when the connecting IP appears inside its own `X-Forwarded-For` chain. ASGI/WSGI servers apply forwarded headers before any middleware runs — uvicorn defaults to `proxy_headers=True` with `forwarded_allow_ips="127.0.0.1"`, and a same-host reverse proxy always connects from loopback — so `request.client_host`, which `extract_client_ip` uses for the entire `trusted_proxies` decision, may already have been rewritten from the header. A genuine proxy appends the address it received the connection from and never lists its own, so the connecting IP turning up among the header's entries means something upstream resolved it first. Two consequences this surfaces: with `trusted_proxies` unset — documented as "no declared proxy, so `X-Forwarded-For` is never trusted" — the returned address is whatever the client claimed, so a rotating header defeats rate limiting and IP banning entirely; and once the server has pre-resolved the peer it no longer matches a declared proxy, so legitimate traffic trips the spoofing branch and emits `spoofing_detected` on every request. Verified end to end with `trusted_proxies` unset at `rate_limit=3/60s`, one caller rotating `X-Forwarded-For`: 12 of 12 requests were served under uvicorn's default, versus 3 served and 9 rate-limited with `--no-proxy-headers`. The remediation is to disable the server's own handling (`uvicorn --no-proxy-headers`, or `proxy_headers=False` in `uvicorn.run`; gunicorn, hypercorn and WSGI servers have equivalent settings) and declare the proxy through `trusted_proxies` / `trusted_proxy_depth` so guard-core is the single authority. Same bug class as [GHSA-77q8-qmj7-x7pp](https://github.com/rennf93/fastapi-guard/security/advisories/GHSA-77q8-qmj7-x7pp) / CVE-2025-46814, one layer further out.
+- Deployment guidance in `docs/internals/ip-management.md` and a cross-reference in `docs/configuration/security-config.md`. Neither guard-core nor its adapters previously mentioned the app server's forwarded-header handling anywhere.
+
+### Behaviour changes
+
+- None. This release is observability only: `extract_client_ip` returns exactly what it returned before in every case, the existing spoof warning and `spoofing_detected` event are unchanged, and the new warning is emitted at most once per process. The true socket peer cannot be recovered once the server has overwritten it, so guard-core reports the condition rather than pretending to repair it.
+
+___
+
 v3.7.0 (2026-07-29)
 -------------------
 
