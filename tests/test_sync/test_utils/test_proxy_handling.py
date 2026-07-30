@@ -4,8 +4,14 @@ from unittest.mock import patch
 import pytest
 
 from guard_core.models import SecurityConfig
+from guard_core.sync import utils
 from guard_core.sync.utils import extract_client_ip
 from tests.test_sync.conftest import SyncMockGuardRequest
+
+
+@pytest.fixture(autouse=True)
+def _reset_forwarded_header_preemption_warning() -> None:
+    utils._forwarded_header_preemption_warned = False
 
 
 def test_extract_client_ip_without_trusted_proxies() -> None:
@@ -153,3 +159,102 @@ def test_extract_client_ip_untrusted_without_forwarded() -> None:
 
     ip = extract_client_ip(request, config)
     assert ip == "127.0.0.1"
+
+
+PREEMPTION_WARNING_TEXT = "already appears inside its own X-Forwarded-For chain"
+
+
+def test_preemption_warning_fires_when_trusted_proxies_unset(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig()
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "9.9.0.1"},
+        client_host="9.9.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "9.9.0.1"
+    assert PREEMPTION_WARNING_TEXT in caplog.text
+
+
+def test_preemption_warning_fires_in_untrusted_peer_branch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["10.0.0.1"])
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "9.9.0.1, 1.2.3.4"},
+        client_host="9.9.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "9.9.0.1"
+    assert PREEMPTION_WARNING_TEXT in caplog.text
+    assert "Potential IP spoof attempt" in caplog.text
+
+
+def test_preemption_warning_absent_without_forwarded_header(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig()
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={},
+        client_host="9.9.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "9.9.0.1"
+    assert PREEMPTION_WARNING_TEXT not in caplog.text
+
+
+def test_preemption_warning_absent_when_peer_not_in_chain(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig()
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "1.2.3.4"},
+        client_host="127.0.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "127.0.0.1"
+    assert PREEMPTION_WARNING_TEXT not in caplog.text
+
+
+def test_preemption_warning_emitted_at_most_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig()
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            request = SyncMockGuardRequest(
+                path="/",
+                method="GET",
+                headers={"X-Forwarded-For": "9.9.0.1"},
+                client_host="9.9.0.1",
+            )
+            ip = extract_client_ip(request, config)
+            assert ip == "9.9.0.1"
+
+    assert caplog.text.count(PREEMPTION_WARNING_TEXT) == 1

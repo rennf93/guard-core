@@ -44,6 +44,9 @@ Proxy Configuration
 - `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range.
 - `trusted_proxy_depth`: Must be >= 1.
 
+!!! warning "Your app server must not pre-resolve the client itself"
+    Leaving `trusted_proxies` unset only means "`X-Forwarded-For` is never trusted" if your ASGI/WSGI server isn't already applying that header before guard-core runs. uvicorn's default `proxy_headers=True` (and equivalent settings in Gunicorn/Hypercorn) does exactly that. See [Deployment Prerequisite](../internals/ip-management.md#deployment-prerequisite-disable-the-app-servers-own-forwarded-header-handling) for the fix.
+
 ___
 
 IP Management

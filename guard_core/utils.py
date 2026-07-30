@@ -185,6 +185,37 @@ def _is_private_or_loopback(ip: str) -> bool:
     return addr.is_private or addr.is_loopback or addr.is_link_local
 
 
+_forwarded_header_preemption_warned = False
+
+
+def _warn_forwarded_header_preempted(
+    connecting_ip: str, forwarded_for: str | None
+) -> None:
+    global _forwarded_header_preemption_warned
+    if _forwarded_header_preemption_warned or not forwarded_for:
+        return
+
+    entries = [ip.strip() for ip in forwarded_for.split(",")]
+    if connecting_ip not in entries:
+        return
+
+    _forwarded_header_preemption_warned = True
+    logger.warning(
+        "The connecting IP (%s) already appears inside its own "
+        "X-Forwarded-For chain: the application server resolved the client "
+        "from that header before guard-core ever ran, most likely because "
+        "the server's own forwarded-header handling is enabled (uvicorn "
+        "defaults to proxy_headers=True). While that is on, trusted_proxies "
+        "does not mean 'X-Forwarded-For is never trusted' - even leaving it "
+        "unset. Disable it at the server (`uvicorn --no-proxy-headers`, or "
+        "`proxy_headers=False` in uvicorn.run; gunicorn/hypercorn/WSGI "
+        "servers have equivalent settings) and declare the proxy via "
+        "trusted_proxies / trusted_proxy_depth so guard-core is the single "
+        "authority. This warning is logged once.",
+        _sanitize_for_log(connecting_ip),
+    )
+
+
 async def extract_client_ip(
     request: GuardRequest,
     config: Any,
@@ -201,12 +232,14 @@ async def extract_client_ip(
     forwarded_for = request.headers.get("X-Forwarded-For")
 
     if not config.trusted_proxies:
+        _warn_forwarded_header_preempted(connecting_ip, forwarded_for)
         return connecting_ip
 
     is_trusted = _is_trusted_proxy(connecting_ip, config.trusted_proxies)
 
     if not is_trusted:
         if forwarded_for:
+            _warn_forwarded_header_preempted(connecting_ip, forwarded_for)
             safe_forwarded_for = _sanitize_for_log(forwarded_for)
             log_fn = (
                 logger.debug
