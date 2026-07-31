@@ -239,15 +239,17 @@ PerformanceMonitor(
     slow_pattern_threshold: float = 0.1,
     history_size: int = 1000,
     max_tracked_patterns: int = 1000,
+    anomaly_emission_cooldown: float = 60.0,
 )
 ```
 
-| Parameter                | Description                                     | Bounds       |
-|--------------------------|-------------------------------------------------|--------------|
-| `anomaly_threshold`      | Z-score threshold for statistical anomalies     | 1.0 - 10.0  |
-| `slow_pattern_threshold` | Seconds to consider a pattern slow              | 0.01 - 10.0 |
-| `history_size`           | Recent metrics to retain                        | 100 - 10,000 |
-| `max_tracked_patterns`   | Maximum unique patterns to track                | 100 - 5,000  |
+| Parameter                    | Description                                     | Bounds       |
+|-------------------------------|-------------------------------------------------|--------------|
+| `anomaly_threshold`           | Z-score threshold for statistical anomalies     | 1.0 - 10.0  |
+| `slow_pattern_threshold`      | Seconds to consider a pattern slow              | 0.01 - 10.0 |
+| `history_size`                | Recent metrics to retain                        | 100 - 10,000 |
+| `max_tracked_patterns`        | Maximum unique patterns to track                | 100 - 5,000  |
+| `anomaly_emission_cooldown`   | Seconds a pattern must wait before it can emit another anomaly event | 1.0 - 3,600.0 |
 
 ### Metric Recording
 
@@ -274,7 +276,9 @@ Three types of anomalies are detected after each metric recording:
 | `slow_execution`    | Execution time > `slow_pattern_threshold` (without timeout)     |
 | `statistical_anomaly` | Z-score of execution time > `anomaly_threshold` (needs >= 10 samples) |
 
-Detected anomalies are sent as events to the agent handler and forwarded to registered callbacks.
+`statistical_anomaly` only trips when the execution is slower than its pattern's rolling average; a faster-than-usual run is never reported.
+
+Detected anomalies are forwarded to every registered callback on every trip. Sending the anomaly as an event to the agent handler is rate-limited per pattern by `anomaly_emission_cooldown`: once a pattern has emitted an event, it will not emit another until the cooldown elapses, so a host-wide stall (GC pause, cron job, CPU contention) that makes every tracked pattern trip at once produces one event per pattern instead of a burst. A pattern that is genuinely and consistently slow still reports, just at most once per cooldown window.
 
 ### Diagnostics
 

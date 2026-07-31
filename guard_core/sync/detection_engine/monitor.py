@@ -1,4 +1,5 @@
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ class PatternStats:
     max_execution_time: float = 0.0
     min_execution_time: float = float("inf")
     recent_times: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+    last_anomaly_emitted_at: float | None = None
 
 
 class PerformanceMonitor:
@@ -35,6 +37,7 @@ class PerformanceMonitor:
         slow_pattern_threshold: float = 0.1,
         history_size: int = 1000,
         max_tracked_patterns: int = 1000,
+        anomaly_emission_cooldown: float = 60.0,
     ):
         self.anomaly_threshold = max(1.0, min(10.0, float(anomaly_threshold)))
         self.slow_pattern_threshold = max(
@@ -42,6 +45,9 @@ class PerformanceMonitor:
         )
         self.history_size = max(100, min(10000, int(history_size)))
         self.max_tracked_patterns = max(100, min(5000, int(max_tracked_patterns)))
+        self.anomaly_emission_cooldown = max(
+            1.0, min(3600.0, float(anomaly_emission_cooldown))
+        )
 
         self.pattern_stats: dict[str, PatternStats] = {}
         self.recent_metrics: deque[PerformanceMetric] = deque(maxlen=history_size)
@@ -139,7 +145,7 @@ class PerformanceMonitor:
             return None
 
         z_score = (metric.execution_time - avg_time) / std_time
-        if abs(z_score) > self.anomaly_threshold:
+        if z_score > self.anomaly_threshold:
             return {
                 "type": "statistical_anomaly",
                 "pattern": metric.pattern,
@@ -227,6 +233,21 @@ class PerformanceMonitor:
                         e, safe_anomaly, agent_handler, correlation_id
                     )
 
+    def _reserve_anomaly_emission(self, pattern: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            stats = self.pattern_stats.get(pattern)
+            if stats is None:
+                return True
+            last_emitted_at = stats.last_anomaly_emitted_at
+            if (
+                last_emitted_at is not None
+                and now - last_emitted_at < self.anomaly_emission_cooldown
+            ):
+                return False
+            stats.last_anomaly_emitted_at = now
+            return True
+
     def _check_anomalies(
         self,
         metric: PerformanceMetric,
@@ -247,9 +268,10 @@ class PerformanceMonitor:
         if statistical_anomaly:
             anomalies.append(statistical_anomaly)
 
-        if agent_handler:
-            for anomaly in anomalies:
-                self._send_anomaly_event(anomaly, agent_handler, correlation_id)
+        if agent_handler and anomalies:
+            if self._reserve_anomaly_emission(metric.pattern):
+                for anomaly in anomalies:
+                    self._send_anomaly_event(anomaly, agent_handler, correlation_id)
 
         for anomaly in anomalies:
             self._notify_callbacks(anomaly, agent_handler, correlation_id)

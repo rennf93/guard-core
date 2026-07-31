@@ -591,3 +591,41 @@ def test_build_event_filter(security_config: SecurityConfig) -> None:
     assert isinstance(result, EventFilter)
     assert result.muted_event_types == frozenset({"penetration_attempt"})
     assert result.muted_metric_types == frozenset({"response_time"})
+
+
+def test_get_initialization_status_reports_cloud_and_geo(
+    initializer: HandlerInitializer, mock_geo_ip_handler: Mock
+) -> None:
+    mock_geo_ip_handler.get_status = Mock(
+        return_value={"ready": True, "last_refreshed": None, "entries": 5}
+    )
+
+    status = initializer.get_initialization_status()
+
+    assert "cloud_providers" in status
+    assert status["geo_ip"] == {"ready": True, "last_refreshed": None, "entries": 5}
+
+
+def test_get_initialization_status_falls_back_without_get_status_method(
+    security_config: SecurityConfig,
+) -> None:
+    geo_ip_handler = Mock(spec=["is_initialized"])
+    geo_ip_handler.is_initialized = True
+    initializer = HandlerInitializer(
+        config=security_config, geo_ip_handler=geo_ip_handler
+    )
+
+    status = initializer.get_initialization_status()
+
+    assert status["geo_ip"] == {"ready": True, "last_refreshed": None, "entries": 0}
+
+
+def test_get_initialization_status_geo_none_when_no_geo_handler(
+    security_config: SecurityConfig,
+) -> None:
+    initializer = HandlerInitializer(config=security_config, geo_ip_handler=None)
+
+    status = initializer.get_initialization_status()
+
+    assert status["geo_ip"] is None
+    assert "cloud_providers" in status

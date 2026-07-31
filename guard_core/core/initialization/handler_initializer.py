@@ -33,6 +33,26 @@ class HandlerInitializer:
         self._lazy_init_task: asyncio.Task[None] | None = None
         self.logger = logging.getLogger("guard_core.core.initialization")
 
+    def get_initialization_status(self) -> dict[str, Any]:
+        from guard_core.handlers.cloud_handler import cloud_handler
+
+        geo_status: dict[str, Any] | None = None
+        if self.geo_ip_handler is not None:
+            status_getter = getattr(self.geo_ip_handler, "get_status", None)
+            if callable(status_getter):
+                geo_status = status_getter()
+            else:
+                geo_status = {
+                    "ready": self.geo_ip_handler.is_initialized,
+                    "last_refreshed": None,
+                    "entries": 0,
+                }
+
+        return {
+            "cloud_providers": cloud_handler.get_status(),
+            "geo_ip": geo_status,
+        }
+
     def build_enricher(self) -> Any | None:
         if not self.config.enable_enrichment:
             return None
@@ -155,10 +175,21 @@ class HandlerInitializer:
 
         sus_patterns_handler.configure(self.config)
 
+    def _warn_if_lazy_init_is_inert(self) -> None:
+        if not (self.config.block_cloud_providers or self.geo_ip_handler is not None):
+            return
+        self.logger.warning(
+            "lazy_init has no effect without Redis (enable_redis=True and a "
+            "redis_handler); cloud-IP ranges and the geo-IP database will "
+            "initialize through their own on-demand paths regardless of "
+            "lazy_init's value."
+        )
+
     async def initialize_redis_handlers(self) -> None:
         self._configure_detection()
 
         if not (self.config.enable_redis and self.redis_handler):
+            self._warn_if_lazy_init_is_inert()
             return
 
         await self.redis_handler.initialize()

@@ -140,11 +140,26 @@ async def _check_whitelist(ip_addr, ip, config) -> bool:
 
 ### Country Check
 
-Uses the `GeoIPHandler` protocol to resolve the country code for an IP, then checks it against `config.blocked_countries` and `config.whitelist_countries`.
+Uses the `GeoIPHandler` protocol to resolve the country code for an IP, then checks it against `config.blocked_countries` and `config.whitelist_countries`. If the country cannot be resolved (reader uninitialized, lookup failure, or unrecognized IP), `check_ip_country` returns `False` — not blocked — the same as when no country rules are configured; this is deliberate fail-open behaviour and is covered by a dedicated regression test.
 
 ### Cloud Provider Check
 
-Delegates to `CloudManager.is_cloud_ip()` to check if the IP belongs to a blocked cloud provider.
+Delegates to `CloudManager.is_cloud_ip()` to check if the IP belongs to a blocked cloud provider. Before the provider's ranges are populated, `is_cloud_ip()` fails open the same way — `False`, not blocked — and logs a rate-limited `WARNING` so the window is visible instead of silent; see [Provider Status](../configuration/security-config.md#provider-status).
+
+### Provider Status
+
+`IPInfoManager.get_status()` reports the same three fields as [`CloudManager.get_status()`](cloud-providers.md#provider-status) — `ready`, `last_refreshed`, `entries` — so a caller polling both subsystems gets a uniform shape:
+
+```python
+def get_status(self) -> dict[str, Any]:
+    return {
+        "ready": self.is_initialized,
+        "last_refreshed": self.last_refreshed,
+        "entries": self.entry_count,
+    }
+```
+
+`entries` is `reader.metadata().node_count` — a cheap, already-in-memory count of nodes in the loaded MMDB search tree — and `0` while `reader` is `None`. `last_refreshed` is set on every successful `initialize()`/`refresh()` and stays at its last value if a later refresh fails, so `ready=False` with a non-`None` `last_refreshed` means "this used to work." `HandlerInitializer.get_initialization_status()` combines this with `CloudManager.get_status()` into one payload.
 
 ___
 

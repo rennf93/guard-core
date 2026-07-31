@@ -387,9 +387,8 @@ class SusPatternsManager:
         ),
         (r"^/(?:language|languages)/", _CTX_RECON, "recon"),
         (
-            r"(?:^|/)(?:robots\.txt|sitemap\.xml|security\.txt|readme\.txt"
-            r"|README\.md|CHANGELOG|pom\.xml|build\.gradle|appsettings\.json"
-            r"|crossdomain\.xml)(?:\?|$|\.)",
+            r"(?:^|/)(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
+            r"|build\.gradle|appsettings\.json|crossdomain\.xml)(?:\?|$|\.)",
             _CTX_RECON,
             "recon",
         ),

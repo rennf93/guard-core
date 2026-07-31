@@ -118,10 +118,16 @@ class PerformanceMonitor:
         slow_pattern_threshold: float = 0.1,
         history_size: int = 1000,
         max_tracked_patterns: int = 1000,
+        anomaly_emission_cooldown: float = 60.0,
     ):
         """
         Track pattern execution performance and detect anomalies.
         anomaly_threshold is clamped to 1.0-10.0.
+        A statistical anomaly only fires when execution is slower than
+        the pattern's rolling average, never when it is faster.
+        anomaly_emission_cooldown (clamped to 1.0-3600.0 seconds) rate-limits,
+        per pattern, how often a tripped anomaly is sent as an event to the
+        agent handler; registered callbacks still run on every trip.
         """
 
     async def record_metric(

@@ -68,7 +68,7 @@ Minimum score from the `SemanticAnalyzer` to classify content as a threat. The s
 
 **Type**: `float` | **Default**: `3.0` | **Range**: 1.0 - 10.0
 
-Number of standard deviations from the mean execution time to flag a pattern as anomalous. This tracks performance anomalies, not security threats.
+Number of standard deviations slower than the mean execution time to flag a pattern as anomalous; a faster-than-average execution is never flagged. This tracks performance anomalies, not security threats. Anomaly events sent to the agent handler are additionally rate-limited per pattern by `PerformanceMonitor`'s `anomaly_emission_cooldown` (default 60s), so a host-wide stall cannot burst thousands of events at once — see `docs/internals/detection-engine.md`.
 
 | Value    | Tradeoff                                                     |
 |----------|--------------------------------------------------------------|

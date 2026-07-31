@@ -235,6 +235,20 @@ async def test_check_ip_country_no_country_found(
     assert not result
 
 
+async def test_check_ip_country_regression_returns_false_when_country_unresolvable(
+    security_config: SecurityConfig,
+) -> None:
+    mock_ipinfo = Mock()
+    mock_ipinfo.is_initialized = True
+    mock_ipinfo.get_country.return_value = None
+
+    security_config.blocked_countries = frozenset({"CN"})
+
+    result = await check_ip_country("1.1.1.1", security_config, mock_ipinfo)
+
+    assert result is False
+
+
 async def test_check_ip_country_no_countries_configured(
     caplog: Any,
 ) -> None:
