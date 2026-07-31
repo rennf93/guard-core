@@ -214,3 +214,46 @@ async def test_detect_custom_patterns_run_regardless_of_enabled_categories(
         assert result["is_threat"] is True
     finally:
         await manager.remove_pattern(r"custom_marker_ABC", custom=True)
+
+
+async def _detected_recon_categories(
+    manager: SusPatternsManager, path: str
+) -> list[str]:
+    result = await manager.detect(path, "127.0.0.1", context="url_path")
+    return [t["category"] for t in result["threats"] if t["category"] == "recon"]
+
+
+async def test_recon_pattern_does_not_flag_robots_txt(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/robots.txt") == []
+
+
+async def test_recon_pattern_does_not_flag_sitemap_xml(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/sitemap.xml") == []
+
+
+async def test_recon_pattern_does_not_flag_security_txt(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/security.txt") == []
+
+
+async def test_recon_pattern_still_flags_appsettings_json(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/appsettings.json") == ["recon"]
+
+
+async def test_recon_pattern_still_flags_pom_xml(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/pom.xml") == ["recon"]
+
+
+async def test_recon_pattern_still_flags_readme_md(
+    manager: SusPatternsManager,
+) -> None:
+    assert await _detected_recon_categories(manager, "/README.md") == ["recon"]

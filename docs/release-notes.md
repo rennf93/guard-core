@@ -10,6 +10,24 @@ Release Notes
 
 ___
 
+v3.8.0 (2026-07-31)
+-------------------
+
+Stop the anomaly telemetry burst and two recon false positives (v3.8.0)
+-------------------------------------------------------------------------
+
+### Fixed
+
+- `PerformanceMonitor._detect_statistical_anomaly` compared `abs(z_score)` against `anomaly_threshold`, so a pattern running faster than its own rolling average tripped `statistical_anomaly` exactly as often as one running slower. A regex finishing early is not an anomaly; only `z_score > anomaly_threshold` (slower than average) is checked now.
+- Anomaly-event emission had no rate limiting: `_check_anomalies` sent a `pattern_anomaly_*` event to the agent handler for every tripping metric, so a single host-wide stall (GC pause, cron job, backup, noisy-neighbour CPU contention) that inflated every tracked pattern's execution time at once produced one event per pattern, all sharing a timestamp. A production customer reported thousands of `pattern_anomaly_statistical_anomaly` events from a single incident, which also consumed their metered event quota. `PerformanceMonitor` now takes a new `anomaly_emission_cooldown` constructor parameter (default `60.0` seconds, clamped `1.0`-`3600.0`) tracked per pattern on `PatternStats`; once a pattern emits an anomaly event it will not emit another until the cooldown elapses, while a pattern that is genuinely and continuously slow still reports, just at most once per window. The cooldown state lives inside the same `PatternStats` entry that `max_tracked_patterns` already evicts, so it cannot accumulate unbounded memory. Callbacks registered via `register_anomaly_callback` are unaffected by the cooldown and still run on every trip — they execute in-process at no quota cost, and applications may depend on per-execution granularity (for example, a local circuit breaker).
+- The builtin `recon` regex flagged requests for `robots.txt`, `sitemap.xml`, and `security.txt` as reconnaissance. All three are standards-defined files meant to be fetched publicly — `robots.txt` is RFC 9309, `sitemap.xml` is the sitemaps.org protocol and is deliberately submitted to search engines, `security.txt` is RFC 9116 and exists specifically so security researchers can find it — and every crawler, browser, link-preview fetcher, and mobile app requests them as routine behaviour. A production customer had their own phone flagged as a high-severity threat for fetching `/robots.txt` from their own site. The three entries are removed from the alternation; `readme.txt`, `README.md`, `CHANGELOG`, `pom.xml`, `build.gradle`, `appsettings.json`, and `crossdomain.xml` remain, since those are genuine information-disclosure signals rather than standards-defined public files.
+
+### Behaviour changes
+
+- Requests for `/robots.txt`, `/sitemap.xml`, and `/security.txt` no longer match the `recon` category; the other entries in that pattern are unaffected. Only slower-than-average pattern executions can trip `statistical_anomaly` — faster ones, previously flagged too, no longer are. `pattern_anomaly_*` events sent to the agent handler are now rate-limited to at most one per pattern per `anomaly_emission_cooldown` window (default 60s); this does not change `anomaly_callbacks` behaviour, `timeout`/`slow_execution` detection, or the `get_problematic_patterns`/`get_slow_patterns` diagnostics.
+
+___
+
 v3.7.1 (2026-07-30)
 -------------------
 

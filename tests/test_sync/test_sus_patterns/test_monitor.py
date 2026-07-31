@@ -1,7 +1,7 @@
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from guard_core.sync.detection_engine.monitor import (
     PatternStats,
@@ -16,6 +16,7 @@ def test_initialization() -> None:
     assert monitor.slow_pattern_threshold == 0.1
     assert monitor.history_size == 1000
     assert monitor.max_tracked_patterns == 1000
+    assert monitor.anomaly_emission_cooldown == 60.0
     assert len(monitor.pattern_stats) == 0
     assert len(monitor.recent_metrics) == 0
     assert len(monitor.anomaly_callbacks) == 0
@@ -25,11 +26,13 @@ def test_initialization() -> None:
         slow_pattern_threshold=0.5,
         history_size=500,
         max_tracked_patterns=200,
+        anomaly_emission_cooldown=30.0,
     )
     assert monitor.anomaly_threshold == 5.0
     assert monitor.slow_pattern_threshold == 0.5
     assert monitor.history_size == 500
     assert monitor.max_tracked_patterns == 200
+    assert monitor.anomaly_emission_cooldown == 30.0
 
 
 def test_initialization_bounds() -> None:
@@ -38,22 +41,26 @@ def test_initialization_bounds() -> None:
         slow_pattern_threshold=0.001,
         history_size=50,
         max_tracked_patterns=50,
+        anomaly_emission_cooldown=0.1,
     )
     assert monitor.anomaly_threshold == 1.0
     assert monitor.slow_pattern_threshold == 0.01
     assert monitor.history_size == 100
     assert monitor.max_tracked_patterns == 100
+    assert monitor.anomaly_emission_cooldown == 1.0
 
     monitor = PerformanceMonitor(
         anomaly_threshold=20.0,
         slow_pattern_threshold=20.0,
         history_size=20000,
         max_tracked_patterns=10000,
+        anomaly_emission_cooldown=10000.0,
     )
     assert monitor.anomaly_threshold == 10.0
     assert monitor.slow_pattern_threshold == 10.0
     assert monitor.history_size == 10000
     assert monitor.max_tracked_patterns == 5000
+    assert monitor.anomaly_emission_cooldown == 3600.0
 
 
 def test_record_metric_pattern_truncation() -> None:
@@ -598,6 +605,7 @@ def test_pattern_stats_dataclass() -> None:
     assert stats.min_execution_time == float("inf")
     assert isinstance(stats.recent_times, deque)
     assert stats.recent_times.maxlen == 100
+    assert stats.last_anomaly_emitted_at is None
 
 
 def test_performance_metric_dataclass() -> None:
@@ -755,3 +763,210 @@ def test_remove_pattern_stats_noop_for_unknown_pattern() -> None:
     # pattern not in stats — the `if pattern in self.pattern_stats:` False branch.
     monitor.remove_pattern_stats("nonexistent")
     assert "nonexistent" not in monitor.pattern_stats
+
+
+def test_statistical_anomaly_ignores_faster_than_average_execution() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0)
+
+    pattern = "fast_regression_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times = deque([0.1] * 19 + [0.001], maxlen=100)
+    monitor.pattern_stats[pattern] = stats
+
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.001,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    result = monitor._detect_statistical_anomaly(metric)
+
+    assert result is None
+
+
+def test_statistical_anomaly_detects_slower_than_average_execution() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0)
+
+    pattern = "slow_regression_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times = deque([0.001] * 19 + [0.1], maxlen=100)
+    monitor.pattern_stats[pattern] = stats
+
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.1,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    result = monitor._detect_statistical_anomaly(metric)
+
+    assert result is not None
+    assert result["type"] == "statistical_anomaly"
+    assert result["z_score"] > 2.0
+
+
+def test_check_anomalies_statistical_ignores_fast_execution() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0)
+
+    anomalies_detected = []
+
+    def anomaly_callback(anomaly: dict[str, Any]) -> None:
+        anomalies_detected.append(anomaly)
+
+    monitor.register_anomaly_callback(anomaly_callback)
+
+    pattern = "fast_stat_pattern"
+    for _ in range(20):
+        monitor.record_metric(
+            pattern=pattern,
+            execution_time=0.01,
+            content_length=100,
+            matched=False,
+        )
+
+    anomalies_detected.clear()
+
+    monitor.record_metric(
+        pattern=pattern,
+        execution_time=0.001,
+        content_length=100,
+        matched=False,
+    )
+
+    assert len(anomalies_detected) == 0
+
+
+def test_cooldown_suppresses_burst_for_same_pattern() -> None:
+    monitor = PerformanceMonitor(
+        slow_pattern_threshold=0.05, anomaly_emission_cooldown=60.0
+    )
+    agent_handler = MagicMock()
+    agent_handler.send_event = MagicMock()
+
+    with patch("time.monotonic", return_value=1000.0):
+        for _ in range(5):
+            monitor.record_metric(
+                pattern="stall_pattern",
+                execution_time=0.5,
+                content_length=100,
+                matched=False,
+                agent_handler=agent_handler,
+            )
+
+    assert agent_handler.send_event.call_count == 1
+
+
+def test_cooldown_does_not_suppress_a_different_pattern() -> None:
+    monitor = PerformanceMonitor(
+        slow_pattern_threshold=0.05, anomaly_emission_cooldown=60.0
+    )
+    agent_handler = MagicMock()
+    agent_handler.send_event = MagicMock()
+
+    with patch("time.monotonic", return_value=2000.0):
+        monitor.record_metric(
+            pattern="pattern_a",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+        monitor.record_metric(
+            pattern="pattern_b",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+
+    assert agent_handler.send_event.call_count == 2
+
+
+def test_cooldown_allows_emission_again_after_window_elapses() -> None:
+    monitor = PerformanceMonitor(
+        slow_pattern_threshold=0.05, anomaly_emission_cooldown=60.0
+    )
+    agent_handler = MagicMock()
+    agent_handler.send_event = MagicMock()
+
+    clock = {"now": 3000.0}
+    with patch("time.monotonic", side_effect=lambda: clock["now"]):
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+
+        clock["now"] += 10.0
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+        assert agent_handler.send_event.call_count == 1
+
+        clock["now"] += 60.0
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+
+    assert agent_handler.send_event.call_count == 2
+
+
+def test_cooldown_state_does_not_survive_max_tracked_patterns_eviction() -> None:
+    monitor = PerformanceMonitor(
+        slow_pattern_threshold=0.05,
+        anomaly_emission_cooldown=60.0,
+        max_tracked_patterns=100,
+    )
+    agent_handler = MagicMock()
+    agent_handler.send_event = MagicMock()
+
+    with patch("time.monotonic", return_value=5000.0):
+        monitor.record_metric(
+            pattern="evictee",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+        assert agent_handler.send_event.call_count == 1
+
+        for i in range(100):
+            monitor.record_metric(
+                pattern=f"filler_{i:03d}",
+                execution_time=0.01,
+                content_length=100,
+                matched=False,
+            )
+
+        assert "evictee" not in monitor.pattern_stats
+
+        monitor.record_metric(
+            pattern="evictee",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+
+    assert agent_handler.send_event.call_count == 2
+
+
+def test_reserve_anomaly_emission_allows_untracked_pattern() -> None:
+    monitor = PerformanceMonitor()
+    assert monitor._reserve_anomaly_emission("never_recorded") is True

@@ -311,7 +311,7 @@ Detection Engine
 | `detection_max_content_length`      | `int`   | `10000` | 1000 - 100000 | Maximum content length for detection.        |
 | `detection_preserve_attack_patterns`| `bool`  | `True`  | N/A           | Preserve attack patterns during truncation.  |
 | `detection_semantic_threshold`      | `float` | `0.7`   | 0.0 - 1.0    | Threshold for semantic attack detection.     |
-| `detection_anomaly_threshold`       | `float` | `3.0`   | 1.0 - 10.0   | Std deviations for anomaly detection.        |
+| `detection_anomaly_threshold`       | `float` | `3.0`   | 1.0 - 10.0   | Std deviations slower than average to flag an anomaly (never faster). |
 | `detection_slow_pattern_threshold`  | `float` | `0.1`   | 0.01 - 1.0   | Seconds to consider a pattern slow.          |
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
