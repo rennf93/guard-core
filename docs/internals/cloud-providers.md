@@ -200,6 +200,24 @@ def get_cloud_provider_details(
 
 Same logic as `is_cloud_ip()` but returns a `(provider, network)` tuple on match, or `None`. This is used by the event system to include the matched provider and CIDR block in detection events.
 
+### Provider Status
+
+Before ranges are fetched, `ip_ranges[provider]` is an empty set and `is_cloud_ip()` trivially returns `False` for that provider — not blocked, but also not evaluated. The first `is_cloud_ip()` call to observe this logs a `WARNING` (rate-limited to at most once every `_EMPTY_RANGES_WARNING_COOLDOWN` seconds — 300 by default — per provider, so a busy server cannot turn this into a log flood), and `get_status()` makes the same condition queryable instead of only discoverable in logs:
+
+```python
+def get_status(self) -> dict[str, dict[str, Any]]:
+    return {
+        provider: {
+            "ready": bool(self.ip_ranges.get(provider)),
+            "last_refreshed": self.last_updated.get(provider),
+            "entries": len(self.ip_ranges.get(provider, set())),
+        }
+        for provider in _ALL_PROVIDERS
+    }
+```
+
+`ready` reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows `ready=False` again while `last_refreshed` still shows the last time it worked. See [Provider Status](../configuration/security-config.md#provider-status) for the combined cloud + geo-IP payload via `HandlerInitializer.get_initialization_status()`.
+
 ___
 
 Refresh Intervals and `cloud_ip_refresh_interval`
@@ -243,19 +261,9 @@ This check runs on every request but only performs work when:
 - `block_cloud_providers` is configured.
 - The elapsed time since the last refresh exceeds `cloud_ip_refresh_interval`.
 
-The refresh itself never runs on the request path. `schedule_refresh` fires the
-middleware's `refresh_cloud_ip_ranges()` as a single-flight background task:
-while one refresh is in flight, further calls are no-ops, so a slow provider
-fetch cannot block or stampede request handling. The debounce timestamp is
-bumped up front so concurrent requests don't all try to schedule, and restored
-if scheduling fails so the next request retries instead of waiting a full
-interval. Because the background task calls the middleware protocol method,
-adapter overrides of `refresh_cloud_ip_ranges` stay on the periodic path.
+The refresh itself never runs on the request path. `schedule_refresh` fires the middleware's `refresh_cloud_ip_ranges()` as a single-flight background task: while one refresh is in flight, further calls are no-ops, so a slow provider fetch cannot block or stampede request handling. The debounce timestamp is bumped up front so concurrent requests don't all try to schedule, and restored if scheduling fails so the next request retries instead of waiting a full interval. Because the background task calls the middleware protocol method, adapter overrides of `refresh_cloud_ip_ranges` stay on the periodic path.
 
-The in-memory cloud-IP store honors the `ttl` passed at refresh time (the
-Redis-backed store always did), so cached ranges expire after
-`cloud_ip_refresh_interval` and the next refresh fetches fresh data in
-non-Redis deployments too.
+The in-memory cloud-IP store honors the `ttl` passed at refresh time (the Redis-backed store always did), so cached ranges expire after `cloud_ip_refresh_interval` and the next refresh fetches fresh data in non-Redis deployments too.
 
 The default interval is **3600 seconds (1 hour)**. The minimum allowed value is **60 seconds**.
 

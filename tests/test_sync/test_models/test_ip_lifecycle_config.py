@@ -1,6 +1,56 @@
+import warnings
+from typing import Any
+
 import pytest
 
 from guard_core.models import SecurityConfig
+
+
+class _StubGeoIPHandler:
+    @property
+    def is_initialized(self) -> bool:
+        return False
+
+    def initialize(self) -> None:
+        return
+
+    def initialize_redis(self, redis_handler: Any) -> None:
+        return
+
+    def initialize_agent(self, agent_handler: Any) -> None:
+        return
+
+    def get_country(self, ip: str) -> str | None:
+        return None
+
+    def refresh(self) -> None:
+        return
+
+    def close(self) -> None:
+        return
+
+
+def test_geo_ip_handler_without_country_rules_warns() -> None:
+    with pytest.warns(UserWarning, match="geo_ip_handler is set but neither"):
+        SecurityConfig(geo_ip_handler=_StubGeoIPHandler())
+
+
+def test_geo_ip_handler_with_blocked_countries_does_not_warn() -> None:
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        SecurityConfig(geo_ip_handler=_StubGeoIPHandler(), blocked_countries=["US"])
+
+    inert_warnings = [r for r in records if "never be consulted" in str(r.message)]
+    assert inert_warnings == []
+
+
+def test_no_geo_ip_handler_does_not_warn_about_inert_configuration() -> None:
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        SecurityConfig()
+
+    inert_warnings = [r for r in records if "never be consulted" in str(r.message)]
+    assert inert_warnings == []
 
 
 def test_lazy_init_default_true() -> None:

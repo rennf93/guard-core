@@ -11,6 +11,13 @@ v3.8.0 (2026-07-31)
 Stop the anomaly telemetry burst and two recon false positives (v3.8.0)
 -------------------------------------------------------------------------
 
+### Added
+
+- `CloudManager.is_cloud_ip()` now logs a rate-limited `WARNING` (at most once every 300 seconds per provider) the first time it evaluates a provider whose IP ranges are not yet populated — previously this failed open in total silence, with no signal that the check was a no-op. The return value is unchanged in every case.
+- `CloudManager.get_status()` and `IPInfoManager.get_status()` report per-subsystem `ready` / `last_refreshed` / `entries`; `IPInfoManager` gains `last_refreshed` and `entry_count` (`reader.metadata().node_count`) for parity with `CloudManager`'s existing `last_updated` / `ip_ranges` introspection. `HandlerInitializer.get_initialization_status()` combines both into one payload, cheap enough to back a Kubernetes/ALB warmup probe or health endpoint. See [Provider Status](docs/configuration/security-config.md#provider-status).
+- `HandlerInitializer` now warns when `lazy_init` is configured but has no effect (Redis disabled, so its only consulted branch is unreachable) and when `SecurityConfig.geo_ip_handler` is set without `blocked_countries` / `whitelist_countries` (constructed but never initialized). Both are warnings only; neither raises or changes behaviour.
+- `IPInfoManager.get_country()`'s uninitialized-reader warning now distinguishes a startup race (never yet attempted) from a permanently failed initialization (already attempted and failed), so the log line reads differently for "still warming up" versus "check the token and network."
+
 ### Fixed
 
 - `PerformanceMonitor._detect_statistical_anomaly` compared `abs(z_score)` against `anomaly_threshold`, so a pattern running faster than its own rolling average tripped `statistical_anomaly` exactly as often as one running slower. A regex finishing early is not an anomaly; only `z_score > anomaly_threshold` (slower than average) is checked now.
@@ -20,6 +27,7 @@ Stop the anomaly telemetry burst and two recon false positives (v3.8.0)
 ### Behaviour changes
 
 - Requests for `/robots.txt`, `/sitemap.xml`, and `/security.txt` no longer match the `recon` category; the other entries in that pattern are unaffected. Only slower-than-average pattern executions can trip `statistical_anomaly` — faster ones, previously flagged too, no longer are. `pattern_anomaly_*` events sent to the agent handler are now rate-limited to at most one per pattern per `anomaly_emission_cooldown` window (default 60s); this does not change `anomaly_callbacks` behaviour, `timeout`/`slow_execution` detection, or the `get_problematic_patterns`/`get_slow_patterns` diagnostics.
+- None from the observability additions above: `is_cloud_ip()` and `check_ip_country()` return exactly what they returned before in every case (locked in by new regression tests); the new warnings and `get_status()` / `get_initialization_status()` accessors are additive and read-only.
 
 ___
 

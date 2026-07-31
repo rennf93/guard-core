@@ -3,6 +3,7 @@ import html
 import ipaddress
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -269,6 +270,8 @@ class CloudManager:
     _refresh_task: asyncio.Task[None] | None
     _refresh_in_flight: bool
     _refresh_lock: asyncio.Lock
+    _empty_ranges_warned_at: dict[str, float]
+    _EMPTY_RANGES_WARNING_COOLDOWN = 300.0
 
     def __new__(cls: type["CloudManager"]) -> "CloudManager":
         if cls._instance is None:
@@ -292,6 +295,7 @@ class CloudManager:
             cls._instance._refresh_task = None
             cls._instance._refresh_in_flight = False
             cls._instance._refresh_lock = asyncio.Lock()
+            cls._instance._empty_ranges_warned_at = {}
         return cls._instance
 
     def set_store(self, store: CloudIpStoreProtocol) -> None:
@@ -457,6 +461,23 @@ class CloudManager:
                 if provider not in self.ip_ranges:
                     self.ip_ranges[provider] = set()
 
+    def _warn_empty_ranges(self, provider: str) -> None:
+        now = time.monotonic()
+        warned_at = self._empty_ranges_warned_at.get(provider)
+        if (
+            warned_at is not None
+            and now - warned_at < self._EMPTY_RANGES_WARNING_COOLDOWN
+        ):
+            return
+        self._empty_ranges_warned_at[provider] = now
+        self.logger.warning(
+            "Cloud IP ranges for %s are not populated yet; is_cloud_ip is "
+            "returning not-blocked for every %s IP until the initial fetch "
+            "completes.",
+            provider,
+            provider,
+        )
+
     def is_cloud_ip(self, ip: str, providers: set[str] = _ALL_PROVIDERS) -> bool:
         try:
             ip_obj = ipaddress.ip_address(ip)
@@ -464,6 +485,8 @@ class CloudManager:
             for provider in blocked:
                 if provider not in self.ip_ranges:
                     continue
+                if not self.ip_ranges[provider]:
+                    self._warn_empty_ranges(provider)
                 allowed_regions = carveouts.get(provider)
                 provider_regions = self.network_regions.get(provider, {})
                 for network in self.ip_ranges[provider]:
@@ -477,6 +500,16 @@ class CloudManager:
         except ValueError:
             self.logger.error(f"Invalid IP address: {ip}")
             return False
+
+    def get_status(self) -> dict[str, dict[str, Any]]:
+        return {
+            provider: {
+                "ready": bool(self.ip_ranges.get(provider)),
+                "last_refreshed": self.last_updated.get(provider),
+                "entries": len(self.ip_ranges.get(provider, set())),
+            }
+            for provider in _ALL_PROVIDERS
+        }
 
     def get_cloud_provider_details(
         self, ip: str, providers: set[str] = _ALL_PROVIDERS

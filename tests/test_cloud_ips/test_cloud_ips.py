@@ -1,6 +1,7 @@
 import ipaddress
 import itertools
 from collections.abc import Generator
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1129,3 +1130,99 @@ async def test_refresh_via_redis_handler_keeps_existing_provider_state(
     from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
 
     cloud_handler.set_store(InMemoryCloudIpStore())
+
+
+def test_is_cloud_ip_warns_on_empty_ranges_without_changing_return_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cloud_handler.ip_ranges["AWS"] = set()
+    cloud_handler._empty_ranges_warned_at.clear()
+
+    with caplog.at_level("WARNING", logger="guard_core.handlers.cloud"):
+        result = cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+    assert result is False
+    warnings_logged = [
+        record
+        for record in caplog.records
+        if record.levelname == "WARNING" and "not populated yet" in record.getMessage()
+    ]
+    assert len(warnings_logged) == 1
+    assert "AWS" in warnings_logged[0].getMessage()
+
+
+def test_is_cloud_ip_empty_ranges_warning_is_throttled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cloud_handler.ip_ranges["AWS"] = set()
+    cloud_handler._empty_ranges_warned_at.clear()
+
+    with (
+        patch("time.monotonic", return_value=1000.0),
+        caplog.at_level("WARNING", logger="guard_core.handlers.cloud"),
+    ):
+        for _ in range(5):
+            cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+    warnings_logged = [
+        record
+        for record in caplog.records
+        if record.levelname == "WARNING" and "not populated yet" in record.getMessage()
+    ]
+    assert len(warnings_logged) == 1
+
+
+def test_is_cloud_ip_empty_ranges_warning_repeats_after_cooldown_elapses(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cloud_handler.ip_ranges["AWS"] = set()
+    cloud_handler._empty_ranges_warned_at.clear()
+
+    clock = {"now": 2000.0}
+    with (
+        patch("time.monotonic", side_effect=lambda: clock["now"]),
+        caplog.at_level("WARNING", logger="guard_core.handlers.cloud"),
+    ):
+        cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+        clock["now"] += 10.0
+        cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+        clock["now"] += cloud_handler._EMPTY_RANGES_WARNING_COOLDOWN
+        cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
+
+    warnings_logged = [
+        record
+        for record in caplog.records
+        if record.levelname == "WARNING" and "not populated yet" in record.getMessage()
+    ]
+    assert len(warnings_logged) == 2
+
+
+def test_get_status_reports_not_ready_before_refresh_and_ready_after() -> None:
+    cloud_handler.ip_ranges["AWS"] = set()
+    cloud_handler.last_updated["AWS"] = None
+
+    status_before = cloud_handler.get_status()
+    assert status_before["AWS"] == {
+        "ready": False,
+        "last_refreshed": None,
+        "entries": 0,
+    }
+
+    now = datetime.now(timezone.utc)
+    cloud_handler.ip_ranges["AWS"] = {ipaddress.IPv4Network("192.168.0.0/24")}
+    cloud_handler.last_updated["AWS"] = now
+
+    status_after = cloud_handler.get_status()
+    assert status_after["AWS"] == {
+        "ready": True,
+        "last_refreshed": now,
+        "entries": 1,
+    }
+
+
+def test_is_cloud_ip_regression_returns_false_not_true_with_empty_ranges() -> None:
+    cloud_handler.ip_ranges = {provider: set() for provider in cloud_handler.ip_ranges}
+    result = cloud_handler.is_cloud_ip("8.8.8.8", {"AWS", "GCP", "Azure"})
+    assert result is False

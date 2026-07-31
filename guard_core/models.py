@@ -312,8 +312,14 @@ class SecurityConfig(BaseModel):
         default=True,
         description=(
             "When True (default), guard-core defers cloud-IP HTTP fetches and "
-            "geo-IP MMDB downloads to a background task started at app boot, "
-            "so the application does not block on multi-second network calls. "
+            "geo-IP MMDB downloads to a background task, so the application does "
+            "not block on multi-second network calls. This only takes effect when "
+            "Redis is enabled (enable_redis=True and a redis_handler is wired) "
+            "and the consuming adapter calls initialize_redis_handlers() during "
+            "its own opt-in startup hook (for example fastapi-guard's lifespan "
+            "integration) — it is not triggered by app boot on its own. Without "
+            "Redis, or without that hook wired, cloud/geo initialization instead "
+            "happens through their on-demand paths and this flag has no effect. "
             "First requests may see partially-populated cloud-IP ranges until "
             "the background task completes (typically 1-3 seconds). "
             "Set to False only if you require synchronous-init guarantees and "
@@ -751,9 +757,9 @@ class SecurityConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:
-        if self.geo_ip_handler is None and (
-            self.blocked_countries or self.whitelist_countries
-        ):
+        has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
+
+        if self.geo_ip_handler is None and has_country_rules:
             if self.ipinfo_token:
                 from guard_core.handlers.ipinfo_handler import IPInfoManager
 
@@ -767,6 +773,15 @@ class SecurityConfig(BaseModel):
                     "geo_ip_handler is required "
                     "if blocked_countries or whitelist_countries is set"
                 )
+        elif self.geo_ip_handler is not None and not has_country_rules:
+            warnings.warn(
+                "geo_ip_handler is set but neither blocked_countries nor "
+                "whitelist_countries is configured, so it will never be "
+                "consulted or initialized; set one of them or drop geo_ip_handler.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         return self
 
     @model_validator(mode="after")

@@ -199,3 +199,38 @@ async def test_no_redis_handler_returns_immediately() -> None:
     config = SecurityConfig(lazy_init=False, enable_redis=True)
     initializer = HandlerInitializer(config=config, redis_handler=None)
     await initializer.initialize_redis_handlers()
+
+
+async def test_warns_when_lazy_init_inert_without_redis_and_cloud_configured() -> None:
+    config = SecurityConfig(lazy_init=True, block_cloud_providers={"AWS"})
+    initializer = HandlerInitializer(config=config, redis_handler=None)
+
+    with patch.object(initializer.logger, "warning") as mock_warning:
+        await initializer.initialize_redis_handlers()
+
+    mock_warning.assert_called_once()
+    assert "lazy_init has no effect" in mock_warning.call_args[0][0]
+
+
+async def test_warns_when_lazy_init_inert_with_geo_ip_handler_configured() -> None:
+    config = SecurityConfig(lazy_init=False)
+    geo_ip = MagicMock()
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=geo_ip
+    )
+
+    with patch.object(initializer.logger, "warning") as mock_warning:
+        await initializer.initialize_redis_handlers()
+
+    mock_warning.assert_called_once()
+    assert "lazy_init has no effect" in mock_warning.call_args[0][0]
+
+
+async def test_no_warning_when_lazy_init_inert_but_nothing_configured() -> None:
+    config = SecurityConfig(lazy_init=True)
+    initializer = HandlerInitializer(config=config, redis_handler=None)
+
+    with patch.object(initializer.logger, "warning") as mock_warning:
+        await initializer.initialize_redis_handlers()
+
+    mock_warning.assert_not_called()

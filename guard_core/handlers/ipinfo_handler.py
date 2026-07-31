@@ -24,6 +24,8 @@ class IPInfoManager:
     agent_handler: AgentHandlerProtocol | None = None
     logger: logging.Logger
     _max_age: int
+    last_refreshed: datetime | None = None
+    _initialization_attempted: bool = False
 
     def __new__(
         cls: type["IPInfoManager"],
@@ -43,6 +45,8 @@ class IPInfoManager:
             cls._instance.agent_handler = None
             cls._instance.logger = logging.getLogger("guard_core.handlers.ipinfo")
             cls._instance._max_age = max_age
+            cls._instance.last_refreshed = None
+            cls._instance._initialization_attempted = False
 
         cls._instance.token = token
         if db_path is not None:
@@ -54,43 +58,61 @@ class IPInfoManager:
     def is_initialized(self) -> bool:
         return self.reader is not None
 
+    @property
+    def entry_count(self) -> int:
+        if self.reader is None:
+            return 0
+        return self.reader.metadata().node_count
+
+    def get_status(self) -> dict[str, Any]:
+        return {
+            "ready": self.is_initialized,
+            "last_refreshed": self.last_refreshed,
+            "entries": self.entry_count,
+        }
+
     async def initialize_agent(self, agent_handler: AgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
     async def initialize(self) -> None:
-        os.makedirs(self.db_path.parent, exist_ok=True)
+        try:
+            os.makedirs(self.db_path.parent, exist_ok=True)
 
-        if self.redis_handler:
-            cached_db = await self.redis_handler.get_key("ipinfo", "database")
-            if cached_db:
-                with open(self.db_path, "wb") as f:
-                    f.write(
-                        cached_db
-                        if isinstance(cached_db, bytes)
-                        else cached_db.encode("latin-1")
+            if self.redis_handler:
+                cached_db = await self.redis_handler.get_key("ipinfo", "database")
+                if cached_db:
+                    with open(self.db_path, "wb") as f:
+                        f.write(
+                            cached_db
+                            if isinstance(cached_db, bytes)
+                            else cached_db.encode("latin-1")
+                        )
+                    self.reader = maxminddb.open_database(str(self.db_path))
+                    self.last_refreshed = datetime.now(timezone.utc)
+                    return
+
+            try:
+                if not self.db_path.exists() or self._is_db_outdated():
+                    await self._download_database()
+            except Exception as e:
+                if self.agent_handler:
+                    await self._send_geo_event(
+                        event_type="geo_lookup_failed",
+                        ip_address="system",
+                        action_taken="database_download_failed",
+                        reason=f"Failed to download IPInfo database: {str(e)}",
                     )
-                self.reader = maxminddb.open_database(str(self.db_path))
+
+                if self.db_path.exists():
+                    self.db_path.unlink()
+                self.reader = None
                 return
 
-        try:
-            if not self.db_path.exists() or self._is_db_outdated():
-                await self._download_database()
-        except Exception as e:
-            if self.agent_handler:
-                await self._send_geo_event(
-                    event_type="geo_lookup_failed",
-                    ip_address="system",
-                    action_taken="database_download_failed",
-                    reason=f"Failed to download IPInfo database: {str(e)}",
-                )
-
             if self.db_path.exists():
-                self.db_path.unlink()
-            self.reader = None
-            return
-
-        if self.db_path.exists():
-            self.reader = maxminddb.open_database(str(self.db_path))
+                self.reader = maxminddb.open_database(str(self.db_path))
+                self.last_refreshed = datetime.now(timezone.utc)
+        finally:
+            self._initialization_attempted = True
 
     async def _send_geo_event(
         self,
@@ -158,9 +180,17 @@ class IPInfoManager:
 
     def get_country(self, ip: str) -> str | None:
         if not self.reader:
-            self.logger.warning(
-                "Geo-IP reader uninitialized; returning None for %s", ip
-            )
+            if self._initialization_attempted:
+                self.logger.warning(
+                    "Geo-IP reader unavailable after a failed initialization "
+                    "attempt; returning None for %s. Check the IPInfo token and "
+                    "network reachability, then call refresh() to retry.",
+                    ip,
+                )
+            else:
+                self.logger.warning(
+                    "Geo-IP reader uninitialized; returning None for %s", ip
+                )
             return None
 
         try:
@@ -234,8 +264,11 @@ class IPInfoManager:
         except Exception as e:
             self.logger.error(f"IPInfo refresh failed: {e}")
             return
+        finally:
+            self._initialization_attempted = True
         if self.db_path.exists():
             self.reader = maxminddb.open_database(str(self.db_path))
+            self.last_refreshed = datetime.now(timezone.utc)
 
     async def initialize_redis(self, redis_handler: RedisHandlerProtocol) -> None:
         self.redis_handler = redis_handler

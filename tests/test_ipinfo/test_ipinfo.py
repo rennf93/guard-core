@@ -762,4 +762,85 @@ async def test_refresh_keeps_reader_unset_when_download_yields_no_file(
 
     mock_close.assert_called_once()
     assert mgr.reader is None
+
+
+def test_get_country_warns_uninitialized_before_any_init_attempt(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+
+    with caplog.at_level("WARNING", logger="guard_core.handlers.ipinfo"):
+        result = db.get_country("1.1.1.1")
+
+    assert result is None
+    assert "Geo-IP reader uninitialized" in caplog.text
+    assert "failed initialization attempt" not in caplog.text
+    IPInfoManager._instance = None
+
+
+async def test_get_country_warns_permanent_failure_after_failed_init_attempt(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test", db_path=tmp_path / "missing.mmdb")
+    mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch("asyncio.sleep"),
+    ):
+        await db.initialize()
+
+    assert db.reader is None
+
+    with caplog.at_level("WARNING", logger="guard_core.handlers.ipinfo"):
+        result = db.get_country("1.1.1.1")
+
+    assert result is None
+    assert "failed initialization attempt" in caplog.text
+    assert "1.1.1.1" in caplog.text
+    IPInfoManager._instance = None
+
+
+async def test_get_status_reports_not_ready_before_init_and_ready_after(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "status.mmdb"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(db_path, "wb") as f:
+        f.write(b"dummy data")
+
+    db = IPInfoManager(token="test_token", db_path=db_path)
+
+    status_before = db.get_status()
+    assert status_before == {"ready": False, "last_refreshed": None, "entries": 0}
+
+    with patch("maxminddb.open_database") as mock_open_db:
+        mock_reader = Mock()
+        mock_reader.metadata.return_value = Mock(node_count=42)
+        mock_open_db.return_value = mock_reader
+
+        await db.initialize()
+
+    status_after = db.get_status()
+    assert status_after["ready"] is True
+    assert status_after["entries"] == 42
+    assert status_after["last_refreshed"] is not None
+    IPInfoManager._instance = None
+
+
+def test_get_country_regression_returns_none_when_reader_missing() -> None:
+    IPInfoManager._instance = None
+    db = IPInfoManager(token="test")
+    db.reader = None
+
+    result = db.get_country("1.1.1.1")
+
+    assert result is None
+    IPInfoManager._instance = None
     IPInfoManager._instance = None

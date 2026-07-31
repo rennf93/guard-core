@@ -185,7 +185,7 @@ These fields tune cold-start and horizontal-scale behaviour for the geo-IP and c
 
 When to use:
 
-- `lazy_init=True` to keep startup non-blocking when IPInfo MMDB or cloud-IP provider fetches are slow. The background warmup runs concurrently with normal request handling; cloud-provider blocking and geo checks become active once the background task finishes. Rate limiting, IP banning, pattern detection, and other layers remain fully active throughout the warmup window. Pair with a Kubernetes/ALB warmup probe if your deployment cannot tolerate any inert window.
+- `lazy_init=True` to keep startup non-blocking when IPInfo MMDB or cloud-IP provider fetches are slow. The background warmup runs concurrently with normal request handling; cloud-provider blocking and geo checks become active once the background task finishes. Rate limiting, IP banning, pattern detection, and other layers remain fully active throughout the warmup window. `lazy_init` only takes effect when Redis is enabled and the adapter calls `initialize_redis_handlers()` from its own startup hook (for example fastapi-guard's lifespan integration) — see [Provider Status](#provider-status) below for the accessor that lets a Kubernetes/ALB warmup probe (or any health endpoint) tell when that window has closed.
 - `geo_ip_db_max_age` to tighten or loosen the IPInfo refresh cadence — match it to your IPInfo plan's update frequency.
 - `cloud_ip_store` to point multiple horizontally-scaled instances at a single pre-populated Redis namespace, skipping per-instance cloud-IP cold starts.
 
@@ -202,6 +202,26 @@ config = SecurityConfig(
 shared_store = RedisCloudIpStore(RedisManager(config))
 config_with_shared_store = SecurityConfig(cloud_ip_store=shared_store)
 ```
+
+### Provider Status
+
+`CloudManager.get_status()` and `IPInfoManager.get_status()` report per-provider readiness, the last successful refresh timestamp, and a cheap entry count — call them directly, or read `HandlerInitializer.get_initialization_status()` for both combined into one payload:
+
+```python
+from guard_core.core.initialization.handler_initializer import HandlerInitializer
+
+status = handler_initializer.get_initialization_status()
+# {
+#     "cloud_providers": {
+#         "AWS": {"ready": True, "last_refreshed": datetime(...), "entries": 3421},
+#         "GCP": {"ready": False, "last_refreshed": None, "entries": 0},
+#         ...
+#     },
+#     "geo_ip": {"ready": True, "last_refreshed": datetime(...), "entries": 494},
+# }
+```
+
+`geo_ip` is `None` when no `geo_ip_handler` is configured. A custom `geo_ip_handler` that does not implement `get_status()` still reports `ready` (from the required `is_initialized` property) with `last_refreshed`/`entries` as placeholders. This is synchronous, dependency-free, and cheap enough to poll from a warmup probe or health endpoint — it is exactly what to wire up for the "cannot tolerate any inert window" case above.
 
 See [Cloud IP Store](../api/cloud-ip-store.md) for the protocol contract and the Redis namespace migration note.
 
