@@ -19,7 +19,7 @@ Stop the anomaly telemetry burst and two recon false positives (v3.8.0)
 ### Added
 
 - `CloudManager.is_cloud_ip()` now logs a rate-limited `WARNING` (at most once every 300 seconds per provider) the first time it evaluates a provider whose IP ranges are not yet populated — previously this failed open in total silence, with no signal that the check was a no-op. The return value is unchanged in every case.
-- `CloudManager.get_status()` and `IPInfoManager.get_status()` report per-subsystem `ready` / `last_refreshed` / `entries`; `IPInfoManager` gains `last_refreshed` and `entry_count` (`reader.metadata().node_count`) for parity with `CloudManager`'s existing `last_updated` / `ip_ranges` introspection. `HandlerInitializer.get_initialization_status()` combines both into one payload, cheap enough to back a Kubernetes/ALB warmup probe or health endpoint. See [Provider Status](configuration/security-config.md#provider-status).
+- `cloud_handler.get_status()` and the `IPInfoManager` instance's `get_status()` report per-subsystem `ready` / `last_refreshed` / `entries`; `IPInfoManager` gains `last_refreshed` and `entry_count` (`reader.metadata().node_count`) for parity with `CloudManager`'s existing `last_updated` / `ip_ranges` introspection. Adapters expose both combined via their status surface (fastapi-guard: `SecurityMiddleware.get_initialization_status()` / `GET /_guard/status`), cheap enough to back a Kubernetes/ALB warmup probe or health endpoint. See [Provider Status](configuration/security-config.md#provider-status).
 - `HandlerInitializer` now warns when `lazy_init` is configured but has no effect (Redis disabled, so its only consulted branch is unreachable) and when `SecurityConfig.geo_ip_handler` is set without `blocked_countries` / `whitelist_countries` (constructed but never initialized). Both are warnings only; neither raises or changes behaviour.
 - `IPInfoManager.get_country()`'s uninitialized-reader warning now distinguishes a startup race (never yet attempted) from a permanently failed initialization (already attempted and failed), so the log line reads differently for "still warming up" versus "check the token and network."
 
@@ -365,7 +365,7 @@ lazy_init: background warmup instead of first-request stall
 
 - `lazy_init=False` (the default) is unchanged — eager init at startup.
 - Users who opted into `lazy_init=True` in 2.0.0 see only an upside: the first-request latency that 2.0.0 imposed is replaced with a brief startup-time warmup window where cloud/geo layers are inert. No code changes required.
-- `lazy_init=True` users with strict cloud-provider blocking who can't tolerate any warmup window should stay on `lazy_init=False` (or continue using `lazy_init=True` with a Kubernetes/ALB warmup probe that hits a health endpoint before real traffic). As of v3.8.0, `HandlerInitializer.get_initialization_status()` is what that health endpoint should read — see [Provider Status](configuration/security-config.md#provider-status).
+- `lazy_init=True` users with strict cloud-provider blocking who can't tolerate any warmup window should stay on `lazy_init=False` (or continue using `lazy_init=True` with a Kubernetes/ALB warmup probe that hits a health endpoint before real traffic). As of v3.8.0, your adapter's status surface (fastapi-guard: `GET /_guard/status` or `SecurityMiddleware.get_initialization_status()`) is what that health endpoint should read — see [Provider Status](configuration/security-config.md#provider-status).
 
 ___
 
