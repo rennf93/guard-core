@@ -2869,7 +2869,7 @@
 </span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>        <span class="k">for</span> <span class="n">provider</span> <span class="ow">in</span> <span class="n">_ALL_PROVIDERS</span>
 </span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="p">}</span>
 </span></code></pre></div>
-<p><code>ready</code> reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows <code>ready=False</code> again while <code>last_refreshed</code> still shows the last time it worked. See <a href="../../configuration/security-config/#provider-status">Provider Status</a> for the combined cloud + geo-IP payload via <code>HandlerInitializer.get_initialization_status()</code>.</p>
+<p><code>ready</code> reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows <code>ready=False</code> again while <code>last_refreshed</code> still shows the last time it worked. See <a href="../../configuration/security-config/#provider-status">Provider Status</a> for the combined cloud + geo-IP payload, exposed by your adapter's status surface.</p>
 <hr />
 <h2 id="refresh-intervals-and-cloud_ip_refresh_interval">Refresh Intervals and <code>cloud_ip_refresh_interval</code><a class="headerlink" href="#refresh-intervals-and-cloud_ip_refresh_interval" title="Permanent link">&para;</a></h2>
 <p>The <code>SecurityConfig</code> model exposes:</p>
