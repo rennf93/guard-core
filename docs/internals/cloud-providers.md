@@ -216,7 +216,7 @@ def get_status(self) -> dict[str, dict[str, Any]]:
     }
 ```
 
-`ready` reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows `ready=False` again while `last_refreshed` still shows the last time it worked. See [Provider Status](../configuration/security-config.md#provider-status) for the combined cloud + geo-IP payload via `HandlerInitializer.get_initialization_status()`.
+`ready` reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows `ready=False` again while `last_refreshed` still shows the last time it worked. See [Provider Status](../configuration/security-config.md#provider-status) for the combined cloud + geo-IP payload, exposed by your adapter's status surface.
 
 ___
 

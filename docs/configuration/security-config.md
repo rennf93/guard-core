@@ -205,19 +205,38 @@ config_with_shared_store = SecurityConfig(cloud_ip_store=shared_store)
 
 ### Provider Status
 
-`CloudManager.get_status()` and `IPInfoManager.get_status()` report per-provider readiness, the last successful refresh timestamp, and a cheap entry count — call them directly, or read `HandlerInitializer.get_initialization_status()` for both combined into one payload:
+`cloud_handler.get_status()` (the module-level singleton) and your `IPInfoManager` instance's `get_status()` report per-provider readiness, the last successful refresh timestamp, and a cheap entry count. `HandlerInitializer` is adapter-internal — its `get_initialization_status()` combines both into one payload, and adapters expose that combined payload as their status surface (fastapi-guard: `SecurityMiddleware.get_initialization_status()`, or `add_status_route(app)` → `GET /_guard/status`).
+
+Cloud-only status, callable anywhere:
 
 ```python
-from guard_core.core.initialization.handler_initializer import HandlerInitializer
+from guard_core.handlers.cloud_handler import cloud_handler
 
-status = handler_initializer.get_initialization_status()
+cloud_status = cloud_handler.get_status()
 # {
-#     "cloud_providers": {
-#         "AWS": {"ready": True, "last_refreshed": datetime(...), "entries": 3421},
-#         "GCP": {"ready": False, "last_refreshed": None, "entries": 0},
-#         ...
-#     },
-#     "geo_ip": {"ready": True, "last_refreshed": datetime(...), "entries": 494},
+#     "AWS": {"ready": True, "last_refreshed": datetime(...), "entries": 3421},
+#     "GCP": {"ready": False, "last_refreshed": None, "entries": 0},
+#     ...
+# }
+```
+
+Geo-IP status — call `get_status()` on the `IPInfoManager` instance you passed in as `geo_ip_handler` (there is no module singleton: the manager is token-gated, so it is instantiated per app, not at import time):
+
+```python
+geo_status = ip_info_manager.get_status()
+# {"ready": True, "last_refreshed": datetime(...), "entries": 494}
+```
+
+Combined cloud + geo-IP payload, for a warmup probe or health endpoint — read it through your adapter rather than reconstructing `HandlerInitializer` yourself (fastapi-guard):
+
+```python
+from guard.status import add_status_route
+
+add_status_route(app, path="/_guard/status")  # GET /_guard/status -> combined payload
+# or, in-process: security_middleware.get_initialization_status()
+# {
+#     "cloud_providers": { ...as above... },
+#     "geo_ip": { ...as above... },
 # }
 ```
 

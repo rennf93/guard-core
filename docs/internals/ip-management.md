@@ -148,7 +148,7 @@ Delegates to `CloudManager.is_cloud_ip()` to check if the IP belongs to a blocke
 
 ### Provider Status
 
-`IPInfoManager.get_status()` reports the same three fields as [`CloudManager.get_status()`](cloud-providers.md#provider-status) — `ready`, `last_refreshed`, `entries` — so a caller polling both subsystems gets a uniform shape:
+The `IPInfoManager` instance's `get_status()` reports the same three fields as [`cloud_handler.get_status()`](cloud-providers.md#provider-status) — `ready`, `last_refreshed`, `entries` — so a caller polling both subsystems gets a uniform shape:
 
 ```python
 def get_status(self) -> dict[str, Any]:
@@ -159,7 +159,7 @@ def get_status(self) -> dict[str, Any]:
     }
 ```
 
-`entries` is `reader.metadata().node_count` — a cheap, already-in-memory count of nodes in the loaded MMDB search tree — and `0` while `reader` is `None`. `last_refreshed` is set on every successful `initialize()`/`refresh()` and stays at its last value if a later refresh fails, so `ready=False` with a non-`None` `last_refreshed` means "this used to work." `HandlerInitializer.get_initialization_status()` combines this with `CloudManager.get_status()` into one payload.
+`entries` is `reader.metadata().node_count` — a cheap, already-in-memory count of nodes in the loaded MMDB search tree — and `0` while `reader` is `None`. `last_refreshed` is set on every successful `initialize()`/`refresh()` and stays at its last value if a later refresh fails, so `ready=False` with a non-`None` `last_refreshed` means "this used to work." Your adapter's status surface combines this with `cloud_handler.get_status()` into one payload (fastapi-guard: `SecurityMiddleware.get_initialization_status()` or `GET /_guard/status`) — see [Provider Status](../configuration/security-config.md#provider-status).
 
 ___
 
