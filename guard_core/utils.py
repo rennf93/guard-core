@@ -434,8 +434,10 @@ def _log_country_check_result(
 
 
 def _evaluate_country_access(country: str, config: Any) -> tuple[bool, str]:
-    if config.whitelist_countries and country in config.whitelist_countries:
-        return False, "whitelisted"
+    if config.whitelist_countries:
+        if country in config.whitelist_countries:
+            return False, "whitelisted"
+        return True, "blocked"
 
     if config.blocked_countries and country in config.blocked_countries:
         return True, "blocked"
@@ -461,7 +463,7 @@ async def check_ip_country(
 
     if not country:
         _log_country_check_result(ip, None, "no_geolocation", config)
-        return False
+        return bool(config.whitelist_countries)
 
     is_blocked, result_type = _evaluate_country_access(country, config)
     _log_country_check_result(ip, country, result_type, config)
@@ -499,7 +501,7 @@ async def _check_whitelist(ip_addr: Any, ip: str, config: Any) -> bool:
 async def _check_blocked_countries(
     ip: str, config: Any, geo_ip_handler: GeoIPHandler | None
 ) -> bool:
-    if config.blocked_countries and geo_ip_handler:
+    if (config.blocked_countries or config.whitelist_countries) and geo_ip_handler:
         country_blocked = await check_ip_country(ip, config, geo_ip_handler)
         if country_blocked:
             return False

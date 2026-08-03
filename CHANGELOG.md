@@ -8,18 +8,20 @@ ___
 v3.8.1 (2026-08-03)
 -------------------
 
-Stop the inert-lazy_init warning and complete the preempted-header warning's advice (v3.8.1)
-----------------------------------------------------------------------------------------------
+Stop the inert-lazy_init warning, complete the preempted-header warning's advice, and make global whitelist_countries actually restrict (v3.8.1)
+------------------------------------------------------------------------------------------------------------------------------------------------
 
 ### Fixed
 
 - `HandlerInitializer`'s "lazy_init has no effect without Redis" warning, introduced in v3.8.0, fired whenever Redis was disabled and a cloud-IP or geo-IP path existed — regardless of whether `lazy_init` was actually enabled. Because `SecurityConfig.lazy_init` defaults to `True`, a user who never opted into lazy init and never uses Redis still saw the warning on every startup. The check now returns early unless `lazy_init` is actually `True`, so it only warns the user who genuinely asked for lazy init and won't get it.
 - The preempted-forwarded-header warning introduced in v3.7.1 told users to disable the app server's forwarded-header handling (`uvicorn --no-proxy-headers`, `proxy_headers=False`) and declare `trusted_proxies`, but omitted `trust_x_forwarded_proto`. A user who followed the first step alone — the obvious reading — broke HTTPS detection on a TLS-terminating host (Render, Heroku, a CDN): with `proxy_headers` off the server stops forwarding the URL scheme, and `https_enforcement` only honours `X-Forwarded-Proto` when `trusted_proxies` is populated and `trust_x_forwarded_proto=True`, so under `enforce_https=True` it saw plain HTTP and redirect-looped. The warning now names all three settings and calls out the redirect-loop risk.
+- `whitelist_countries` at the global `SecurityConfig` level was exemption-only: a country in neither `whitelist_countries` nor `blocked_countries` was allowed, and with no `blocked_countries` set it was a complete no-op. This contradicted the field's documented meaning, the route-level `allow_countries` decorator (which already restricted), and the sibling IP `whitelist` field (which already restricted). The global country check now treats a non-empty `whitelist_countries` as a true allow-list: only listed countries pass, an unresolved country is blocked (fail-closed, matching `allow_countries`), and an explicit match overrides `blocked_countries`.
 
 ### Behaviour changes
 
 - The inert-lazy_init warning now fires only when `lazy_init=True`; with the default or `lazy_init=False` it is silent.
 - Only the preempted-forwarded-header warning's message text changed; `extract_client_ip` returns the same value in every case and the warning still fires at most once per process.
+- A non-empty `whitelist_countries` now restricts traffic to the listed countries. Previously it only exempted listed countries from `blocked_countries` and otherwise allowed everything, so a user who set `whitelist_countries=["US","CA"]` expecting "only US/CA" got default-allow. Non-listed countries are now blocked; users who combined `whitelist_countries` with `blocked_countries` expecting exemption-only semantics will see non-listed countries blocked too. This aligns the field with its name and docs.
 
 ___
 

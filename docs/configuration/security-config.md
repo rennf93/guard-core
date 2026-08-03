@@ -56,7 +56,7 @@ IP Management
 |----------------------|-------------------|-------------------|------------------------------------------------|
 | `whitelist`          | `list[str] \| None` | `None`          | Allowed IPs/CIDRs. `None` disables (allow all).|
 | `blacklist`          | `list[str]`       | `[]`              | Blocked IPs/CIDRs.                             |
-| `whitelist_countries`| `list[str]`       | `[]`              | Country codes always allowed.                  |
+| `whitelist_countries`| `list[str]`       | `[]`              | Allowed countries. Non-empty = only listed pass (unknown blocked). Overrides `blocked_countries`. |
 | `blocked_countries`  | `list[str]`       | `[]`              | Country codes always blocked.                  |
 | `blocked_user_agents`| `list[str]`       | `[]`              | Regex patterns for blocked user agents.        |
 | `enable_ip_banning`  | `bool`            | `True`            | Enable automatic IP banning.                   |
