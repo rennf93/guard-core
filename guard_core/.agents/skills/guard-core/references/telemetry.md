@@ -43,8 +43,14 @@ From `guard_core.core.events.event_types`:
 | `guard.deployment.environment` | `SecurityConfig.otel_resource_attributes["deployment.environment"]` |
 | `guard.threat_score` | deterministic `ThreatScorer.score_for(event_type)` map (`penetration_attempt=90`, `ip_banned=70`, medium=50, `rate_limited=20`, default=20) |
 | `guard.rule.id` / `guard.rule.version` | `DynamicRuleManager.match_event` when the cached rule's IP/country/event-type matched |
-| `guard.behavior.correlation_key` | `sha256(f"{ip}|{service}|{floor(now/300)}").hexdigest()[:16]` — stable within a 5-min window |
+| `guard.behavior.correlation_key` | `sha256` snippet below — stable within a 5-min window |
 | `guard.behavior.recent_event_count` | `BehaviorTracker.get_recent_event_count(ip, 300)` — in-memory |
+
+`guard.behavior.correlation_key` source:
+
+```python
+sha256(f"{ip}|{service}|{floor(now/300)}").hexdigest()[:16]
+```
 
 All fields are nullable and absent unless context is available.
 
