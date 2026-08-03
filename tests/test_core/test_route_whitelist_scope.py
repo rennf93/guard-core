@@ -106,7 +106,7 @@ async def test_cloud_block_on_route_whitelisted_ip_is_coherent(
     mock_ban_manager.is_ip_banned = AsyncMock(return_value=False)
     cfg = SecurityConfig()
     cfg.passive_mode = False
-    cfg.block_cloud_providers = ["AWS"]
+    cfg.block_cloud_providers = {"AWS"}
     rc = RouteConfig()
     rc.ip_whitelist = ["1.2.3.4"]
     req = _req(rc)

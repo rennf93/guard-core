@@ -8,7 +8,7 @@ from tests.attack_simulation.runner import (
 )
 
 
-def test_build_detection_config_activates_preprocessor():
+def test_build_detection_config_activates_preprocessor() -> None:
     config = build_detection_config()
     SusPatternsManager._instance = None
     SusPatternsManager._config = None
@@ -19,18 +19,21 @@ def test_build_detection_config_activates_preprocessor():
 
 
 @pytest.mark.asyncio
-async def test_scan_detects_raw_attack_and_passes_benign():
+async def test_scan_detects_raw_attack_and_passes_benign() -> None:
     async with detection_manager() as manager:
         assert await scan(manager, "<script>alert(1)</script>") is True
         assert await scan(manager, "the quick brown fox jumps over") is False
 
 
 @pytest.mark.asyncio
-async def test_detection_manager_restores_singleton():
-    sentinel = object()
+async def test_detection_manager_restores_singleton() -> None:
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    sentinel = SusPatternsManager()
     SusPatternsManager._instance = sentinel
     async with detection_manager() as manager:
         assert manager is not sentinel
     assert SusPatternsManager._instance is sentinel
+    await sentinel.reset()
     SusPatternsManager._instance = None
     SusPatternsManager._config = None

@@ -190,7 +190,7 @@ def test_whitelisted_country(
     mock_ipinfo.get_country.return_value = "US"
     mock_ipinfo.reader = True
 
-    security_config.whitelist_countries = ["US"]
+    security_config.whitelist_countries = frozenset({"US"})
 
     assert not check_ip_country("8.8.8.8", security_config, mock_ipinfo)
 

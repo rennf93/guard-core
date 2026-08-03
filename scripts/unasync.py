@@ -223,7 +223,10 @@ POST_FIXUPS: list[tuple[str, str]] = [
         '                    reason=f"Geographic lookup failed: {str(e)}",\n'
         "                )",
     ),
-    (r"list\(\(([^,]+\(\),\s*[^,]+\(\)),\s*return_exceptions=True\)", r"[\1]"),
+    (
+        r"(\s+)list\(\(([^,]+\(\)),\s*([^,]+\(\)),\s*return_exceptions=True\)",
+        r"\1\2\n\1\3",
+    ),
     (
         r"            try:\n                self\.update_task\n            except Exception:\n                pass",  # noqa: E501
         "            pass",

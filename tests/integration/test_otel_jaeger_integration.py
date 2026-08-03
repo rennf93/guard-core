@@ -70,9 +70,11 @@ class _SyntheticEvent:
 
 async def _wait_for_service(ui_url: str, service_name: str) -> None:
     timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(base_url=ui_url, timeout=timeout) as session:
+    async with aiohttp.ClientSession() as session:
         for _ in range(10):
-            async with session.get("/api/services") as response:
+            async with session.get(
+                f"{ui_url}/api/services", timeout=timeout
+            ) as response:
                 payload = await response.json()
             services = payload.get("data") or []
             if service_name in services:
@@ -87,9 +89,11 @@ async def _fetch_penetration_spans(
     ui_url: str, service_name: str
 ) -> list[dict[str, Any]]:
     timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(base_url=ui_url, timeout=timeout) as session:
+    async with aiohttp.ClientSession() as session:
         params = {"service": service_name, "limit": "10", "lookback": "5m"}
-        async with session.get("/api/traces", params=params) as response:
+        async with session.get(
+            f"{ui_url}/api/traces", params=params, timeout=timeout
+        ) as response:
             payload = await response.json()
     data = payload.get("data") or []
     tags_by_span = [

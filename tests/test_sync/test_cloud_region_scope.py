@@ -126,7 +126,9 @@ def test_refresh_populates_network_regions(
 ) -> None:
     net = ipaddress.ip_network("34.100.0.0/24")
 
-    def fake_gcp() -> tuple[set[ipaddress.IPv4Network], dict[str, str]]:
+    def fake_gcp() -> tuple[
+        set[ipaddress.IPv4Network | ipaddress.IPv6Network], dict[str, str]
+    ]:
         return {net}, {str(net): "us-central1"}
 
     monkeypatch.setattr(

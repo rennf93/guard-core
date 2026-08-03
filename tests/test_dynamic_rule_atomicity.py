@@ -29,8 +29,8 @@ def reset_singleton() -> Generator[None, None, None]:
 @pytest.mark.asyncio
 async def test_apply_rules_rolls_back_on_partial_failure() -> None:
     config = SecurityConfig()
-    config.blocked_countries = ["XX"]
-    config.whitelist_countries = ["YY"]
+    config.blocked_countries = frozenset({"XX"})
+    config.whitelist_countries = frozenset({"YY"})
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"], whitelist_countries=["NEW2"])
@@ -43,8 +43,8 @@ async def test_apply_rules_rolls_back_on_partial_failure() -> None:
         with pytest.raises(RuntimeError, match="kaboom"):
             await manager._apply_rules(rules)
 
-    assert config.blocked_countries == ["XX"]
-    assert config.whitelist_countries == ["YY"]
+    assert config.blocked_countries == frozenset({"XX"})
+    assert config.whitelist_countries == frozenset({"YY"})
 
 
 @pytest.mark.asyncio
@@ -92,7 +92,7 @@ async def test_rollback_restores_all_snapshot_fields() -> None:
         enable_ip_banning=True,
         emergency_mode=False,
     )
-    config.blocked_countries = ["OLD_COUNTRY"]
+    config.blocked_countries = frozenset({"OLD_COUNTRY"})
     manager = DynamicRuleManager(config)
 
     rules = _rules(
@@ -109,7 +109,7 @@ async def test_rollback_restores_all_snapshot_fields() -> None:
         with pytest.raises(RuntimeError):
             await manager._apply_rules(rules)
 
-    assert config.blocked_countries == ["OLD_COUNTRY"]
+    assert config.blocked_countries == frozenset({"OLD_COUNTRY"})
     assert config.rate_limit == 100
     assert config.enable_ip_banning is True
     assert config.emergency_mode is False

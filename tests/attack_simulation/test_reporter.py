@@ -1,9 +1,11 @@
 import json
+from pathlib import Path
+from typing import Any
 
 from tests.attack_simulation.reporter import build_report, write_reports
 
 
-def _metrics():
+def _metrics() -> dict[str, Any]:
     return {
         "detection_rate": 0.9,
         "fp_rate": 0.2,
@@ -22,7 +24,7 @@ def _metrics():
     }
 
 
-def test_build_report_merges_context():
+def test_build_report_merges_context() -> None:
     report = build_report(_metrics(), {"detection_compiler_timeout": 2.0}, 1.23, "abc")
     assert report["detection_rate"] == 0.9
     assert report["config"] == {"detection_compiler_timeout": 2.0}
@@ -30,7 +32,7 @@ def test_build_report_merges_context():
     assert report["corpus_fingerprint"] == "abc"
 
 
-def test_write_reports_emits_json_and_md(tmp_path):
+def test_write_reports_emits_json_and_md(tmp_path: Path) -> None:
     report = build_report(_metrics(), {"detection_compiler_timeout": 2.0}, 1.23, "abc")
     json_path, md_path = write_reports(report, tmp_path)
     loaded = json.loads(json_path.read_text())
