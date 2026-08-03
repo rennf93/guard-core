@@ -203,15 +203,22 @@ def _warn_forwarded_header_preempted(
     logger.warning(
         "The connecting IP (%s) already appears inside its own "
         "X-Forwarded-For chain: the application server resolved the client "
-        "from that header before guard-core ever ran, most likely because "
-        "the server's own forwarded-header handling is enabled (uvicorn "
-        "defaults to proxy_headers=True). While that is on, trusted_proxies "
-        "does not mean 'X-Forwarded-For is never trusted' - even leaving it "
-        "unset. Disable it at the server (`uvicorn --no-proxy-headers`, or "
-        "`proxy_headers=False` in uvicorn.run; gunicorn/hypercorn/WSGI "
-        "servers have equivalent settings) and declare the proxy via "
-        "trusted_proxies / trusted_proxy_depth so guard-core is the single "
-        "authority. This warning is logged once.",
+        "from that header before guard-core ran, most likely because the "
+        "server's own forwarded-header handling is enabled (uvicorn "
+        "defaults to proxy_headers=True). While it is, the address "
+        "guard-core sees is whatever the client claimed, so a rotating "
+        "X-Forwarded-For defeats rate limiting and IP banning. To make "
+        "guard-core the single authority, disable the server's handling "
+        "(`uvicorn --no-proxy-headers`, or `proxy_headers=False` in "
+        "uvicorn.run; gunicorn/hypercorn/WSGI servers have equivalent "
+        "settings) AND declare the proxy via trusted_proxies / "
+        "trusted_proxy_depth so guard-core resolves the real client itself. "
+        "Disabling proxy_headers alone is not enough: if you also use "
+        "enforce_https, set trust_x_forwarded_proto=True with the same "
+        "trusted_proxies, otherwise the server stops forwarding the URL "
+        "scheme and HTTPS detection breaks (infinite redirect loop) on "
+        "TLS-terminating hosts such as Render or Heroku. This warning is "
+        "logged once.",
         _sanitize_for_log(connecting_ip),
     )
 
@@ -427,8 +434,10 @@ def _log_country_check_result(
 
 
 def _evaluate_country_access(country: str, config: Any) -> tuple[bool, str]:
-    if config.whitelist_countries and country in config.whitelist_countries:
-        return False, "whitelisted"
+    if config.whitelist_countries:
+        if country in config.whitelist_countries:
+            return False, "whitelisted"
+        return True, "blocked"
 
     if config.blocked_countries and country in config.blocked_countries:
         return True, "blocked"
@@ -454,7 +463,7 @@ def check_ip_country(
 
     if not country:
         _log_country_check_result(ip, None, "no_geolocation", config)
-        return False
+        return bool(config.whitelist_countries)
 
     is_blocked, result_type = _evaluate_country_access(country, config)
     _log_country_check_result(ip, country, result_type, config)
@@ -492,7 +501,7 @@ def _check_whitelist(ip_addr: Any, ip: str, config: Any) -> bool:
 def _check_blocked_countries(
     ip: str, config: Any, geo_ip_handler: SyncGeoIPHandler | None
 ) -> bool:
-    if config.blocked_countries and geo_ip_handler:
+    if (config.blocked_countries or config.whitelist_countries) and geo_ip_handler:
         country_blocked = check_ip_country(ip, config, geo_ip_handler)
         if country_blocked:
             return False

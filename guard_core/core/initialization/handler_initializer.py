@@ -176,6 +176,8 @@ class HandlerInitializer:
         sus_patterns_handler.configure(self.config)
 
     def _warn_if_lazy_init_is_inert(self) -> None:
+        if not self.config.lazy_init:
+            return
         if not (self.config.block_cloud_providers or self.geo_ip_handler is not None):
             return
         self.logger.warning(

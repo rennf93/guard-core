@@ -153,7 +153,12 @@ class SecurityConfig(BaseModel):
 
     whitelist_countries: frozenset[str] = Field(
         default_factory=frozenset,
-        description="Country codes that are always allowed",
+        description=(
+            "Allowed country codes (ISO 3166-1 alpha-2). A non-empty set is "
+            "restrictive: only listed countries pass the global country check, "
+            "and an unresolved country is blocked. An explicit match overrides "
+            "blocked_countries."
+        ),
     )
 
     blocked_countries: frozenset[str] = Field(

@@ -197,6 +197,71 @@ async def test_whitelisted_country(
     assert not await check_ip_country("8.8.8.8", security_config, mock_ipinfo)
 
 
+async def test_whitelist_countries_blocks_non_member(
+    mocker: MockerFixture,
+) -> None:
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "FR"
+
+    config = SecurityConfig(
+        whitelist_countries=["US", "CA"], geo_ip_handler=mock_ipinfo
+    )
+
+    assert await check_ip_country("8.8.8.8", config, mock_ipinfo)
+
+
+async def test_whitelist_countries_blocks_unknown_country(
+    mocker: MockerFixture,
+) -> None:
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = None
+
+    config = SecurityConfig(
+        whitelist_countries=["US", "CA"], geo_ip_handler=mock_ipinfo
+    )
+
+    assert await check_ip_country("8.8.8.8", config, mock_ipinfo)
+
+
+async def test_whitelist_countries_overrides_blocked_countries(
+    mocker: MockerFixture,
+) -> None:
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "US"
+
+    config = SecurityConfig(
+        blocked_countries=["US"], whitelist_countries=["US"], geo_ip_handler=mock_ipinfo
+    )
+
+    assert not await check_ip_country("8.8.8.8", config, mock_ipinfo)
+
+
+async def test_whitelist_countries_alone_blocks_non_member_via_is_ip_allowed(
+    mocker: MockerFixture,
+) -> None:
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "DE"
+
+    config = SecurityConfig(
+        whitelist_countries=["US", "CA"], geo_ip_handler=mock_ipinfo
+    )
+
+    assert not await is_ip_allowed("8.8.8.8", config, mock_ipinfo)
+
+
+async def test_whitelist_countries_alone_allows_member_via_is_ip_allowed(
+    mocker: MockerFixture,
+) -> None:
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "US"
+
+    config = SecurityConfig(
+        whitelist_countries=["US", "CA"], geo_ip_handler=mock_ipinfo
+    )
+
+    assert await is_ip_allowed("8.8.8.8", config, mock_ipinfo)
+
+
 async def test_cloud_provider_blocking(
     security_config: SecurityConfig, mocker: MockerFixture
 ) -> None:
