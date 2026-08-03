@@ -48,7 +48,7 @@ def get_pipeline_response_time(request: GuardRequest | None) -> float | None:
     if request is None:
         return None
     pipeline_start = getattr(request.state, "_guard_pipeline_start", None)
-    if not isinstance(pipeline_start, (int, float)):
+    if not isinstance(pipeline_start, int | float):
         pipeline_start = time.monotonic()
         request.state._guard_pipeline_start = pipeline_start
     return time.monotonic() - pipeline_start
@@ -1002,7 +1002,7 @@ async def _scan_request_body(
         parsed_body = json.loads(raw_body)
     except Exception:
         parsed_body = None
-    if isinstance(parsed_body, (dict, list)):
+    if isinstance(parsed_body, dict | list):
         return await _scan_json_value(
             parsed_body,
             "",

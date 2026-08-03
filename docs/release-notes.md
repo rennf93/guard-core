@@ -10,6 +10,22 @@ Release Notes
 
 ___
 
+v3.8.2 (2026-08-03)
+-------------------
+
+Library-skills skill and internal test/generator debt cleanup (v3.8.2)
+-----------------------------------------------------------------------
+
+### Added
+
+- A library-skills skill is now embedded in the package at `guard_core/.agents/skills/guard-core/SKILL.md` (with reference notes on adapters, config, detection, pipeline, and telemetry), so `uvx library-skills --claude` discovers guard-core from the installed wheel. Markdown only; no runtime behavior change.
+
+### Internal
+
+- Cleared pre-existing mypy debt across the test suite and fixed `scripts/unasync.py` so `make check-sync` parity holds. No behavior change; tests and the generated sync mirror only.
+
+___
+
 v3.8.1 (2026-08-03)
 -------------------
 
