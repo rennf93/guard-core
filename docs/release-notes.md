@@ -10,11 +10,19 @@ Release Notes
 
 ___
 
-v3.8.2 (2026-08-03)
+v3.9.0 (2026-08-03)
 -------------------
 
-Library-skills skill and internal test/generator debt cleanup (v3.8.2)
------------------------------------------------------------------------
+Cloud/geo no-Redis block-until-loaded fix, library-skills skill, and internal test/generator debt cleanup (v3.9.0)
+-------------------------------------------------------------------------------------------------------------------
+
+### Fixed
+
+- `HandlerInitializer.initialize_redis_handlers` gated the entire cloud and geo eager-load block behind Redis. A user with `lazy_init=False` who awaited `guard_startup(app)` (which routes through `SecurityMiddleware.initialize()` -> `initialize_redis_handlers()`) but ran WITHOUT Redis got no cloud/geo load at startup: the method returned immediately, `block-until-loaded` silently did not hold, and `cloud_handler` self-fetched lazily on the first `is_cloud_ip` call, racing the request. The no-Redis branch now eagerly awaits the in-memory cloud load (`cloud_handler.refresh(block_cloud_providers)`) when `block_cloud_providers` is set, and eagerly initializes the geo-IP handler in-memory (`geo_ip_handler.initialize()`) when present, so the configured providers are populated BEFORE the first request. The `lazy_init=True` no-Redis path is unchanged (it still warns and returns; lazy init is genuinely inert without Redis).
+
+### Behaviour changes
+
+- With `lazy_init=False` and no Redis, startup now eagerly awaits the cloud-IP fetch (and the geo-IP database load where applicable) instead of returning immediately, so the first request no longer races the fetch. No-Redis users may see a short startup delay while cloud ranges load; this is the intended `block-until-loaded` semantics that were previously silently skipped.
 
 ### Added
 

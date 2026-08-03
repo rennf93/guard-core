@@ -187,11 +187,24 @@ class HandlerInitializer:
             "lazy_init's value."
         )
 
+    async def _load_cloud_and_geo_without_redis(self) -> None:
+        from guard_core.handlers.cloud_handler import cloud_handler
+
+        if self.config.cloud_ip_store is not None:
+            cloud_handler.set_store(self._resolve_cloud_ip_store())
+        if self.config.block_cloud_providers:
+            await cloud_handler.refresh(self.config.block_cloud_providers)
+        if self.geo_ip_handler is not None:
+            await self.geo_ip_handler.initialize()
+
     async def initialize_redis_handlers(self) -> None:
         self._configure_detection()
 
         if not (self.config.enable_redis and self.redis_handler):
-            self._warn_if_lazy_init_is_inert()
+            if self.config.lazy_init:
+                self._warn_if_lazy_init_is_inert()
+                return
+            await self._load_cloud_and_geo_without_redis()
             return
 
         await self.redis_handler.initialize()
