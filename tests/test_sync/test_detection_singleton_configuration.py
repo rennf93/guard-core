@@ -31,7 +31,8 @@ def test_initialize_configures_detection_from_config(
 ) -> None:
     handler = fresh_legacy_singleton
     assert handler._threat_score_threshold == 1.0
-    assert handler._compiler is None
+    compiler_before = handler._compiler
+    assert compiler_before is None
 
     config = SecurityConfig(detection_threat_score_threshold=2.5)
     initializer = HandlerInitializer(config=config)

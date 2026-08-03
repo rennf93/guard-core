@@ -5,7 +5,7 @@ from tests.attack_simulation.mutations import (
 )
 
 
-def test_individual_transforms():
+def test_individual_transforms() -> None:
     assert TRANSFORMS["url_encode"]("<a>") == "%3Ca%3E"
     assert TRANSFORMS["double_url_encode"]("<") == "%253C"
     assert TRANSFORMS["html_entity_decimal"]("<") == "&#60;"
@@ -14,7 +14,7 @@ def test_individual_transforms():
     assert TRANSFORMS["base64_wrap"]("ab") == "YWI="
 
 
-def test_generate_variants_shape_and_metadata():
+def test_generate_variants_shape_and_metadata() -> None:
     variants = list(generate_variants("xss-0", "xss", "<script>"))
     chains = [v.technique_chain for v in variants]
     assert () in chains
@@ -26,7 +26,7 @@ def test_generate_variants_shape_and_metadata():
     assert len(variants) == 1 + len(TRANSFORMS) + 6
 
 
-def test_generate_variants_is_deterministic():
+def test_generate_variants_is_deterministic() -> None:
     a = [v.payload for v in generate_variants("s", "xss", "<x>")]
     b = [v.payload for v in generate_variants("s", "xss", "<x>")]
     assert a == b

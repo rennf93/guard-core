@@ -10,7 +10,7 @@ from tests.attack_simulation.loaders import (
 CORPUS = Path(__file__).parent / "corpus"
 
 
-def test_load_seeds_parses_payloads_and_provenance():
+def test_load_seeds_parses_payloads_and_provenance() -> None:
     seeds = load_seeds(CORPUS / "seeds")
     assert all(isinstance(seed, Seed) for seed in seeds)
     xss = [seed for seed in seeds if seed.attack_class == "xss"]
@@ -21,7 +21,7 @@ def test_load_seeds_parses_payloads_and_provenance():
     assert all(not seed.payload.startswith("#") for seed in seeds)
 
 
-def test_load_benign_tags_category():
+def test_load_benign_tags_category() -> None:
     benign = load_benign(CORPUS / "benign")
     assert all(isinstance(sample, BenignSample) for sample in benign)
     categories = {sample.category for sample in benign}
