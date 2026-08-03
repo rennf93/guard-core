@@ -1,15 +1,15 @@
 from tests.attack_simulation.metrics import Result, score
 
 
-def _malicious(detected, attack_class, chain):
+def _malicious(detected: bool, attack_class: str, chain: tuple[str, ...]) -> Result:
     return Result(True, detected, attack_class, chain, None)
 
 
-def _benign(detected, category):
+def _benign(detected: bool, category: str) -> Result:
     return Result(False, detected, None, (), category)
 
 
-def test_score_computes_rates_and_breakdowns():
+def test_score_computes_rates_and_breakdowns() -> None:
     results = [
         _malicious(True, "xss", ()),
         _malicious(False, "xss", ("base64_wrap",)),
@@ -36,7 +36,7 @@ def test_score_computes_rates_and_breakdowns():
     assert out["per_benign_category"]["encoded_legit"] == 0.0
 
 
-def test_score_handles_empty_groups():
+def test_score_handles_empty_groups() -> None:
     out = score([])
     assert out["detection_rate"] == 0.0
     assert out["fp_rate"] == 0.0

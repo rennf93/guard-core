@@ -44,6 +44,8 @@ def _patch_handlers() -> Any:
         patch("guard_core.handlers.suspatterns_handler.sus_patterns_handler") as sus,
     ):
         cloud.initialize_redis = AsyncMock()
+        cloud.refresh = AsyncMock()
+        cloud.set_store = MagicMock()
         ipban.initialize_redis = AsyncMock()
         sus.initialize_redis = AsyncMock()
         yield {"cloud": cloud, "ipban": ipban, "suspatterns": sus}
@@ -229,6 +231,7 @@ async def test_warns_when_lazy_init_inert_with_geo_ip_handler_configured() -> No
 async def test_no_warning_when_lazy_init_false_and_geo_ip_handler_configured() -> None:
     config = SecurityConfig(lazy_init=False)
     geo_ip = MagicMock()
+    geo_ip.initialize = AsyncMock()
     initializer = HandlerInitializer(
         config=config, redis_handler=None, geo_ip_handler=geo_ip
     )
@@ -247,3 +250,79 @@ async def test_no_warning_when_lazy_init_inert_but_nothing_configured() -> None:
         await initializer.initialize_redis_handlers()
 
     mock_warning.assert_not_called()
+
+
+async def test_no_redis_eager_loads_cloud_when_lazy_init_false() -> None:
+    config = SecurityConfig(
+        lazy_init=False,
+        enable_redis=False,
+        block_cloud_providers={"AWS"},
+    )
+    geo_ip = MagicMock()
+    geo_ip.initialize = AsyncMock()
+    geo_ip.initialize_redis = AsyncMock()
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=geo_ip
+    )
+
+    with _patch_handlers() as patches:
+        await initializer.initialize_redis_handlers()
+        patches["cloud"].refresh.assert_awaited_once_with({"AWS"})
+        patches["cloud"].initialize_redis.assert_not_awaited()
+
+    geo_ip.initialize.assert_awaited_once()
+    geo_ip.initialize_redis.assert_not_awaited()
+
+
+async def test_no_redis_eager_load_skips_cloud_when_no_providers() -> None:
+    config = SecurityConfig(
+        lazy_init=False,
+        enable_redis=False,
+        block_cloud_providers=set(),
+    )
+    geo_ip = MagicMock()
+    geo_ip.initialize = AsyncMock()
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=geo_ip
+    )
+
+    with _patch_handlers() as patches:
+        await initializer.initialize_redis_handlers()
+        patches["cloud"].refresh.assert_not_awaited()
+
+    geo_ip.initialize.assert_awaited_once()
+
+
+async def test_no_redis_eager_load_skips_geo_when_no_geo_handler() -> None:
+    config = SecurityConfig(
+        lazy_init=False,
+        enable_redis=False,
+        block_cloud_providers={"AWS"},
+    )
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=None
+    )
+
+    with _patch_handlers() as patches:
+        await initializer.initialize_redis_handlers()
+        patches["cloud"].refresh.assert_awaited_once_with({"AWS"})
+
+
+async def test_no_redis_lazy_init_true_does_not_eager_load_cloud() -> None:
+    config = SecurityConfig(
+        lazy_init=True,
+        enable_redis=False,
+        block_cloud_providers={"AWS"},
+    )
+    geo_ip = MagicMock()
+    geo_ip.initialize = AsyncMock()
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=geo_ip
+    )
+
+    with _patch_handlers() as patches:
+        with patch.object(initializer.logger, "warning") as mock_warning:
+            await initializer.initialize_redis_handlers()
+            patches["cloud"].refresh.assert_not_awaited()
+            geo_ip.initialize.assert_not_awaited()
+            mock_warning.assert_called_once()

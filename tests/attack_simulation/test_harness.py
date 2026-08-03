@@ -12,18 +12,18 @@ from tests.attack_simulation.runner import build_detection_config
 CORPUS = Path(__file__).parent / "corpus"
 
 
-def test_summarize_config_extracts_detection_fields():
+def test_summarize_config_extracts_detection_fields() -> None:
     summary = summarize_config(build_detection_config())
     assert summary["detection_compiler_timeout"] == 2.0
     assert summary["detection_semantic_threshold"] == 0.7
 
 
-def test_fingerprint_is_stable():
+def test_fingerprint_is_stable() -> None:
     assert fingerprint_corpus(CORPUS) == fingerprint_corpus(CORPUS)
 
 
 @pytest.mark.asyncio
-async def test_run_benchmark_produces_report():
+async def test_run_benchmark_produces_report() -> None:
     report = await run_benchmark(CORPUS)
     assert 0.0 <= report["detection_rate"] <= 1.0
     assert 0.0 <= report["fp_rate"] <= 1.0

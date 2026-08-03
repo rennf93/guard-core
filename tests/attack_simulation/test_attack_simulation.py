@@ -10,7 +10,7 @@ _TOLERANCE = 0.02
 
 
 @pytest.mark.asyncio
-async def test_detection_does_not_regress_against_baseline():
+async def test_detection_does_not_regress_against_baseline() -> None:
     baseline = json.loads((_BASE / "baseline.json").read_text())
     report = await run_benchmark(_BASE / "corpus")
     assert report["detection_rate"] >= baseline["detection_rate"] - _TOLERANCE

@@ -29,7 +29,7 @@ def reset_singleton() -> Generator[None, None, None]:
 
 def test_apply_rules_rolls_back_on_partial_failure() -> None:
     config = SecurityConfig()
-    config.blocked_countries = ["XX"]
+    config.blocked_countries = frozenset({"XX"})
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"])
@@ -40,7 +40,7 @@ def test_apply_rules_rolls_back_on_partial_failure() -> None:
         with pytest.raises(RuntimeError, match="kaboom"):
             manager._apply_rules(rules)
 
-    assert config.blocked_countries == ["XX"]
+    assert config.blocked_countries == frozenset({"XX"})
 
 
 def test_apply_rules_persists_on_success() -> None:
@@ -90,7 +90,7 @@ def test_rollback_restores_all_snapshot_fields() -> None:
         rate_limit=100,
         enable_ip_banning=True,
     )
-    config.blocked_countries = ["OLD"]
+    config.blocked_countries = frozenset({"OLD"})
     manager = DynamicRuleManager(config)
 
     rules = _rules(
@@ -107,6 +107,6 @@ def test_rollback_restores_all_snapshot_fields() -> None:
         with pytest.raises(RuntimeError):
             manager._apply_rules(rules)
 
-    assert config.blocked_countries == ["OLD"]
+    assert config.blocked_countries == frozenset({"OLD"})
     assert config.rate_limit == 100
     assert config.enable_ip_banning is True
