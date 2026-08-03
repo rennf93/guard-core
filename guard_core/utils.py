@@ -203,15 +203,22 @@ def _warn_forwarded_header_preempted(
     logger.warning(
         "The connecting IP (%s) already appears inside its own "
         "X-Forwarded-For chain: the application server resolved the client "
-        "from that header before guard-core ever ran, most likely because "
-        "the server's own forwarded-header handling is enabled (uvicorn "
-        "defaults to proxy_headers=True). While that is on, trusted_proxies "
-        "does not mean 'X-Forwarded-For is never trusted' - even leaving it "
-        "unset. Disable it at the server (`uvicorn --no-proxy-headers`, or "
-        "`proxy_headers=False` in uvicorn.run; gunicorn/hypercorn/WSGI "
-        "servers have equivalent settings) and declare the proxy via "
-        "trusted_proxies / trusted_proxy_depth so guard-core is the single "
-        "authority. This warning is logged once.",
+        "from that header before guard-core ran, most likely because the "
+        "server's own forwarded-header handling is enabled (uvicorn "
+        "defaults to proxy_headers=True). While it is, the address "
+        "guard-core sees is whatever the client claimed, so a rotating "
+        "X-Forwarded-For defeats rate limiting and IP banning. To make "
+        "guard-core the single authority, disable the server's handling "
+        "(`uvicorn --no-proxy-headers`, or `proxy_headers=False` in "
+        "uvicorn.run; gunicorn/hypercorn/WSGI servers have equivalent "
+        "settings) AND declare the proxy via trusted_proxies / "
+        "trusted_proxy_depth so guard-core resolves the real client itself. "
+        "Disabling proxy_headers alone is not enough: if you also use "
+        "enforce_https, set trust_x_forwarded_proto=True with the same "
+        "trusted_proxies, otherwise the server stops forwarding the URL "
+        "scheme and HTTPS detection breaks (infinite redirect loop) on "
+        "TLS-terminating hosts such as Render or Heroku. This warning is "
+        "logged once.",
         _sanitize_for_log(connecting_ip),
     )
 

@@ -13,16 +13,18 @@ ___
 v3.8.1 (2026-08-03)
 -------------------
 
-Stop the inert-lazy_init warning firing for users who never set lazy_init (v3.8.1)
------------------------------------------------------------------------------------
+Stop the inert-lazy_init warning and complete the preempted-header warning's advice (v3.8.1)
+----------------------------------------------------------------------------------------------
 
 ### Fixed
 
 - `HandlerInitializer`'s "lazy_init has no effect without Redis" warning, introduced in v3.8.0, fired whenever Redis was disabled and a cloud-IP or geo-IP path existed — regardless of whether `lazy_init` was actually enabled. Because `SecurityConfig.lazy_init` defaults to `True`, a user who never opted into lazy init and never uses Redis still saw the warning on every startup. The check now returns early unless `lazy_init` is actually `True`, so it only warns the user who genuinely asked for lazy init and won't get it.
+- The preempted-forwarded-header warning introduced in v3.7.1 told users to disable the app server's forwarded-header handling (`uvicorn --no-proxy-headers`, `proxy_headers=False`) and declare `trusted_proxies`, but omitted `trust_x_forwarded_proto`. A user who followed the first step alone — the obvious reading — broke HTTPS detection on a TLS-terminating host (Render, Heroku, a CDN): with `proxy_headers` off the server stops forwarding the URL scheme, and `https_enforcement` only honours `X-Forwarded-Proto` when `trusted_proxies` is populated and `trust_x_forwarded_proto=True`, so under `enforce_https=True` it saw plain HTTP and redirect-looped. The warning now names all three settings and calls out the redirect-loop risk.
 
 ### Behaviour changes
 
 - The inert-lazy_init warning now fires only when `lazy_init=True`; with the default or `lazy_init=False` it is silent.
+- Only the preempted-forwarded-header warning's message text changed; `extract_client_ip` returns the same value in every case and the warning still fires at most once per process.
 
 ___
 
