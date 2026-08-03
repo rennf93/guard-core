@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+v3.8.1 (2026-08-03)
+-------------------
+
+Stop the inert-lazy_init warning firing for users who never set lazy_init (v3.8.1)
+-----------------------------------------------------------------------------------
+
+### Fixed
+
+- `HandlerInitializer`'s "lazy_init has no effect without Redis" warning, introduced in v3.8.0, fired whenever Redis was disabled and a cloud-IP or geo-IP path existed — regardless of whether `lazy_init` was actually enabled. Because `SecurityConfig.lazy_init` defaults to `True`, a user who never opted into lazy init and never uses Redis still saw the warning on every startup. The check now returns early unless `lazy_init` is actually `True`, so it only warns the user who genuinely asked for lazy init and won't get it.
+
+### Behaviour changes
+
+- The inert-lazy_init warning now fires only when `lazy_init=True`; with the default or `lazy_init=False` it is silent.
+
+___
+
 v3.8.0 (2026-07-31)
 -------------------
 

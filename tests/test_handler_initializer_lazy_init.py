@@ -213,7 +213,7 @@ async def test_warns_when_lazy_init_inert_without_redis_and_cloud_configured() -
 
 
 async def test_warns_when_lazy_init_inert_with_geo_ip_handler_configured() -> None:
-    config = SecurityConfig(lazy_init=False)
+    config = SecurityConfig(lazy_init=True)
     geo_ip = MagicMock()
     initializer = HandlerInitializer(
         config=config, redis_handler=None, geo_ip_handler=geo_ip
@@ -224,6 +224,19 @@ async def test_warns_when_lazy_init_inert_with_geo_ip_handler_configured() -> No
 
     mock_warning.assert_called_once()
     assert "lazy_init has no effect" in mock_warning.call_args[0][0]
+
+
+async def test_no_warning_when_lazy_init_false_and_geo_ip_handler_configured() -> None:
+    config = SecurityConfig(lazy_init=False)
+    geo_ip = MagicMock()
+    initializer = HandlerInitializer(
+        config=config, redis_handler=None, geo_ip_handler=geo_ip
+    )
+
+    with patch.object(initializer.logger, "warning") as mock_warning:
+        await initializer.initialize_redis_handlers()
+
+    mock_warning.assert_not_called()
 
 
 async def test_no_warning_when_lazy_init_inert_but_nothing_configured() -> None:
