@@ -18,17 +18,20 @@ def _mute_pydantic_plugin_instrumentation() -> None:
 
     Idempotent: every guard-core path that can end up constructing one of
     these models calls this on its way there, so it may run once per
-    SecurityConfig construction in a test suite; only the first call in the
-    process does any work.
+    SecurityConfig construction in a test suite. The applied flag is only
+    set once all three models are confirmed muted (or guard-agent is
+    confirmed absent), so a partial rebuild failure leaves it unset and the
+    next call retries all three rather than silently leaving some of them
+    permanently unmuted.
     """
     global _applied
     if _applied:
         return
-    _applied = True
 
     try:
         from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
     except ImportError:
+        _applied = True
         return
 
     try:
@@ -45,14 +48,18 @@ def _mute_pydantic_plugin_instrumentation() -> None:
             "plugin instrumentation",
             exc_info=True,
         )
+    else:
+        _applied = True
 
 
 def get_telemetry_model(name: TelemetryModelName) -> type[Any]:
     """The only sanctioned way for guard-core to obtain a guard-agent
     telemetry model class. Always mutes pydantic plugin instrumentation
     first, so no caller can construct SecurityEvent/SecurityMetric/EventBatch
-    ahead of the mute; `tests/test_telemetry_model_access.py` scans the
-    source tree and fails if any other module imports these models directly.
+    ahead of the mute; `tests/test_telemetry_model_access.py` fails any
+    module outside this one that references `guard_agent` at runtime at all,
+    not just one that imports these names directly, so the property holds
+    for every way of reaching this module rather than one specific spelling.
     """
     _mute_pydantic_plugin_instrumentation()
     import guard_agent

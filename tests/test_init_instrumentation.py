@@ -54,6 +54,7 @@ def test_mute_pydantic_instrumentation_survives_rebuild_failure(
         guard_core._mute_pydantic_plugin_instrumentation()
 
     assert "Could not opt guard-agent telemetry models" in caplog.text
+    assert _pydantic_plugin_mute._applied is False
 
 
 def test_mute_pydantic_instrumentation_is_idempotent_after_first_success(
@@ -84,3 +85,34 @@ def test_mute_pydantic_instrumentation_is_idempotent_after_first_success(
 
     guard_core._mute_pydantic_plugin_instrumentation()
     assert len(rebuild_calls) == 3
+
+
+def test_mute_pydantic_instrumentation_retries_all_models_after_a_failed_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rebuild failure must not leave the applied flag set, or later models
+    in the tuple stay permanently un-muted with no error and no retry. The
+    next call must retry and actually mute all three models."""
+    from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
+
+    monkeypatch.setattr(_pydantic_plugin_mute, "_applied", False)
+
+    original_rebuild = SecurityEvent.model_rebuild
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("rebuild failed")
+
+    monkeypatch.setattr(SecurityEvent, "model_rebuild", boom)
+    guard_core._mute_pydantic_plugin_instrumentation()
+    applied_after_failure = _pydantic_plugin_mute._applied
+    assert applied_after_failure is False
+
+    monkeypatch.setattr(SecurityEvent, "model_rebuild", original_rebuild)
+    guard_core._mute_pydantic_plugin_instrumentation()
+    applied_after_retry = _pydantic_plugin_mute._applied
+    assert applied_after_retry is True
+
+    for model in (SecurityEvent, SecurityMetric, EventBatch):
+        assert model.model_config.get("plugin_settings") == {
+            "logfire": {"record": "off"}
+        }
