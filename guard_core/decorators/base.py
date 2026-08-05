@@ -1,10 +1,12 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
+
+if TYPE_CHECKING:
+    from guard_core.handlers.behavior_handler import BehaviorRule
 
 
 @runtime_checkable
@@ -54,6 +56,8 @@ class BaseSecurityMixin:
 
 class BaseSecurityDecorator:
     def __init__(self, config: SecurityConfig) -> None:
+        from guard_core.handlers.behavior_handler import BehaviorTracker
+
         self.config = config
         self._route_configs: dict[str, RouteConfig] = {}
         self.behavior_tracker = BehaviorTracker(config)

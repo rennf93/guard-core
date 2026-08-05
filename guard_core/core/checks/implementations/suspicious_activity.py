@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.helpers import (
@@ -10,14 +11,22 @@ from guard_core.core.events.event_types import (
     EVENT_PENETRATION_ATTEMPT,
 )
 from guard_core.decorators.base import RouteConfig
-from guard_core.handlers.ipban_handler import ip_ban_manager
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import log_activity
 
+if TYPE_CHECKING:
+    from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
+
 
 class SuspiciousActivityCheck(SecurityCheck):
+    def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
+        super().__init__(middleware)
+        from guard_core.handlers.ipban_handler import ip_ban_manager
+
+        self.ip_ban_manager = ip_ban_manager
+
     @property
     def check_name(self) -> str:
         return "suspicious_activity"
@@ -94,7 +103,7 @@ class SuspiciousActivityCheck(SecurityCheck):
             if entry is None:
                 continue
             if ip_counts.get(category, 0) >= entry.threshold:
-                await ip_ban_manager.ban_ip(
+                await self.ip_ban_manager.ban_ip(
                     client_ip,
                     entry.duration,
                     f"penetration_attempt:{category}",
@@ -125,7 +134,7 @@ class SuspiciousActivityCheck(SecurityCheck):
         total_count = self._total_count_for_ip(client_ip)
         if total_count < self.config.auto_ban_threshold:
             return None
-        await ip_ban_manager.ban_ip(
+        await self.ip_ban_manager.ban_ip(
             client_ip,
             self.config.auto_ban_duration,
             "penetration_attempt",

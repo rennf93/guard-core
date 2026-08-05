@@ -1,15 +1,24 @@
 import time
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.decorators.base import RouteConfig
-from guard_core.handlers.cloud_handler import cloud_handler
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
+if TYPE_CHECKING:
+    from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
+
 
 class CloudIpRefreshCheck(SecurityCheck):
+    def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
+        super().__init__(middleware)
+        from guard_core.handlers.cloud_handler import cloud_handler
+
+        self.cloud_handler = cloud_handler
+
     @property
     def check_name(self) -> str:
         return "cloud_ip_refresh"
@@ -32,7 +41,7 @@ class CloudIpRefreshCheck(SecurityCheck):
         ):
             previous_refresh = self.middleware.last_cloud_ip_refresh
             self.middleware.last_cloud_ip_refresh = int(time.time())
-            scheduled = await cloud_handler.schedule_refresh(
+            scheduled = await self.cloud_handler.schedule_refresh(
                 {str(provider) for provider in self.config.block_cloud_providers},
                 ttl=self.config.cloud_ip_refresh_interval,
                 refresh=self.middleware.refresh_cloud_ip_ranges,

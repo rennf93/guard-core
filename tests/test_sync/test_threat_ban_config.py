@@ -69,11 +69,7 @@ def _build_check(config: SecurityConfig) -> SuspiciousActivityCheck:
     )
     middleware.route_resolver.should_bypass_check = lambda *_: False
 
-    check = SuspiciousActivityCheck.__new__(SuspiciousActivityCheck)
-    check.middleware = middleware
-    check.config = config
-    check.logger = MagicMock()
-    return check
+    return SuspiciousActivityCheck(middleware)
 
 
 def _make_detect_fn(result: DetectionResult) -> Any:
@@ -85,6 +81,7 @@ def _make_detect_fn(result: DetectionResult) -> Any:
 
 def _patch_detect_and_ban(
     monkeypatch: pytest.MonkeyPatch,
+    check: SuspiciousActivityCheck,
     result: DetectionResult,
     ban_calls: list[tuple[str, int, str]],
 ) -> None:
@@ -97,11 +94,7 @@ def _patch_detect_and_ban(
     def fake_ban(ip: str, duration: int, reason: str) -> None:
         ban_calls.append((ip, duration, reason))
 
-    monkeypatch.setattr(
-        "guard_core.sync.core.checks.implementations.suspicious_activity"
-        ".ip_ban_manager.ban_ip",
-        fake_ban,
-    )
+    monkeypatch.setattr(check.ip_ban_manager, "ban_ip", fake_ban)
 
 
 def _make_request(client_ip: str) -> MagicMock:
@@ -126,6 +119,7 @@ def test_per_category_ban_fires_at_category_threshold(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="Query param 'q': XSS pattern",
@@ -162,6 +156,7 @@ def test_flat_ban_fires_when_no_per_category_entry(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -196,6 +191,7 @@ def test_per_category_ban_short_circuits_flat_ban(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -227,6 +223,7 @@ def test_per_category_skip_when_entry_missing(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -258,6 +255,7 @@ def test_no_ban_when_ip_banning_disabled(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -287,6 +285,7 @@ def test_uncategorized_threat_increments_uncategorized(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -316,6 +315,7 @@ def test_passive_mode_with_threat(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(
             is_threat=True,
             trigger_info="trigger",
@@ -340,6 +340,7 @@ def test_no_threat_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(is_threat=False, trigger_info=""),
         ban_calls,
     )
@@ -360,6 +361,7 @@ def test_disabled_by_decorator_emits_event(
     ban_calls: list[tuple[str, int, str]] = []
     _patch_detect_and_ban(
         monkeypatch,
+        check,
         DetectionResult(is_threat=False, trigger_info="disabled_by_decorator"),
         ban_calls,
     )

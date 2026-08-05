@@ -35,11 +35,7 @@ def _req(rc: RouteConfig, ip: str = "1.2.3.4") -> Mock:
 
 
 @patch("guard_core.sync.core.checks.implementations.ip_security.log_activity")
-@patch("guard_core.sync.core.checks.implementations.ip_security.ip_ban_manager")
-def test_route_whitelist_is_not_global_trust(
-    mock_ban_manager: Any, _mock_log: Any
-) -> None:
-    mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
+def test_route_whitelist_is_not_global_trust(_mock_log: Any) -> None:
     cfg = SecurityConfig()
     cfg.passive_mode = False
     cfg.blacklist = ["1.2.3.4"]
@@ -48,7 +44,10 @@ def test_route_whitelist_is_not_global_trust(
     rc.rate_limit = 1
     req = _req(rc)
 
-    result = IpSecurityCheck(_mw(cfg)).check(req)
+    check = IpSecurityCheck(_mw(cfg))
+    with patch.object(check, "ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
+        result = check.check(req)
 
     assert result is None
     assert req.state.is_whitelisted is False
@@ -99,11 +98,7 @@ def test_route_whitelisted_ip_still_scanned_for_attacks(_mock_log: Any) -> None:
 
 
 @patch("guard_core.sync.core.checks.implementations.ip_security.log_activity")
-@patch("guard_core.sync.core.checks.implementations.ip_security.ip_ban_manager")
-def test_cloud_block_on_route_whitelisted_ip_is_coherent(
-    mock_ban_manager: Any, _mock_log: Any
-) -> None:
-    mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
+def test_cloud_block_on_route_whitelisted_ip_is_coherent(_mock_log: Any) -> None:
     cfg = SecurityConfig()
     cfg.passive_mode = False
     cfg.block_cloud_providers = {"AWS"}
@@ -111,9 +106,14 @@ def test_cloud_block_on_route_whitelisted_ip_is_coherent(
     rc.ip_whitelist = ["1.2.3.4"]
     req = _req(rc)
 
-    with patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as cloud:
+    check = IpSecurityCheck(_mw(cfg))
+    with (
+        patch.object(check, "ip_ban_manager") as mock_ban_manager,
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as cloud,
+    ):
+        mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
         cloud.is_cloud_ip = Mock(return_value=True)
-        result = IpSecurityCheck(_mw(cfg)).check(req)
+        result = check.check(req)
 
     assert result is not None
     assert req.state.is_whitelisted is False

@@ -72,9 +72,7 @@ async def test_check_passive_mode(
 ) -> None:
     cloud_check.config.passive_mode = True
 
-    with patch(
-        "guard_core.core.checks.implementations.cloud_provider.cloud_handler"
-    ) as mock_cloud_handler:
+    with patch.object(cloud_check, "cloud_handler") as mock_cloud_handler:
         mock_cloud_handler.is_cloud_ip.return_value = True
 
         with patch(
@@ -101,9 +99,7 @@ async def test_check_no_cloud_providers_to_check(
 async def test_check_not_cloud_ip(
     cloud_check: CloudProviderCheck, mock_request: Mock
 ) -> None:
-    with patch(
-        "guard_core.core.checks.implementations.cloud_provider.cloud_handler"
-    ) as mock_cloud_handler:
+    with patch.object(cloud_check, "cloud_handler") as mock_cloud_handler:
         mock_cloud_handler.is_cloud_ip.return_value = False
 
         result = await cloud_check.check(mock_request)
@@ -116,9 +112,7 @@ async def test_check_cloud_ip_active_mode(
 ) -> None:
     cloud_check.config.passive_mode = False
 
-    with patch(
-        "guard_core.core.checks.implementations.cloud_provider.cloud_handler"
-    ) as mock_cloud_handler:
+    with patch.object(cloud_check, "cloud_handler") as mock_cloud_handler:
         mock_cloud_handler.is_cloud_ip.return_value = True
 
         with patch(

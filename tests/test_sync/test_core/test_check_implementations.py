@@ -911,7 +911,7 @@ def test_cloud_provider_blocks() -> None:
     req = SyncMockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=True)
         with patch(f"{_IMPL}.cloud_provider.log_activity"):
             result = check.check(req)
@@ -925,7 +925,7 @@ def test_cloud_provider_not_cloud_ip() -> None:
     req = SyncMockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=False)
         result = check.check(req)
     assert result is None
@@ -938,7 +938,7 @@ def test_cloud_provider_passive_mode() -> None:
     req = SyncMockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=True)
         with patch(f"{_IMPL}.cloud_provider.log_activity"):
             result = check.check(req)
@@ -1036,7 +1036,7 @@ def test_ip_security_banned_ip() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=True)
         with patch(f"{_IMPL}.ip_security.log_activity"):
             result = check.check(req)
@@ -1051,7 +1051,7 @@ def test_ip_security_bypass_ip_check() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         result = check.check(req)
     assert result is None
@@ -1065,7 +1065,7 @@ def test_ip_security_route_ip_blocked() -> None:
     rc.ip_blacklist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(f"{_IMPL}.ip_security.log_activity"):
             result = check.check(req)
@@ -1080,7 +1080,7 @@ def test_ip_security_route_ip_allowed() -> None:
     rc.ip_whitelist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         result = check.check(req)
     assert result is None
@@ -1092,7 +1092,7 @@ def test_ip_security_global_check() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1108,7 +1108,7 @@ def test_ip_security_global_blocked() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "9.9.9.9"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1124,7 +1124,7 @@ def test_ip_security_passive_mode_banned() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=True)
         with patch(f"{_IMPL}.ip_security.log_activity"):
             result = check.check(req)
@@ -1139,7 +1139,7 @@ def test_ip_security_passive_mode_route_blocked() -> None:
     rc.ip_blacklist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(f"{_IMPL}.ip_security.log_activity"):
             result = check.check(req)
@@ -1152,7 +1152,7 @@ def test_ip_security_passive_mode_global_blocked() -> None:
     check = IpSecurityCheck(mw)
     req = SyncMockGuardRequest()
     req.state.client_ip = "9.9.9.9"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1425,7 +1425,7 @@ def test_suspicious_activity_auto_ban() -> None:
         f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
         return_value=DetectionResult(is_threat=True, trigger_info="sqli"),
     ):
-        with patch(f"{_IMPL}.suspicious_activity.ip_ban_manager") as mock_ban:
+        with patch.object(check, "ip_ban_manager") as mock_ban:
             mock_ban.ban_ip = MagicMock()
             with patch(f"{_IMPL}.suspicious_activity.log_activity"):
                 result = check.check(req)

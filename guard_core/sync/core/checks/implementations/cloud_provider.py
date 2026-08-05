@@ -1,16 +1,27 @@
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import route_config_applies
 from guard_core.sync.decorators.base import RouteConfig
-from guard_core.sync.handlers.cloud_handler import cloud_handler
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
+if TYPE_CHECKING:
+    from guard_core.sync.protocols.middleware_protocol import (
+        SyncGuardMiddlewareProtocol,
+    )
+
 
 class CloudProviderCheck(SecurityCheck):
+    def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
+        super().__init__(middleware)
+        from guard_core.sync.handlers.cloud_handler import cloud_handler
+
+        self.cloud_handler = cloud_handler
+
     @property
     def check_name(self) -> str:
         return "cloud_provider"
@@ -47,7 +58,7 @@ class CloudProviderCheck(SecurityCheck):
         if not cloud_providers_to_check:
             return None
 
-        if not cloud_handler.is_cloud_ip(client_ip, set(cloud_providers_to_check)):
+        if not self.cloud_handler.is_cloud_ip(client_ip, set(cloud_providers_to_check)):
             return None
 
         log_activity(
@@ -66,7 +77,7 @@ class CloudProviderCheck(SecurityCheck):
             client_ip,
             cloud_providers_to_check,
             route_config,
-            cloud_handler,
+            self.cloud_handler,
             self.config.passive_mode,
         )
 

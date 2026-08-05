@@ -64,9 +64,7 @@ async def test_check_banned_ip_passive_mode(
 ) -> None:
     security_config.passive_mode = True
 
-    with patch(
-        "guard_core.core.checks.implementations.ip_security.ip_ban_manager"
-    ) as mock_ban_mgr:
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
         mock_ban_mgr.is_ip_banned = AsyncMock(return_value=True)
 
         with patch(
@@ -139,9 +137,7 @@ async def test_check_global_ip_restrictions_passive_mode(
 async def test_check_with_bypass_ip_check(
     ip_security_check: IpSecurityCheck, mock_request: Mock
 ) -> None:
-    with patch(
-        "guard_core.core.checks.implementations.ip_security.ip_ban_manager"
-    ) as mock_ban_mgr:
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
         mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
 
         mock_bypass = Mock(side_effect=lambda check, config: check == "ip")
@@ -159,9 +155,7 @@ async def test_full_flow_with_route_config(
     route_config = RouteConfig()
     mock_request.state.route_config = route_config
 
-    with patch(
-        "guard_core.core.checks.implementations.ip_security.ip_ban_manager"
-    ) as mock_ban_mgr:
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
         mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
 
         with patch(

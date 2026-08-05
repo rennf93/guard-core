@@ -908,7 +908,7 @@ async def test_cloud_provider_blocks() -> None:
     req = MockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=True)
         with patch(f"{_IMPL}.cloud_provider.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -922,7 +922,7 @@ async def test_cloud_provider_not_cloud_ip() -> None:
     req = MockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=False)
         result = await check.check(req)
     assert result is None
@@ -935,7 +935,7 @@ async def test_cloud_provider_passive_mode() -> None:
     req = MockGuardRequest()
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.cloud_provider.cloud_handler") as mock_ch:
+    with patch.object(check, "cloud_handler") as mock_ch:
         mock_ch.is_cloud_ip = MagicMock(return_value=True)
         with patch(f"{_IMPL}.cloud_provider.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1037,7 +1037,7 @@ async def test_ip_security_banned_ip() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=True)
         with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1052,7 +1052,7 @@ async def test_ip_security_bypass_ip_check() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         result = await check.check(req)
     assert result is None
@@ -1066,7 +1066,7 @@ async def test_ip_security_route_ip_blocked() -> None:
     rc.ip_blacklist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1081,7 +1081,7 @@ async def test_ip_security_route_ip_allowed() -> None:
     rc.ip_whitelist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         result = await check.check(req)
     assert result is None
@@ -1093,7 +1093,7 @@ async def test_ip_security_global_check() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1110,7 +1110,7 @@ async def test_ip_security_global_blocked() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "9.9.9.9"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1127,7 +1127,7 @@ async def test_ip_security_passive_mode_banned() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=True)
         with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1142,7 +1142,7 @@ async def test_ip_security_passive_mode_route_blocked() -> None:
     rc.ip_blacklist = ["1.2.3.4"]
     req = _make_request_with_route_config(rc)
     req.state.client_ip = "1.2.3.4"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
             result = await check.check(req)
@@ -1155,7 +1155,7 @@ async def test_ip_security_passive_mode_global_blocked() -> None:
     check = IpSecurityCheck(mw)
     req = MockGuardRequest()
     req.state.client_ip = "9.9.9.9"
-    with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
+    with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
             f"{_IMPL}.ip_security.is_ip_allowed",
@@ -1434,7 +1434,7 @@ async def test_suspicious_activity_auto_ban() -> None:
         new_callable=AsyncMock,
         return_value=DetectionResult(is_threat=True, trigger_info="sqli"),
     ):
-        with patch(f"{_IMPL}.suspicious_activity.ip_ban_manager") as mock_ban:
+        with patch.object(check, "ip_ban_manager") as mock_ban:
             mock_ban.ban_ip = AsyncMock()
             with patch(
                 f"{_IMPL}.suspicious_activity.log_activity", new_callable=AsyncMock

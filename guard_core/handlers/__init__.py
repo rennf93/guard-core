@@ -1,13 +1,17 @@
-from .behavior_handler import BehaviorTracker
-from .cloud_handler import CloudManager
-from .cors_handler import CorsHandler, CorsPreflightResponse, is_preflight
-from .dynamic_rule_handler import DynamicRuleManager
-from .ipban_handler import IPBanManager
-from .ipinfo_handler import IPInfoManager
-from .ratelimit_handler import RateLimitManager
-from .redis_handler import RedisManager
-from .security_headers_handler import SecurityHeadersManager
-from .suspatterns_handler import SusPatternsManager
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .behavior_handler import BehaviorTracker
+    from .cloud_handler import CloudManager
+    from .cors_handler import CorsHandler, CorsPreflightResponse, is_preflight
+    from .dynamic_rule_handler import DynamicRuleManager
+    from .ipban_handler import IPBanManager
+    from .ipinfo_handler import IPInfoManager
+    from .ratelimit_handler import RateLimitManager
+    from .redis_handler import RedisManager
+    from .security_headers_handler import SecurityHeadersManager
+    from .suspatterns_handler import SusPatternsManager
 
 __all__ = [
     "BehaviorTracker",
@@ -23,3 +27,31 @@ __all__ = [
     "SusPatternsManager",
     "is_preflight",
 ]
+
+_MODULE_BY_NAME: dict[str, str] = {
+    "BehaviorTracker": "guard_core.handlers.behavior_handler",
+    "CloudManager": "guard_core.handlers.cloud_handler",
+    "CorsHandler": "guard_core.handlers.cors_handler",
+    "CorsPreflightResponse": "guard_core.handlers.cors_handler",
+    "is_preflight": "guard_core.handlers.cors_handler",
+    "DynamicRuleManager": "guard_core.handlers.dynamic_rule_handler",
+    "IPBanManager": "guard_core.handlers.ipban_handler",
+    "IPInfoManager": "guard_core.handlers.ipinfo_handler",
+    "RateLimitManager": "guard_core.handlers.ratelimit_handler",
+    "RedisManager": "guard_core.handlers.redis_handler",
+    "SecurityHeadersManager": "guard_core.handlers.security_headers_handler",
+    "SusPatternsManager": "guard_core.handlers.suspatterns_handler",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _MODULE_BY_NAME.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
