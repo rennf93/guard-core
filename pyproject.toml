@@ -118,10 +118,6 @@ markers = [
     "asyncio: mark tests as async",
     "integration: marks tests that require Docker + external services (deselect with '-m \"not integration\"')",
 ]
-filterwarnings = [
-    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
-    "ignore:ipinfo_.* is deprecated:DeprecationWarning",
-]
 
 [tool.mypy]
 python_version = "3.10"

@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
@@ -14,8 +13,6 @@ from guard_core.sync.utils import (
     is_user_agent_allowed,
 )
 
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
-
 
 def test_is_ip_allowed(security_config: SecurityConfig, mocker: MockerFixture) -> None:
     mocker.patch("guard_core.sync.utils.check_ip_country", return_value=False)
@@ -23,19 +20,15 @@ def test_is_ip_allowed(security_config: SecurityConfig, mocker: MockerFixture) -
     assert is_ip_allowed("127.0.0.1", security_config)
     assert not is_ip_allowed("192.168.1.1", security_config)
 
-    empty_config = SecurityConfig(ipinfo_token=IPINFO_TOKEN, whitelist=[], blacklist=[])
+    empty_config = SecurityConfig(whitelist=[], blacklist=[])
     assert is_ip_allowed("127.0.0.1", empty_config)
     assert is_ip_allowed("192.168.1.1", empty_config)
 
-    whitelist_config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, whitelist=["127.0.0.1"]
-    )
+    whitelist_config = SecurityConfig(whitelist=["127.0.0.1"])
     assert is_ip_allowed("127.0.0.1", whitelist_config)
     assert not is_ip_allowed("192.168.1.1", whitelist_config)
 
-    blacklist_config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blacklist=["192.168.1.1"]
-    )
+    blacklist_config = SecurityConfig(blacklist=["192.168.1.1"])
     assert is_ip_allowed("127.0.0.1", blacklist_config)
     assert not is_ip_allowed("192.168.1.1", blacklist_config)
 
@@ -154,7 +147,7 @@ def test_get_ip_country(mocker: MockerFixture) -> None:
     mock_db.get_country.return_value = "US"
     mock_db.reader = True
 
-    config = SecurityConfig(ipinfo_token=IPINFO_TOKEN, blocked_countries=["CN"])
+    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
 
     country = check_ip_country("1.1.1.1", config, mock_db)
     assert not country
@@ -316,9 +309,7 @@ def test_check_ip_country_regression_returns_false_when_country_unresolvable(
 def test_check_ip_country_no_countries_configured(
     caplog: Any,
 ) -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blocked_countries=[], whitelist_countries=[]
-    )
+    config = SecurityConfig(blocked_countries=[], whitelist_countries=[])
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True
@@ -332,9 +323,7 @@ def test_check_ip_country_no_countries_configured(
 
 
 def test_is_ip_allowed_cidr_blacklist() -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blacklist=["192.168.1.0/24"], whitelist=[]
-    )
+    config = SecurityConfig(blacklist=["192.168.1.0/24"], whitelist=[])
 
     assert not is_ip_allowed("192.168.1.100", config)
     assert not is_ip_allowed("192.168.1.1", config)
@@ -345,7 +334,6 @@ def test_is_ip_allowed_cidr_blacklist() -> None:
     assert is_ip_allowed("10.0.0.1", config)
 
     config_multiple = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN,
         blacklist=["192.168.1.0/24", "10.0.0.0/8"],
         whitelist=[],
     )
@@ -356,9 +344,7 @@ def test_is_ip_allowed_cidr_blacklist() -> None:
 
 
 def test_is_ip_allowed_cidr_whitelist() -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, whitelist=["192.168.1.0/24"], blacklist=[]
-    )
+    config = SecurityConfig(whitelist=["192.168.1.0/24"], blacklist=[])
 
     assert is_ip_allowed("192.168.1.100", config)
     assert is_ip_allowed("192.168.1.1", config)
@@ -369,7 +355,6 @@ def test_is_ip_allowed_cidr_whitelist() -> None:
     assert not is_ip_allowed("10.0.0.1", config)
 
     config_multiple = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN,
         whitelist=["192.168.1.0/24", "10.0.0.0/8"],
         blacklist=[],
     )
@@ -380,7 +365,7 @@ def test_is_ip_allowed_cidr_whitelist() -> None:
 
 
 def test_is_ip_allowed_invalid_ip(caplog: Any) -> None:
-    config = SecurityConfig(ipinfo_token="test")
+    config = SecurityConfig()
 
     with caplog.at_level(logging.ERROR):
         result = is_ip_allowed("invalid-ip", config)
@@ -388,7 +373,7 @@ def test_is_ip_allowed_invalid_ip(caplog: Any) -> None:
 
 
 def test_is_ip_allowed_general_exception(caplog: Any, mocker: MockerFixture) -> None:
-    config = SecurityConfig(ipinfo_token="test")
+    config = SecurityConfig()
 
     mock_error = Exception("Unexpected error")
     mocker.patch("guard_core.sync.utils.ip_address", side_effect=mock_error)
@@ -415,7 +400,7 @@ def test_detect_penetration_attempt_body_error() -> None:
 
 
 def test_is_ip_allowed_blocked_country(mocker: MockerFixture) -> None:
-    config = SecurityConfig(ipinfo_token="test", blocked_countries=["CN"])
+    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True

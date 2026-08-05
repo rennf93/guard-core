@@ -1,4 +1,3 @@
-import os
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -9,8 +8,6 @@ from redis.exceptions import ConnectionError
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.redis_handler import redis_handler
-
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
 
 
 def test_redis_basic_operations(security_config_redis: SecurityConfig) -> None:
@@ -119,7 +116,9 @@ def test_redis_connection_context_get_error(
 def test_redis_connection_failures(security_config_redis: SecurityConfig) -> None:
     bad_config = SecurityConfig(
         **{
-            **security_config_redis.model_dump(),
+            **security_config_redis.model_dump(
+                exclude={"ipinfo_token", "ipinfo_db_path"}
+            ),
             "redis_url": "redis://nonexistent:6379",
         }
     )
@@ -158,7 +157,12 @@ def test_redis_failed_initialization_operations(
     security_config_redis: SecurityConfig,
 ) -> None:
     bad_config = SecurityConfig(
-        **{**security_config_redis.model_dump(), "redis_url": "redis://invalid:6379"}
+        **{
+            **security_config_redis.model_dump(
+                exclude={"ipinfo_token", "ipinfo_db_path"}
+            ),
+            "redis_url": "redis://invalid:6379",
+        }
     )
     handler = redis_handler(bad_config)
 
