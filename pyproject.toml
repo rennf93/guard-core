@@ -66,6 +66,16 @@ otel = [
 logfire = [
     "logfire",
 ]
+redis = [
+    "redis",
+]
+cloud = [
+    "aiohttp",
+    "requests",
+]
+geo = [
+    "maxminddb",
+]
 
 [build-system]
 requires = ["hatchling"]

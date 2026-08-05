@@ -1,6 +1,6 @@
 import time
 from collections.abc import Collection
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.decorators.base import RouteConfig
@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 
 class CloudIpRefreshCheck(SecurityCheck):
+    requires: ClassVar[tuple[str, ...]] = ("cloud",)
+
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         super().__init__(middleware)
         from guard_core.handlers.cloud_handler import cloud_handler

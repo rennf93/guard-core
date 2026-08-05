@@ -1,5 +1,5 @@
 from collections.abc import Collection
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 
 class CloudProviderCheck(SecurityCheck):
+    requires: ClassVar[tuple[str, ...]] = ("cloud",)
+
     def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
         super().__init__(middleware)
         from guard_core.sync.handlers.cloud_handler import cloud_handler

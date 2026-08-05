@@ -1,3 +1,4 @@
+import importlib.util
 import warnings
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
 
 CloudProvider = Literal["AWS", "GCP", "Azure"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
+
+
+def _extra_installed(*module_names: str) -> bool:
+    return any(importlib.util.find_spec(name) is not None for name in module_names)
 
 
 class ThreatBanConfig(BaseModel):
@@ -759,6 +764,31 @@ class SecurityConfig(BaseModel):
         if v is None:
             return set()
         return {sel for sel in v if sel.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
+
+    @model_validator(mode="after")
+    def validate_optional_extras_installed(self) -> Self:
+        if self.enable_redis and not _extra_installed("redis"):
+            raise ValueError(
+                "enable_redis=True requires the 'redis' package. "
+                "Install it with: pip install guard-core[redis]"
+            )
+
+        if self.block_cloud_providers and not _extra_installed("aiohttp", "requests"):
+            raise ValueError(
+                "block_cloud_providers requires 'aiohttp' or 'requests'. "
+                "Install it with: pip install guard-core[cloud]"
+            )
+
+        has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
+        if (
+            self.geo_ip_handler is not None or has_country_rules
+        ) and not _extra_installed("maxminddb"):
+            raise ValueError(
+                "geo_ip_handler / country rules require the 'maxminddb' package. "
+                "Install it with: pip install guard-core[geo]"
+            )
+
+        return self
 
     @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:

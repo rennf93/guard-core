@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Collection
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 
 class SecurityCheck(ABC):
+    requires: ClassVar[tuple[str, ...]] = ()
+
     def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
         self.middleware = middleware
         self.config = middleware.config
