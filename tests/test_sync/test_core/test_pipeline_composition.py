@@ -97,6 +97,7 @@ def test_unknown_route_configs_keeps_every_route_driven_check() -> None:
         "referrer",
         "custom_validators",
         "time_window",
+        "cloud_ip_refresh",
         "ip_security",
         "cloud_provider",
         "user_agent",

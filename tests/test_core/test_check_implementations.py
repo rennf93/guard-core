@@ -841,6 +841,7 @@ async def test_cloud_ip_refresh_triggers() -> None:
     mw.config.block_cloud_providers = {"AWS"}
     mw.config.cloud_ip_refresh_interval = 1
     mw.last_cloud_ip_refresh = 0
+    mw.route_resolver.get_cloud_providers_to_check = MagicMock(return_value=["AWS"])
     check = CloudIpRefreshCheck(mw)
     req = MockGuardRequest()
 
@@ -853,6 +854,26 @@ async def test_cloud_ip_refresh_triggers() -> None:
     schedule.assert_called_once_with({"AWS"}, ttl=1, refresh=mw.refresh_cloud_ip_ranges)
     assert mw.last_cloud_ip_refresh > 0
     mw.refresh_cloud_ip_ranges.assert_not_called()
+
+
+async def test_cloud_ip_refresh_triggers_for_route_only_cloud_config() -> None:
+    from guard_core.handlers.cloud_handler import cloud_handler
+
+    mw = _make_middleware()
+    mw.config.cloud_ip_refresh_interval = 1
+    mw.last_cloud_ip_refresh = 0
+    mw.route_resolver.get_cloud_providers_to_check = MagicMock(return_value=["GCP"])
+    check = CloudIpRefreshCheck(mw)
+    req = MockGuardRequest()
+
+    with patch.object(
+        cloud_handler, "schedule_refresh", new_callable=AsyncMock
+    ) as schedule:
+        result = await check.check(req)
+
+    assert result is None
+    schedule.assert_called_once_with({"GCP"}, ttl=1, refresh=mw.refresh_cloud_ip_ranges)
+    assert mw.last_cloud_ip_refresh > 0
 
 
 async def test_cloud_provider_check_name() -> None:

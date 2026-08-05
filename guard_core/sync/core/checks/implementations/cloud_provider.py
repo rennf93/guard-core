@@ -1,7 +1,7 @@
 from collections.abc import Collection
 from typing import TYPE_CHECKING, ClassVar
 
-from guard_core.models import SecurityConfig
+from guard_core.models import SecurityConfig, cloud_blocking_enabled
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import route_config_applies
@@ -34,12 +34,8 @@ class CloudProviderCheck(SecurityCheck):
         config: SecurityConfig,
         route_configs: Collection[RouteConfig] | None,
     ) -> bool:
-        return (
-            bool(config.block_cloud_providers)
-            or route_config_applies(
-                route_configs, lambda rc: bool(rc.block_cloud_providers)
-            )
-            or config.enable_dynamic_rules
+        return cloud_blocking_enabled(config) or route_config_applies(
+            route_configs, lambda rc: bool(rc.block_cloud_providers)
         )
 
     def check(self, request: SyncGuardRequest) -> GuardResponse | None:

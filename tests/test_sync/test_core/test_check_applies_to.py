@@ -330,6 +330,42 @@ ROUTE_DRIVEN_CASES = [
         True,
         id="time_window-none-keeps",
     ),
+    pytest.param(
+        CloudIpRefreshCheck,
+        (_route_config(block_cloud_providers={"AWS"}),),
+        True,
+        id="cloud_ip_refresh-route-keep",
+    ),
+    pytest.param(
+        CloudIpRefreshCheck,
+        (RouteConfig(),),
+        False,
+        id="cloud_ip_refresh-route-drop",
+    ),
+    pytest.param(
+        CloudIpRefreshCheck,
+        None,
+        True,
+        id="cloud_ip_refresh-none-keeps",
+    ),
+    pytest.param(
+        CloudProviderCheck,
+        (_route_config(block_cloud_providers={"AWS"}),),
+        True,
+        id="cloud_provider-route-keep",
+    ),
+    pytest.param(
+        CloudProviderCheck,
+        (RouteConfig(),),
+        False,
+        id="cloud_provider-route-drop",
+    ),
+    pytest.param(
+        CloudProviderCheck,
+        None,
+        True,
+        id="cloud_provider-none-keeps",
+    ),
 ]
 
 

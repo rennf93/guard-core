@@ -3,8 +3,9 @@ from collections.abc import Collection
 from typing import TYPE_CHECKING, ClassVar
 
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.core.checks.helpers import route_config_applies
 from guard_core.decorators.base import RouteConfig
-from guard_core.models import SecurityConfig
+from guard_core.models import SecurityConfig, cloud_blocking_enabled
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
@@ -31,10 +32,16 @@ class CloudIpRefreshCheck(SecurityCheck):
         config: SecurityConfig,
         route_configs: Collection[RouteConfig] | None,
     ) -> bool:
-        return bool(config.block_cloud_providers) or config.enable_dynamic_rules
+        return cloud_blocking_enabled(config) or route_config_applies(
+            route_configs, lambda rc: bool(rc.block_cloud_providers)
+        )
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
-        if not self.config.block_cloud_providers:
+        route_config = getattr(request.state, "route_config", None)
+        cloud_providers_to_check = (
+            self.middleware.route_resolver.get_cloud_providers_to_check(route_config)
+        )
+        if not cloud_providers_to_check:
             return None
 
         if (
@@ -44,7 +51,7 @@ class CloudIpRefreshCheck(SecurityCheck):
             previous_refresh = self.middleware.last_cloud_ip_refresh
             self.middleware.last_cloud_ip_refresh = int(time.time())
             scheduled = await self.cloud_handler.schedule_refresh(
-                {str(provider) for provider in self.config.block_cloud_providers},
+                set(cloud_providers_to_check),
                 ttl=self.config.cloud_ip_refresh_interval,
                 refresh=self.middleware.refresh_cloud_ip_ranges,
             )

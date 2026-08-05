@@ -11,15 +11,15 @@ from guard_core.core.checks.implementations import (
     CloudProviderCheck,
     IpSecurityCheck,
 )
-from guard_core.models import SecurityConfig
+from guard_core.models import SecurityConfig, cloud_blocking_enabled
 from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 
 
-def _blocking_find_spec(*blocked_names: str) -> Callable[..., object]:
-    def fake_find_spec(name: str, *args: object, **kwargs: object) -> object:
+def _blocking_find_spec(*blocked_names: str) -> Callable[[str, str | None], object]:
+    def fake_find_spec(name: str, package: str | None = None) -> object:
         if name in blocked_names:
             return None
-        return real_find_spec(name, *args, **kwargs)
+        return real_find_spec(name, package)
 
     return fake_find_spec
 
@@ -37,7 +37,9 @@ def test_cloud_ip_refresh_check_requires_cloud_extra() -> None:
     assert CloudIpRefreshCheck.requires == ("cloud",)
 
 
-def test_country_rules_without_maxminddb_raises_named_extra(monkeypatch) -> None:
+def test_country_rules_without_maxminddb_raises_named_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("maxminddb"))
 
     with pytest.raises(ValidationError) as exc_info:
@@ -48,7 +50,7 @@ def test_country_rules_without_maxminddb_raises_named_extra(monkeypatch) -> None
 
 
 def test_ipinfo_token_without_maxminddb_raises_validation_error_not_import_error(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("maxminddb"))
 
@@ -58,20 +60,31 @@ def test_ipinfo_token_without_maxminddb_raises_validation_error_not_import_error
     assert "pip install guard-core[geo]" in str(exc_info.value)
 
 
-def test_custom_geo_ip_handler_without_maxminddb_raises_named_extra(
-    monkeypatch,
+def test_custom_geo_ip_handler_without_maxminddb_validates_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("maxminddb"))
     handler = MagicMock(spec=GeoIPHandler)
 
-    with pytest.raises(ValidationError) as exc_info:
-        SecurityConfig(geo_ip_handler=handler)
+    config = SecurityConfig(geo_ip_handler=handler, blocked_countries={"US"})
 
-    assert "pip install guard-core[geo]" in str(exc_info.value)
+    assert config.geo_ip_handler is handler
+
+
+def test_custom_geo_ip_handler_without_country_rules_and_without_maxminddb_warns_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("maxminddb"))
+    handler = MagicMock(spec=GeoIPHandler)
+
+    with pytest.warns(UserWarning, match="geo_ip_handler is set but"):
+        config = SecurityConfig(geo_ip_handler=handler)
+
+    assert config.geo_ip_handler is handler
 
 
 def test_enable_redis_default_without_redis_package_raises_named_extra(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("redis"))
 
@@ -81,7 +94,9 @@ def test_enable_redis_default_without_redis_package_raises_named_extra(
     assert "pip install guard-core[redis]" in str(exc_info.value)
 
 
-def test_enable_redis_false_without_redis_package_does_not_raise(monkeypatch) -> None:
+def test_enable_redis_false_without_redis_package_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("redis"))
 
     config = SecurityConfig(enable_redis=False)
@@ -90,7 +105,7 @@ def test_enable_redis_false_without_redis_package_does_not_raise(monkeypatch) ->
 
 
 def test_block_cloud_providers_without_cloud_packages_raises_named_extra(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "importlib.util.find_spec", _blocking_find_spec("aiohttp", "requests")
@@ -103,7 +118,7 @@ def test_block_cloud_providers_without_cloud_packages_raises_named_extra(
 
 
 def test_block_cloud_providers_none_without_cloud_packages_does_not_raise(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "importlib.util.find_spec", _blocking_find_spec("aiohttp", "requests")
@@ -115,10 +130,68 @@ def test_block_cloud_providers_none_without_cloud_packages_does_not_raise(
 
 
 def test_block_cloud_providers_with_only_requests_available_does_not_raise(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("aiohttp"))
 
     config = SecurityConfig(block_cloud_providers={"AWS"})
 
     assert config.block_cloud_providers == {"AWS"}
+
+
+def test_enable_dynamic_rules_without_cloud_packages_raises_named_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "importlib.util.find_spec", _blocking_find_spec("aiohttp", "requests")
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        SecurityConfig(
+            enable_dynamic_rules=True,
+            enable_agent=True,
+            agent_api_key="test-key",
+        )
+
+    assert "pip install guard-core[cloud]" in str(exc_info.value)
+
+
+def test_enable_dynamic_rules_false_without_cloud_packages_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "importlib.util.find_spec", _blocking_find_spec("aiohttp", "requests")
+    )
+
+    config = SecurityConfig(enable_dynamic_rules=False, block_cloud_providers=None)
+
+    assert config.block_cloud_providers == set()
+
+
+@pytest.mark.parametrize(
+    "block_cloud_providers, dynamic_rule_kwargs",
+    [
+        (None, {}),
+        ({"AWS"}, {}),
+        (
+            None,
+            {"enable_dynamic_rules": True, "enable_agent": True, "agent_api_key": "k"},
+        ),
+        (
+            {"AWS"},
+            {"enable_dynamic_rules": True, "enable_agent": True, "agent_api_key": "k"},
+        ),
+    ],
+)
+def test_cloud_extras_requirement_agrees_with_check_applies_to(
+    block_cloud_providers: set[str] | None,
+    dynamic_rule_kwargs: dict[str, object],
+) -> None:
+    config = SecurityConfig(
+        block_cloud_providers=block_cloud_providers, **dynamic_rule_kwargs
+    )
+
+    requires_cloud_extra = cloud_blocking_enabled(config)
+
+    assert CloudProviderCheck.applies_to(config, ()) is requires_cloud_extra
+    assert CloudIpRefreshCheck.applies_to(config, ()) is requires_cloud_extra

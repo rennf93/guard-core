@@ -31,6 +31,10 @@ def _extra_installed(*module_names: str) -> bool:
     return any(importlib.util.find_spec(name) is not None for name in module_names)
 
 
+def cloud_blocking_enabled(config: "SecurityConfig") -> bool:
+    return bool(config.block_cloud_providers) or config.enable_dynamic_rules
+
+
 class ThreatBanConfig(BaseModel):
     threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
     duration: int = Field(ge=1, description="Ban duration in seconds.")
@@ -773,16 +777,15 @@ class SecurityConfig(BaseModel):
                 "Install it with: pip install guard-core[redis]"
             )
 
-        if self.block_cloud_providers and not _extra_installed("aiohttp", "requests"):
+        if cloud_blocking_enabled(self) and not _extra_installed("aiohttp", "requests"):
             raise ValueError(
-                "block_cloud_providers requires 'aiohttp' or 'requests'. "
-                "Install it with: pip install guard-core[cloud]"
+                "block_cloud_providers / enable_dynamic_rules requires 'aiohttp' or "
+                "'requests'. Install it with: pip install guard-core[cloud]"
             )
 
         has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
-        if (
-            self.geo_ip_handler is not None or has_country_rules
-        ) and not _extra_installed("maxminddb"):
+        needs_builtin_geo_handler = self.geo_ip_handler is None and has_country_rules
+        if needs_builtin_geo_handler and not _extra_installed("maxminddb"):
             raise ValueError(
                 "geo_ip_handler / country rules require the 'maxminddb' package. "
                 "Install it with: pip install guard-core[geo]"
