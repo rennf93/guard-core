@@ -1,10 +1,13 @@
+from collections.abc import Collection
 from typing import Any
 
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     check_country_access,
     check_route_ip_access,
+    route_config_applies,
 )
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
@@ -14,6 +17,30 @@ from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.handlers.ipban_handler import ip_ban_manager
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import is_ip_allowed, log_activity
+
+
+def _route_ip_security_rules_apply(route_config: RouteConfig) -> bool:
+    return bool(
+        route_config.ip_whitelist
+        or route_config.ip_blacklist
+        or route_config.blocked_countries
+        or route_config.whitelist_countries
+    )
+
+
+def _ip_security_applies(
+    config: SecurityConfig,
+    route_configs: Collection[RouteConfig] | None,
+) -> bool:
+    return (
+        config.enable_ip_banning
+        or bool(config.whitelist)
+        or bool(config.blacklist)
+        or bool(config.blocked_countries)
+        or bool(config.whitelist_countries)
+        or route_config_applies(route_configs, _route_ip_security_rules_apply)
+        or config.enable_dynamic_rules
+    )
 
 
 def _route_overrides_ip_lists(route_config: RouteConfig | None) -> bool:
@@ -42,6 +69,14 @@ class IpSecurityCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "ip_security"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return _ip_security_applies(config, route_configs)
 
     def _check_banned_ip(
         self,

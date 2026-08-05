@@ -1,7 +1,10 @@
 import time
+from collections.abc import Collection
 
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.handlers.cloud_handler import cloud_handler
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
@@ -10,6 +13,14 @@ class CloudIpRefreshCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "cloud_ip_refresh"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return bool(config.block_cloud_providers) or config.enable_dynamic_rules
 
     def check(self, request: SyncGuardRequest) -> GuardResponse | None:
         if not self.config.block_cloud_providers:

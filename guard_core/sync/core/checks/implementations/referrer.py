@@ -1,6 +1,12 @@
+from collections.abc import Collection
+
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import is_referrer_domain_allowed
+from guard_core.sync.core.checks.helpers import (
+    is_referrer_domain_allowed,
+    route_config_applies,
+)
 from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -11,6 +17,14 @@ class ReferrerCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "referrer"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return route_config_applies(route_configs, lambda rc: bool(rc.require_referrer))
 
     def _handle_missing_referrer(
         self, request: SyncGuardRequest, route_config: RouteConfig

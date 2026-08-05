@@ -1,6 +1,10 @@
+from collections.abc import Collection
+
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.core.checks.helpers import route_config_applies
 from guard_core.core.events.event_types import EVENT_CONTENT_FILTERED
 from guard_core.decorators.base import RouteConfig
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import log_activity
@@ -10,6 +14,19 @@ class RequestSizeContentCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "request_size_content"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return route_config_applies(
+            route_configs,
+            lambda rc: (
+                rc.max_request_size is not None or bool(rc.allowed_content_types)
+            ),
+        )
 
     async def _check_request_size_limit(
         self, request: GuardRequest, route_config: RouteConfig

@@ -1,18 +1,46 @@
+from collections.abc import Collection
 from typing import Any
 
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.checks.helpers import route_config_applies
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_DYNAMIC_RULE_VIOLATION,
 )
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+
+
+def _route_rate_limit_configured(route_config: RouteConfig) -> bool:
+    return route_config.rate_limit is not None or bool(route_config.geo_rate_limits)
+
+
+def _rate_limit_applies(
+    config: SecurityConfig,
+    route_configs: Collection[RouteConfig] | None,
+) -> bool:
+    return (
+        config.enable_rate_limiting
+        or bool(config.endpoint_rate_limits)
+        or route_config_applies(route_configs, _route_rate_limit_configured)
+        or config.enable_dynamic_rules
+    )
 
 
 class RateLimitCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "rate_limit"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return _rate_limit_applies(config, route_configs)
 
     def _send_rate_limit_event(
         self,

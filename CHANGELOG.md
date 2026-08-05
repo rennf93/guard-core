@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+Unreleased
+----------
+
+### Added
+
+- `SecurityCheck.applies_to(config, route_configs)` is a new classmethod extension point that lets a check declare, at pipeline-build time, whether the effective configuration can ever make it fire. `build_default_pipeline` now filters `DEFAULT_CHECK_CLASSES` through it before instantiating anything, so a deployment only pays for the checks its configuration can actually trigger. The base implementation returns `True`, so any check that does not override it keeps running unconditionally; elimination is strictly an optimization, never a security decision, and every `applies_to` implementation returns `True` on any uncertainty about route configuration. `enable_dynamic_rules=True` keeps every check whose predicate depends on a flag `DynamicRuleManager` can mutate at runtime, regardless of every other flag.
+
+___
+
 v3.9.0 (2026-08-03)
 -------------------
 

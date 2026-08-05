@@ -1,5 +1,10 @@
+from collections.abc import Collection
+
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.core.checks.helpers import route_config_applies
+from guard_core.decorators.base import RouteConfig
 from guard_core.handlers.cloud_handler import cloud_handler
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import log_activity
@@ -9,6 +14,20 @@ class CloudProviderCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "cloud_provider"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return (
+            bool(config.block_cloud_providers)
+            or route_config_applies(
+                route_configs, lambda rc: bool(rc.block_cloud_providers)
+            )
+            or config.enable_dynamic_rules
+        )
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
         if getattr(request.state, "is_whitelisted", False):

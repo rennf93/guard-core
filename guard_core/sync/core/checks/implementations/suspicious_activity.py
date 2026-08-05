@@ -1,10 +1,17 @@
+from collections.abc import Collection
+
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import detect_penetration_patterns
+from guard_core.sync.core.checks.helpers import (
+    detect_penetration_patterns,
+    route_config_applies,
+)
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_PENETRATION_ATTEMPT,
 )
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.handlers.ipban_handler import ip_ban_manager
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
@@ -14,6 +21,20 @@ class SuspiciousActivityCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "suspicious_activity"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return (
+            config.enable_penetration_detection
+            or route_config_applies(
+                route_configs, lambda rc: bool(rc.enable_suspicious_detection)
+            )
+            or config.enable_dynamic_rules
+        )
 
     def _total_count_for_ip(self, client_ip: str) -> int:
         return sum(

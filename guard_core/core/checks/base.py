@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
 if TYPE_CHECKING:
+    from guard_core.decorators.base import RouteConfig
+    from guard_core.models import SecurityConfig
     from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
 
 
@@ -13,6 +16,14 @@ class SecurityCheck(ABC):
         self.middleware = middleware
         self.config = middleware.config
         self.logger = middleware.logger
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: "SecurityConfig",
+        route_configs: "Collection[RouteConfig] | None",
+    ) -> bool:
+        return True
 
     @abstractmethod
     async def check(self, request: GuardRequest) -> GuardResponse | None: ...

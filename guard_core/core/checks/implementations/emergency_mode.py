@@ -1,5 +1,9 @@
+from collections.abc import Collection
+
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.events.event_types import EVENT_EMERGENCY_MODE_BLOCK
+from guard_core.decorators.base import RouteConfig
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import extract_client_ip, log_activity
@@ -9,6 +13,14 @@ class EmergencyModeCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "emergency_mode"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return config.emergency_mode or config.enable_dynamic_rules
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
         if not self.config.emergency_mode:

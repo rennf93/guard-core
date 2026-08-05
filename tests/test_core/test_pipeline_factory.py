@@ -3,17 +3,52 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from guard_core.core.checks import build_default_pipeline
+from guard_core.decorators.base import RouteConfig
+from guard_core.models import SecurityConfig
+from guard_core.protocols.request_protocol import GuardRequest
+from guard_core.protocols.response_protocol import GuardResponse
+
+
+async def _custom_check(request: GuardRequest) -> GuardResponse | None:
+    return None
+
+
+async def _custom_validator(request: GuardRequest) -> GuardResponse | None:
+    return None
+
+
+def _fully_enabled_config() -> SecurityConfig:
+    return SecurityConfig(
+        emergency_mode=True,
+        enforce_https=True,
+        log_request_level="INFO",
+        block_cloud_providers={"AWS"},
+        blocked_user_agents=["badbot"],
+        custom_request_check=_custom_check,
+    )
+
+
+def _fully_enabled_route_config() -> RouteConfig:
+    route_config = RouteConfig()
+    route_config.max_request_size = 1000
+    route_config.required_headers = {"X-Api-Key": "required"}
+    route_config.auth_required = "bearer"
+    route_config.require_referrer = ["example.com"]
+    route_config.custom_validators = [_custom_validator]
+    route_config.time_restrictions = {"start": "00:00", "end": "23:59"}
+    return route_config
 
 
 @pytest.fixture
 def mock_middleware() -> Mock:
     middleware = Mock()
-    middleware.config = Mock()
-    middleware.config.fail_secure = False
-    middleware.config.passive_mode = False
+    middleware.config = _fully_enabled_config()
     middleware.logger = Mock()
     middleware.event_bus = Mock()
     middleware.create_error_response = AsyncMock(return_value=Mock(status_code=500))
+    decorator = Mock()
+    decorator._route_configs = {"route": _fully_enabled_route_config()}
+    middleware.guard_decorator = decorator
     return middleware
 
 
