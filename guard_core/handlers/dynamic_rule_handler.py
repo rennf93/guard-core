@@ -124,7 +124,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             reason = f"Received updated rules {rules.rule_id} v{rules.version}"
 
@@ -348,7 +350,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -375,7 +379,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),

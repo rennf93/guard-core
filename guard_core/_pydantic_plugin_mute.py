@@ -1,7 +1,9 @@
 import logging
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 _applied = False
+
+TelemetryModelName = Literal["SecurityEvent", "SecurityMetric", "EventBatch"]
 
 
 def _mute_pydantic_plugin_instrumentation() -> None:
@@ -43,3 +45,16 @@ def _mute_pydantic_plugin_instrumentation() -> None:
             "plugin instrumentation",
             exc_info=True,
         )
+
+
+def get_telemetry_model(name: TelemetryModelName) -> type[Any]:
+    """The only sanctioned way for guard-core to obtain a guard-agent
+    telemetry model class. Always mutes pydantic plugin instrumentation
+    first, so no caller can construct SecurityEvent/SecurityMetric/EventBatch
+    ahead of the mute; `tests/test_telemetry_model_access.py` scans the
+    source tree and fails if any other module imports these models directly.
+    """
+    _mute_pydantic_plugin_instrumentation()
+    import guard_agent
+
+    return cast("type[Any]", getattr(guard_agent, name))

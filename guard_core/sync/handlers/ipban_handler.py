@@ -133,7 +133,9 @@ class IPBanManager:
         from guard_core.sync.core.events.event_types import EVENT_IP_BANNED
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -161,7 +163,9 @@ class IPBanManager:
         from guard_core.sync.core.events.event_types import EVENT_IP_UNBANNED
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
