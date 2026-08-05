@@ -77,11 +77,11 @@ class ValidGeoIPHandler:
 
 def test_geo_ip_handler_validation() -> None:
     ipinfo = IPInfoManager(token="test")
-    config = SecurityConfig(geo_ip_handler=ipinfo)
+    config = SecurityConfig(geo_ip_handler=ipinfo, blocked_countries=["US"])
     assert cast(IPInfoManager, config.geo_ip_handler) is ipinfo
 
     valid_instance = ValidGeoIPHandler()
-    config = SecurityConfig(geo_ip_handler=valid_instance)
+    config = SecurityConfig(geo_ip_handler=valid_instance, blocked_countries=["US"])
     assert cast(ValidGeoIPHandler, config.geo_ip_handler) is valid_instance
 
     config = SecurityConfig(geo_ip_handler=None)

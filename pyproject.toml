@@ -170,6 +170,9 @@ ignore_missing_imports = true
 module = "testcontainers.*"
 ignore_missing_imports = true
 
+[tool.pymarkdown.system]
+exclude_path = ".venv,.git,.github,data,guard_core,tests,.claude,CLAUDE.md,.cursor,.kiro,ZZZ"
+
 [tool.pymarkdown.plugins.md003]
 enabled = false
 
