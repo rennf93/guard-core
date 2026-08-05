@@ -1,0 +1,114 @@
+import json
+import subprocess
+import sys
+from typing import Any, cast
+
+import pytest
+
+from guard_core.models import SecurityConfig
+from guard_core.sync.core.events.composite_handler import CompositeAgentHandler
+from guard_core.sync.core.events.event_types import EventFilter
+from guard_core.sync.core.initialization.handler_initializer import HandlerInitializer
+from tests.test_sync.conftest import SyncMockGuardRequest
+
+_ORDERING_SCRIPT = """
+import json
+import sys
+
+import guard_core
+
+result = {}
+result["guard_agent_absent_after_bare_import"] = "guard_agent" not in sys.modules
+
+from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
+
+result["unmuted_after_bare_import"] = all(
+    m.model_config.get("plugin_settings") is None
+    for m in (SecurityEvent, SecurityMetric, EventBatch)
+)
+
+from guard_core.models import SecurityConfig
+
+config = SecurityConfig(enable_agent=True, agent_api_key="a" * 10)
+config.to_agent_config()
+
+result["muted_after_to_agent_config"] = all(
+    m.model_config.get("plugin_settings") == {"logfire": {"record": "off"}}
+    for m in (SecurityEvent, SecurityMetric, EventBatch)
+)
+
+print(json.dumps(result))
+"""
+
+
+def test_bare_import_leaves_telemetry_unmuted_until_to_agent_config_runs() -> None:
+    """`import guard_core` alone must not import guard-agent or mute its
+    telemetry models; only `SecurityConfig.to_agent_config()` may do that."""
+    completed = subprocess.run(
+        [sys.executable, "-c", _ORDERING_SCRIPT],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = cast(dict[str, bool], json.loads(completed.stdout))
+    assert payload == {
+        "guard_agent_absent_after_bare_import": True,
+        "unmuted_after_bare_import": True,
+        "muted_after_to_agent_config": True,
+    }
+
+
+def test_otel_only_config_mutes_telemetry_before_first_security_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`enable_otel=True` with no agent still wires a real telemetry-capable
+    handler into the event bus; the mute must land before that handler's
+    first `SecurityEvent` is constructed, not just before `import guard_core`."""
+    from guard_agent.models import SecurityEvent
+
+    from guard_core import _pydantic_plugin_mute
+
+    monkeypatch.setattr(_pydantic_plugin_mute, "_applied", False)
+    saved_plugin_settings = SecurityEvent.model_config.get("plugin_settings")
+    SecurityEvent.model_config.pop("plugin_settings", None)
+    SecurityEvent.model_rebuild(force=True)
+
+    observed: dict[str, bool] = {}
+    original_init = SecurityEvent.__init__
+
+    def spy_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        observed.setdefault(
+            "muted_before_construction",
+            SecurityEvent.model_config.get("plugin_settings")
+            == {"logfire": {"record": "off"}},
+        )
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(SecurityEvent, "__init__", spy_init)
+
+    try:
+        config = SecurityConfig(enable_otel=True)
+        initializer = HandlerInitializer(config=config, agent_handler=None)
+        monkeypatch.setattr(
+            initializer,
+            "build_composite_handler",
+            lambda: CompositeAgentHandler(
+                [], event_filter=EventFilter(), enricher=None
+            ),
+        )
+
+        initializer.initialize_agent_integrations()
+        bus = initializer.build_event_bus()
+
+        bus.send_middleware_event(
+            event_type="ip_blocked",
+            request=SyncMockGuardRequest(),
+            action_taken="blocked",
+            reason="test",
+        )
+    finally:
+        if saved_plugin_settings is not None:
+            SecurityEvent.model_config["plugin_settings"] = saved_plugin_settings
+            SecurityEvent.model_rebuild(force=True)
+
+    assert observed == {"muted_before_construction": True}

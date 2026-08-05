@@ -1,6 +1,5 @@
-import logging
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from guard_core.decorators import RouteConfig, SecurityDecorator
@@ -75,6 +74,7 @@ _MODULE_BY_NAME: dict[str, str] = {
     "GuardRequest": "guard_core.protocols.request_protocol",
     "GuardResponse": "guard_core.protocols.response_protocol",
     "GuardResponseFactory": "guard_core.protocols.response_protocol",
+    "_mute_pydantic_plugin_instrumentation": "guard_core._pydantic_plugin_mute",
 }
 
 
@@ -89,36 +89,3 @@ def __getattr__(name: str) -> Any:
 
 def __dir__() -> list[str]:
     return sorted(set(globals()) | set(__all__))
-
-
-def _mute_pydantic_plugin_instrumentation() -> None:
-    """Opt guard-agent's hot-path telemetry models out of pydantic plugin
-    instrumentation (e.g. logfire.instrument_pydantic()).
-
-    SecurityEvent/SecurityMetric are validated per request and EventBatch
-    re-validates every buffered event on each flush, so an instrumented host
-    app would otherwise emit a span per security event — hundreds of
-    thousands a day under real traffic. plugin_settings is only read while
-    building a model's validator, hence the forced rebuild.
-    """
-    try:
-        from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
-    except ImportError:
-        return
-    try:
-        for model in (SecurityEvent, SecurityMetric, EventBatch):
-            plugin_settings = cast(
-                "dict[str, Any]",
-                model.model_config.setdefault("plugin_settings", {}),
-            )
-            plugin_settings["logfire"] = {"record": "off"}
-            model.model_rebuild(force=True)
-    except Exception:
-        logging.getLogger("guard_core").warning(
-            "Could not opt guard-agent telemetry models out of pydantic "
-            "plugin instrumentation",
-            exc_info=True,
-        )
-
-
-_mute_pydantic_plugin_instrumentation()

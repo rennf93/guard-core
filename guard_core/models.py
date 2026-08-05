@@ -916,6 +916,12 @@ class SecurityConfig(BaseModel):
         if not self.enable_agent or not self.agent_api_key:
             return None
 
+        from guard_core._pydantic_plugin_mute import (
+            _mute_pydantic_plugin_instrumentation,
+        )
+
+        _mute_pydantic_plugin_instrumentation()
+
         try:
             from guard_agent import AgentConfig
 

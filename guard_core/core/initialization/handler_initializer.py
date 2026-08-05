@@ -281,6 +281,12 @@ class HandlerInitializer:
         ):
             return
 
+        from guard_core._pydantic_plugin_mute import (
+            _mute_pydantic_plugin_instrumentation,
+        )
+
+        _mute_pydantic_plugin_instrumentation()
+
         self.composite_handler = self.build_composite_handler()
         self.event_filter = self.build_event_filter()
 

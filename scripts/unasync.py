@@ -10,7 +10,7 @@ SYNC_DIR = ROOT / "guard_core" / "sync"
 TEST_DIR = ROOT / "tests"
 TEST_SYNC_DIR = ROOT / "tests" / "test_sync"
 
-SKIP_SRC = {"models.py", "exceptions.py"}
+SKIP_SRC = {"models.py", "exceptions.py", "_pydantic_plugin_mute.py"}
 
 SKIP_DIRS = {"__pycache__", "sync"}
 
