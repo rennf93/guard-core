@@ -171,6 +171,14 @@ TEST_SUBS: list[tuple[str, str]] = [
         r"from tests\.conftest import (\w+(?:,\s*\w+)*)",
         r"from tests.test_sync.conftest import \1",
     ),
+    (
+        r"from tests\.(?!test_sync\b)(\w+)\.conftest import \(([^)]+)\)",
+        r"from tests.test_sync.\1.conftest import (\2)",
+    ),
+    (
+        r"from tests\.(?!test_sync\b)(\w+)\.conftest import (\w+(?:,\s*\w+)*)",
+        r"from tests.test_sync.\1.conftest import \2",
+    ),
     (r"\bMockGuardRequest\b", "SyncMockGuardRequest"),
     (r"AsyncMock, MagicMock", "MagicMock"),
     (r"MagicMock, AsyncMock", "MagicMock"),

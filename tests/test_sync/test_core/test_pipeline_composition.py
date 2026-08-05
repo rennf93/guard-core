@@ -1,5 +1,4 @@
 from collections.abc import Collection
-from unittest.mock import MagicMock, Mock
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
@@ -9,43 +8,11 @@ from guard_core.sync.core.checks.implementations import RouteConfigCheck
 from guard_core.sync.core.checks.pipeline import SecurityCheckPipeline
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-
-
-def _custom_check(request: SyncGuardRequest) -> GuardResponse | None:
-    return None
-
-
-def _custom_validator(request: SyncGuardRequest) -> GuardResponse | None:
-    return None
-
-
-def _fully_enabled_route_config() -> RouteConfig:
-    route_config = RouteConfig()
-    route_config.max_request_size = 1000
-    route_config.required_headers = {"X-Api-Key": "required"}
-    route_config.auth_required = "bearer"
-    route_config.require_referrer = ["example.com"]
-    route_config.custom_validators = [_custom_validator]
-    route_config.time_restrictions = {"start": "00:00", "end": "23:59"}
-    return route_config
-
-
-def middleware_for(
-    config: SecurityConfig,
-    route_configs: Collection[RouteConfig] | None = (),
-) -> Mock:
-    middleware = Mock()
-    middleware.config = config
-    middleware.logger = Mock()
-    middleware.event_bus = Mock()
-    middleware.create_error_response = MagicMock(return_value=Mock(status_code=500))
-    if route_configs is None:
-        middleware.guard_decorator = None
-    else:
-        decorator = Mock()
-        decorator._route_configs = dict(enumerate(route_configs))
-        middleware.guard_decorator = decorator
-    return middleware
+from tests.test_sync.test_core.conftest import (
+    custom_check,
+    fully_enabled_route_config,
+    middleware_for,
+)
 
 
 def test_default_config_builds_minimal_pipeline() -> None:
@@ -67,9 +34,9 @@ def test_fully_enabled_config_builds_all_checks_in_canonical_order() -> None:
         log_request_level="INFO",
         block_cloud_providers={"AWS"},
         blocked_user_agents=["badbot"],
-        custom_request_check=_custom_check,
+        custom_request_check=custom_check,
     )
-    middleware = middleware_for(config, route_configs=(_fully_enabled_route_config(),))
+    middleware = middleware_for(config, route_configs=(fully_enabled_route_config(),))
     pipeline = build_default_pipeline(middleware)
 
     assert pipeline.get_check_names() == [

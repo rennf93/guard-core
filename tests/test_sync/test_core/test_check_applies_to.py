@@ -3,7 +3,7 @@ from collections.abc import Collection
 import pytest
 
 from guard_core.models import SecurityConfig
-from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.core.checks import build_default_pipeline
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.implementations import (
     AuthenticationCheck,
@@ -13,7 +13,6 @@ from guard_core.sync.core.checks.implementations import (
     CustomValidatorsCheck,
     EmergencyModeCheck,
     HttpsEnforcementCheck,
-    IpSecurityCheck,
     RateLimitCheck,
     ReferrerCheck,
     RequestLoggingCheck,
@@ -24,15 +23,12 @@ from guard_core.sync.core.checks.implementations import (
     UserAgentCheck,
 )
 from guard_core.sync.decorators.base import RouteConfig
-from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-
-
-def _custom_check(request: SyncGuardRequest) -> GuardResponse | None:
-    return None
-
-
-def _custom_validator(request: SyncGuardRequest) -> GuardResponse | None:
-    return None
+from guard_core.sync.handlers.behavior_handler import BehaviorRule
+from tests.test_sync.test_core.conftest import (
+    custom_check,
+    custom_validator,
+    middleware_for,
+)
 
 
 def _route_config(**overrides: object) -> RouteConfig:
@@ -129,7 +125,7 @@ CONFIG_DRIVEN_CASES = [
     ),
     pytest.param(
         CustomRequestCheck,
-        SecurityConfig(custom_request_check=_custom_check),
+        SecurityConfig(custom_request_check=custom_check),
         (),
         True,
         id="custom_request-keep",
@@ -140,34 +136,6 @@ CONFIG_DRIVEN_CASES = [
         (),
         False,
         id="custom_request-drop",
-    ),
-    pytest.param(
-        IpSecurityCheck,
-        SecurityConfig(enable_ip_banning=False, whitelist=["127.0.0.1"]),
-        (),
-        True,
-        id="ip_security-keep",
-    ),
-    pytest.param(
-        IpSecurityCheck,
-        SecurityConfig(enable_ip_banning=False),
-        (),
-        False,
-        id="ip_security-drop",
-    ),
-    pytest.param(
-        IpSecurityCheck,
-        SecurityConfig(enable_ip_banning=False),
-        (_route_config(ip_whitelist=["127.0.0.1"]),),
-        True,
-        id="ip_security-route-keep",
-    ),
-    pytest.param(
-        IpSecurityCheck,
-        SecurityConfig(enable_ip_banning=False),
-        (RouteConfig(),),
-        False,
-        id="ip_security-route-drop",
     ),
     pytest.param(
         RateLimitCheck,
@@ -232,7 +200,6 @@ DYNAMIC_RULE_ESCAPE_CHECKS: tuple[type[SecurityCheck], ...] = (
     EmergencyModeCheck,
     CloudIpRefreshCheck,
     CloudProviderCheck,
-    IpSecurityCheck,
     UserAgentCheck,
     RateLimitCheck,
     SuspiciousActivityCheck,
@@ -329,7 +296,7 @@ ROUTE_DRIVEN_CASES = [
     ),
     pytest.param(
         CustomValidatorsCheck,
-        (_route_config(custom_validators=[_custom_validator]),),
+        (_route_config(custom_validators=[custom_validator]),),
         True,
         id="custom_validators-keep",
     ),
@@ -373,3 +340,15 @@ def test_route_driven_check_applies_to_matches_predicate(
     expected: bool,
 ) -> None:
     assert check_class.applies_to(SecurityConfig(), route_configs) is expected
+
+
+def test_ip_security_survives_when_only_behaviour_rules_can_ban() -> None:
+    config = SecurityConfig(enable_ip_banning=False, enable_dynamic_rules=False)
+    route_config = _route_config(
+        behavior_rules=[BehaviorRule(rule_type="usage", threshold=5, action="ban")]
+    )
+    middleware = middleware_for(config, route_configs=(route_config,))
+
+    pipeline = build_default_pipeline(middleware)
+
+    assert "ip_security" in pipeline.get_check_names()
