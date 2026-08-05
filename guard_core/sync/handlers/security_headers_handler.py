@@ -371,6 +371,10 @@ class SecurityHeadersManager:
         )
 
     def _send_headers_applied_event(self, path: str, headers: dict[str, str]) -> None:
+        from guard_core.sync.core.events.event_types import (
+            EVENT_SECURITY_HEADERS_APPLIED,
+        )
+
         try:
             from guard_core._pydantic_plugin_mute import get_telemetry_model
 
@@ -378,7 +382,7 @@ class SecurityHeadersManager:
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="security_headers_applied",
+                event_type=EVENT_SECURITY_HEADERS_APPLIED,
                 action_taken="headers_added",
                 metadata={
                     "path": path,
@@ -410,6 +414,8 @@ class SecurityHeadersManager:
         return True
 
     def _send_csp_violation_event(self, report: dict[str, Any]) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_CSP_VIOLATION
+
         try:
             from guard_core._pydantic_plugin_mute import get_telemetry_model
 
@@ -417,7 +423,7 @@ class SecurityHeadersManager:
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="csp_violation",
+                event_type=EVENT_CSP_VIOLATION,
                 action_taken="logged",
                 metadata={
                     "document_uri": report.get("document-uri"),

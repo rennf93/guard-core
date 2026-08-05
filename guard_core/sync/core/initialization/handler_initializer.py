@@ -245,12 +245,16 @@ class HandlerInitializer:
 
         from guard_core.sync.handlers.cloud_handler import cloud_handler
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager
+        from guard_core.sync.handlers.security_headers_handler import (
+            security_headers_manager,
+        )
         from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
         ip_ban_manager.initialize_agent(telemetry)
         if self.rate_limit_handler is not None:
             self.rate_limit_handler.initialize_agent(telemetry)
         sus_patterns_handler.initialize_agent(telemetry)
+        security_headers_manager.initialize_agent(telemetry)
 
         if self.config.block_cloud_providers:
             cloud_handler.initialize_agent(telemetry)
