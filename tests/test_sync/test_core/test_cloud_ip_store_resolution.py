@@ -107,6 +107,33 @@ def test_class_object_passed_as_factory_is_invoked(
     assert isinstance(args[0], RedisCloudIpStore)
 
 
+def test_callable_form_invoked_on_no_redis_path() -> None:
+    factory_calls: list[Any] = []
+
+    def factory(redis: Any) -> RedisCloudIpStore:
+        factory_calls.append(redis)
+        return RedisCloudIpStore(redis, key_prefix="no_redis_path")
+
+    config = SecurityConfig(enable_redis=False, lazy_init=False, cloud_ip_store=factory)
+
+    from guard_core.sync.core.initialization.handler_initializer import (
+        HandlerInitializer,
+    )
+
+    init = HandlerInitializer(config=config, redis_handler=None)
+
+    with patch(
+        "guard_core.sync.handlers.cloud_handler.cloud_handler.set_store"
+    ) as mock_set:
+        init.initialize_redis_handlers()
+
+    assert factory_calls == [None]
+    mock_set.assert_called_once()
+    args, _ = mock_set.call_args
+    assert isinstance(args[0], RedisCloudIpStore)
+    assert args[0]._prefix == "no_redis_path"
+
+
 def test_none_does_not_call_set_store(redis_handler: MagicMock) -> None:
     config = SecurityConfig(enable_redis=True, cloud_ip_store=None)
 
