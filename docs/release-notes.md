@@ -10,6 +10,33 @@ Release Notes
 
 ___
 
+v3.10.0 (2026-08-05)
+-------------------
+
+Config-derived security pipeline: build only the checks a configuration can actually trigger (v3.10.0)
+--------------------------------------------------------------------------------------------------------
+
+### Added
+
+- `SecurityCheck.applies_to(config, route_configs)` is a new classmethod extension point that lets a check declare, at pipeline-build time, whether the effective configuration can ever make it fire. `build_default_pipeline` now filters `DEFAULT_CHECK_CLASSES` through it before instantiating anything, so a deployment only pays for the checks its configuration can actually trigger. The base implementation returns `True`, so any check that does not override it keeps running unconditionally; elimination is strictly an optimization, never a security decision, and every `applies_to` implementation returns `True` on any uncertainty about route configuration. `enable_dynamic_rules=True` keeps every check whose predicate depends on a flag `DynamicRuleManager` can mutate at runtime, regardless of every other flag.
+- `build_default_pipeline` reads the registered per-route decorator configuration through `middleware.guard_decorator` to decide which route-driven checks are reachable. When no decorator handle is available the route configuration is treated as unknown and every route-driven check is kept, so a middleware that cannot enumerate its routes loses the optimization rather than the protection.
+
+### Behaviour changes
+
+- The pipeline a middleware builds is now shorter than 17 checks for most configurations, and the check list logged at initialization reflects what actually runs. `IpSecurityCheck` is never eliminated: it fronts an unconditional ban lookup whose store is writable from behaviour-rule bans and from other processes sharing the same Redis, so no configuration can prove it unreachable.
+
+### Docs
+
+- `docs/architecture/telemetry.md` claimed that shipping adapters construct `SecurityCheckPipeline(checks)` without `muted_check_logs`, so pipeline-level block and error entries were not muted in practice. `build_default_pipeline` does pass `config.muted_check_logs`, and the shipping adapters use the factory, so the claim is corrected. The caveat now applies only to an adapter that hand-builds the pipeline without the factory.
+
+### Internal
+
+- `make lint-docs` and `make fix-docs` passed repeated `-e` exclusion flags to `pymarkdownlnt`, which do not accumulate: only the final exclusion applied and every other one was inert, so the doc-lint gate reported files it was configured to skip. Exclusions now live in `[tool.pymarkdown.system] exclude_path` in `pyproject.toml` and the Makefile targets invoke a plain scan.
+- Tests that constructed `SecurityConfig(geo_ip_handler=...)` without any country rule tripped the validator warning that tells a user their geo handler is unreachable, emitting 104 warnings across the suite. The dead geo wiring is removed from the tests that never used it; the validator is unchanged. The suite runs warning-free.
+- `scripts/unasync.py` gained a substitution for subdirectory-level `conftest` imports so shared test fixtures mirror correctly into `tests/test_sync/`.
+
+___
+
 v3.9.0 (2026-08-03)
 -------------------
 
