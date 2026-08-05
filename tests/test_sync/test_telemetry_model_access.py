@@ -10,6 +10,7 @@ ALLOWED_MODULES = frozenset(
         PACKAGE_ROOT / "models.py",
     }
 )
+INDIRECTION_CALL_NAMES = frozenset({"__import__", "import_module"})
 
 
 def _is_type_checking_guard(test: ast.expr) -> bool:
@@ -22,6 +23,19 @@ def _names_guard_agent(dotted_name: str | None) -> bool:
     return dotted_name is not None and (
         dotted_name == "guard_agent" or dotted_name.startswith("guard_agent.")
     )
+
+
+def _indirection_call_target(node: ast.Call) -> str | None:
+    func = node.func
+    is_indirection_call = (
+        isinstance(func, ast.Name) and func.id in INDIRECTION_CALL_NAMES
+    ) or (isinstance(func, ast.Attribute) and func.attr == "import_module")
+    if not is_indirection_call:
+        return None
+    if not node.args or not isinstance(node.args[0], ast.Constant):
+        return None
+    value = node.args[0].value
+    return value if isinstance(value, str) else None
 
 
 def _runtime_guard_agent_references(source: str, label: str) -> list[str]:
@@ -39,6 +53,12 @@ def _runtime_guard_agent_references(source: str, label: str) -> list[str]:
                     violations.append(f"{label}:{node.lineno} imports {alias.name}")
         elif isinstance(node, ast.ImportFrom) and _names_guard_agent(node.module):
             violations.append(f"{label}:{node.lineno} imports from {node.module}")
+        elif isinstance(node, ast.Call):
+            target = _indirection_call_target(node)
+            if target is not None and _names_guard_agent(target):
+                violations.append(
+                    f"{label}:{node.lineno} calls {ast.unparse(node.func)}({target!r})"
+                )
         for child in ast.iter_child_nodes(node):
             visit(child)
 
@@ -55,17 +75,20 @@ def _guard_core_source_files() -> list[Path]:
     ]
 
 
-def test_no_module_outside_the_allowlist_references_guard_agent_at_runtime() -> None:
-    """Every guard-core module must obtain a guard-agent telemetry model through
-    `guard_core._pydantic_plugin_mute.get_telemetry_model`, which mutes pydantic
-    plugin instrumentation before returning one. This flags any reference to the
-    `guard_agent` module at all -- plain import, aliased import, or `from
-    guard_agent import <submodule>` followed by attribute access -- rather than
-    specific imported names, so every shape that could reach a telemetry model
-    is caught, not just `from guard_agent import SecurityEvent`.
-    `_pydantic_plugin_mute.py` owns that access; `models.py` is allowed
-    `guard_agent` only for `AgentConfig`, which `SecurityConfig.to_agent_config()`
-    constructs and which is not a telemetry model."""
+def test_no_module_outside_the_allowlist_uses_a_known_guard_agent_import_shape() -> (
+    None
+):
+    """`guard_core._pydantic_plugin_mute.get_telemetry_model` is the supported
+    way to reach a guard-agent telemetry model. This test rejects the import
+    shapes anyone has actually used to reach `guard_agent` directly -- a plain
+    import, an aliased import, a submodule import followed by attribute
+    access, and the `importlib.import_module`/`__import__` indirection
+    builtins -- for every module outside the two-file allowlist.
+
+    It cannot catch a dynamically constructed module name (built from string
+    concatenation, a variable, or anything else a static scan cannot resolve
+    to a literal). This is a lint on the known shapes, not a proof that no
+    code path can ever reach `guard_agent`."""
     violations = [
         violation
         for path in _guard_core_source_files()
@@ -86,8 +109,8 @@ def test_type_checking_guarded_guard_agent_import_is_not_flagged() -> None:
 
 
 def test_scanner_catches_every_synthetic_guard_agent_bypass_shape() -> None:
-    """Each shape constructs a forbidden model at runtime without a plain
-    `from guard_agent import SecurityEvent`; the scanner must flag all four."""
+    """Each shape reaches `guard_agent` at runtime without a plain
+    `from guard_agent import SecurityEvent`; the scanner must flag all six."""
     bypass_shapes = {
         "bare attribute access": "import guard_agent\n\nguard_agent.SecurityEvent()\n",
         "getattr indirection": (
@@ -97,6 +120,10 @@ def test_scanner_catches_every_synthetic_guard_agent_bypass_shape() -> None:
             "from guard_agent import models\n\nmodels.SecurityEvent()\n"
         ),
         "aliased import": "import guard_agent as ga\n\nga.SecurityEvent()\n",
+        "importlib.import_module indirection": (
+            "import importlib\n\nimportlib.import_module('guard_agent')\n"
+        ),
+        "dunder-import indirection": "__import__('guard_agent')\n",
     }
     for label, source in bypass_shapes.items():
         assert _runtime_guard_agent_references(source, label), label

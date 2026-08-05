@@ -53,13 +53,16 @@ def _mute_pydantic_plugin_instrumentation() -> None:
 
 
 def get_telemetry_model(name: TelemetryModelName) -> type[Any]:
-    """The only sanctioned way for guard-core to obtain a guard-agent
-    telemetry model class. Always mutes pydantic plugin instrumentation
-    first, so no caller can construct SecurityEvent/SecurityMetric/EventBatch
-    ahead of the mute; `tests/test_telemetry_model_access.py` fails any
-    module outside this one that references `guard_agent` at runtime at all,
-    not just one that imports these names directly, so the property holds
-    for every way of reaching this module rather than one specific spelling.
+    """The supported way for guard-core to obtain a guard-agent telemetry
+    model class. Always mutes pydantic plugin instrumentation first, so a
+    caller using this accessor cannot construct
+    SecurityEvent/SecurityMetric/EventBatch ahead of the mute.
+    `tests/test_telemetry_model_access.py` is a lint, not a proof: it rejects
+    the known ways of reaching `guard_agent` directly (plain import, aliased
+    import, submodule import plus attribute access, and the
+    `importlib.import_module`/`__import__` indirection builtins) from any
+    module outside this one and `models.py`. A dynamically constructed
+    module name would not be caught.
     """
     _mute_pydantic_plugin_instrumentation()
     import guard_agent
