@@ -2,9 +2,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from guard_core.decorators import RouteConfig, SecurityDecorator
-    from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
     from guard_core.models import SecurityConfig
+    from guard_core.sync.decorators import RouteConfig, SecurityDecorator
+    from guard_core.sync.handlers.behavior_handler import BehaviorRule, BehaviorTracker
     from guard_core.sync.handlers.cloud_handler import CloudManager, cloud_handler
     from guard_core.sync.handlers.ipban_handler import IPBanManager, ip_ban_manager
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
@@ -53,10 +53,10 @@ __all__ = [
 
 _MODULE_BY_NAME: dict[str, str] = {
     "SecurityConfig": "guard_core.models",
-    "SecurityDecorator": "guard_core.decorators",
-    "RouteConfig": "guard_core.decorators",
-    "BehaviorTracker": "guard_core.handlers.behavior_handler",
-    "BehaviorRule": "guard_core.handlers.behavior_handler",
+    "SecurityDecorator": "guard_core.sync.decorators",
+    "RouteConfig": "guard_core.sync.decorators",
+    "BehaviorTracker": "guard_core.sync.handlers.behavior_handler",
+    "BehaviorRule": "guard_core.sync.handlers.behavior_handler",
     "ip_ban_manager": "guard_core.sync.handlers.ipban_handler",
     "IPBanManager": "guard_core.sync.handlers.ipban_handler",
     "cloud_handler": "guard_core.sync.handlers.cloud_handler",
