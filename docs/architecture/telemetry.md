@@ -75,7 +75,7 @@ config = SecurityConfig(
 
 - `muted_event_types` short-circuits `SecurityEventBus.send_middleware_event()` before the event reaches any exporter.
 - `muted_metric_types` short-circuits `MetricsCollector.send_metric()` before the metric reaches any exporter.
-- `muted_check_logs` suppresses the in-check `log_activity()` calls — each check passes the set into `log_if_allowed`. `SecurityCheckPipeline` *also* accepts a `muted_check_logs` set that would gate its own block/error log entries, but the shipping adapters construct `SecurityCheckPipeline(checks)` without passing it, so those pipeline-level entries are not muted in practice.
+- `muted_check_logs` suppresses the in-check `log_activity()` calls — each check passes the set into `log_if_allowed`. `SecurityCheckPipeline` *also* accepts a `muted_check_logs` set that gates its own block/error log entries, and `build_default_pipeline()` passes `config.muted_check_logs` into the pipeline, so pipeline-level entries are muted too for adapters that use the factory — an adapter that hand-builds `SecurityCheckPipeline(checks)` directly, without the factory, must pass `muted_check_logs` itself or those pipeline-level entries are not muted.
 
 ## Enabling OpenTelemetry
 
