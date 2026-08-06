@@ -1,41 +1,43 @@
 ---
 
 title: Check Implementations
-description: All 17 built-in security checks in guard-core, their execution order, blocking conditions, and configuration
+description: All 17 built-in security checks in guard-core, their execution order, blocking conditions, configuration, and the applies_to build-time elimination rules
 keywords: security checks, implementations, execution order, guard-core, pipeline
 ---
 
 Check Implementations
 =====================
 
-Guard-core ships with 17 security checks that execute in a fixed order inside the `SecurityCheckPipeline`. Each check is a subclass of `SecurityCheck` located in `guard_core.core.checks.implementations`.
+Guard-core ships with 17 security checks that execute in this fixed order inside the `SecurityCheckPipeline` when all 17 are built. Each check is a subclass of `SecurityCheck` located in `guard_core.core.checks.implementations`. A given deployment's pipeline is usually a subset of the 17: `build_default_pipeline` filters the catalogue through each check class's `applies_to(config, route_configs)` classmethod before instantiating anything, and only the checks that return `True` for the effective configuration and registered routes are built. The base implementation returns `True`, so a check that does not override it always runs; a predicate that is uncertain what the configuration can trigger must also return `True` -- elimination is strictly an optimization, never a security decision. See [Build-Time Elimination](../architecture/pipeline.md#build-time-elimination) for the full mechanism, including why `ip_security` can never be eliminated.
 
 Execution Order
 ---------------
 
-| #  | Check Name              | Class                     | Blocks? | Passive-Aware? |
-|----|-------------------------|---------------------------|---------|----------------|
-| 1  | `route_config`          | `RouteConfigCheck`        | Strict  | Yes            |
-| 2  | `emergency_mode`        | `EmergencyModeCheck`      | Yes     | Yes            |
-| 3  | `https_enforcement`     | `HttpsEnforcementCheck`   | Yes     | Yes            |
-| 4  | `request_logging`       | `RequestLoggingCheck`     | Never   | N/A            |
-| 5  | `request_size_content`  | `RequestSizeContentCheck` | Yes     | Yes            |
-| 6  | `required_headers`      | `RequiredHeadersCheck`    | Yes     | Yes            |
-| 7  | `authentication`        | `AuthenticationCheck`     | Yes     | Yes            |
-| 8  | `referrer`              | `ReferrerCheck`           | Yes     | Yes            |
-| 9  | `custom_validators`     | `CustomValidatorsCheck`   | Yes     | Yes            |
-| 10 | `time_window`           | `TimeWindowCheck`         | Yes     | Yes            |
-| 11 | `cloud_ip_refresh`      | `CloudIpRefreshCheck`     | Never   | N/A            |
-| 12 | `ip_security`           | `IpSecurityCheck`         | Yes     | Yes            |
-| 13 | `cloud_provider`        | `CloudProviderCheck`      | Yes     | Yes            |
-| 14 | `user_agent`            | `UserAgentCheck`          | Yes     | Yes            |
-| 15 | `rate_limit`            | `RateLimitCheck`          | Yes     | Yes            |
-| 16 | `suspicious_activity`   | `SuspiciousActivityCheck` | Yes     | Yes            |
-| 17 | `custom_request`        | `CustomRequestCheck`      | Yes     | Yes            |
+| #  | Check Name              | Class                     | Blocks? | Passive-Aware? | Eliminated when |
+|----|-------------------------|---------------------------|---------|----------------|------------------|
+| 1  | `route_config`          | `RouteConfigCheck`        | Strict  | Yes            | Never |
+| 2  | `emergency_mode`        | `EmergencyModeCheck`      | Yes     | Yes            | `emergency_mode` is `False` and `enable_dynamic_rules` is `False` |
+| 3  | `https_enforcement`     | `HttpsEnforcementCheck`   | Yes     | Yes            | `enforce_https` is `False` and no route requires HTTPS |
+| 4  | `request_logging`       | `RequestLoggingCheck`     | Never   | N/A            | `log_request_level` is `None` |
+| 5  | `request_size_content`  | `RequestSizeContentCheck` | Yes     | Yes            | No route sets `max_request_size` or `allowed_content_types` |
+| 6  | `required_headers`      | `RequiredHeadersCheck`    | Yes     | Yes            | No route sets `required_headers` |
+| 7  | `authentication`        | `AuthenticationCheck`     | Yes     | Yes            | No route sets `auth_required` |
+| 8  | `referrer`              | `ReferrerCheck`           | Yes     | Yes            | No route sets `require_referrer` |
+| 9  | `custom_validators`     | `CustomValidatorsCheck`   | Yes     | Yes            | No route sets `custom_validators` |
+| 10 | `time_window`           | `TimeWindowCheck`         | Yes     | Yes            | No route sets `time_restrictions` |
+| 11 | `cloud_ip_refresh`      | `CloudIpRefreshCheck`     | Never   | N/A            | `block_cloud_providers` unset globally and per-route, and `enable_dynamic_rules` is `False` |
+| 12 | `ip_security`           | `IpSecurityCheck`         | Yes     | Yes            | Never |
+| 13 | `cloud_provider`        | `CloudProviderCheck`      | Yes     | Yes            | `block_cloud_providers` unset globally and per-route, and `enable_dynamic_rules` is `False` |
+| 14 | `user_agent`            | `UserAgentCheck`          | Yes     | Yes            | `blocked_user_agents` empty globally and per-route, and `enable_dynamic_rules` is `False` |
+| 15 | `rate_limit`            | `RateLimitCheck`          | Yes     | Yes            | `enable_rate_limiting` is `False`, `endpoint_rate_limits` unset, no route sets `rate_limit`/`geo_rate_limits`, and `enable_dynamic_rules` is `False` |
+| 16 | `suspicious_activity`   | `SuspiciousActivityCheck` | Yes     | Yes            | `enable_penetration_detection` is `False`, no route sets `enable_suspicious_detection`, and `enable_dynamic_rules` is `False` |
+| 17 | `custom_request`        | `CustomRequestCheck`      | Yes     | Yes            | `custom_request_check` is `None` |
 
 **Passive-Aware** means the check respects `SecurityConfig.passive_mode` -- it logs and emits events but does not return a blocking response.
 
 **Strict** in the Blocks column means the check only blocks when a non-default setting turns it on; `route_config` blocks solely under `SecurityConfig.route_resolution_strict`.
+
+**Eliminated when** describes the condition under which `applies_to` returns `False` and `build_default_pipeline` skips instantiating the check entirely. "No route sets X" only applies when the adapter can enumerate registered routes; when it cannot (`route_configs is None`), every route-driven check is kept. `enable_rate_limiting` and `enable_penetration_detection` both default to `True`, so `rate_limit` and `suspicious_activity` are built by default even with no other configuration. `route_config` and `ip_security` have no `applies_to` override and are never eliminated.
 
 ___
 

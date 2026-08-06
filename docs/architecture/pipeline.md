@@ -1,7 +1,7 @@
 ---
 
 title: Security Pipeline - Guard Core
-description: Deep dive into the SecurityCheckPipeline chain of responsibility, all 17 security checks in execution order, the SecurityCheck base class, and extending the pipeline
+description: Deep dive into the SecurityCheckPipeline chain of responsibility, the applies_to build-time elimination mechanism, all 17 security checks in catalogue order, the SecurityCheck base class, and extending the pipeline
 keywords: guard-core, security pipeline, chain of responsibility, security checks, SecurityCheck, SecurityCheckPipeline
 ---
 
@@ -19,8 +19,13 @@ SecurityCheckPipeline
 
 ```python
 class SecurityCheckPipeline:
-    def __init__(self, checks: list[SecurityCheck]) -> None:
+    def __init__(
+        self,
+        checks: list[SecurityCheck],
+        muted_check_logs: set[str] | None = None,
+    ) -> None:
         self.checks = checks
+        self.muted_check_logs = muted_check_logs or set()
         self.logger = logging.getLogger(__name__)
 
     async def execute(self, request: GuardRequest) -> GuardResponse | None:
@@ -94,10 +99,20 @@ Every security check extends this abstract base class:
 
 ```python
 class SecurityCheck(ABC):
+    requires: ClassVar[tuple[str, ...]] = ()
+
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         self.middleware = middleware
         self.config = middleware.config
         self.logger = middleware.logger
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: "SecurityConfig",
+        route_configs: "Collection[RouteConfig] | None",
+    ) -> bool:
+        return True
 
     @abstractmethod
     async def check(self, request: GuardRequest) -> GuardResponse | None:
@@ -140,6 +155,15 @@ class SecurityCheck(ABC):
 | `check_name` | `@property -> str` | A unique identifier for the check (e.g. `"ip_security"`, `"rate_limit"`) |
 | `check(request)` | `async -> GuardResponse \| None` | The check logic. Return `None` to pass, or a `GuardResponse` to block |
 
+### What a Check May Override
+
+| Member | Type | Default | Description |
+|---|---|---|---|
+| `applies_to(config, route_configs)` | `@classmethod -> bool` | Returns `True` unconditionally | Declares, at pipeline-build time, whether the effective configuration can ever make this check fire. See [Build-Time Elimination](#build-time-elimination) below. |
+| `requires` | `ClassVar[tuple[str, ...]]` | `()` | Names the packaging extra(s) the check's handler needs (for example `("cloud",)` on `CloudProviderCheck`). |
+
+A check that does not override `applies_to` always runs, because the base implementation returns `True`.
+
 ### What a Check Gets for Free
 
 | Method | Description |
@@ -153,10 +177,101 @@ class SecurityCheck(ABC):
 
 ___
 
+Build-Time Elimination
+-----------------------
+
+**Location**: `guard_core/core/checks/factory.py`
+
+`build_default_pipeline` filters the 17-check catalogue (`DEFAULT_CHECK_CLASSES`) through each check class's `applies_to(config, route_configs)` classmethod before instantiating anything, so a deployment only builds and runs the checks its configuration can actually trigger:
+
+```python
+def build_default_pipeline(
+    middleware: "GuardMiddlewareProtocol",
+) -> SecurityCheckPipeline:
+    config = middleware.config
+    route_configs = _collect_route_configs(middleware)
+    return SecurityCheckPipeline(
+        [
+            cls(middleware)
+            for cls in DEFAULT_CHECK_CLASSES
+            if cls.applies_to(config, route_configs)
+        ],
+        muted_check_logs=config.muted_check_logs,
+    )
+
+
+def _collect_route_configs(
+    middleware: "GuardMiddlewareProtocol",
+) -> Collection[RouteConfig] | None:
+    decorator = getattr(middleware, "guard_decorator", None)
+    if decorator is None:
+        return None
+    return tuple(decorator._route_configs.values())
+```
+
+This filtering happens once, when the pipeline is built (lazily, on the first request, after route registration completes). It does not re-run per request: a check's presence in an already-built pipeline reflects the configuration at build time, not whatever the configuration is later mutated to. Mutating `SecurityConfig` after the pipeline exists does not add or remove checks from that pipeline; only building a fresh pipeline picks up the new configuration. The supported way to change enforcement at runtime is `enable_dynamic_rules=True` (see below), not ad hoc field mutation.
+
+### The safety rule
+
+Elimination is strictly an optimization, never a security decision. The base `applies_to` implementation returns `True`, so any check that does not override it always runs unconditionally. Every real `applies_to` override in the codebase returns `True` on any uncertainty about the effective configuration or the registered routes -- an unknown state is always treated as "keep the check."
+
+### Unknown route configuration means keep everything
+
+`_collect_route_configs` returns `None`, not an empty tuple, when `middleware.guard_decorator` is `None`, meaning the adapter has no decorator handle to enumerate registered routes from. `None` means "unknown"; an empty tuple means "known to be empty, no route carries a decorator." Every route-driven predicate goes through `route_config_applies()` (`guard_core/core/checks/helpers.py`), which returns `True` immediately when `route_configs is None`:
+
+```python
+def route_config_applies(
+    route_configs: Collection[RouteConfig] | None,
+    predicate: Callable[[RouteConfig], bool],
+) -> bool:
+    if route_configs is None:
+        return True
+    for route_config in route_configs:
+        if predicate(route_config):
+            return True
+    return False
+```
+
+An adapter that cannot enumerate its routes at pipeline-build time therefore loses the elimination optimization for route-driven checks, never the protection those checks provide.
+
+### `enable_dynamic_rules` keeps every dynamically-mutable check
+
+`DynamicRuleManager` can flip `enable_penetration_detection`, `enable_ip_banning`, `enable_rate_limiting`, `emergency_mode`, `endpoint_rate_limits`, `block_cloud_providers`, and `blocked_user_agents` on a live `SecurityConfig`. Setting `config.enable_dynamic_rules = True` keeps every check whose predicate depends on one of those flags, regardless of every other setting: `emergency_mode`, `cloud_ip_refresh`, `cloud_provider`, `user_agent`, `rate_limit`, and `suspicious_activity` each OR `config.enable_dynamic_rules` directly into their predicate. `ip_security` does not need to, because it is never eliminated at all, for the reason below -- so all seven checks a running deployment might turn on through dynamic rules stay in the pipeline once `enable_dynamic_rules=True` is set, whatever the rest of the configuration says.
+
+### `IpSecurityCheck` is never eliminated
+
+`IpSecurityCheck` has no `applies_to` override, so it inherits the base's unconditional `True`. This is deliberate, not an oversight. `check()` calls `_check_banned_ip` first, which calls `ip_ban_manager.is_ip_banned()` unconditionally, gated only by a per-route `should_bypass_check("ip_ban", route_config)` decorator, never by `SecurityConfig.enable_ip_banning`. IPs reach that ban store from `BehaviorTracker._execute_ban_action`, which bans through `ip_ban_manager.ban_ip()` regardless of `enable_ip_banning`, and from any other process sharing the same Redis-backed ban store. No `SecurityConfig` can prove the check unreachable, so it is always built.
+
+### Per-check predicates
+
+| Check | Kept when | Default verdict |
+|---|---|---|
+| `route_config` | Always (no override; produces `client_ip`, `route_config`) | keep |
+| `emergency_mode` | `config.emergency_mode` or `enable_dynamic_rules` | drop |
+| `https_enforcement` | `config.enforce_https` or any route requires HTTPS | drop |
+| `request_logging` | `config.log_request_level is not None` | drop |
+| `request_size_content` | Any route sets `max_request_size` or `allowed_content_types` | drop |
+| `required_headers` | Any route sets `required_headers` | drop |
+| `authentication` | Any route sets `auth_required` | drop |
+| `referrer` | Any route sets `require_referrer` | drop |
+| `custom_validators` | Any route sets `custom_validators` | drop |
+| `time_window` | Any route sets `time_restrictions` | drop |
+| `cloud_ip_refresh` | `config.block_cloud_providers` is set, any route sets `block_cloud_providers`, or `enable_dynamic_rules` | drop |
+| `ip_security` | Always (no override, see above) | keep |
+| `cloud_provider` | `config.block_cloud_providers` is set, any route sets `block_cloud_providers`, or `enable_dynamic_rules` | drop |
+| `user_agent` | `config.blocked_user_agents` is non-empty, any route sets `blocked_user_agents`, or `enable_dynamic_rules` | drop |
+| `rate_limit` | `config.enable_rate_limiting`, `config.endpoint_rate_limits` is set, any route sets `rate_limit`/`geo_rate_limits`, or `enable_dynamic_rules` | keep (`enable_rate_limiting` defaults to `True`) |
+| `suspicious_activity` | `config.enable_penetration_detection`, any route sets `enable_suspicious_detection`, or `enable_dynamic_rules` | keep (`enable_penetration_detection` defaults to `True`) |
+| `custom_request` | `config.custom_request_check is not None` | drop |
+
+"Any route sets X" is `False` when `route_configs` is a known-empty tuple and always `True` when `route_configs is None` (unknown, see above). A default `SecurityConfig()` with no route decorators builds exactly four checks: `route_config`, `ip_security`, `rate_limit`, `suspicious_activity`. Configuring every feature and providing a fully-populated route decorator builds all 17, in the order shown below.
+
+___
+
 All 17 Checks in Execution Order
 ---------------------------------
 
-The checks are listed here in the order they execute within the pipeline. This order matters -- earlier checks set up state that later checks depend on.
+The checks are listed here in the fixed order the catalogue defines. This order matters -- earlier checks set up state that later checks depend on. A given deployment's pipeline is a subset of this list, filtered by `applies_to` as described above, but the checks that do build always run in this relative order.
 
 ### 1. RouteConfigCheck
 
