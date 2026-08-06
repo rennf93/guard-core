@@ -20,17 +20,18 @@ import guard_core
 result = {}
 result["guard_agent_absent_after_bare_import"] = "guard_agent" not in sys.modules
 
-from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
+from guard_core import _pydantic_plugin_mute
 
-result["unmuted_after_bare_import"] = all(
-    m.model_config.get("plugin_settings") is None
-    for m in (SecurityEvent, SecurityMetric, EventBatch)
-)
+result["mute_unapplied_after_bare_import"] = _pydantic_plugin_mute._applied is False
+
+from guard_agent.models import EventBatch, SecurityEvent, SecurityMetric
 
 from guard_core.models import SecurityConfig
 
 config = SecurityConfig(enable_agent=True, agent_api_key="a" * 10)
 config.to_agent_config()
+
+result["mute_applied_after_to_agent_config"] = _pydantic_plugin_mute._applied is True
 
 result["muted_after_to_agent_config"] = all(
     m.model_config.get("plugin_settings") == {"logfire": {"record": "off"}}
@@ -42,8 +43,14 @@ print(json.dumps(result))
 
 
 def test_bare_import_leaves_telemetry_unmuted_until_to_agent_config_runs() -> None:
-    """`import guard_core` alone must not import guard-agent or mute its
-    telemetry models; only `SecurityConfig.to_agent_config()` may do that."""
+    """`import guard_core` alone must not import guard-agent or apply the mute;
+    only a telemetry entry point such as `SecurityConfig.to_agent_config()` may.
+
+    The mute is observed through guard-core's own `_applied` flag rather than
+    through the models' `plugin_settings`, because guard-agent 2.8.0 and later
+    apply the identical mute from their own `__init__`, so importing the models
+    in order to inspect them would itself mute them.
+    """
     completed = subprocess.run(
         [sys.executable, "-c", _ORDERING_SCRIPT],
         capture_output=True,
@@ -53,7 +60,8 @@ def test_bare_import_leaves_telemetry_unmuted_until_to_agent_config_runs() -> No
     payload = cast(dict[str, bool], json.loads(completed.stdout))
     assert payload == {
         "guard_agent_absent_after_bare_import": True,
-        "unmuted_after_bare_import": True,
+        "mute_unapplied_after_bare_import": True,
+        "mute_applied_after_to_agent_config": True,
         "muted_after_to_agent_config": True,
     }
 
