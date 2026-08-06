@@ -39,6 +39,12 @@ import json; print(json.dumps({f: {'default': SecurityConfig.model_fields[f].def
 
 `muted_event_types`, `muted_metric_types`, `muted_check_logs`. Validated sets; unknown values raise `ValidationError` listing valid values. See the telemetry reference for the valid value lists.
 
+## Optional extras
+
+`import guard_core` no longer loads `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography`; those load lazily, only when a check that needs them is actually built or a feature that needs them is actually configured. Three optional-dependency extras package the split: `redis` (the `redis` package, needed when `enable_redis=True`), `cloud` (`aiohttp` and `requests`, needed when `block_cloud_providers` is set or `enable_dynamic_rules=True`, since dynamic rules can turn cloud blocking on at runtime), and `geo` (`maxminddb`, needed when `blocked_countries` or `whitelist_countries` is set and no custom `geo_ip_handler` is supplied, the one case where guard-core constructs its own `IPInfoManager`). All three extras' packages are also still listed in guard-core's base `dependencies` through the 3.x line, so an existing install is unaffected; the extras exist so a deployment can be explicit about which features it needs, and they become the only source of those packages at 4.0.
+
+`SecurityConfig`'s `validate_optional_extras_installed` model validator checks `importlib.util.find_spec` (never a bare `import`) for each configured feature and raises `ValueError` naming the missing extra's `pip install guard-core[...]` command, instead of letting the feature fail later with a raw `ImportError`. Configuring a feature whose extra is not installed fails at `SecurityConfig` construction, not mid-request.
+
 ## Validation hooks
 
 `validate_agent_config` raises `ValueError` if `enable_agent=True` but `agent_api_key` is missing. `enable_enrichment=True` without `enable_agent=True` raises `ValidationError`. Country-list conflicts emit a warning (not an error) when both `whitelist_countries` and `blocked_countries` are set.

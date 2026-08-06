@@ -1,6 +1,6 @@
 ---
 name: guard-core
-description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the 17-check pipeline, the 18-category detection catalog, telemetry models, and known footguns
+description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the config-derived security pipeline (17-check catalogue), the 18-category detection catalog, telemetry models, and known footguns
 ---
 
 # Guard Core
@@ -22,10 +22,16 @@ guard-core is the framework-agnostic security engine powering the Guard ecosyste
 
 ```bash
 pip install guard-core
+# feature extras: redis, aiohttp/requests and maxminddb are still base dependencies through the 3.x line, so these are additive, not required
+pip install "guard-core[redis]"     # enable_redis
+pip install "guard-core[cloud]"     # block_cloud_providers / cloud-provider blocking
+pip install "guard-core[geo]"       # blocked_countries / whitelist_countries when no custom geo_ip_handler is supplied
 # optional telemetry extras
 pip install "guard-core[otel]"      # OpenTelemetry export
 pip install "guard-core[logfire]"   # Logfire export
 ```
+
+`import guard_core` no longer loads `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography`; a bare import costs roughly 1.6ms. Handlers and third-party libraries load lazily, only when a check that needs them is actually built or a feature that needs them is actually configured. If a feature is configured without its extra installed, `SecurityConfig` raises a `ValueError` at construction time naming the missing extra's install command, instead of surfacing a raw `ImportError` mid-request. See [the config reference](references/config.md#optional-extras) for exactly which flags gate which extra.
 
 `guard-agent` is an optional runtime dependency pulled in by adapters when `enable_agent=True`; it is not a hard dependency of guard-core.
 
@@ -69,7 +75,7 @@ See [the config reference](references/config.md) for the full field surface and 
 
 ## Building Adapters
 
-Implement three protocols to bridge your framework into the pipeline. Everything else (17 checks, detection engine, Redis state, event telemetry) works out of the box.
+Implement three protocols to bridge your framework into the pipeline. Everything else (the check catalogue, detection engine, Redis state, event telemetry) works out of the box; expose `guard_decorator` on your middleware so guard-core can enumerate registered routes and build a smaller, config-derived pipeline instead of keeping every route-driven check (see [Security Pipeline](#security-pipeline)).
 
 ```python
 from guard_core.protocols import GuardRequest, GuardResponse, GuardResponseFactory
@@ -85,7 +91,7 @@ See [the adapters reference](references/adapters.md) for a complete wrapper exam
 
 ## Security Pipeline
 
-`SecurityCheckPipeline` runs 17 checks in order per request. The first check returning a non-`None` `GuardResponse` short-circuits and blocks. Order matters; earlier checks set up state later checks depend on.
+`SecurityCheckPipeline` runs, per request, whichever checks the effective configuration can actually trigger, in the fixed catalogue order below. `build_default_pipeline` filters the 17-check catalogue through each check's `applies_to(config, route_configs)` classmethod before instantiating anything; the base `SecurityCheck.applies_to` returns `True`, so a check that does not override it always runs, and elimination is strictly an optimization, never a security decision. The catalogue and its order are unchanged; only the subset a given deployment builds varies.
 
 1. route_config
 2. emergency_mode
@@ -105,7 +111,7 @@ See [the adapters reference](references/adapters.md) for a complete wrapper exam
 16. suspicious_activity
 17. custom_request
 
-A check returning `None` means pass. On a check exception, `fail_secure` decides block-with-500 vs continue. See [the pipeline reference](references/pipeline.md).
+A default `SecurityConfig()` with no route decorators registered builds only `route_config`, `ip_security`, `rate_limit`, and `suspicious_activity`; a configuration that enables every feature builds all 17. `enable_dynamic_rules=True` keeps `emergency_mode`, `cloud_ip_refresh`, `cloud_provider`, `user_agent`, `rate_limit`, and `suspicious_activity` regardless of every other flag, because `DynamicRuleManager` can mutate the flags those checks key off at runtime. `ip_security` never overrides `applies_to`, so it always builds: it fronts a ban lookup whose store is writable from behavior-rule bans and from other processes sharing the same Redis, so no configuration can prove it unreachable. When the registered route configuration cannot be enumerated (`route_configs is None`), every route-driven check is kept rather than dropped, so an adapter that cannot expose `guard_decorator` loses the build-time optimization but never loses the protection. The first check returning a non-`None` `GuardResponse` short-circuits and blocks; order matters, since earlier checks set up state later checks depend on. A check returning `None` means pass. On a check exception, `fail_secure` decides block-with-500 vs continue. See [the pipeline reference](references/pipeline.md).
 
 ## Detection Engine
 
