@@ -436,6 +436,125 @@ def test_apply_action_alert(security_config: SecurityConfig) -> None:
         )
 
 
+def test_apply_action_log_respects_log_suspicious_level(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.log_suspicious_level = "ERROR"
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="log")
+
+    with patch.object(tracker.logger, "error") as mock_logger:
+        tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+        mock_logger.assert_called_once_with(
+            "Behavioral anomaly detected: Test violation"
+        )
+
+
+def test_apply_action_ban_respects_log_suspicious_level(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.log_suspicious_level = "ERROR"
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager"
+        ) as mock_ban_manager,
+        patch.object(tracker.logger, "error") as mock_logger,
+    ):
+        mock_ban_manager.ban_ip = MagicMock()
+
+        tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+
+        mock_logger.assert_called_once()
+
+
+def test_apply_action_ban_silenced_when_log_suspicious_level_none(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.log_suspicious_level = None
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipban_handler.ip_ban_manager"
+        ) as mock_ban_manager,
+        patch.object(tracker.logger, "warning") as mock_warning,
+    ):
+        mock_ban_manager.ban_ip = MagicMock()
+
+        tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+
+        mock_ban_manager.ban_ip.assert_called_once_with(
+            "192.168.1.1", 3600, "behavioral_violation"
+        )
+        mock_warning.assert_not_called()
+
+
+def test_apply_action_log_silenced_when_log_suspicious_level_none(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.log_suspicious_level = None
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="log")
+
+    with (
+        patch.object(tracker.logger, "warning") as mock_warning,
+        patch.object(tracker.logger, "error") as mock_error,
+    ):
+        tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+        mock_warning.assert_not_called()
+        mock_error.assert_not_called()
+
+
+def test_apply_action_alert_ignores_log_suspicious_level(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.log_suspicious_level = None
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="alert")
+
+    with patch.object(tracker.logger, "critical") as mock_logger:
+        tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+        mock_logger.assert_called_once_with(
+            "ALERT - Behavioral anomaly: Test violation"
+        )
+
+
+def test_passive_mode_log_respects_log_suspicious_level(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.passive_mode = True
+    security_config.log_suspicious_level = "ERROR"
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="throttle")
+
+    with patch.object(tracker.logger, "error") as mock_logger:
+        tracker._log_passive_mode_action(rule, "192.168.1.1", "Test details")
+        mock_logger.assert_called_once_with(
+            "[PASSIVE MODE] Would throttle IP 192.168.1.1: Test details"
+        )
+
+
+def test_passive_mode_log_silenced_when_log_suspicious_level_none(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.passive_mode = True
+    security_config.log_suspicious_level = None
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="throttle")
+
+    with (
+        patch.object(tracker.logger, "warning") as mock_warning,
+        patch.object(tracker.logger, "error") as mock_error,
+    ):
+        tracker._log_passive_mode_action(rule, "192.168.1.1", "Test details")
+        mock_warning.assert_not_called()
+        mock_error.assert_not_called()
+
+
 def test_redis_key_timestamp_filtering(
     security_config_redis: SecurityConfig,
 ) -> None:

@@ -75,6 +75,42 @@ async def test_check_blocked_countries_country_not_blocked() -> None:
     assert result is True
 
 
+async def test_check_blocked_countries_country_blocked() -> None:
+    config = MagicMock()
+    config.blocked_countries = ["CN"]
+    geo_ip = MagicMock()
+    with patch(
+        "guard_core.utils.check_ip_country",
+        new=MagicMock(return_value=True),
+    ) as mock_check:
+
+        async def _async_true(*_a: object, **_kw: object) -> bool:
+            return True
+
+        mock_check.side_effect = _async_true
+        result = await _check_blocked_countries("1.2.3.4", config, geo_ip)
+    assert result is False
+
+
+async def test_check_blocked_countries_no_rules_skips_lookup() -> None:
+    config = MagicMock()
+    config.blocked_countries = []
+    config.whitelist_countries = []
+    geo_ip = MagicMock()
+    with patch(
+        "guard_core.utils.check_ip_country",
+        new=MagicMock(return_value=True),
+    ) as mock_check:
+
+        async def _async_true(*_a: object, **_kw: object) -> bool:
+            return True
+
+        mock_check.side_effect = _async_true
+        result = await _check_blocked_countries("1.2.3.4", config, geo_ip)
+    assert result is True
+    mock_check.assert_not_called()
+
+
 async def test_check_json_fields_ignores_non_string_entries() -> None:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 

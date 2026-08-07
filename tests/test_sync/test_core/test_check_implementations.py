@@ -45,6 +45,7 @@ from guard_core.sync.core.checks.implementations.user_agent import UserAgentChec
 from guard_core.sync.core.events.event_types import EVENT_ROUTE_UNRESOLVED
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
+from guard_core.sync.utils import IpAccessResult
 from tests.test_sync.conftest import MockGuardResponse, SyncMockGuardRequest
 
 _IMPL = "guard_core.sync.core.checks.implementations"
@@ -1095,8 +1096,8 @@ def test_ip_security_global_check() -> None:
     with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
-            return_value=True,
+            f"{_IMPL}.ip_security.check_ip_access",
+            return_value=IpAccessResult(True, ""),
         ):
             result = check.check(req)
     assert result is None
@@ -1111,8 +1112,10 @@ def test_ip_security_global_blocked() -> None:
     with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
-            return_value=False,
+            f"{_IMPL}.ip_security.check_ip_access",
+            return_value=IpAccessResult(
+                False, "IP 9.9.9.9 not in global allowlist/blocklist"
+            ),
         ):
             with patch(f"{_IMPL}.ip_security.log_activity"):
                 result = check.check(req)
@@ -1155,8 +1158,10 @@ def test_ip_security_passive_mode_global_blocked() -> None:
     with patch(f"{_IMPL}.ip_security.ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = MagicMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
-            return_value=False,
+            f"{_IMPL}.ip_security.check_ip_access",
+            return_value=IpAccessResult(
+                False, "IP 9.9.9.9 not in global allowlist/blocklist"
+            ),
         ):
             with patch(f"{_IMPL}.ip_security.log_activity"):
                 result = check.check(req)

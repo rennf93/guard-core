@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
 from typing import TYPE_CHECKING, Any, Literal
@@ -410,8 +411,13 @@ def _log_country_check_result(
     elif result_type == "no_geolocation":
         logger.debug(f"IP not geolocated {ip} - IP geolocation failed")
     elif result_type == "blocked":
-        logger.warning(
-            f"IP from blocked country {ip} - {country} - IP from blocked country"
+        level = config.log_suspicious_level
+        if level is None:
+            return
+        _log_at_level(
+            logger,
+            level,
+            f"IP from blocked country {ip} - {country} - IP from blocked country",
         )
     elif result_type in ("whitelisted", "not_affected"):
         level = config.log_country_check_level
@@ -445,29 +451,35 @@ def _evaluate_country_access(country: str, config: Any) -> tuple[bool, str]:
     return False, "not_affected"
 
 
+def _resolve_country_verdict(
+    ip: str, config: Any, geo_ip_handler: SyncGeoIPHandler
+) -> tuple[bool, str | None]:
+    if not _has_country_rules(config):
+        _log_country_check_result(ip, None, "no_rules", config)
+        return False, None
+
+    if not geo_ip_handler.is_initialized:
+        geo_ip_handler.initialize()
+
+    country = geo_ip_handler.get_country(ip)
+
+    if not country:
+        _log_country_check_result(ip, None, "no_geolocation", config)
+        return bool(config.whitelist_countries), None
+
+    is_blocked, result_type = _evaluate_country_access(country, config)
+    _log_country_check_result(ip, country, result_type, config)
+
+    return is_blocked, country
+
+
 def check_ip_country(
     request: str | SyncGuardRequest,
     config: Any,
     geo_ip_handler: SyncGeoIPHandler,
 ) -> bool:
-    if not _has_country_rules(config):
-        ip = _extract_ip_from_request(request)
-        _log_country_check_result(ip, None, "no_rules", config)
-        return False
-
-    if not geo_ip_handler.is_initialized:
-        geo_ip_handler.initialize()
-
     ip = _extract_ip_from_request(request)
-    country = geo_ip_handler.get_country(ip)
-
-    if not country:
-        _log_country_check_result(ip, None, "no_geolocation", config)
-        return bool(config.whitelist_countries)
-
-    is_blocked, result_type = _evaluate_country_access(country, config)
-    _log_country_check_result(ip, country, result_type, config)
-
+    is_blocked, _country = _resolve_country_verdict(ip, config, geo_ip_handler)
     return is_blocked
 
 
@@ -508,14 +520,94 @@ def _check_blocked_countries(
     return True
 
 
-def _check_cloud_providers(ip: str, config: Any) -> bool:
+@dataclass(frozen=True)
+class IpAccessResult:
+    allowed: bool
+    reason: str
+    cloud_provider: str | None = None
+    network: str | None = None
+
+
+_GENERIC_LIST_BLOCK_REASON = "IP {ip} not in global allowlist/blocklist"
+
+
+def _check_blocked_countries_detail(
+    ip: str, config: Any, geo_ip_handler: SyncGeoIPHandler | None
+) -> IpAccessResult | None:
+    if (
+        not (config.blocked_countries or config.whitelist_countries)
+        or not geo_ip_handler
+    ):
+        return None
+
+    is_blocked, country = _resolve_country_verdict(ip, config, geo_ip_handler)
+    if not is_blocked:
+        return None
+
+    reason = (
+        f"IP from blocked country: {country}"
+        if country
+        else _GENERIC_LIST_BLOCK_REASON.format(ip=ip)
+    )
+    return IpAccessResult(False, reason)
+
+
+def _check_cloud_providers_detail(ip: str, config: Any) -> IpAccessResult | None:
     from guard_core.sync.handlers.cloud_handler import cloud_handler
 
-    if config.block_cloud_providers and cloud_handler.is_cloud_ip(
-        ip, config.block_cloud_providers
-    ):
-        return False
-    return True
+    if not config.block_cloud_providers:
+        return None
+    if not cloud_handler.is_cloud_ip(ip, config.block_cloud_providers):
+        return None
+
+    details = cloud_handler.get_cloud_provider_details(ip, config.block_cloud_providers)
+    if details is None:
+        return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+
+    provider, network = details
+    return IpAccessResult(
+        False,
+        f"IP belongs to blocked cloud provider: {provider}",
+        cloud_provider=provider,
+        network=network,
+    )
+
+
+def check_ip_access(
+    ip: str,
+    config: Any,
+    geo_ip_handler: SyncGeoIPHandler | None = None,
+    *,
+    skip_ip_lists: bool = False,
+    skip_countries: bool = False,
+) -> IpAccessResult:
+    try:
+        ip_addr = ip_address(ip)
+
+        if not skip_ip_lists:
+            if config.whitelist:
+                if not _check_whitelist(ip_addr, ip, config):
+                    return IpAccessResult(
+                        False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip)
+                    )
+            elif not _check_blacklist(ip_addr, ip, config):
+                return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+
+        if not skip_countries:
+            country_result = _check_blocked_countries_detail(ip, config, geo_ip_handler)
+            if country_result is not None:
+                return country_result
+
+        cloud_result = _check_cloud_providers_detail(ip, config)
+        if cloud_result is not None:
+            return cloud_result
+
+        return IpAccessResult(True, "")
+    except ValueError:
+        return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+    except Exception as e:
+        logger.error(f"Error checking IP {ip}: {str(e)}")
+        return IpAccessResult(True, "")
 
 
 def is_ip_allowed(
@@ -526,30 +618,14 @@ def is_ip_allowed(
     skip_ip_lists: bool = False,
     skip_countries: bool = False,
 ) -> bool:
-    try:
-        ip_addr = ip_address(ip)
-
-        if not skip_ip_lists:
-            if config.whitelist:
-                if not _check_whitelist(ip_addr, ip, config):
-                    return False
-            elif not _check_blacklist(ip_addr, ip, config):
-                return False
-
-        if not skip_countries and not _check_blocked_countries(
-            ip, config, geo_ip_handler
-        ):
-            return False
-
-        if not _check_cloud_providers(ip, config):
-            return False
-
-        return True
-    except ValueError:
-        return False
-    except Exception as e:
-        logger.error(f"Error checking IP {ip}: {str(e)}")
-        return True
+    result = check_ip_access(
+        ip,
+        config,
+        geo_ip_handler,
+        skip_ip_lists=skip_ip_lists,
+        skip_countries=skip_countries,
+    )
+    return result.allowed
 
 
 def _check_json_fields(

@@ -306,3 +306,32 @@ def test_pipeline_skips_fail_secure_log_when_check_is_muted(
     assert not any(
         "Blocking request due to check error" in r.getMessage() for r in caplog.records
     )
+
+
+def test_pipeline_block_summary_logs_at_debug_not_info(
+    mock_middleware: Mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    pipeline = SecurityCheckPipeline(
+        [MockCheck(mock_middleware, "some_check", should_block=True)]
+    )
+    request = Mock()
+    request.url_path = "/x"
+    request.method = "GET"
+    request.state = type("S", (), {})()
+
+    with caplog.at_level(logging.INFO, logger="guard_core"):
+        result = pipeline.execute(request)
+    assert result is not None
+    assert not any("Request blocked by" in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="guard_core"):
+        result = pipeline.execute(request)
+    assert result is not None
+    debug_records = [
+        r for r in caplog.records if "Request blocked by" in r.getMessage()
+    ]
+    assert debug_records
+    assert all(r.levelno == logging.DEBUG for r in debug_records)

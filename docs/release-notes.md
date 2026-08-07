@@ -10,6 +10,28 @@ Release Notes
 
 ___
 
+v3.10.0 (2026-08-07)
+-------------------
+
+Accurate IP-block reasons and configurable block-decision log levels (v3.10.0)
+--------------------------------------------------------------------------------
+
+### Fixed
+
+- `is_ip_allowed`'s three independent checks (allow/blocklist, country, cloud provider) collapsed into a single bool, so `IpSecurityCheck._check_global_ip_restrictions` always emitted `reason="IP {ip} not in global allowlist/blocklist"` with `filter_type="global"` regardless of which check actually blocked the request. A US-based AWS IP that passed a country whitelist but was blocked by `block_cloud_providers` was reported as an allow/blocklist failure, hiding the real cause. Added `check_ip_access`, which returns an `IpAccessResult` (`allowed`, `reason`, `cloud_provider`, `network`) that names the real cause: the provider for cloud blocks, the country for country blocks, and the existing message for actual allow/blocklist blocks. `is_ip_allowed` now delegates to `check_ip_access` and keeps its exact signature and bool return; `filter_type` and `event_type` on the emitted `ip_blocked` event are unchanged for backward compatibility, only `reason` (and, for cloud blocks, new `cloud_provider`/`network` metadata) is corrected.
+- `_log_country_check_result`'s blocked-country branch logged at a hardcoded `WARNING`, bypassing `config.log_suspicious_level`. It now honors `log_suspicious_level` (default `WARNING`, so existing deployments see no change), and can be silenced or re-leveled like every other block-decision log.
+- `BehaviorTracker._log_passive_mode_action` and `_execute_active_mode_action` (plus `_execute_ban_action`) logged `ban`/`log`/`throttle` outcomes at a hardcoded `WARNING`, bypassing `config.log_suspicious_level`. They now honor it (default `WARNING`, unchanged by default). The `alert` action still always logs at `CRITICAL`, since that severity is the explicit per-rule escalation the caller opted into, not a hardcoded inconsistency.
+
+### Behaviour changes
+
+- `SecurityCheckPipeline`'s generic `"Request blocked by {check.check_name}"` summary line moved from a hardcoded `INFO` to `DEBUG`. Every check that can block already logs its own detailed, configurable-level line before returning; the generic summary duplicated that at a mismatched, non-configurable level and was the line reported as unhelpful. It is demoted rather than removed so the structured `extra={check, path, method}` metadata stays available for anyone parsing DEBUG output or the `guard_core.core.checks.pipeline` logger directly.
+
+### Internal
+
+- `check_ip_country` and `_check_blocked_countries` are unchanged (still public/tested directly); a new `_resolve_country_verdict` helper backs both `check_ip_country` and the new cloud/country detail checks so there is one country-evaluation code path, not two that can drift.
+
+___
+
 v3.9.0 (2026-08-03)
 -------------------
 

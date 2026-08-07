@@ -66,7 +66,7 @@ class SecurityCheckPipeline:
                 response = await check.check(request)
                 if response is not None:
                     if check.check_name not in self.muted_check_logs:
-                        self.logger.info(
+                        self.logger.debug(
                             f"Request blocked by {check.check_name}",
                             extra=self._log_extra(check, request),
                         )

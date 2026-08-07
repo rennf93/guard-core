@@ -10,7 +10,7 @@ from guard_core.decorators.base import RouteConfig
 from guard_core.handlers.ipban_handler import ip_ban_manager
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.utils import is_ip_allowed, log_activity
+from guard_core.utils import check_ip_access, log_activity
 
 
 def _route_overrides_ip_lists(route_config: RouteConfig | None) -> bool:
@@ -130,7 +130,7 @@ class IpSecurityCheck(SecurityCheck):
             client_ip, route_config, self.middleware.geo_ip_handler
         )
 
-        is_allowed = await is_ip_allowed(
+        access_result = await check_ip_access(
             client_ip,
             self.config,
             self.middleware.geo_ip_handler,
@@ -139,22 +139,28 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         request.state.is_whitelisted = _resolve_is_whitelisted(
-            client_ip, route_config, self.config, is_allowed, skip_ip_lists
+            client_ip, route_config, self.config, access_result.allowed, skip_ip_lists
         )
 
-        if is_allowed:
+        if access_result.allowed:
             return None
 
         await log_activity(
             request,
             self.logger,
             log_type="suspicious",
-            reason=f"IP not allowed: {client_ip}",
+            reason=f"IP not allowed: {client_ip} - {access_result.reason}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
         )
+
+        event_kwargs: dict[str, Any] = {}
+        if access_result.cloud_provider:
+            event_kwargs["cloud_provider"] = access_result.cloud_provider
+        if access_result.network:
+            event_kwargs["network"] = access_result.network
 
         await self.middleware.event_bus.send_middleware_event(
             event_type=EVENT_IP_BLOCKED,
@@ -162,9 +168,10 @@ class IpSecurityCheck(SecurityCheck):
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",
-            reason=f"IP {client_ip} not in global allowlist/blocklist",
+            reason=access_result.reason,
             ip_address=client_ip,
             filter_type="global",
+            **event_kwargs,
         )
 
         if not self.config.passive_mode:
