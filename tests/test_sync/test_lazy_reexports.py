@@ -3,6 +3,7 @@ import importlib.util
 import inspect
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import pytest
 
@@ -10,6 +11,95 @@ import guard_core
 import guard_core.handlers
 import guard_core.sync
 import guard_core.sync.handlers
+
+_HANDLERS_SUBMODULES = (
+    "behavior_handler",
+    "cloud_handler",
+    "cloud_ip_stores",
+    "cors_handler",
+    "dynamic_rule_handler",
+    "ipban_handler",
+    "ipinfo_handler",
+    "ratelimit_handler",
+    "redis_handler",
+    "security_headers_handler",
+    "suspatterns_handler",
+)
+
+_GUARD_CORE_SUBMODULES = (
+    "core",
+    "decorators",
+    "detection_engine",
+    "detection_result",
+    "exceptions",
+    "handlers",
+    "models",
+    "protocols",
+    "scripts",
+    "sync",
+    "utils",
+)
+
+_GUARD_CORE_SYNC_SUBMODULES = (
+    "core",
+    "decorators",
+    "detection_engine",
+    "detection_result",
+    "handlers",
+    "protocols",
+    "scripts",
+    "utils",
+)
+
+
+def _getattr_forcing_lazy_resolution(module: ModuleType, name: str) -> ModuleType:
+    if name in vars(module):
+        delattr(module, name)
+    return cast(ModuleType, getattr(module, name))
+
+
+@pytest.mark.parametrize("name", _HANDLERS_SUBMODULES)
+def test_handlers_submodule_attribute_access_works(name: str) -> None:
+    submodule = _getattr_forcing_lazy_resolution(guard_core.handlers, name)
+    assert submodule.__name__ == f"{guard_core.handlers.__name__}.{name}"
+
+
+def test_handlers_submodule_attribute_access_raises_for_absent_name() -> None:
+    with pytest.raises(AttributeError):
+        _ = guard_core.handlers.this_submodule_does_not_exist
+
+
+@pytest.mark.parametrize("name", _GUARD_CORE_SUBMODULES)
+def test_guard_core_submodule_attribute_access_works(name: str) -> None:
+    submodule = _getattr_forcing_lazy_resolution(guard_core, name)
+    assert submodule.__name__ == f"{guard_core.__name__}.{name}"
+
+
+def test_guard_core_submodule_attribute_access_raises_for_absent_name() -> None:
+    with pytest.raises(AttributeError):
+        _ = guard_core.this_submodule_does_not_exist
+
+
+@pytest.mark.parametrize("name", _GUARD_CORE_SYNC_SUBMODULES)
+def test_guard_core_sync_submodule_attribute_access_works(name: str) -> None:
+    submodule = _getattr_forcing_lazy_resolution(guard_core.sync, name)
+    assert submodule.__name__ == f"{guard_core.sync.__name__}.{name}"
+
+
+def test_guard_core_sync_submodule_attribute_access_raises_for_absent_name() -> None:
+    with pytest.raises(AttributeError):
+        _ = guard_core.sync.this_submodule_does_not_exist
+
+
+@pytest.mark.parametrize("name", _HANDLERS_SUBMODULES)
+def test_sync_handlers_submodule_attribute_access_works(name: str) -> None:
+    submodule = _getattr_forcing_lazy_resolution(guard_core.sync.handlers, name)
+    assert submodule.__name__ == f"{guard_core.sync.handlers.__name__}.{name}"
+
+
+def test_sync_handlers_submodule_attribute_access_raises_for_absent_name() -> None:
+    with pytest.raises(AttributeError):
+        _ = guard_core.sync.handlers.this_submodule_does_not_exist
 
 
 def test_every_handlers_all_name_importable_directly() -> None:

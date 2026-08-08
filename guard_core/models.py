@@ -6,7 +6,14 @@ from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Self
 
 from guard_core.exceptions import AgentPackageNotInstalledError
@@ -52,6 +59,17 @@ class BehaviorRuleConfig(BaseModel):
 
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    _revision: int = PrivateAttr(default=0)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        if name != "_revision":
+            object.__setattr__(self, "_revision", self._revision + 1)
+
+    @property
+    def revision(self) -> int:
+        return self._revision
 
     trusted_proxies: list[str] = Field(
         default_factory=list,

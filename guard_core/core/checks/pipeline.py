@@ -1,8 +1,10 @@
 import logging
 import time
+from collections.abc import Callable
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.exceptions import GuardRedisError
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
@@ -12,10 +14,26 @@ class SecurityCheckPipeline:
         self,
         checks: list[SecurityCheck],
         muted_check_logs: set[str] | None = None,
+        *,
+        config: SecurityConfig | None = None,
+        rebuild_checks: Callable[[], list[SecurityCheck]] | None = None,
     ) -> None:
         self.checks = checks
         self.muted_check_logs = muted_check_logs or set()
         self.logger = logging.getLogger(__name__)
+        self._config = config
+        self._rebuild_checks = rebuild_checks
+        self._built_revision = config.revision if config is not None else None
+
+    def _rebuild_if_stale(self) -> None:
+        config = self._config
+        if config is None or self._rebuild_checks is None:
+            return
+        if config.revision == self._built_revision:
+            return
+        self.checks = self._rebuild_checks()
+        self.muted_check_logs = config.muted_check_logs
+        self._built_revision = config.revision
 
     def _log_extra(self, check: SecurityCheck, request: GuardRequest) -> dict:
         return {
@@ -59,6 +77,7 @@ class SecurityCheckPipeline:
         return None
 
     async def execute(self, request: GuardRequest) -> GuardResponse | None:
+        self._rebuild_if_stale()
         request.state._guard_pipeline_start = time.monotonic()
 
         for check in self.checks:

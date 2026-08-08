@@ -59,16 +59,25 @@ def _collect_route_configs(
     return tuple(decorator._route_configs.values())
 
 
+def _build_checks(
+    middleware: "SyncGuardMiddlewareProtocol",
+) -> list[SecurityCheck]:
+    config = middleware.config
+    route_configs = _collect_route_configs(middleware)
+    return [
+        cls(middleware)
+        for cls in DEFAULT_CHECK_CLASSES
+        if cls.applies_to(config, route_configs)
+    ]
+
+
 def build_default_pipeline(
     middleware: "SyncGuardMiddlewareProtocol",
 ) -> SecurityCheckPipeline:
     config = middleware.config
-    route_configs = _collect_route_configs(middleware)
     return SecurityCheckPipeline(
-        [
-            cls(middleware)
-            for cls in DEFAULT_CHECK_CLASSES
-            if cls.applies_to(config, route_configs)
-        ],
+        _build_checks(middleware),
         muted_check_logs=config.muted_check_logs,
+        config=config,
+        rebuild_checks=lambda: _build_checks(middleware),
     )

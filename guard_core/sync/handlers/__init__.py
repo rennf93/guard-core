@@ -1,3 +1,4 @@
+import importlib.util
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -46,11 +47,17 @@ _MODULE_BY_NAME: dict[str, str] = {
 
 def __getattr__(name: str) -> Any:
     module_name = _MODULE_BY_NAME.get(name)
-    if module_name is None:
+    if module_name is not None:
+        value = getattr(import_module(module_name), name)
+        globals()[name] = value
+        return value
+
+    submodule_name = f"{__name__}.{name}"
+    if importlib.util.find_spec(submodule_name) is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(import_module(module_name), name)
-    globals()[name] = value
-    return value
+    submodule = import_module(submodule_name)
+    globals()[name] = submodule
+    return submodule
 
 
 def __dir__() -> list[str]:
