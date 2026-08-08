@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -186,6 +187,10 @@ def reset_state() -> Generator[None, None]:
     spm._instance = sus_patterns_handler
     spm._config = None
     sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
+    sus_patterns_handler.compiled_patterns = [
+        (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+        for pattern, contexts, category in spm._pattern_definitions
+    ]
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
 
