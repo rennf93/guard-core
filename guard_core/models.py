@@ -1,4 +1,6 @@
+import difflib
 import importlib.util
+import logging
 import warnings
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -29,6 +31,8 @@ from guard_core.protocols.response_protocol import GuardResponse
 if TYPE_CHECKING:
     from guard_agent import AgentConfig
 
+
+logger = logging.getLogger("guard_core.models")
 
 CloudProvider = Literal["AWS", "GCP", "Azure"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
@@ -530,6 +534,87 @@ class SecurityConfig(BaseModel):
         ),
     )
 
+    agent_high_watermark_ratio: float | None = Field(
+        default=None,
+        description=(
+            "Buffer occupancy ratio that triggers an early flush. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_max_concurrent_flushes: int | None = Field(
+        default=None,
+        description=(
+            "Maximum concurrent early-flush operations. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_buffer_overflow_policy: Literal["drop", "block", "raise"] | None = Field(
+        default=None,
+        description=(
+            "Behavior when the agent's in-memory buffer is full. 'drop' "
+            "silently evicts the oldest entry, 'block' awaits free space and "
+            "backpressures the caller, 'raise' throws BufferFullError so "
+            "callers can react. None defers to the agent's own default "
+            "('drop')."
+        ),
+    )
+
+    agent_backoff_factor: float | None = Field(
+        default=None,
+        description=(
+            "Backoff factor for agent HTTP retries. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_sensitive_headers: list[str] | None = Field(
+        default=None,
+        description=(
+            "Header names excluded from telemetry payloads. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_max_payload_size: int | None = Field(
+        default=None,
+        description=(
+            "Maximum payload size in bytes to include in telemetry events. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_compression_enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Gzip-compress outgoing telemetry batch bodies above "
+            "agent_compression_threshold bytes. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_compression_threshold: int | None = Field(
+        default=None,
+        description=(
+            "Minimum body size in bytes before gzip compression applies. "
+            "None defers to the agent's own default."
+        ),
+    )
+
+    agent_install_id: str | None = Field(
+        default=None,
+        description=(
+            "Override the agent install ID. "
+            "None auto-generates one, the agent's own default."
+        ),
+    )
+
+    agent_payload_signing_secret: str | None = Field(
+        default=None,
+        description="HMAC-SHA256 secret used to sign the X-Payload-Signature header.",
+    )
+
     enable_dynamic_rules: bool = Field(
         default=False, description="Enable dynamic rule updates from SaaS platform"
     )
@@ -728,6 +813,27 @@ class SecurityConfig(BaseModel):
             f"Valid values: {sorted(ALL_DETECTION_CATEGORIES)}"
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def warn_unknown_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        known = set(cls.model_fields)
+        known.update(field.alias for field in cls.model_fields.values() if field.alias)
+
+        unknown = set(data) - known
+        for key in sorted(unknown):
+            match = difflib.get_close_matches(str(key), known, n=1)
+            hint = f" Did you mean '{match[0]}'?" if match else ""
+            logger.warning(
+                "SecurityConfig received unknown field '%s'; it was ignored "
+                "and had no effect.%s",
+                key,
+                hint,
+            )
+        return data
 
     @field_validator("whitelist", "blacklist")
     def validate_ip_lists(cls, v: list[str] | None) -> list[str] | None:
@@ -943,20 +1049,35 @@ class SecurityConfig(BaseModel):
         try:
             from guard_agent import AgentConfig
 
+            kwargs: dict[str, Any] = {
+                "api_key": self.agent_api_key,
+                "endpoint": self.agent_endpoint,
+                "project_id": self.agent_project_id,
+                "buffer_size": self.agent_buffer_size,
+                "flush_interval": self.agent_flush_interval,
+                "dynamic_rule_interval": self.dynamic_rule_interval,
+                "status_interval": self.agent_status_interval,
+                "high_watermark_ratio": self.agent_high_watermark_ratio,
+                "max_concurrent_flushes": self.agent_max_concurrent_flushes,
+                "buffer_overflow_policy": self.agent_buffer_overflow_policy,
+                "enable_events": self.agent_enable_events,
+                "enable_metrics": self.agent_enable_metrics,
+                "timeout": self.agent_timeout,
+                "retry_attempts": self.agent_retry_attempts,
+                "backoff_factor": self.agent_backoff_factor,
+                "sensitive_headers": self.agent_sensitive_headers,
+                "max_payload_size": self.agent_max_payload_size,
+                "project_encryption_key": self.agent_project_encryption_key,
+                "guard_version": self.agent_guard_version,
+                "compression_enabled": self.agent_compression_enabled,
+                "compression_threshold": self.agent_compression_threshold,
+                "install_id": self.agent_install_id,
+                "payload_signing_secret": self.agent_payload_signing_secret,
+                "on_error": self.on_error,
+            }
+
             return AgentConfig(
-                api_key=self.agent_api_key,
-                endpoint=self.agent_endpoint,
-                project_id=self.agent_project_id,
-                buffer_size=self.agent_buffer_size,
-                flush_interval=self.agent_flush_interval,
-                dynamic_rule_interval=self.dynamic_rule_interval,
-                status_interval=self.agent_status_interval,
-                enable_events=self.agent_enable_events,
-                enable_metrics=self.agent_enable_metrics,
-                timeout=self.agent_timeout,
-                retry_attempts=self.agent_retry_attempts,
-                project_encryption_key=self.agent_project_encryption_key,
-                guard_version=self.agent_guard_version,
+                **{key: value for key, value in kwargs.items() if value is not None}
             )
         except ImportError as e:
             raise AgentPackageNotInstalledError(
