@@ -3,7 +3,11 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 import guard_core
 from guard_core.models import SecurityConfig
@@ -13,6 +17,7 @@ from tests.test_sync.conftest import (
     _guard_agent_import_is_allowed,
     _GuardAgentImportFinder,
     _is_guard_core_module,
+    _unmuted_guard_agent_telemetry_models,
 )
 
 PACKAGE_ROOT = Path(guard_core.__file__).resolve().parent
@@ -102,15 +107,28 @@ def test_no_module_outside_the_allowlist_uses_a_known_guard_agent_import_shape()
     concatenation, a variable, or anything else a static scan cannot resolve
     to a literal), and it only sees source that exists on disk, not source a
     coverage run actually executes. This is a lint on the known shapes at edit
-    time, not a proof. `_GuardAgentImportFinder` in `tests/conftest.py`
-    (exercised below and installed for the whole test session) is the proof:
-    it hooks `sys.meta_path` itself, so it catches every shape including a
-    dynamically constructed module name, `importlib.import_module`, and
-    `__import__` alike, for any `guard_agent` import that actually executes.
-    The two are complementary, not redundant: the AST scan catches an
-    unexercised bypass this session's coverage never runs through; the finder
-    proves every import that *did* run stayed inside the allowlist, which
-    static source scanning alone cannot claim."""
+    time, not a proof.
+
+    `_GuardAgentImportFinder` in `tests/conftest.py` (exercised below and
+    installed for the whole test session) is not that proof either: `sys.
+    meta_path` is consulted only on a `sys.modules` cache miss, and the
+    allowlisted mute module is normally the first thing in a session to
+    import `guard_agent` legitimately, so the finder only reliably catches
+    the *first* importer of `guard_agent` in a session -- every import after
+    that, dynamic or not, is served from the cache and invisible to it.
+
+    The check that actually proves the property users depend on --
+    `SecurityEvent`/`SecurityMetric`/`EventBatch` end up muted whenever
+    `guard_agent` was imported at all, regardless of how -- is the
+    `pytest_sessionfinish` assertion in `tests/conftest.py`, backed by
+    `_unmuted_guard_agent_telemetry_models` (exercised directly below). It
+    reads the models out of `sys.modules` instead of importing them, so it
+    cannot itself cause the import it is testing for. All three checks are
+    complementary: the AST scan catches an unexercised bypass this session's
+    coverage never runs through, the finder still names a first-time
+    offender when one shows up, and the outcome assertion is the one whose
+    pass or fail actually tracks whether a user's telemetry models ended up
+    muted."""
     violations = [
         violation
         for path in _guard_core_source_files()
@@ -282,3 +300,54 @@ def test_finder_catches_a_disallowed_caller_through_real_import_machinery() -> N
         )
 
     assert finder.violations == ["guard_core._test_fake_bypass imports guard_agent"]
+
+
+def _fake_guard_agent_module(
+    plugin_settings_by_model: dict[str, dict[str, Any] | None],
+) -> ModuleType:
+    module = ModuleType("guard_agent")
+    for name, plugin_settings in plugin_settings_by_model.items():
+        setattr(
+            module,
+            name,
+            SimpleNamespace(model_config={"plugin_settings": plugin_settings}),
+        )
+    return module
+
+
+def test_unmuted_guard_agent_telemetry_models_is_empty_when_guard_agent_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delitem(sys.modules, "guard_agent", raising=False)
+
+    assert _unmuted_guard_agent_telemetry_models() == []
+
+
+def test_unmuted_guard_agent_telemetry_models_is_empty_when_all_three_are_muted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    muted = {"logfire": {"record": "off"}}
+    fake_guard_agent = _fake_guard_agent_module(
+        {"SecurityEvent": muted, "SecurityMetric": muted, "EventBatch": muted}
+    )
+    monkeypatch.setitem(sys.modules, "guard_agent", fake_guard_agent)
+
+    assert _unmuted_guard_agent_telemetry_models() == []
+
+
+def test_unmuted_guard_agent_telemetry_models_names_every_unmuted_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_guard_agent = _fake_guard_agent_module(
+        {
+            "SecurityEvent": None,
+            "SecurityMetric": {"logfire": {"record": "all"}},
+            "EventBatch": {"logfire": {"record": "off"}},
+        }
+    )
+    monkeypatch.setitem(sys.modules, "guard_agent", fake_guard_agent)
+
+    assert _unmuted_guard_agent_telemetry_models() == [
+        "SecurityEvent",
+        "SecurityMetric",
+    ]

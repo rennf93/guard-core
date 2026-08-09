@@ -341,6 +341,22 @@ class _GuardAgentImportFinder:
         return None
 
 
+_MUTED_PLUGIN_SETTINGS = {"logfire": {"record": "off"}}
+_TELEMETRY_MODEL_NAMES = ("SecurityEvent", "SecurityMetric", "EventBatch")
+
+
+def _unmuted_guard_agent_telemetry_models() -> list[str]:
+    guard_agent_module = sys.modules.get("guard_agent")
+    if guard_agent_module is None:
+        return []
+    return [
+        name
+        for name in _TELEMETRY_MODEL_NAMES
+        if getattr(guard_agent_module, name).model_config.get("plugin_settings")
+        != _MUTED_PLUGIN_SETTINGS
+    ]
+
+
 def pytest_configure(config: pytest.Config) -> None:
     if getattr(sys, _GUARD_AGENT_FINDER_ATTR, None) is not None:
         return
@@ -351,12 +367,16 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
-    if finder is None:
-        return
-    delattr(sys, _GUARD_AGENT_FINDER_ATTR)
-    if finder in sys.meta_path:
-        sys.meta_path.remove(finder)
-    assert not finder.violations, (
-        "guard_agent imported outside the pydantic-plugin-mute allowlist: "
-        + "; ".join(finder.violations)
+    if finder is not None:
+        delattr(sys, _GUARD_AGENT_FINDER_ATTR)
+        if finder in sys.meta_path:
+            sys.meta_path.remove(finder)
+        assert not finder.violations, (
+            "guard_agent imported outside the pydantic-plugin-mute allowlist: "
+            + "; ".join(finder.violations)
+        )
+    unmuted = _unmuted_guard_agent_telemetry_models()
+    assert not unmuted, (
+        "guard_agent is in sys.modules at session end but these telemetry "
+        "models were never muted: " + ", ".join(unmuted)
     )
