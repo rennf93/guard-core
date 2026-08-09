@@ -73,6 +73,14 @@ class _TrackedList(_RevisionTrackedContainer, list):
         self._bump()
         list.clear(self)
 
+    def sort(self, *args: Any, **kwargs: Any) -> None:
+        self._bump()
+        list.sort(self, *args, **kwargs)
+
+    def reverse(self) -> None:
+        self._bump()
+        list.reverse(self)
+
     def __setitem__(self, key: Any, value: Any) -> None:
         self._bump()
         list.__setitem__(self, key, value)
@@ -80,6 +88,22 @@ class _TrackedList(_RevisionTrackedContainer, list):
     def __delitem__(self, key: Any) -> None:
         self._bump()
         list.__delitem__(self, key)
+
+    def __add__(self, other: Any) -> Any:
+        return list.__add__(self, other)
+
+    def __mul__(self, other: Any) -> Any:
+        return list.__mul__(self, other)
+
+    def __iadd__(self, other: Any) -> Any:
+        self._bump()
+        list.__iadd__(self, other)
+        return self
+
+    def __imul__(self, other: Any) -> Any:
+        self._bump()
+        list.__imul__(self, other)
+        return self
 
 
 class _TrackedDict(_RevisionTrackedContainer, dict):
@@ -120,11 +144,106 @@ class _TrackedDict(_RevisionTrackedContainer, dict):
         self._bump()
         dict.clear(self)
 
+    def __or__(self, other: Any) -> Any:
+        return dict.__or__(self, other)
+
+    def __ior__(self, other: Any) -> Any:
+        self._bump()
+        dict.__ior__(self, other)
+        return self
+
+
+class _TrackedSet(_RevisionTrackedContainer, set):
+    def __init__(
+        self,
+        iterable: Any = (),
+        *,
+        revision: RouteConfigRevision | None = None,
+    ) -> None:
+        set.__init__(self, iterable)
+        self._revision = revision
+
+    def add(self, item: Any) -> None:
+        self._bump()
+        set.add(self, item)
+
+    def discard(self, item: Any) -> None:
+        self._bump()
+        set.discard(self, item)
+
+    def remove(self, item: Any) -> None:
+        self._bump()
+        set.remove(self, item)
+
+    def pop(self) -> Any:
+        self._bump()
+        return set.pop(self)
+
+    def clear(self) -> None:
+        self._bump()
+        set.clear(self)
+
+    def update(self, *others: Any) -> None:
+        self._bump()
+        set.update(self, *others)
+
+    def intersection_update(self, *others: Any) -> None:
+        self._bump()
+        set.intersection_update(self, *others)
+
+    def difference_update(self, *others: Any) -> None:
+        self._bump()
+        set.difference_update(self, *others)
+
+    def symmetric_difference_update(self, other: Any) -> None:
+        self._bump()
+        set.symmetric_difference_update(self, other)
+
+    def __or__(self, other: Any) -> Any:
+        return set.__or__(self, other)
+
+    def __and__(self, other: Any) -> Any:
+        return set.__and__(self, other)
+
+    def __sub__(self, other: Any) -> Any:
+        return set.__sub__(self, other)
+
+    def __xor__(self, other: Any) -> Any:
+        return set.__xor__(self, other)
+
+    def __ior__(self, other: Any) -> Any:
+        self._bump()
+        set.__ior__(self, other)
+        return self
+
+    def __iand__(self, other: Any) -> Any:
+        self._bump()
+        set.__iand__(self, other)
+        return self
+
+    def __isub__(self, other: Any) -> Any:
+        self._bump()
+        set.__isub__(self, other)
+        return self
+
+    def __ixor__(self, other: Any) -> Any:
+        self._bump()
+        set.__ixor__(self, other)
+        return self
+
 
 _TRACKED_LIST_FIELDS = frozenset(
-    {"custom_validators", "require_referrer", "allowed_content_types"}
+    {
+        "custom_validators",
+        "require_referrer",
+        "allowed_content_types",
+        "blocked_user_agents",
+    }
 )
-_TRACKED_DICT_FIELDS = frozenset({"required_headers", "time_restrictions"})
+_TRACKED_DICT_FIELDS = frozenset(
+    {"required_headers", "time_restrictions", "geo_rate_limits"}
+)
+_TRACKED_SET_FIELDS = frozenset({"block_cloud_providers"})
 _REVISION_EXEMPT_ATTRS = frozenset({"_revision", "_initialized"})
 
 
@@ -168,6 +287,8 @@ class RouteConfig:
             value = _TrackedList(value, revision=self._revision)
         elif name in _TRACKED_DICT_FIELDS and isinstance(value, dict):
             value = _TrackedDict(value, revision=self._revision)
+        elif name in _TRACKED_SET_FIELDS and isinstance(value, set):
+            value = _TrackedSet(value, revision=self._revision)
         object.__setattr__(self, name, value)
         if self._initialized and name not in _REVISION_EXEMPT_ATTRS:
             revision = self._revision

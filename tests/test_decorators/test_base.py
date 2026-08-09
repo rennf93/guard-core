@@ -9,6 +9,7 @@ from guard_core.decorators.base import (
     RouteConfigRevision,
     _TrackedDict,
     _TrackedList,
+    _TrackedSet,
     get_route_decorator_config,
 )
 from guard_core.models import SecurityConfig
@@ -151,7 +152,13 @@ async def test_route_config_without_a_revision_cell_does_not_raise() -> None:
 
 
 @pytest.mark.parametrize(
-    "field_name", ["custom_validators", "require_referrer", "allowed_content_types"]
+    "field_name",
+    [
+        "custom_validators",
+        "require_referrer",
+        "allowed_content_types",
+        "blocked_user_agents",
+    ],
 )
 async def test_appending_to_a_tracked_list_field_bumps_revision(
     field_name: str,
@@ -167,7 +174,9 @@ async def test_appending_to_a_tracked_list_field_bumps_revision(
     assert getattr(route_config, field_name) == ["value"]
 
 
-@pytest.mark.parametrize("field_name", ["required_headers", "time_restrictions"])
+@pytest.mark.parametrize(
+    "field_name", ["required_headers", "time_restrictions", "geo_rate_limits"]
+)
 async def test_setting_an_item_on_a_tracked_dict_field_bumps_revision(
     field_name: str,
 ) -> None:
@@ -180,6 +189,17 @@ async def test_setting_an_item_on_a_tracked_dict_field_bumps_revision(
 
     assert revision.value == 1
     assert getattr(route_config, field_name) == {"key": "value"}
+
+
+async def test_adding_to_a_tracked_set_field_bumps_revision() -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+    revision.value = 0
+
+    route_config.block_cloud_providers.add("AWS")
+
+    assert revision.value == 1
+    assert route_config.block_cloud_providers == {"AWS"}
 
 
 async def test_mutating_an_untracked_container_field_does_not_bump_revision() -> None:
@@ -249,9 +269,36 @@ def test_tracked_list_mutators_all_bump_the_shared_revision() -> None:
     del tracked[0]
     assert revision.value == 7
 
-    tracked.clear()
+    tracked.sort()
     assert revision.value == 8
+
+    tracked.reverse()
+    assert revision.value == 9
+
+    tracked += [7]
+    assert revision.value == 10
+    assert isinstance(tracked, _TrackedList)
+
+    tracked *= 2
+    assert revision.value == 11
+    assert isinstance(tracked, _TrackedList)
+
+    tracked.clear()
+    assert revision.value == 12
     assert tracked == []
+
+
+def test_tracked_list_non_augmented_operators_do_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedList([1, 2], revision=revision)
+
+    combined = tracked + [3]
+    assert revision.value == 0
+    assert combined == [1, 2, 3]
+
+    doubled = tracked * 2
+    assert revision.value == 0
+    assert doubled == [1, 2, 1, 2]
 
 
 def test_tracked_list_without_a_revision_cell_is_a_no_op() -> None:
@@ -284,9 +331,23 @@ def test_tracked_dict_mutators_all_bump_the_shared_revision() -> None:
     tracked.popitem()
     assert revision.value == 6
 
-    tracked.clear()
+    tracked |= {"e": 5}
     assert revision.value == 7
+    assert isinstance(tracked, _TrackedDict)
+
+    tracked.clear()
+    assert revision.value == 8
     assert tracked == {}
+
+
+def test_tracked_dict_non_augmented_or_operator_does_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedDict({"a": 1}, revision=revision)
+
+    merged = tracked | {"b": 2}
+
+    assert revision.value == 0
+    assert merged == {"a": 1, "b": 2}
 
 
 def test_tracked_dict_without_a_revision_cell_is_a_no_op() -> None:
@@ -295,3 +356,81 @@ def test_tracked_dict_without_a_revision_cell_is_a_no_op() -> None:
     tracked["b"] = 2
 
     assert tracked == {"a": 1, "b": 2}
+
+
+def test_tracked_set_mutators_all_bump_the_shared_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedSet({1, 2, 3}, revision=revision)
+
+    tracked.add(4)
+    assert revision.value == 1
+
+    tracked.discard(4)
+    assert revision.value == 2
+
+    tracked.remove(1)
+    assert revision.value == 3
+
+    tracked.update({5, 6})
+    assert revision.value == 4
+
+    tracked.intersection_update({2, 3, 5, 6})
+    assert revision.value == 5
+    assert tracked == {2, 3, 5, 6}
+
+    tracked.difference_update({5})
+    assert revision.value == 6
+    assert tracked == {2, 3, 6}
+
+    tracked.symmetric_difference_update({3, 7})
+    assert revision.value == 7
+    assert tracked == {2, 6, 7}
+
+    tracked |= {8}
+    assert revision.value == 8
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked &= {2, 6, 7, 8}
+    assert revision.value == 9
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked -= {8}
+    assert revision.value == 10
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked ^= {6}
+    assert revision.value == 11
+    assert isinstance(tracked, _TrackedSet)
+    assert tracked == {2, 7}
+
+    tracked.pop()
+    assert revision.value == 12
+
+    tracked.clear()
+    assert revision.value == 13
+    assert tracked == set()
+
+
+def test_tracked_set_non_augmented_operators_do_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedSet({1, 2, 3}, revision=revision)
+
+    assert tracked | {4} == {1, 2, 3, 4}
+    assert revision.value == 0
+
+    assert tracked & {2, 3} == {2, 3}
+    assert revision.value == 0
+
+    assert tracked - {1} == {2, 3}
+    assert revision.value == 0
+
+    assert tracked ^ {3, 4} == {1, 2, 4}
+    assert revision.value == 0
+
+
+def test_tracked_set_without_a_revision_cell_is_a_no_op() -> None:
+    tracked = _TrackedSet({1})
+
+    tracked.add(2)
+
+    assert tracked == {1, 2}

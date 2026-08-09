@@ -6,6 +6,7 @@ from guard_core.core.checks.factory import build_default_pipeline
 from guard_core.core.routing.context import RoutingContext
 from guard_core.core.routing.resolver import RouteConfigResolver
 from guard_core.decorators.base import BaseSecurityDecorator
+from guard_core.handlers.cloud_handler import cloud_handler
 from guard_core.models import SecurityConfig
 from tests.conftest import MockGuardRequest, MockGuardResponse
 
@@ -148,6 +149,77 @@ async def test_setting_required_header_item_in_place_runs_eliminated_check() -> 
     assert "required_headers" in pipeline.get_check_names()
     assert result is not None
     assert result.status_code == 400
+
+
+async def test_appending_blocked_user_agent_in_place_runs_eliminated_check() -> None:
+    config = _neutral_config()
+    decorator = BaseSecurityDecorator(config)
+    route_config = decorator._ensure_route_config(_route_a)
+    route_id = decorator._get_route_id(_route_a)
+    middleware = _build_middleware(config, decorator)
+
+    pipeline = build_default_pipeline(middleware)
+    assert "user_agent" not in pipeline.get_check_names()
+
+    route_config.blocked_user_agents.append("badbot")
+
+    request = MockGuardRequest(
+        client_host="198.51.100.208", headers={"User-Agent": "badbot-scanner"}
+    )
+    request.state.guard_route_id = route_id
+    result = await pipeline.execute(request)
+
+    assert "user_agent" in pipeline.get_check_names()
+    assert result is not None
+    assert result.status_code == 403
+
+
+async def test_adding_block_cloud_provider_in_place_runs_eliminated_check() -> None:
+    config = _neutral_config()
+    decorator = BaseSecurityDecorator(config)
+    route_config = decorator._ensure_route_config(_route_a)
+    route_id = decorator._get_route_id(_route_a)
+    middleware = _build_middleware(config, decorator)
+
+    pipeline = build_default_pipeline(middleware)
+    assert "cloud_provider" not in pipeline.get_check_names()
+
+    route_config.block_cloud_providers.add("AWS")
+
+    with patch.object(cloud_handler, "is_cloud_ip", return_value=True):
+        request = MockGuardRequest(client_host="3.0.0.9")
+        request.state.guard_route_id = route_id
+        result = await pipeline.execute(request)
+
+    assert "cloud_provider" in pipeline.get_check_names()
+    assert result is not None
+    assert result.status_code == 403
+
+
+async def test_updating_geo_rate_limit_in_place_runs_eliminated_check() -> None:
+    config = _neutral_config()
+    config.geo_ip_handler = MagicMock(get_country=MagicMock(return_value=None))
+    decorator = BaseSecurityDecorator(config)
+    route_config = decorator._ensure_route_config(_route_a)
+    route_config.geo_rate_limits = {}
+    route_id = decorator._get_route_id(_route_a)
+    middleware = _build_middleware(config, decorator)
+    middleware.rate_limit_handler.check_rate_limit = AsyncMock(
+        return_value=MockGuardResponse("rate-limited", 429)
+    )
+
+    pipeline = build_default_pipeline(middleware)
+    assert "rate_limit" not in pipeline.get_check_names()
+
+    route_config.geo_rate_limits["*"] = (0, 60)
+
+    request = MockGuardRequest(client_host="198.51.100.209")
+    request.state.guard_route_id = route_id
+    result = await pipeline.execute(request)
+
+    assert "rate_limit" in pipeline.get_check_names()
+    assert result is not None
+    assert result.status_code == 429
 
 
 async def test_mutating_field_no_predicate_reads_does_not_change_composition() -> None:
