@@ -229,10 +229,14 @@ def test_initialize_agent_for_handlers_basic(
         patch(
             "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
         ) as mock_sus,
+        patch(
+            "guard_core.sync.handlers.security_headers_handler.security_headers_manager"
+        ) as mock_headers,
     ):
         mock_cloud.initialize_agent = MagicMock()
         mock_ipban.initialize_agent = MagicMock()
         mock_sus.initialize_agent = MagicMock()
+        mock_headers.initialize_agent = MagicMock()
 
         initializer.initialize_agent_for_handlers()
 
@@ -241,6 +245,7 @@ def test_initialize_agent_for_handlers_basic(
             mock_agent_handler
         )
         mock_sus.initialize_agent.assert_called_once_with(mock_agent_handler)
+        mock_headers.initialize_agent.assert_called_once_with(mock_agent_handler)
 
 
 def test_initialize_agent_for_handlers_with_cloud(
@@ -256,10 +261,14 @@ def test_initialize_agent_for_handlers_with_cloud(
         patch(
             "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
         ) as mock_sus,
+        patch(
+            "guard_core.sync.handlers.security_headers_handler.security_headers_manager"
+        ) as mock_headers,
     ):
         mock_cloud.initialize_agent = MagicMock()
         mock_ipban.initialize_agent = MagicMock()
         mock_sus.initialize_agent = MagicMock()
+        mock_headers.initialize_agent = MagicMock()
 
         initializer.initialize_agent_for_handlers()
 
@@ -277,10 +286,14 @@ def test_initialize_agent_for_handlers_with_geoip(
         patch(
             "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
         ) as mock_sus,
+        patch(
+            "guard_core.sync.handlers.security_headers_handler.security_headers_manager"
+        ) as mock_headers,
     ):
         mock_cloud.initialize_agent = MagicMock()
         mock_ipban.initialize_agent = MagicMock()
         mock_sus.initialize_agent = MagicMock()
+        mock_headers.initialize_agent = MagicMock()
 
         initializer.initialize_agent_for_handlers()
 
@@ -302,15 +315,20 @@ def test_initialize_agent_for_handlers_without_rate_limit_handler(
         patch(
             "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
         ) as mock_sus,
+        patch(
+            "guard_core.sync.handlers.security_headers_handler.security_headers_manager"
+        ) as mock_headers,
     ):
         mock_cloud.initialize_agent = MagicMock()
         mock_ipban.initialize_agent = MagicMock()
         mock_sus.initialize_agent = MagicMock()
+        mock_headers.initialize_agent = MagicMock()
 
         initializer.initialize_agent_for_handlers()
 
         mock_ipban.initialize_agent.assert_called_once_with(mock_agent_handler)
         mock_sus.initialize_agent.assert_called_once_with(mock_agent_handler)
+        mock_headers.initialize_agent.assert_called_once_with(mock_agent_handler)
 
 
 def test_initialize_agent_for_handlers_geoip_without_initialize_agent(
@@ -329,10 +347,14 @@ def test_initialize_agent_for_handlers_geoip_without_initialize_agent(
         patch(
             "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
         ) as mock_sus,
+        patch(
+            "guard_core.sync.handlers.security_headers_handler.security_headers_manager"
+        ) as mock_headers,
     ):
         mock_cloud.initialize_agent = MagicMock()
         mock_ipban.initialize_agent = MagicMock()
         mock_sus.initialize_agent = MagicMock()
+        mock_headers.initialize_agent = MagicMock()
 
         initializer.initialize_agent_for_handlers()
 

@@ -179,8 +179,6 @@ class HandlerInitializer:
         sus_patterns_handler.configure(self.config)
 
     def _warn_if_lazy_init_is_inert(self) -> None:
-        if not self.config.lazy_init:
-            return
         if not (self.config.block_cloud_providers or self.geo_ip_handler is not None):
             return
         self.logger.warning(
@@ -247,12 +245,16 @@ class HandlerInitializer:
 
         from guard_core.sync.handlers.cloud_handler import cloud_handler
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager
+        from guard_core.sync.handlers.security_headers_handler import (
+            security_headers_manager,
+        )
         from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
         ip_ban_manager.initialize_agent(telemetry)
         if self.rate_limit_handler is not None:
             self.rate_limit_handler.initialize_agent(telemetry)
         sus_patterns_handler.initialize_agent(telemetry)
+        security_headers_manager.initialize_agent(telemetry)
 
         if self.config.block_cloud_providers:
             cloud_handler.initialize_agent(telemetry)
@@ -288,6 +290,12 @@ class HandlerInitializer:
             and not self.config.enable_enrichment
         ):
             return
+
+        from guard_core._pydantic_plugin_mute import (
+            _mute_pydantic_plugin_instrumentation,
+        )
+
+        _mute_pydantic_plugin_instrumentation()
 
         self.composite_handler = self.build_composite_handler()
         self.event_filter = self.build_event_filter()

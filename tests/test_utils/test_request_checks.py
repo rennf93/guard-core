@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -14,8 +13,6 @@ from guard_core.utils import (
     is_user_agent_allowed,
 )
 
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
-
 
 async def test_is_ip_allowed(
     security_config: SecurityConfig, mocker: MockerFixture
@@ -25,19 +22,15 @@ async def test_is_ip_allowed(
     assert await is_ip_allowed("127.0.0.1", security_config)
     assert not await is_ip_allowed("192.168.1.1", security_config)
 
-    empty_config = SecurityConfig(ipinfo_token=IPINFO_TOKEN, whitelist=[], blacklist=[])
+    empty_config = SecurityConfig(whitelist=[], blacklist=[])
     assert await is_ip_allowed("127.0.0.1", empty_config)
     assert await is_ip_allowed("192.168.1.1", empty_config)
 
-    whitelist_config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, whitelist=["127.0.0.1"]
-    )
+    whitelist_config = SecurityConfig(whitelist=["127.0.0.1"])
     assert await is_ip_allowed("127.0.0.1", whitelist_config)
     assert not await is_ip_allowed("192.168.1.1", whitelist_config)
 
-    blacklist_config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blacklist=["192.168.1.1"]
-    )
+    blacklist_config = SecurityConfig(blacklist=["192.168.1.1"])
     assert await is_ip_allowed("127.0.0.1", blacklist_config)
     assert not await is_ip_allowed("192.168.1.1", blacklist_config)
 
@@ -156,7 +149,7 @@ async def test_get_ip_country(mocker: MockerFixture) -> None:
     mock_db.get_country.return_value = "US"
     mock_db.reader = True
 
-    config = SecurityConfig(ipinfo_token=IPINFO_TOKEN, blocked_countries=["CN"])
+    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
 
     country = await check_ip_country("1.1.1.1", config, mock_db)
     assert not country
@@ -273,6 +266,156 @@ async def test_cloud_provider_blocking(
     assert not await is_ip_allowed("8.8.8.8", security_config)
 
 
+async def test_check_ip_access_cloud_block_names_provider(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.handlers.cloud_handler import cloud_handler
+    from guard_core.utils import check_ip_access
+
+    mocker.patch.object(cloud_handler, "is_cloud_ip", return_value=True)
+    mocker.patch.object(
+        cloud_handler,
+        "get_cloud_provider_details",
+        return_value=("AWS", "13.0.0.0/8"),
+    )
+
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    result = await check_ip_access("13.59.255.255", config)
+
+    assert result.allowed is False
+    assert "AWS" in result.reason
+    assert "allowlist/blocklist" not in result.reason
+    assert result.cloud_provider == "AWS"
+    assert result.network == "13.0.0.0/8"
+
+
+async def test_check_ip_access_cloud_block_falls_back_without_details(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.handlers.cloud_handler import cloud_handler
+    from guard_core.utils import check_ip_access
+
+    mocker.patch.object(cloud_handler, "is_cloud_ip", return_value=True)
+    mocker.patch.object(cloud_handler, "get_cloud_provider_details", return_value=None)
+
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    result = await check_ip_access("13.59.255.255", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP 13.59.255.255 not in global allowlist/blocklist"
+    assert result.cloud_provider is None
+    assert result.network is None
+
+
+async def test_check_ip_access_country_block_names_country(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.utils import check_ip_access
+
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "RU"
+
+    config = SecurityConfig(blocked_countries=["RU"], geo_ip_handler=mock_ipinfo)
+
+    result = await check_ip_access("8.8.8.8", config, mock_ipinfo)
+
+    assert result.allowed is False
+    assert "RU" in result.reason
+    assert "allowlist/blocklist" not in result.reason
+    assert result.cloud_provider is None
+    assert result.network is None
+
+
+async def test_check_ip_access_blocklist_block_keeps_existing_reason() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(blacklist=["192.168.1.1"])
+
+    result = await check_ip_access("192.168.1.1", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP 192.168.1.1 not in global allowlist/blocklist"
+    assert result.cloud_provider is None
+
+
+async def test_check_ip_access_whitelist_block_keeps_existing_reason() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(whitelist=["10.0.0.1"])
+
+    result = await check_ip_access("192.168.1.1", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP 192.168.1.1 not in global allowlist/blocklist"
+
+
+async def test_check_ip_access_allowed_has_no_reason() -> None:
+    from guard_core.utils import check_ip_access
+
+    result = await check_ip_access("8.8.8.8", SecurityConfig())
+
+    assert result.allowed is True
+    assert result.cloud_provider is None
+    assert result.network is None
+
+
+def test_is_ip_allowed_signature_unchanged() -> None:
+    import inspect
+
+    sig = inspect.signature(is_ip_allowed)
+    params = sig.parameters
+
+    assert list(params) == [
+        "ip",
+        "config",
+        "geo_ip_handler",
+        "skip_ip_lists",
+        "skip_countries",
+    ]
+    assert params["ip"].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params["config"].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params["geo_ip_handler"].default is None
+    assert params["skip_ip_lists"].kind == inspect.Parameter.KEYWORD_ONLY
+    assert params["skip_ip_lists"].default is False
+    assert params["skip_countries"].kind == inspect.Parameter.KEYWORD_ONLY
+    assert params["skip_countries"].default is False
+    assert sig.return_annotation is bool
+
+
+async def test_is_ip_allowed_regression_bool_outcomes_by_block_type(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.handlers.cloud_handler import cloud_handler
+
+    mocker.patch.object(
+        cloud_handler, "is_cloud_ip", side_effect=lambda ip, *_: ip.startswith("13.")
+    )
+    cloud_config = SecurityConfig(block_cloud_providers={"AWS"})
+    result = await is_ip_allowed("13.59.255.255", cloud_config)
+    assert result is False
+    result = await is_ip_allowed("8.8.8.8", cloud_config)
+    assert result is True
+
+    mock_ipinfo = mocker.Mock()
+    mock_ipinfo.get_country.return_value = "RU"
+    country_config = SecurityConfig(
+        blocked_countries=["RU"], geo_ip_handler=mock_ipinfo
+    )
+    result = await is_ip_allowed("8.8.8.8", country_config, mock_ipinfo)
+    assert result is False
+    mock_ipinfo.get_country.return_value = "US"
+    result = await is_ip_allowed("8.8.8.8", country_config, mock_ipinfo)
+    assert result is True
+
+    blacklist_config = SecurityConfig(blacklist=["192.168.1.1"])
+    result = await is_ip_allowed("192.168.1.1", blacklist_config)
+    assert result is False
+    result = await is_ip_allowed("10.0.0.1", blacklist_config)
+    assert result is True
+
+
 async def test_check_ip_country_not_initialized() -> None:
     mock_ipinfo = Mock()
     mock_ipinfo.is_initialized = False
@@ -317,9 +460,7 @@ async def test_check_ip_country_regression_returns_false_when_country_unresolvab
 async def test_check_ip_country_no_countries_configured(
     caplog: Any,
 ) -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blocked_countries=[], whitelist_countries=[]
-    )
+    config = SecurityConfig(blocked_countries=[], whitelist_countries=[])
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True
@@ -333,9 +474,7 @@ async def test_check_ip_country_no_countries_configured(
 
 
 async def test_is_ip_allowed_cidr_blacklist() -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, blacklist=["192.168.1.0/24"], whitelist=[]
-    )
+    config = SecurityConfig(blacklist=["192.168.1.0/24"], whitelist=[])
 
     assert not await is_ip_allowed("192.168.1.100", config)
     assert not await is_ip_allowed("192.168.1.1", config)
@@ -346,7 +485,6 @@ async def test_is_ip_allowed_cidr_blacklist() -> None:
     assert await is_ip_allowed("10.0.0.1", config)
 
     config_multiple = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN,
         blacklist=["192.168.1.0/24", "10.0.0.0/8"],
         whitelist=[],
     )
@@ -357,9 +495,7 @@ async def test_is_ip_allowed_cidr_blacklist() -> None:
 
 
 async def test_is_ip_allowed_cidr_whitelist() -> None:
-    config = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN, whitelist=["192.168.1.0/24"], blacklist=[]
-    )
+    config = SecurityConfig(whitelist=["192.168.1.0/24"], blacklist=[])
 
     assert await is_ip_allowed("192.168.1.100", config)
     assert await is_ip_allowed("192.168.1.1", config)
@@ -370,7 +506,6 @@ async def test_is_ip_allowed_cidr_whitelist() -> None:
     assert not await is_ip_allowed("10.0.0.1", config)
 
     config_multiple = SecurityConfig(
-        ipinfo_token=IPINFO_TOKEN,
         whitelist=["192.168.1.0/24", "10.0.0.0/8"],
         blacklist=[],
     )
@@ -381,7 +516,7 @@ async def test_is_ip_allowed_cidr_whitelist() -> None:
 
 
 async def test_is_ip_allowed_invalid_ip(caplog: Any) -> None:
-    config = SecurityConfig(ipinfo_token="test")
+    config = SecurityConfig()
 
     with caplog.at_level(logging.ERROR):
         result = await is_ip_allowed("invalid-ip", config)
@@ -391,7 +526,7 @@ async def test_is_ip_allowed_invalid_ip(caplog: Any) -> None:
 async def test_is_ip_allowed_general_exception(
     caplog: Any, mocker: MockerFixture
 ) -> None:
-    config = SecurityConfig(ipinfo_token="test")
+    config = SecurityConfig()
 
     mock_error = Exception("Unexpected error")
     mocker.patch("guard_core.utils.ip_address", side_effect=mock_error)
@@ -418,7 +553,7 @@ async def test_detect_penetration_attempt_body_error() -> None:
 
 
 async def test_is_ip_allowed_blocked_country(mocker: MockerFixture) -> None:
-    config = SecurityConfig(ipinfo_token="test", blocked_countries=["CN"])
+    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True

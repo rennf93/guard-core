@@ -423,6 +423,7 @@ Validators
 | `validate_cloud_providers` | `block_cloud_providers` | Silently filters invalid providers — only `"AWS"`, `"GCP"`, `"Azure"` are kept. |
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent` is `True`. Requires `enable_agent` when `enable_dynamic_rules` is `True`. |
+| `validate_optional_extras_installed` | model-level | Requires the `redis` extra when `enable_redis` is `True`, the `cloud` extra (`aiohttp` or `requests`) when cloud blocking is enabled (`block_cloud_providers` or `enable_dynamic_rules`), and the `geo` extra (`maxminddb`) when country rules are configured with no custom `geo_ip_handler`. Raises `ValueError` naming the missing extra's install command, checked via `importlib.util.find_spec` (never a bare `import`). See [Installation](../installation.md#optional-dependency-extras). |
 
 !!! warning "Silent filtering"
     `validate_cloud_providers` silently drops unrecognized provider names. `{"AWS", "InvalidProvider"}` becomes `{"AWS"}` without raising an error.

@@ -10,7 +10,7 @@ SYNC_DIR = ROOT / "guard_core" / "sync"
 TEST_DIR = ROOT / "tests"
 TEST_SYNC_DIR = ROOT / "tests" / "test_sync"
 
-SKIP_SRC = {"models.py", "exceptions.py"}
+SKIP_SRC = {"models.py", "exceptions.py", "_pydantic_plugin_mute.py"}
 
 SKIP_DIRS = {"__pycache__", "sync"}
 
@@ -107,7 +107,7 @@ SUBS: list[tuple[str, str]] = [
     (r"^import asyncio$", "import threading\nimport time"),
     (r"(\s+)import asyncio$", r"\1pass"),
     (r"asyncio\.Lock\b", "threading.Lock"),
-    (r"asyncio\.Event\(\)", "threading.Event()"),
+    (r"asyncio\.Event\b", "threading.Event"),
     (r"asyncio\.sleep", "time.sleep"),
     (
         r"asyncio\.to_thread\(\s*([^,\n]+),\s*([^)\n]+?)\s*\)",
@@ -170,6 +170,14 @@ TEST_SUBS: list[tuple[str, str]] = [
     (
         r"from tests\.conftest import (\w+(?:,\s*\w+)*)",
         r"from tests.test_sync.conftest import \1",
+    ),
+    (
+        r"from tests\.(?!test_sync\b)(\w+)\.conftest import \(([^)]+)\)",
+        r"from tests.test_sync.\1.conftest import (\2)",
+    ),
+    (
+        r"from tests\.(?!test_sync\b)(\w+)\.conftest import (\w+(?:,\s*\w+)*)",
+        r"from tests.test_sync.\1.conftest import \2",
     ),
     (r"\bMockGuardRequest\b", "SyncMockGuardRequest"),
     (r"AsyncMock, MagicMock", "MagicMock"),
@@ -295,15 +303,26 @@ DOTALL_FIXUPS: list[tuple[str, str]] = [
     ),
     (
         r"def stop\(self\) -> None:\n\s+if self\.update_task:\n"
+        r"\s+self\._stop_event\.set\(\)\n"
         r"\s+self\.update_task\.cancel\(\)\n"
         r"\s+pass\n"
         r"\s+self\.update_task = None\n"
         r"\s+self\.logger\.info\(\"Stopped dynamic rule update loop\"\)",
         "def stop(self) -> None:\n"
-        "        if self.update_task and self.update_task.is_alive():\n"
+        "        if self.update_task:\n"
+        "            self._stop_event.set()\n"
         "            self.update_task.join(timeout=5)\n"
         "            self.update_task = None\n"
         '            self.logger.info("Stopped dynamic rule update loop")',
+    ),
+    (
+        r"    def _interruptible_sleep\(self, timeout: float\) -> None:\n"
+        r"        try:\n"
+        r"            self\._stop_event\.wait\(\)\.join\(timeout=timeout\)\n"
+        r"        except asyncio\.TimeoutError:\n"
+        r"            pass",
+        "    def _interruptible_sleep(self, timeout: float) -> None:\n"
+        "        self._stop_event.wait(timeout=timeout)",
     ),
 ]
 

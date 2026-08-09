@@ -31,7 +31,9 @@ class MetricsCollector:
             if not self.event_filter.is_metric_allowed(metric_type):
                 return
             try:
-                from guard_agent import SecurityMetric
+                from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+                SecurityMetric = get_telemetry_model("SecurityMetric")
 
                 metric = SecurityMetric(
                     timestamp=datetime.now(timezone.utc),

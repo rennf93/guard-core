@@ -159,13 +159,14 @@ def test_country_verdict_respects_configured_level(
     assert all(r.levelno == logging.WARNING for r in records)
 
 
-def test_blocked_country_always_warning_regardless_of_level(
+def test_blocked_country_logs_at_warning_by_default(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     from guard_core.utils import _log_country_check_result
 
     config = MagicMock()
     config.log_country_check_level = None
+    config.log_suspicious_level = "WARNING"
 
     caplog.set_level(logging.DEBUG, logger="guard_core")
     _log_country_check_result("5.5.5.5", "RU", "blocked", config)
@@ -173,6 +174,36 @@ def test_blocked_country_always_warning_regardless_of_level(
     records = [r for r in caplog.records if "from blocked country" in r.message]
     assert records
     assert all(r.levelno == logging.WARNING for r in records)
+
+
+def test_blocked_country_respects_log_suspicious_level(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from guard_core.utils import _log_country_check_result
+
+    config = MagicMock()
+    config.log_suspicious_level = "ERROR"
+
+    caplog.set_level(logging.DEBUG, logger="guard_core")
+    _log_country_check_result("5.5.5.5", "RU", "blocked", config)
+
+    records = [r for r in caplog.records if "from blocked country" in r.message]
+    assert records
+    assert all(r.levelno == logging.ERROR for r in records)
+
+
+def test_blocked_country_silenced_when_log_suspicious_level_none(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from guard_core.utils import _log_country_check_result
+
+    config = MagicMock()
+    config.log_suspicious_level = None
+
+    caplog.set_level(logging.DEBUG, logger="guard_core")
+    _log_country_check_result("5.5.5.5", "RU", "blocked", config)
+
+    assert not [r for r in caplog.records if "from blocked country" in r.message]
 
 
 async def test_attack_detected_log_respects_level(

@@ -1,19 +1,14 @@
-import os
 from collections.abc import AsyncGenerator
 
 import pytest
 
-from guard_core.handlers.ipinfo_handler import IPInfoManager
 from guard_core.handlers.suspatterns_handler import SusPatternsManager
 from guard_core.models import SecurityConfig
-
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN", "test_token"))
 
 
 @pytest.fixture
 def security_config_with_detection() -> SecurityConfig:
     return SecurityConfig(
-        geo_ip_handler=IPInfoManager(IPINFO_TOKEN, None),
         detection_compiler_timeout=2.0,
         detection_max_content_length=10000,
         detection_preserve_attack_patterns=True,

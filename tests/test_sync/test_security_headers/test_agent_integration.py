@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from guard_core.models import SecurityConfig
+from guard_core.sync.core.initialization.handler_initializer import HandlerInitializer
 from guard_core.sync.handlers.security_headers_handler import (
     SecurityHeadersManager,
     security_headers_manager,
@@ -232,3 +234,62 @@ def test_concurrent_access_thread_safety() -> None:
     for result in results:
         assert isinstance(result, dict)
         assert "X-Content-Type-Options" in result
+
+
+class _RecordingTransport:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def start(self) -> None:
+        return None
+
+    def send_event(self, event: Any) -> None:
+        self.events.append(event)
+
+
+def test_csp_violation_reaches_transport_once_wired_through_handler_initializer(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    transport = _RecordingTransport()
+    config = SecurityConfig()
+    initializer = HandlerInitializer(config=config, agent_handler=transport)
+
+    initializer.initialize_agent_integrations()
+
+    assert headers_manager.agent_handler is not None
+
+    csp_report: dict[str, Any] = {
+        "csp-report": {
+            "document-uri": "https://example.com/page",
+            "violated-directive": "script-src",
+            "blocked-uri": "https://evil.com/script.js",
+        }
+    }
+
+    result = headers_manager.validate_csp_report(csp_report)
+
+    assert result is True
+    assert len(transport.events) == 1
+    assert transport.events[0].event_type == "csp_violation"
+
+    initializer.shutdown_agent_integrations()
+    headers_manager.agent_handler = None
+
+
+def test_muted_event_types_silences_security_headers_applied(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    transport = _RecordingTransport()
+    config = SecurityConfig(muted_event_types={"security_headers_applied"})
+    initializer = HandlerInitializer(config=config, agent_handler=transport)
+
+    initializer.initialize_agent_integrations()
+
+    assert headers_manager.agent_handler is not None
+
+    headers_manager.get_headers("/muted/path")
+
+    assert transport.events == []
+
+    initializer.shutdown_agent_integrations()
+    headers_manager.agent_handler = None

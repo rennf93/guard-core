@@ -16,7 +16,7 @@ Every adapter follows the same dispatch lifecycle:
 1. **Passthrough check** -- skip requests with no client IP or excluded paths.
 2. **Route resolution** -- resolve the matched route's `RouteConfig` (decorator settings).
 3. **Security bypass check** -- if the route bypasses all checks, forward immediately.
-4. **Security pipeline execution** -- run the chain of 17 security checks.
+4. **Security pipeline execution** -- run the security check pipeline, built to just the checks the configuration and registered routes can trigger out of the 17-check catalogue.
 5. **Behavioral usage rules** -- track endpoint usage for behavioral rules.
 6. **Call next** -- forward to the application handler and measure response time.
 7. **Response processing** -- apply behavioral return rules, collect metrics, add security headers.
@@ -231,7 +231,7 @@ Each context is a `@dataclass` with explicit dependencies:
 
 ### Step 3: Build the Security Pipeline
 
-Build the canonical 17-check pipeline with `build_default_pipeline`, then add any custom checks:
+Build the pipeline with `build_default_pipeline`, then add any custom checks. It filters the 17-check catalogue through each check class's `applies_to(config, route_configs)` classmethod and instantiates only the checks that return `True` for your middleware's config and registered routes, so most deployments run fewer than 17:
 
 ```python
 from guard_core.core.checks import build_default_pipeline
@@ -242,6 +242,10 @@ def _build_security_pipeline(self) -> None:
 ```
 
 Each check receives `self` (your middleware instance) and accesses everything it needs through the `GuardMiddlewareProtocol` interface. Add custom checks with `self.security_pipeline.add_check(...)`.
+
+#### Build-Time Elimination
+
+`build_default_pipeline` reads registered per-route decorator configuration through `middleware.guard_decorator`, specifically `guard_decorator._route_configs`, to decide which route-driven checks (required headers, authentication, referrer, time windows, and similar) are reachable. If `guard_decorator` is `None` when the pipeline is built, the route configuration is treated as unknown and every route-driven check is kept, so an adapter that cannot expose a populated `guard_decorator` at build time only loses the elimination optimization; it never loses the protection those checks provide. `IpSecurityCheck` is never eliminated by any configuration: it fronts an unconditional ban lookup whose store is writable from behavioral-rule bans and from any other process sharing the same Redis, so no configuration can prove it unreachable. See [Security Pipeline](../architecture/pipeline.md#build-time-elimination) for the full mechanism.
 
 ### Step 4: Use HandlerInitializer
 

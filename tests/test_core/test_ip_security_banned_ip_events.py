@@ -46,9 +46,7 @@ async def test_banned_ip_block_emits_ip_blocked_event(
     ip_security_check: IpSecurityCheck, mock_request: Mock
 ) -> None:
     with (
-        patch(
-            "guard_core.core.checks.implementations.ip_security.ip_ban_manager"
-        ) as mock_ban_mgr,
+        patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr,
         patch("guard_core.core.checks.implementations.ip_security.log_activity"),
     ):
         mock_ban_mgr.is_ip_banned = AsyncMock(return_value=True)
@@ -71,9 +69,7 @@ async def test_banned_ip_in_passive_mode_emits_logged_only_event(
 ) -> None:
     security_config.passive_mode = True
     with (
-        patch(
-            "guard_core.core.checks.implementations.ip_security.ip_ban_manager"
-        ) as mock_ban_mgr,
+        patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr,
         patch("guard_core.core.checks.implementations.ip_security.log_activity"),
     ):
         mock_ban_mgr.is_ip_banned = AsyncMock(return_value=True)

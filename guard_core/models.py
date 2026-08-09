@@ -1,3 +1,4 @@
+import importlib.util
 import warnings
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -5,7 +6,14 @@ from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Self
 
 from guard_core.exceptions import AgentPackageNotInstalledError
@@ -26,6 +34,14 @@ CloudProvider = Literal["AWS", "GCP", "Azure"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
 
 
+def _extra_installed(*module_names: str) -> bool:
+    return any(importlib.util.find_spec(name) is not None for name in module_names)
+
+
+def cloud_blocking_enabled(config: "SecurityConfig") -> bool:
+    return bool(config.block_cloud_providers) or config.enable_dynamic_rules
+
+
 class ThreatBanConfig(BaseModel):
     threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
     duration: int = Field(ge=1, description="Ban duration in seconds.")
@@ -43,6 +59,17 @@ class BehaviorRuleConfig(BaseModel):
 
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    _revision: int = PrivateAttr(default=0)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        if name != "_revision":
+            object.__setattr__(self, "_revision", self._revision + 1)
+
+    @property
+    def revision(self) -> int:
+        return self._revision
 
     trusted_proxies: list[str] = Field(
         default_factory=list,
@@ -214,8 +241,8 @@ class SecurityConfig(BaseModel):
         description=(
             "Log level for per-request country verdicts that are not blocks "
             "(whitelisted / not-affected). Set to None to silence them. "
-            "Blocked-country hits always log at WARNING; no-rules and "
-            "no-geolocation cases always log at DEBUG."
+            "Blocked-country hits log at log_suspicious_level instead; "
+            "no-rules and no-geolocation cases always log at DEBUG."
         ),
     )
 
@@ -761,6 +788,30 @@ class SecurityConfig(BaseModel):
         return {sel for sel in v if sel.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
 
     @model_validator(mode="after")
+    def validate_optional_extras_installed(self) -> Self:
+        if self.enable_redis and not _extra_installed("redis"):
+            raise ValueError(
+                "enable_redis=True requires the 'redis' package. "
+                "Install it with: pip install guard-core[redis]"
+            )
+
+        if cloud_blocking_enabled(self) and not _extra_installed("aiohttp", "requests"):
+            raise ValueError(
+                "block_cloud_providers / enable_dynamic_rules requires 'aiohttp' or "
+                "'requests'. Install it with: pip install guard-core[cloud]"
+            )
+
+        has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
+        needs_builtin_geo_handler = self.geo_ip_handler is None and has_country_rules
+        if needs_builtin_geo_handler and not _extra_installed("maxminddb"):
+            raise ValueError(
+                "geo_ip_handler / country rules require the 'maxminddb' package. "
+                "Install it with: pip install guard-core[geo]"
+            )
+
+        return self
+
+    @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:
         has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
 
@@ -882,6 +933,12 @@ class SecurityConfig(BaseModel):
     def to_agent_config(self) -> "AgentConfig | None":
         if not self.enable_agent or not self.agent_api_key:
             return None
+
+        from guard_core._pydantic_plugin_mute import (
+            _mute_pydantic_plugin_instrumentation,
+        )
+
+        _mute_pydantic_plugin_instrumentation()
 
         try:
             from guard_agent import AgentConfig

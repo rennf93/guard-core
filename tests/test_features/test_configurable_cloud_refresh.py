@@ -62,6 +62,9 @@ async def test_cloud_ip_refresh_check_uses_config_value() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = time.time() - 130
     middleware.refresh_cloud_ip_ranges = AsyncMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     check = CloudIpRefreshCheck(middleware)
     request = MagicMock()
@@ -89,6 +92,9 @@ async def test_cloud_ip_refresh_check_skips_within_interval() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = time.time() - 60
     middleware.refresh_cloud_ip_ranges = AsyncMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     check = CloudIpRefreshCheck(middleware)
     request = MagicMock()

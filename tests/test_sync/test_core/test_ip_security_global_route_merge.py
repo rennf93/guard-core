@@ -42,17 +42,15 @@ def _request_for(route_config: RouteConfig | None) -> Mock:
     return request
 
 
-def _unbanned() -> Any:
-    mgr = patch(
-        "guard_core.sync.core.checks.implementations.ip_security.ip_ban_manager"
-    ).start()
+def _unbanned(ip_security_check: IpSecurityCheck) -> Any:
+    mgr = patch.object(ip_security_check, "ip_ban_manager").start()
     mgr.is_ip_banned = MagicMock(return_value=False)
     return mgr
 
 
 @pytest.fixture(autouse=True)
-def _patches() -> Any:
-    _unbanned()
+def _patches(ip_security_check: IpSecurityCheck) -> Any:
+    _unbanned(ip_security_check)
     patch(
         "guard_core.sync.core.checks.implementations.ip_security.log_activity"
     ).start()
@@ -329,3 +327,72 @@ def test_route_ip_whitelist_overrides_route_ip_blacklist_same_ip(
 
     assert result is None
     assert request.state.is_whitelisted is False
+
+
+def test_global_cloud_provider_block_names_provider_not_allowlist(
+    ip_security_check: IpSecurityCheck, security_config: SecurityConfig
+) -> None:
+    from guard_core.sync.handlers.cloud_handler import cloud_handler
+
+    security_config.block_cloud_providers = {"AWS"}
+
+    with (
+        patch.object(cloud_handler, "is_cloud_ip", return_value=True),
+        patch.object(
+            cloud_handler,
+            "get_cloud_provider_details",
+            return_value=("AWS", "1.2.3.0/24"),
+        ),
+    ):
+        result = ip_security_check.check(_request_for(None))
+
+    assert result is not None
+    event_call = cast(
+        Any, ip_security_check.middleware
+    ).event_bus.send_middleware_event.call_args
+    assert event_call.kwargs["event_type"] == "ip_blocked"
+    assert event_call.kwargs["filter_type"] == "global"
+    assert "AWS" in event_call.kwargs["reason"]
+    assert "allowlist/blocklist" not in event_call.kwargs["reason"]
+    assert event_call.kwargs["cloud_provider"] == "AWS"
+    assert event_call.kwargs["network"] == "1.2.3.0/24"
+
+
+def test_global_country_block_names_the_country(
+    ip_security_check: IpSecurityCheck,
+    security_config: SecurityConfig,
+    mock_middleware: Mock,
+) -> None:
+    security_config.blocked_countries = frozenset({"RU"})
+    mock_middleware.geo_ip_handler = Mock()
+    mock_middleware.geo_ip_handler.get_country = Mock(return_value="RU")
+
+    result = ip_security_check.check(_request_for(None))
+
+    assert result is not None
+    event_call = cast(
+        Any, ip_security_check.middleware
+    ).event_bus.send_middleware_event.call_args
+    assert event_call.kwargs["event_type"] == "ip_blocked"
+    assert event_call.kwargs["filter_type"] == "global"
+    assert "RU" in event_call.kwargs["reason"]
+    assert "allowlist/blocklist" not in event_call.kwargs["reason"]
+    assert "cloud_provider" not in event_call.kwargs
+    assert "network" not in event_call.kwargs
+
+
+def test_global_blacklist_block_keeps_existing_reason(
+    ip_security_check: IpSecurityCheck, security_config: SecurityConfig
+) -> None:
+    security_config.blacklist = ["1.2.3.4"]
+
+    result = ip_security_check.check(_request_for(None))
+
+    assert result is not None
+    event_call = cast(
+        Any, ip_security_check.middleware
+    ).event_bus.send_middleware_event.call_args
+    assert event_call.kwargs["event_type"] == "ip_blocked"
+    assert event_call.kwargs["filter_type"] == "global"
+    assert event_call.kwargs["reason"] == "IP 1.2.3.4 not in global allowlist/blocklist"
+    assert "cloud_provider" not in event_call.kwargs

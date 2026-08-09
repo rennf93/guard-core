@@ -1,5 +1,10 @@
+from collections.abc import Collection
+
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.checks.helpers import route_config_applies
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
@@ -7,6 +12,16 @@ class HttpsEnforcementCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "https_enforcement"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return config.enforce_https or route_config_applies(
+            route_configs, lambda rc: rc.require_https
+        )
 
     def _is_request_https(self, request: SyncGuardRequest) -> bool:
         is_https = request.url_scheme == "https"
