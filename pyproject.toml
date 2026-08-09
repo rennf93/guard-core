@@ -66,6 +66,16 @@ otel = [
 logfire = [
     "logfire",
 ]
+redis = [
+    "redis",
+]
+cloud = [
+    "aiohttp",
+    "requests",
+]
+geo = [
+    "maxminddb",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -118,10 +128,6 @@ markers = [
     "asyncio: mark tests as async",
     "integration: marks tests that require Docker + external services (deselect with '-m \"not integration\"')",
 ]
-filterwarnings = [
-    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
-    "ignore:ipinfo_.* is deprecated:DeprecationWarning",
-]
 
 [tool.mypy]
 python_version = "3.10"
@@ -169,6 +175,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "testcontainers.*"
 ignore_missing_imports = true
+
+[tool.pymarkdown.system]
+exclude_path = ".venv,.git,.github,data,tests,.claude,CLAUDE.md,.cursor,.kiro,ZZZ"
 
 [tool.pymarkdown.plugins.md003]
 enabled = false

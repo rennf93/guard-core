@@ -42,17 +42,15 @@ def _request_for(route_config: RouteConfig | None) -> Mock:
     return request
 
 
-def _unbanned() -> Any:
-    mgr = patch(
-        "guard_core.sync.core.checks.implementations.ip_security.ip_ban_manager"
-    ).start()
+def _unbanned(ip_security_check: IpSecurityCheck) -> Any:
+    mgr = patch.object(ip_security_check, "ip_ban_manager").start()
     mgr.is_ip_banned = MagicMock(return_value=False)
     return mgr
 
 
 @pytest.fixture(autouse=True)
-def _patches() -> Any:
-    _unbanned()
+def _patches(ip_security_check: IpSecurityCheck) -> Any:
+    _unbanned(ip_security_check)
     patch(
         "guard_core.sync.core.checks.implementations.ip_security.log_activity"
     ).start()

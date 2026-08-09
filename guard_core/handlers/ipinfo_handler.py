@@ -126,7 +126,9 @@ class IPInfoManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -168,8 +170,11 @@ class IPInfoManager:
                 except Exception:
                     if attempt == retries - 1:
                         raise
-                    await asyncio.sleep(backoff)
+                    await self._sleep(backoff)
                     backoff *= 2
+
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
 
     def _is_db_outdated(self) -> bool:
         if not self.db_path.exists():

@@ -22,6 +22,7 @@ class DynamicRuleManager:
     current_rules: DynamicRules | None = None
     update_task: asyncio.Task | None = None
     _lock: asyncio.Lock
+    _stop_event: asyncio.Event
 
     _SNAPSHOT_FIELDS = (
         "blocked_countries",
@@ -50,12 +51,14 @@ class DynamicRuleManager:
             cls._instance.current_rules = None
             cls._instance.update_task = None
             cls._instance._lock = asyncio.Lock()
+            cls._instance._stop_event = asyncio.Event()
         return cls._instance
 
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
 
         if self.config.enable_dynamic_rules and not self.update_task:
+            self._stop_event.clear()
             self.update_task = asyncio.create_task(self._rule_update_loop())
             self.logger.info("Started dynamic rule update loop")
 
@@ -97,16 +100,24 @@ class DynamicRuleManager:
         return False
 
     async def _rule_update_loop(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             try:
                 await self.update_rules()
-                await asyncio.sleep(self.config.dynamic_rule_interval)
+                await self._interruptible_sleep(self.config.dynamic_rule_interval)
             except asyncio.CancelledError:
                 self.logger.info("Dynamic rule update loop cancelled")
                 break
             except Exception as e:
                 self.logger.error(f"Error in dynamic rule update loop: {e}")
-                await asyncio.sleep(min(60, self.config.dynamic_rule_interval))
+                await self._interruptible_sleep(
+                    min(60, self.config.dynamic_rule_interval)
+                )
+
+    async def _interruptible_sleep(self, timeout: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            pass
 
     def _should_update_rules(self, rules: DynamicRules) -> bool:
         if not self.current_rules:
@@ -124,7 +135,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             reason = f"Received updated rules {rules.rule_id} v{rules.version}"
 
@@ -348,7 +361,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -375,7 +390,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -400,6 +417,7 @@ class DynamicRuleManager:
 
     async def stop(self) -> None:
         if self.update_task:
+            self._stop_event.set()
             self.update_task.cancel()
             try:
                 await self.update_task

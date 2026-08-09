@@ -29,7 +29,7 @@ graph TD
     DG --> DA["Django App"]
 ```
 
-Adapter developers implement three protocols -- `GuardRequest`, `GuardResponse`, and `GuardResponseFactory` -- to bridge their framework's native objects into `guard-core`'s security pipeline. Everything else (17 security checks, the detection engine, Redis state management, event telemetry) works out of the box.
+Adapter developers implement three protocols -- `GuardRequest`, `GuardResponse`, and `GuardResponseFactory` -- to bridge their framework's native objects into `guard-core`'s security pipeline. Everything else (the 17-check security pipeline, built to just the checks a deployment's configuration can trigger, the detection engine, Redis state management, event telemetry) works out of the box.
 
 ___
 
@@ -54,7 +54,7 @@ Key Design Properties
 ---------------------
 
 - **Protocol-based contracts**: `GuardRequest`, `GuardResponse`, and `GuardResponseFactory` are `typing.Protocol` classes with `@runtime_checkable`. Your adapter implements them; guard-core consumes them.
-- **17 security checks in a chain-of-responsibility pipeline**: Each check is an independent `SecurityCheck` subclass. The `SecurityCheckPipeline` executes them in order and short-circuits on the first blocking response.
+- **A 17-check catalogue in a chain-of-responsibility pipeline**: Each check is an independent `SecurityCheck` subclass that declares its own `applies_to(config, route_configs)` predicate, so `build_default_pipeline` only instantiates the checks a deployment's configuration and registered routes can actually trigger. The `SecurityCheckPipeline` executes the built subset in catalogue order and short-circuits on the first blocking response.
 - **Dependency injection via context dataclasses**: Every core module receives its dependencies through a typed context object (`ResponseContext`, `RoutingContext`, `ValidationContext`, `BypassContext`, `BehavioralContext`).
 - **Singleton handlers with async initialization**: `ip_ban_manager`, `cloud_handler`, `rate_limit_handler`, `sus_patterns_handler`, and `redis_handler` are module-level singletons initialized through `HandlerInitializer`.
 - **Detection engine**: Regex-based and semantic attack pattern detection with configurable thresholds, timeouts, and content length limits.
@@ -97,7 +97,7 @@ Documentation
 - [Installation and Dev Setup](installation.md) -- how to depend on guard-core and set up a contributor environment
 - [Architecture Overview](architecture/overview.md) -- module map, request lifecycle, design principles
 - [Protocol Reference](architecture/protocols.md) -- `GuardRequest`, `GuardResponse`, `GuardResponseFactory`, `GuardMiddlewareProtocol`
-- [Security Pipeline](architecture/pipeline.md) -- `SecurityCheckPipeline`, all 17 checks, adding custom checks
+- [Security Pipeline](architecture/pipeline.md) -- `SecurityCheckPipeline`, the 17-check catalogue and the `applies_to` build-time filter, adding custom checks
 - [Event System](architecture/events.md) -- `SecurityEventBus`, `MetricsCollector`, hooking into events
 - [Telemetry](architecture/telemetry.md) -- muting events/metrics/check logs, OpenTelemetry, Logfire, adapter wiring
 - [Dependency Injection](architecture/dependency-injection.md) -- context objects, `HandlerInitializer`, singleton lifecycle

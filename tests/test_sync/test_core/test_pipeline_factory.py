@@ -1,20 +1,20 @@
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
 from guard_core.sync.core.checks import build_default_pipeline
+from tests.test_sync.test_core.conftest import (
+    fully_enabled_config,
+    fully_enabled_route_config,
+    middleware_for,
+)
 
 
 @pytest.fixture
 def mock_middleware() -> Mock:
-    middleware = Mock()
-    middleware.config = Mock()
-    middleware.config.fail_secure = False
-    middleware.config.passive_mode = False
-    middleware.logger = Mock()
-    middleware.event_bus = Mock()
-    middleware.create_error_response = MagicMock(return_value=Mock(status_code=500))
-    return middleware
+    return middleware_for(
+        fully_enabled_config(), route_configs=(fully_enabled_route_config(),)
+    )
 
 
 def test_default_pipeline_contains_all_checks_in_canonical_order(

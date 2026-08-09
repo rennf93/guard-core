@@ -429,12 +429,12 @@ async def test_cloud_ip_redis_cache_hit(
 
     await redis_handler.set_key("cloud_ip_v2", "AWS", _json.dumps(["192.168.0.0/24"]))
 
-    await cloud_handler.initialize_redis(redis_handler)
-
     with patch(
         "guard_core.handlers.cloud_handler.fetch_aws_ip_ranges",
         new_callable=AsyncMock,
     ) as mock_aws:
+        await cloud_handler.initialize_redis(redis_handler, {"AWS"})
+
         assert cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
         mock_aws.assert_not_called()
 

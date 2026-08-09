@@ -58,7 +58,9 @@ class RateLimitManager:
         if not self.agent_handler:
             return
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -256,9 +258,10 @@ class RateLimitManager:
                 f"{request_count} requests in {self.config.rate_limit_window}s window"
             )
 
-            from guard_agent import SecurityEvent
-
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
             from guard_core.utils import get_pipeline_response_time
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),

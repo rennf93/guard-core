@@ -1,5 +1,9 @@
+from collections.abc import Collection
+
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.events.event_types import EVENT_CUSTOM_REQUEST_CHECK
+from guard_core.decorators.base import RouteConfig
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
@@ -8,6 +12,14 @@ class CustomRequestCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "custom_request"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return config.custom_request_check is not None
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
         if not self.config.custom_request_check:

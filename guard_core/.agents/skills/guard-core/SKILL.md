@@ -1,6 +1,6 @@
 ---
 name: guard-core
-description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the 17-check pipeline, the 18-category detection catalog, telemetry models, and known footguns
+description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the config-derived security pipeline (17-check catalogue), the 18-category detection catalog, telemetry models, and known footguns
 ---
 
 # Guard Core
@@ -15,17 +15,23 @@ guard-core is the framework-agnostic security engine powering the Guard ecosyste
 * All behavior is `SecurityConfig`; do not mutate handlers directly; see [SecurityConfig](#securityconfig) and [the config reference](references/config.md).
 * Detection: `SusPatternsManager.detect()` over 18 categories; see [Detection Engine](#detection-engine) and [the detection reference](references/detection.md).
 * Telemetry: two tiers (raw OTel/Logfire free, guard-agent enrichment gated); see [Telemetry](#telemetry) and [the telemetry reference](references/telemetry.md).
-* Logfire + Pydantic: guard-core already mutes guard-agent telemetry-model instrumentation at import time; see [Footguns](#footguns).
+* Logfire + Pydantic: guard-core mutes guard-agent telemetry-model instrumentation the first time a config actually enables agent/OTel/Logfire, not at `import guard_core`; see [Footguns](#footguns).
 * Sync mirror: `guard_core.sync.*` is unasync-generated from `guard_core.*`; never hand-edit it; see [Sync mirror](#sync-mirror).
 
 ## Installation
 
 ```bash
 pip install guard-core
+# feature extras: redis, aiohttp/requests and maxminddb are still base dependencies through the 3.x line, so these are additive, not required
+pip install "guard-core[redis]"     # enable_redis
+pip install "guard-core[cloud]"     # block_cloud_providers / cloud-provider blocking
+pip install "guard-core[geo]"       # blocked_countries / whitelist_countries when no custom geo_ip_handler is supplied
 # optional telemetry extras
 pip install "guard-core[otel]"      # OpenTelemetry export
 pip install "guard-core[logfire]"   # Logfire export
 ```
+
+`import guard_core` no longer loads `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography`; a bare import costs roughly 1.6ms. Handlers and third-party libraries load lazily, only when a check that needs them is actually built or a feature that needs them is actually configured. If a feature is configured without its extra installed, `SecurityConfig` raises a `ValueError` at construction time naming the missing extra's install command, instead of surfacing a raw `ImportError` mid-request. See [the config reference](references/config.md#optional-extras) for exactly which flags gate which extra.
 
 `guard-agent` is an optional runtime dependency pulled in by adapters when `enable_agent=True`; it is not a hard dependency of guard-core.
 
@@ -69,7 +75,7 @@ See [the config reference](references/config.md) for the full field surface and 
 
 ## Building Adapters
 
-Implement three protocols to bridge your framework into the pipeline. Everything else (17 checks, detection engine, Redis state, event telemetry) works out of the box.
+Implement three protocols to bridge your framework into the pipeline. Everything else (the check catalogue, detection engine, Redis state, event telemetry) works out of the box; expose `guard_decorator` on your middleware so guard-core can enumerate registered routes and build a smaller, config-derived pipeline instead of keeping every route-driven check (see [Security Pipeline](#security-pipeline)).
 
 ```python
 from guard_core.protocols import GuardRequest, GuardResponse, GuardResponseFactory
@@ -85,7 +91,7 @@ See [the adapters reference](references/adapters.md) for a complete wrapper exam
 
 ## Security Pipeline
 
-`SecurityCheckPipeline` runs 17 checks in order per request. The first check returning a non-`None` `GuardResponse` short-circuits and blocks. Order matters; earlier checks set up state later checks depend on.
+`SecurityCheckPipeline` runs, per request, whichever checks the effective configuration can actually trigger, in the fixed catalogue order below. `build_default_pipeline` filters the 17-check catalogue through each check's `applies_to(config, route_configs)` classmethod before instantiating anything; the base `SecurityCheck.applies_to` returns `True`, so a check that does not override it always runs, and elimination is strictly an optimization, never a security decision. The catalogue and its order are unchanged; only the subset a given deployment builds varies.
 
 1. route_config
 2. emergency_mode
@@ -105,7 +111,7 @@ See [the adapters reference](references/adapters.md) for a complete wrapper exam
 16. suspicious_activity
 17. custom_request
 
-A check returning `None` means pass. On a check exception, `fail_secure` decides block-with-500 vs continue. See [the pipeline reference](references/pipeline.md).
+A default `SecurityConfig()` with no route decorators registered builds only `route_config`, `ip_security`, `rate_limit`, and `suspicious_activity`; a configuration that enables every feature builds all 17. `enable_dynamic_rules=True` keeps `emergency_mode`, `cloud_ip_refresh`, `cloud_provider`, `user_agent`, `rate_limit`, and `suspicious_activity` regardless of every other flag, because `DynamicRuleManager` can mutate the flags those checks key off at runtime. `ip_security` never overrides `applies_to`, so it always builds: it fronts a ban lookup whose store is writable from behavior-rule bans and from other processes sharing the same Redis, so no configuration can prove it unreachable. When the registered route configuration cannot be enumerated (`route_configs is None`), every route-driven check is kept rather than dropped, so an adapter that cannot expose `guard_decorator` loses the build-time optimization but never loses the protection. The first check returning a non-`None` `GuardResponse` short-circuits and blocks; order matters, since earlier checks set up state later checks depend on. A check returning `None` means pass. On a check exception, `fail_secure` decides block-with-500 vs continue. See [the pipeline reference](references/pipeline.md).
 
 ## Detection Engine
 
@@ -147,7 +153,7 @@ See [the telemetry reference](references/telemetry.md) for the full config surfa
 
 ## Footguns
 
-* **Logfire + Pydantic instrumentation is already muted for you.** A host app calling `logfire.instrument_pydantic()` would otherwise emit one span per `SecurityEvent`/`SecurityMetric` validation and one per `EventBatch` re-validation on every flush (hundreds of thousands of spans/day under real traffic). guard-core's `__init__.py` runs `_mute_pydantic_plugin_instrumentation()` at import time, which sets `model_config["plugin_settings"]["logfire"] = {"record": "off"}` on the three guard-agent telemetry models and force-rebuilds them. You do not need to do anything. The guard-core models themselves (e.g. `SecurityConfig`) do not carry `plugin_settings`; only the guard-agent telemetry models do, and guard-core mutates them on your behalf. See [the telemetry reference](references/telemetry.md) for the postmortem detail.
+* **Logfire + Pydantic instrumentation is muted once telemetry is actually enabled, not at import.** A host app calling `logfire.instrument_pydantic()` would otherwise emit one span per `SecurityEvent`/`SecurityMetric` validation and one per `EventBatch` re-validation on every flush (hundreds of thousands of spans/day under real traffic). `guard_core._pydantic_plugin_mute.get_telemetry_model()` is the supported way to reach a guard-agent telemetry model class: it mutes first and returns the class second. Three repository checks back that up, and only the third proves the property that matters. An AST scan rejects the known shapes — a plain import, an aliased import, a submodule import followed by attribute access, and the `importlib.import_module`/`__import__` indirection builtins — from any module outside a two-file allowlist (`_pydantic_plugin_mute.py` itself, and `models.py` for `AgentConfig` alone, which is not a telemetry model), but only at edit time, only for a literal module name, and only over source that exists on disk. A `sys.meta_path` finder installed for the whole test session records the caller of every `guard_agent` import the interpreter actually resolves and fails the session if one outside that same allowlist ever ran — but `sys.meta_path` is consulted only on a `sys.modules` cache miss, and the allowlisted mute module is normally the first thing in a session to import `guard_agent` legitimately, so in practice the finder only ever gets a chance to catch the *first* importer; every import after that, dynamic or not, is served from the cache and invisible to it, 100% coverage notwithstanding. What actually holds is a `pytest_sessionfinish` assertion in `tests/conftest.py`: if `guard_agent` is in `sys.modules` at session end, `SecurityEvent`/`SecurityMetric`/`EventBatch` must each carry `plugin_settings == {"logfire": {"record": "off"}}`, read straight out of `sys.modules` so the check cannot cause the import it is testing for. That property does not care how the import happened, only whether it ended up muted; with the suite at 100% coverage that is a real claim about this run, not a universal guarantee. `SecurityConfig.to_agent_config()` (the `enable_agent=True` path) and `HandlerInitializer.initialize_agent_integrations()` (the `enable_otel`/`enable_logfire`/`enable_enrichment` path, which can wire a telemetry-capable handler with no agent at all) both call the underlying idempotent mute directly too, since they are the points a configuration first needs `guard_agent` at all: the mute lands there rather than at `import guard_core`, and a configuration with all of `enable_agent`/`enable_otel`/`enable_logfire`/`enable_enrichment` off never pays the `guard-agent`/`cryptography` import cost. **Caveat:** a host application that constructs `SecurityEvent`/`SecurityMetric`/`EventBatch` through its own path outside guard-core is not covered by any of guard-core's three checks, but it is not left unmuted either: guard-agent 2.8.0 and later apply the identical mute from their own `__init__`, so importing `guard_agent` at all covers that path. Only a host pinning guard-agent below 2.8.0 and building those models outside guard-core has to mute them itself. See [the telemetry reference](references/telemetry.md) for the postmortem detail.
 * **`fail_secure=True` by default.** A buggy check surfaces as 500s, not silent bypasses. Keep the default and fix the check; do not flip to fail-open without reason.
 * **Redis defaults to on.** `enable_redis=True` with `redis://localhost:6379`. Set `enable_redis=False` if there is no Redis, or every stateful check will try to connect.
 * **`enable_enrichment=True` requires `enable_agent=True`.** Mismatch raises `ValidationError` at config time.

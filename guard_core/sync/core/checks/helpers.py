@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable, Collection
 from ipaddress import ip_address
 from typing import Any
 from urllib.parse import urlparse
@@ -8,6 +9,18 @@ from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import _ip_in_list, detect_penetration_attempt
+
+
+def route_config_applies(
+    route_configs: Collection[RouteConfig] | None,
+    predicate: Callable[[RouteConfig], bool],
+) -> bool:
+    if route_configs is None:
+        return True
+    for route_config in route_configs:
+        if predicate(route_config):
+            return True
+    return False
 
 
 def is_ip_in_blacklist(client_ip: str, ip_addr: object, blacklist: list[str]) -> bool:

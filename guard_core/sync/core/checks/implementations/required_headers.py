@@ -1,6 +1,11 @@
+from collections.abc import Collection
+
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
+from guard_core.sync.core.checks.helpers import route_config_applies
 from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
@@ -19,6 +24,14 @@ class RequiredHeadersCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "required_headers"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return route_config_applies(route_configs, lambda rc: bool(rc.required_headers))
 
     def _handle_missing_header(
         self, request: SyncGuardRequest, header: str
