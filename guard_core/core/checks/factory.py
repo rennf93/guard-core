@@ -47,6 +47,12 @@ DEFAULT_CHECK_CLASSES: tuple[type[SecurityCheck], ...] = (
     CustomRequestCheck,
 )
 
+WATCHED_CONTAINER_FIELDS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        field for cls in DEFAULT_CHECK_CLASSES for field in cls.container_fields
+    )
+)
+
 
 def _collect_route_configs(
     middleware: "GuardMiddlewareProtocol",
@@ -78,4 +84,5 @@ def build_default_pipeline(
         muted_check_logs=config.muted_check_logs,
         config=config,
         rebuild_checks=lambda: _build_checks(middleware),
+        watched_container_fields=WATCHED_CONTAINER_FIELDS,
     )

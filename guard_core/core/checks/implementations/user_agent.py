@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from typing import ClassVar
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.helpers import (
@@ -17,6 +18,8 @@ from guard_core.utils import log_activity
 
 
 class UserAgentCheck(SecurityCheck):
+    container_fields: ClassVar[tuple[str, ...]] = ("blocked_user_agents",)
+
     @property
     def check_name(self) -> str:
         return "user_agent"

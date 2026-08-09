@@ -3,6 +3,8 @@ from ipaddress import ip_network
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks import factory
 from guard_core.sync.core.checks.factory import build_default_pipeline
@@ -52,6 +54,8 @@ def _build_middleware(config: SecurityConfig) -> MagicMock:
     middleware.agent_handler = None
     middleware.last_cloud_ip_refresh = 0
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.rate_limit_handler = MagicMock()
+    middleware.rate_limit_handler.check_rate_limit = MagicMock(return_value=None)
     return middleware
 
 
@@ -179,3 +183,140 @@ def test_pipeline_built_without_config_never_rebuilds() -> None:
 
     assert pipeline.checks is original_checks
     assert result is None
+
+
+def test_appending_blocked_user_agent_in_place_runs_eliminated_check() -> None:
+    config = _neutral_config()
+    middleware = _build_middleware(config)
+    pipeline = build_default_pipeline(middleware)
+    assert "user_agent" not in pipeline.get_check_names()
+
+    config.blocked_user_agents.append("badbot")
+
+    request = SyncMockGuardRequest(
+        client_host="198.51.100.121",
+        headers={"User-Agent": "badbot-scanner"},
+    )
+    result = pipeline.execute(request)
+
+    assert "user_agent" in pipeline.get_check_names()
+    assert result is not None
+    assert result.status_code == 403
+
+
+def test_replacing_blocked_user_agent_in_place_does_not_rebuild() -> None:
+    config = _neutral_config(blocked_user_agents=["goodbot"])
+    middleware = _build_middleware(config)
+
+    with patch.object(
+        factory, "_build_checks", wraps=factory._build_checks
+    ) as rebuild_spy:
+        pipeline = build_default_pipeline(middleware)
+        assert "user_agent" in pipeline.get_check_names()
+        rebuild_spy.reset_mock()
+
+        config.blocked_user_agents[0] = "otherbot"
+
+        request = SyncMockGuardRequest(
+            client_host="198.51.100.122",
+            headers={"User-Agent": "harmless"},
+        )
+        for _ in range(5):
+            pipeline.execute(request)
+
+        rebuild_spy.assert_not_called()
+
+
+def test_adding_block_cloud_provider_in_place_runs_eliminated_check() -> None:
+    config = _neutral_config(block_cloud_providers=set())
+    middleware = _build_middleware(config)
+    pipeline = build_default_pipeline(middleware)
+    assert "cloud_provider" not in pipeline.get_check_names()
+
+    cloud_handler.ip_ranges["AWS"].add(ip_network("4.0.0.0/8"))
+    assert config.block_cloud_providers is not None
+    config.block_cloud_providers.add("AWS")
+
+    request = SyncMockGuardRequest(client_host="4.0.0.9")
+    with patch.object(cloud_handler, "schedule_refresh", MagicMock(return_value=False)):
+        result = pipeline.execute(request)
+
+    assert "cloud_provider" in pipeline.get_check_names()
+    assert result is not None
+    assert result.status_code == 403
+
+
+def test_swapping_block_cloud_provider_in_place_does_not_rebuild() -> None:
+    config = _neutral_config(block_cloud_providers={"AWS"})
+    middleware = _build_middleware(config)
+
+    with patch.object(
+        factory, "_build_checks", wraps=factory._build_checks
+    ) as rebuild_spy:
+        pipeline = build_default_pipeline(middleware)
+        assert "cloud_provider" in pipeline.get_check_names()
+        rebuild_spy.reset_mock()
+
+        assert config.block_cloud_providers is not None
+        config.block_cloud_providers.symmetric_difference_update({"AWS", "GCP"})
+
+        request = SyncMockGuardRequest(client_host="198.51.100.123")
+        with patch.object(
+            cloud_handler, "schedule_refresh", MagicMock(return_value=False)
+        ):
+            for _ in range(5):
+                pipeline.execute(request)
+
+        rebuild_spy.assert_not_called()
+
+
+def test_setting_an_endpoint_rate_limit_in_place_makes_eliminated_check_run() -> None:
+    config = _neutral_config()
+    middleware = _build_middleware(config)
+    pipeline = build_default_pipeline(middleware)
+    assert "rate_limit" not in pipeline.get_check_names()
+
+    config.endpoint_rate_limits["/x"] = (0, 60)
+
+    request = SyncMockGuardRequest(client_host="198.51.100.124", path="/x")
+    pipeline.execute(request)
+
+    assert "rate_limit" in pipeline.get_check_names()
+
+
+def test_overwriting_an_endpoint_rate_limit_value_in_place_does_not_rebuild() -> None:
+    config = _neutral_config(endpoint_rate_limits={"/x": (5, 60)})
+    middleware = _build_middleware(config)
+
+    with patch.object(
+        factory, "_build_checks", wraps=factory._build_checks
+    ) as rebuild_spy:
+        pipeline = build_default_pipeline(middleware)
+        assert "rate_limit" in pipeline.get_check_names()
+        rebuild_spy.reset_mock()
+
+        config.endpoint_rate_limits["/x"] = (1, 30)
+
+        request = SyncMockGuardRequest(client_host="198.51.100.125", path="/x")
+        for _ in range(5):
+            pipeline.execute(request)
+
+        rebuild_spy.assert_not_called()
+
+
+@pytest.mark.parametrize("field_name", ["blacklist", "whitelist"])
+def test_mutating_blacklist_or_whitelist_in_place_never_flips_any_check_applies_to(
+    field_name: str,
+) -> None:
+    assert field_name not in factory.WATCHED_CONTAINER_FIELDS
+
+    config = SecurityConfig(**{field_name: []})
+    before = {
+        cls: cls.applies_to(config, None) for cls in factory.DEFAULT_CHECK_CLASSES
+    }
+
+    getattr(config, field_name).append("203.0.113.5")
+
+    after = {cls: cls.applies_to(config, None) for cls in factory.DEFAULT_CHECK_CLASSES}
+
+    assert before == after

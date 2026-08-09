@@ -1,6 +1,6 @@
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
@@ -17,23 +17,40 @@ class SecurityCheckPipeline:
         *,
         config: SecurityConfig | None = None,
         rebuild_checks: Callable[[], list[SecurityCheck]] | None = None,
+        watched_container_fields: tuple[str, ...] | None = None,
     ) -> None:
         self.checks = checks
         self.muted_check_logs = muted_check_logs or set()
         self.logger = logging.getLogger(__name__)
         self._config = config
         self._rebuild_checks = rebuild_checks
+        self._watched_container_fields = watched_container_fields or ()
         self._built_revision = config.revision if config is not None else None
+        self._built_signature = (
+            self._container_signature(config) if config is not None else ()
+        )
+
+    @staticmethod
+    def _container_size(value: Sized | None) -> int:
+        return 0 if value is None else len(value)
+
+    def _container_signature(self, config: SecurityConfig) -> tuple[int, ...]:
+        return tuple(
+            self._container_size(getattr(config, field))
+            for field in self._watched_container_fields
+        )
 
     def _rebuild_if_stale(self) -> None:
         config = self._config
         if config is None or self._rebuild_checks is None:
             return
         if config.revision == self._built_revision:
-            return
+            if self._container_signature(config) == self._built_signature:
+                return
         self.checks = self._rebuild_checks()
         self.muted_check_logs = config.muted_check_logs
         self._built_revision = config.revision
+        self._built_signature = self._container_signature(config)
 
     def _log_extra(self, check: SecurityCheck, request: SyncGuardRequest) -> dict:
         return {

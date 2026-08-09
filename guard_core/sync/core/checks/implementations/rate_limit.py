@@ -1,5 +1,5 @@
 from collections.abc import Collection
-from typing import Any
+from typing import Any, ClassVar
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
@@ -30,6 +30,8 @@ def _rate_limit_applies(
 
 
 class RateLimitCheck(SecurityCheck):
+    container_fields: ClassVar[tuple[str, ...]] = ("endpoint_rate_limits",)
+
     @property
     def check_name(self) -> str:
         return "rate_limit"

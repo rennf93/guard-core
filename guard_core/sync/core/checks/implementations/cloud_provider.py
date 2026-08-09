@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 class CloudProviderCheck(SecurityCheck):
     requires: ClassVar[tuple[str, ...]] = ("cloud",)
+    container_fields: ClassVar[tuple[str, ...]] = ("block_cloud_providers",)
 
     def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
         super().__init__(middleware)

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 class SecurityCheck(ABC):
     requires: ClassVar[tuple[str, ...]] = ()
+    container_fields: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         self.middleware = middleware

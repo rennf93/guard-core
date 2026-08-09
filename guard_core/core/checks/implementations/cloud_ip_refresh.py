@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 class CloudIpRefreshCheck(SecurityCheck):
     requires: ClassVar[tuple[str, ...]] = ("cloud",)
+    container_fields: ClassVar[tuple[str, ...]] = ("block_cloud_providers",)
 
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         super().__init__(middleware)
