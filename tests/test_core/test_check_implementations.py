@@ -33,6 +33,7 @@ from guard_core.decorators.base import RouteConfig
 from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.utils import IpAccessResult
 from tests.conftest import MockGuardRequest, MockGuardResponse
 
 _IMPL = "guard_core.core.checks.implementations"
@@ -1117,9 +1118,9 @@ async def test_ip_security_global_check() -> None:
     with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
+            f"{_IMPL}.ip_security.check_ip_access",
             new_callable=AsyncMock,
-            return_value=True,
+            return_value=IpAccessResult(True, ""),
         ):
             result = await check.check(req)
     assert result is None
@@ -1134,9 +1135,11 @@ async def test_ip_security_global_blocked() -> None:
     with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
+            f"{_IMPL}.ip_security.check_ip_access",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=IpAccessResult(
+                False, "IP 9.9.9.9 not in global allowlist/blocklist"
+            ),
         ):
             with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
                 result = await check.check(req)
@@ -1179,9 +1182,11 @@ async def test_ip_security_passive_mode_global_blocked() -> None:
     with patch.object(check, "ip_ban_manager") as mock_ban:
         mock_ban.is_ip_banned = AsyncMock(return_value=False)
         with patch(
-            f"{_IMPL}.ip_security.is_ip_allowed",
+            f"{_IMPL}.ip_security.check_ip_access",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=IpAccessResult(
+                False, "IP 9.9.9.9 not in global allowlist/blocklist"
+            ),
         ):
             with patch(f"{_IMPL}.ip_security.log_activity", new_callable=AsyncMock):
                 result = await check.check(req)

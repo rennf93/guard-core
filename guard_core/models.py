@@ -241,8 +241,8 @@ class SecurityConfig(BaseModel):
         description=(
             "Log level for per-request country verdicts that are not blocks "
             "(whitelisted / not-affected). Set to None to silence them. "
-            "Blocked-country hits always log at WARNING; no-rules and "
-            "no-geolocation cases always log at DEBUG."
+            "Blocked-country hits log at log_suspicious_level instead; "
+            "no-rules and no-geolocation cases always log at DEBUG."
         ),
     )
 

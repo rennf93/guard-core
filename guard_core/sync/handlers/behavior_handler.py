@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from guard_core.models import BehaviorRuleConfig, SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.utils import _log_at_level
 
 
 class BehaviorRule:
@@ -239,16 +240,28 @@ class BehaviorTracker:
     ) -> None:
         prefix = "[PASSIVE MODE] "
 
+        if rule.action == "alert":
+            self.logger.critical(f"{prefix}ALERT - Behavioral anomaly: {details}")
+            return
+
+        level = self.config.log_suspicious_level
+        if level is None:
+            return
+
         if rule.action == "ban":
-            self.logger.warning(
-                f"{prefix}Would ban IP {client_ip} for behavioral violation: {details}"
+            _log_at_level(
+                self.logger,
+                level,
+                f"{prefix}Would ban IP {client_ip} for behavioral violation: {details}",
             )
         elif rule.action == "log":
-            self.logger.warning(f"{prefix}Behavioral anomaly detected: {details}")
+            _log_at_level(
+                self.logger, level, f"{prefix}Behavioral anomaly detected: {details}"
+            )
         elif rule.action == "throttle":
-            self.logger.warning(f"{prefix}Would throttle IP {client_ip}: {details}")
-        elif rule.action == "alert":
-            self.logger.critical(f"{prefix}ALERT - Behavioral anomaly: {details}")
+            _log_at_level(
+                self.logger, level, f"{prefix}Would throttle IP {client_ip}: {details}"
+            )
 
     def _execute_ban_action(
         self,
@@ -264,9 +277,13 @@ class BehaviorTracker:
             else 3600
         )
         ip_ban_manager.ban_ip(client_ip, duration, "behavioral_violation")
-        self.logger.warning(
-            f"IP {client_ip} banned for behavioral violation: {details}"
-        )
+        level = self.config.log_suspicious_level
+        if level is not None:
+            _log_at_level(
+                self.logger,
+                level,
+                f"IP {client_ip} banned for behavioral violation: {details}",
+            )
 
     def _execute_active_mode_action(
         self, rule: BehaviorRule, client_ip: str, endpoint_id: str, details: str
@@ -277,12 +294,20 @@ class BehaviorTracker:
 
         if rule.action == "ban":
             self._execute_ban_action(client_ip, details, rule)
-        elif rule.action == "log":
-            self.logger.warning(f"Behavioral anomaly detected: {details}")
-        elif rule.action == "throttle":
-            self.logger.warning(f"Throttling IP {client_ip}: {details}")
-        elif rule.action == "alert":
+            return
+
+        if rule.action == "alert":
             self.logger.critical(f"ALERT - Behavioral anomaly: {details}")
+            return
+
+        level = self.config.log_suspicious_level
+        if level is None:
+            return
+
+        if rule.action == "log":
+            _log_at_level(self.logger, level, f"Behavioral anomaly detected: {details}")
+        elif rule.action == "throttle":
+            _log_at_level(self.logger, level, f"Throttling IP {client_ip}: {details}")
 
     def apply_action(
         self, rule: BehaviorRule, client_ip: str, endpoint_id: str, details: str

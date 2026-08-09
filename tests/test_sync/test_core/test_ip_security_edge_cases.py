@@ -6,6 +6,7 @@ import pytest
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks.implementations.ip_security import IpSecurityCheck
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.utils import IpAccessResult
 
 
 @pytest.fixture
@@ -115,10 +116,11 @@ def test_check_global_ip_restrictions_passive_mode(
     security_config.passive_mode = True
 
     with patch(
-        "guard_core.sync.core.checks.implementations.ip_security.is_ip_allowed"
-    ) as mock_allowed:
-        mock_allowed.return_value = MagicMock(return_value=False)
-
+        "guard_core.sync.core.checks.implementations.ip_security.check_ip_access",
+        return_value=IpAccessResult(
+            False, "IP 1.2.3.4 not in global allowlist/blocklist"
+        ),
+    ):
         with patch(
             "guard_core.sync.core.checks.implementations.ip_security.log_activity"
         ) as mock_log:
