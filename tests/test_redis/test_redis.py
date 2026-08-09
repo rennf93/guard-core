@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -9,8 +8,6 @@ from redis.exceptions import ConnectionError
 from guard_core.exceptions import GuardRedisError
 from guard_core.handlers.redis_handler import redis_handler
 from guard_core.models import SecurityConfig
-
-IPINFO_TOKEN = str(os.getenv("IPINFO_TOKEN"))
 
 
 @pytest.mark.asyncio
@@ -126,7 +123,9 @@ async def test_redis_connection_context_get_error(
 async def test_redis_connection_failures(security_config_redis: SecurityConfig) -> None:
     bad_config = SecurityConfig(
         **{
-            **security_config_redis.model_dump(),
+            **security_config_redis.model_dump(
+                exclude={"ipinfo_token", "ipinfo_db_path"}
+            ),
             "redis_url": "redis://nonexistent:6379",
         }
     )
@@ -167,7 +166,12 @@ async def test_redis_failed_initialization_operations(
     security_config_redis: SecurityConfig,
 ) -> None:
     bad_config = SecurityConfig(
-        **{**security_config_redis.model_dump(), "redis_url": "redis://invalid:6379"}
+        **{
+            **security_config_redis.model_dump(
+                exclude={"ipinfo_token", "ipinfo_db_path"}
+            ),
+            "redis_url": "redis://invalid:6379",
+        }
     )
     handler = redis_handler(bad_config)
 

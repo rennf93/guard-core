@@ -64,16 +64,43 @@ from guard_core.core.bypass import BypassHandler, BypassContext
 from guard_core.core.behavioral import BehavioralProcessor, BehavioralContext
 ```
 
-### Optional Dependencies
+### Optional Dependency Extras
 
-guard-core has optional dependencies that your adapter may want to pull in:
+guard-core ships three packaging extras that group its heavier third-party dependencies by feature:
 
-| Dependency | Purpose | When Needed |
+| Extra | Installs | Gated by |
 |---|---|---|
-| `redis` | Distributed state (rate limits, bans, cloud IPs) | When `enable_redis=True` in `SecurityConfig` |
-| `guard-agent` | Telemetry and monitoring SaaS integration | When `enable_agent=True` in `SecurityConfig` |
-| `maxminddb` | GeoIP database reading | When using `IPInfoManager` for country filtering |
-| `httpx` | Async HTTP client for cloud IP range fetching | When `block_cloud_providers` is configured |
+| `redis` | `redis` | `SecurityConfig(enable_redis=True)` |
+| `cloud` | `aiohttp`, `requests` | `SecurityConfig(block_cloud_providers=...)` (or `enable_dynamic_rules=True`, which can turn cloud blocking on at runtime) |
+| `geo` | `maxminddb` | Country rules (`blocked_countries`/`whitelist_countries`) with no custom `geo_ip_handler` supplied, since guard-core then constructs its own `IPInfoManager` |
+
+=== "uv"
+
+    ```bash
+    uv add "guard-core[redis,cloud,geo]"
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add "guard-core[redis,cloud,geo]"
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install "guard-core[redis,cloud,geo]"
+    ```
+
+The extras are additive for the 3.x line: `aiohttp`, `redis`, `requests`, and `maxminddb` all stay in guard-core's base `dependencies` too, so an existing install that never opts into an extra keeps working exactly as before. They become the exclusive way to pull in those packages only at 4.0.
+
+Configuring a feature whose extra is not installed raises a `SecurityConfig` validation error naming the missing extra's install command (for example `pip install guard-core[geo]`) at config-construction time, instead of letting the feature fail later mid-request with a raw `ImportError`.
+
+`guard-agent` (`SecurityConfig(enable_agent=True)`) and `guard-core[otel]`/`guard-core[logfire]` are separate, unrelated to the three extras above; see [Telemetry](architecture/telemetry.md) for those.
+
+### Import Cost
+
+`import guard_core` no longer pulls `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography` into `sys.modules`; every one of those loads lazily on first use of the feature that needs it. A cold `import guard_core` costs roughly 1.6ms.
 
 ___
 

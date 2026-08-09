@@ -14,6 +14,9 @@ def test_lazy_init_does_not_trigger_sync_refresh_in_check() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = 9999999999
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     cloud_handler.ip_ranges["AWS"] = set()
 
@@ -30,6 +33,9 @@ def test_eager_init_does_not_trigger_on_demand_refresh() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = 9999999999
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     cloud_handler.ip_ranges["AWS"] = {ipaddress.ip_network("10.0.0.0/8")}
 
@@ -50,6 +56,9 @@ def test_scheduled_refresh_still_fires_when_interval_elapsed() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = 0
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     check = CloudIpRefreshCheck(middleware)
     with patch.object(cloud_handler, "schedule_refresh") as schedule:
@@ -64,6 +73,7 @@ def test_lazy_init_with_empty_block_cloud_returns_immediately() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = 0
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(return_value=[])
 
     check = CloudIpRefreshCheck(middleware)
     with patch.object(cloud_handler, "refresh_async", new=MagicMock()) as mock_refresh:
@@ -83,6 +93,9 @@ def test_lazy_init_scheduled_refresh_fires_when_interval_elapsed() -> None:
     middleware.config = config
     middleware.last_cloud_ip_refresh = 0
     middleware.refresh_cloud_ip_ranges = MagicMock()
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     check = CloudIpRefreshCheck(middleware)
     with patch.object(cloud_handler, "schedule_refresh") as schedule:

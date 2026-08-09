@@ -6,6 +6,10 @@ from guard_core.decorators.base import (
     BaseSecurityDecorator,
     BaseSecurityMixin,
     RouteConfig,
+    RouteConfigRevision,
+    _TrackedDict,
+    _TrackedList,
+    _TrackedSet,
     get_route_decorator_config,
 )
 from guard_core.models import SecurityConfig
@@ -115,3 +119,318 @@ async def test_initialize_behavior_tracking(security_config: SecurityConfig) -> 
 
     mock_redis_handler = Mock()
     await decorator.initialize_behavior_tracking(mock_redis_handler)
+
+
+async def test_route_config_construction_does_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+
+    RouteConfig(revision)
+
+    assert revision.value == 0
+
+
+async def test_route_config_attribute_assignment_bumps_revision() -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+
+    route_config.auth_required = "bearer"
+
+    assert revision.value == 1
+    assert route_config.auth_required == "bearer"
+
+
+async def test_route_config_without_a_revision_cell_does_not_raise() -> None:
+    route_config = RouteConfig()
+
+    route_config.auth_required = "bearer"
+    route_config.custom_validators.append(lambda request: None)
+    route_config.required_headers["X-Api-Key"] = "required"
+
+    assert route_config.auth_required == "bearer"
+    assert len(route_config.custom_validators) == 1
+    assert route_config.required_headers == {"X-Api-Key": "required"}
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "custom_validators",
+        "require_referrer",
+        "allowed_content_types",
+        "blocked_user_agents",
+    ],
+)
+async def test_appending_to_a_tracked_list_field_bumps_revision(
+    field_name: str,
+) -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+    setattr(route_config, field_name, [])
+    revision.value = 0
+
+    getattr(route_config, field_name).append("value")
+
+    assert revision.value == 1
+    assert getattr(route_config, field_name) == ["value"]
+
+
+@pytest.mark.parametrize(
+    "field_name", ["required_headers", "time_restrictions", "geo_rate_limits"]
+)
+async def test_setting_an_item_on_a_tracked_dict_field_bumps_revision(
+    field_name: str,
+) -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+    setattr(route_config, field_name, {})
+    revision.value = 0
+
+    getattr(route_config, field_name)["key"] = "value"
+
+    assert revision.value == 1
+    assert getattr(route_config, field_name) == {"key": "value"}
+
+
+async def test_adding_to_a_tracked_set_field_bumps_revision() -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+    revision.value = 0
+
+    route_config.block_cloud_providers.add("AWS")
+
+    assert revision.value == 1
+    assert route_config.block_cloud_providers == {"AWS"}
+
+
+async def test_mutating_an_untracked_container_field_does_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    route_config = RouteConfig(revision)
+    route_config.ip_whitelist = ["203.0.113.1"]
+    revision.value = 0
+
+    route_config.ip_whitelist.append("203.0.113.2")
+
+    assert revision.value == 0
+    assert route_config.ip_whitelist == ["203.0.113.1", "203.0.113.2"]
+
+
+async def test_route_config_revision_bumps_when_ensure_route_config_adds_a_new_route(
+    security_config: SecurityConfig,
+) -> None:
+    decorator = BaseSecurityDecorator(security_config)
+    assert decorator.route_config_revision == 0
+
+    mock_func = Mock(__module__="test_module", __qualname__="new_route")
+    decorator._ensure_route_config(mock_func)
+
+    revision_after_first_call = decorator.route_config_revision
+    assert revision_after_first_call > 0
+
+    decorator._ensure_route_config(mock_func)
+
+    assert decorator.route_config_revision == revision_after_first_call
+
+
+async def test_mutating_a_route_config_obtained_from_the_decorator_bumps_its_revision(
+    security_config: SecurityConfig,
+) -> None:
+    decorator = BaseSecurityDecorator(security_config)
+    mock_func = Mock(__module__="test_module", __qualname__="existing_route")
+    route_config = decorator._ensure_route_config(mock_func)
+    revision_before = decorator.route_config_revision
+
+    route_config.auth_required = "bearer"
+
+    assert decorator.route_config_revision > revision_before
+
+
+def test_tracked_list_mutators_all_bump_the_shared_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedList([1, 2, 3], revision=revision)
+
+    tracked.append(4)
+    assert revision.value == 1
+
+    tracked.extend([5])
+    assert revision.value == 2
+
+    tracked.insert(0, 0)
+    assert revision.value == 3
+
+    tracked.remove(0)
+    assert revision.value == 4
+
+    tracked.pop()
+    assert revision.value == 5
+
+    tracked[0] = 99
+    assert revision.value == 6
+
+    del tracked[0]
+    assert revision.value == 7
+
+    tracked.sort()
+    assert revision.value == 8
+
+    tracked.reverse()
+    assert revision.value == 9
+
+    tracked += [7]
+    assert revision.value == 10
+    assert isinstance(tracked, _TrackedList)
+
+    tracked *= 2
+    assert revision.value == 11
+    assert isinstance(tracked, _TrackedList)
+
+    tracked.clear()
+    assert revision.value == 12
+    assert tracked == []
+
+
+def test_tracked_list_non_augmented_operators_do_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedList([1, 2], revision=revision)
+
+    combined = tracked + [3]
+    assert revision.value == 0
+    assert combined == [1, 2, 3]
+
+    doubled = tracked * 2
+    assert revision.value == 0
+    assert doubled == [1, 2, 1, 2]
+
+
+def test_tracked_list_without_a_revision_cell_is_a_no_op() -> None:
+    tracked = _TrackedList([1])
+
+    tracked.append(2)
+
+    assert tracked == [1, 2]
+
+
+def test_tracked_dict_mutators_all_bump_the_shared_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedDict({"a": 1}, revision=revision)
+
+    tracked["b"] = 2
+    assert revision.value == 1
+
+    del tracked["b"]
+    assert revision.value == 2
+
+    tracked.update({"c": 3})
+    assert revision.value == 3
+
+    tracked.setdefault("d", 4)
+    assert revision.value == 4
+
+    tracked.pop("d")
+    assert revision.value == 5
+
+    tracked.popitem()
+    assert revision.value == 6
+
+    tracked |= {"e": 5}
+    assert revision.value == 7
+    assert isinstance(tracked, _TrackedDict)
+
+    tracked.clear()
+    assert revision.value == 8
+    assert tracked == {}
+
+
+def test_tracked_dict_non_augmented_or_operator_does_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedDict({"a": 1}, revision=revision)
+
+    merged = tracked | {"b": 2}
+
+    assert revision.value == 0
+    assert merged == {"a": 1, "b": 2}
+
+
+def test_tracked_dict_without_a_revision_cell_is_a_no_op() -> None:
+    tracked = _TrackedDict({"a": 1})
+
+    tracked["b"] = 2
+
+    assert tracked == {"a": 1, "b": 2}
+
+
+def test_tracked_set_mutators_all_bump_the_shared_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedSet({1, 2, 3}, revision=revision)
+
+    tracked.add(4)
+    assert revision.value == 1
+
+    tracked.discard(4)
+    assert revision.value == 2
+
+    tracked.remove(1)
+    assert revision.value == 3
+
+    tracked.update({5, 6})
+    assert revision.value == 4
+
+    tracked.intersection_update({2, 3, 5, 6})
+    assert revision.value == 5
+    assert tracked == {2, 3, 5, 6}
+
+    tracked.difference_update({5})
+    assert revision.value == 6
+    assert tracked == {2, 3, 6}
+
+    tracked.symmetric_difference_update({3, 7})
+    assert revision.value == 7
+    assert tracked == {2, 6, 7}
+
+    tracked |= {8}
+    assert revision.value == 8
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked &= {2, 6, 7, 8}
+    assert revision.value == 9
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked -= {8}
+    assert revision.value == 10
+    assert isinstance(tracked, _TrackedSet)
+
+    tracked ^= {6}
+    assert revision.value == 11
+    assert isinstance(tracked, _TrackedSet)
+    assert tracked == {2, 7}
+
+    tracked.pop()
+    assert revision.value == 12
+
+    tracked.clear()
+    assert revision.value == 13
+    assert tracked == set()
+
+
+def test_tracked_set_non_augmented_operators_do_not_bump_revision() -> None:
+    revision = RouteConfigRevision()
+    tracked = _TrackedSet({1, 2, 3}, revision=revision)
+
+    assert tracked | {4} == {1, 2, 3, 4}
+    assert revision.value == 0
+
+    assert tracked & {2, 3} == {2, 3}
+    assert revision.value == 0
+
+    assert tracked - {1} == {2, 3}
+    assert revision.value == 0
+
+    assert tracked ^ {3, 4} == {1, 2, 4}
+    assert revision.value == 0
+
+
+def test_tracked_set_without_a_revision_cell_is_a_no_op() -> None:
+    tracked = _TrackedSet({1})
+
+    tracked.add(2)
+
+    assert tracked == {1, 2}

@@ -1,6 +1,10 @@
 import os
+import re
+import sys
 from collections.abc import Generator
+from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 import pytest
@@ -9,6 +13,7 @@ from pytest import TempPathFactory
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers import suspatterns_handler as _suspatterns_module
 from guard_core.sync.handlers.cloud_handler import cloud_handler
+from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.sync.handlers.ipban_handler import IPBanManager
 from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 from guard_core.sync.handlers.ratelimit_handler import rate_limit_handler
@@ -186,10 +191,19 @@ def reset_state() -> Generator[None, None]:
     spm._instance = sus_patterns_handler
     spm._config = None
     sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
+    sus_patterns_handler.compiled_patterns = [
+        (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+        for pattern, contexts, category in spm._pattern_definitions
+    ]
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
 
     IPBanManager._instance = None
+
+    dynamic_rule_instance = DynamicRuleManager._instance
+    if dynamic_rule_instance and dynamic_rule_instance.update_task:
+        dynamic_rule_instance.stop()
+    DynamicRuleManager._instance = None
 
 
 @pytest.fixture
@@ -284,3 +298,85 @@ def clean_rate_limiter() -> None:
     from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
 
     RateLimitManager._instance = None
+
+
+_GUARD_AGENT_FINDER_ATTR = "_guard_core_agent_import_finder"
+
+
+def _calling_module_name(frame: FrameType | None) -> str | None:
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if "importlib" not in filename and not filename.startswith("<frozen"):
+            name: str | None = frame.f_globals.get("__name__")
+            return name
+        frame = frame.f_back
+    return None
+
+
+def _is_guard_core_module(name: str | None) -> bool:
+    return name is not None and (name == "guard_core" or name.startswith("guard_core."))
+
+
+def _guard_agent_import_is_allowed(caller: str, fullname: str) -> bool:
+    if caller == "guard_core._pydantic_plugin_mute":
+        return True
+    return caller == "guard_core.models" and fullname == "guard_agent"
+
+
+class _GuardAgentImportFinder:
+    def __init__(self) -> None:
+        self.violations: list[str] = []
+
+    def find_spec(
+        self, fullname: str, path: Any, target: Any = None
+    ) -> ModuleSpec | None:
+        if fullname == "guard_agent" or fullname.startswith("guard_agent."):
+            caller = _calling_module_name(sys._getframe(1))
+            if (
+                caller is not None
+                and _is_guard_core_module(caller)
+                and not _guard_agent_import_is_allowed(caller, fullname)
+            ):
+                self.violations.append(f"{caller} imports {fullname}")
+        return None
+
+
+_MUTED_PLUGIN_SETTINGS = {"logfire": {"record": "off"}}
+_TELEMETRY_MODEL_NAMES = ("SecurityEvent", "SecurityMetric", "EventBatch")
+
+
+def _unmuted_guard_agent_telemetry_models() -> list[str]:
+    guard_agent_module = sys.modules.get("guard_agent")
+    if guard_agent_module is None:
+        return []
+    return [
+        name
+        for name in _TELEMETRY_MODEL_NAMES
+        if getattr(guard_agent_module, name).model_config.get("plugin_settings")
+        != _MUTED_PLUGIN_SETTINGS
+    ]
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if getattr(sys, _GUARD_AGENT_FINDER_ATTR, None) is not None:
+        return
+    finder = _GuardAgentImportFinder()
+    sys.meta_path.insert(0, finder)
+    setattr(sys, _GUARD_AGENT_FINDER_ATTR, finder)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
+    if finder is not None:
+        delattr(sys, _GUARD_AGENT_FINDER_ATTR)
+        if finder in sys.meta_path:
+            sys.meta_path.remove(finder)
+        assert not finder.violations, (
+            "guard_agent imported outside the pydantic-plugin-mute allowlist: "
+            + "; ".join(finder.violations)
+        )
+    unmuted = _unmuted_guard_agent_telemetry_models()
+    assert not unmuted, (
+        "guard_agent is in sys.modules at session end but these telemetry "
+        "models were never muted: " + ", ".join(unmuted)
+    )

@@ -313,7 +313,7 @@ Wires the guard-agent into all handlers and starts the agent:
 
 1. Calls `agent_handler.start()` to begin the agent's background flush loop
 2. If Redis is available, wires Redis into the agent and vice versa
-3. Calls `initialize_agent_for_handlers()` to wire the agent into `ip_ban_manager`, `rate_limit_handler`, `sus_patterns_handler`, `cloud_handler`, and `geo_ip_handler`
+3. Calls `initialize_agent_for_handlers()` to wire the agent into `ip_ban_manager`, `rate_limit_handler`, `sus_patterns_handler`, `security_headers_manager`, `cloud_handler`, and `geo_ip_handler`
 4. If `guard_decorator` has an `initialize_agent` method, wires the agent into it
 5. Calls `initialize_dynamic_rule_manager()` if `config.enable_dynamic_rules` is enabled
 
@@ -332,9 +332,12 @@ Internal method that wires the agent into individual handlers:
 await ip_ban_manager.initialize_agent(agent_handler)
 await rate_limit_handler.initialize_agent(agent_handler)
 await sus_patterns_handler.initialize_agent(agent_handler)
+await security_headers_manager.initialize_agent(agent_handler)
 await cloud_handler.initialize_agent(agent_handler)
 await geo_ip_handler.initialize_agent(agent_handler)
 ```
+
+`rate_limit_handler` and `cloud_handler` are wired only when present (`rate_limit_handler` was supplied to the initializer, `config.block_cloud_providers` is set); `geo_ip_handler` is wired only when it exposes `initialize_agent`. The other three run unconditionally once telemetry is enabled.
 
 #### `initialize_dynamic_rule_manager()`
 

@@ -40,6 +40,9 @@ def _make_check(interval: int = 3600, last_refresh: int = 0) -> CloudIpRefreshCh
     )
     middleware.logger = logging.getLogger("test.cloud_ip_refresh")
     middleware.last_cloud_ip_refresh = last_refresh
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(
+        return_value=["AWS"]
+    )
 
     def _adapter_refresh() -> None:
         cloud_handler.refresh_async({"AWS"}, ttl=interval)
@@ -151,6 +154,7 @@ def test_check_noop_without_block_cloud_providers() -> None:
     middleware.config = SecurityConfig(block_cloud_providers=None)
     middleware.logger = logging.getLogger("test.cloud_ip_refresh")
     middleware.last_cloud_ip_refresh = 0
+    middleware.route_resolver.get_cloud_providers_to_check = MagicMock(return_value=[])
     check = CloudIpRefreshCheck(middleware)
 
     with patch.object(cloud_handler, "schedule_refresh") as spy:

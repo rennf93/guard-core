@@ -1,5 +1,10 @@
+from collections.abc import Collection
+
 from guard_core.core.checks.base import SecurityCheck
+from guard_core.core.checks.helpers import route_config_applies
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
+from guard_core.decorators.base import RouteConfig
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import log_activity
@@ -9,6 +14,16 @@ class CustomValidatorsCheck(SecurityCheck):
     @property
     def check_name(self) -> str:
         return "custom_validators"
+
+    @classmethod
+    def applies_to(
+        cls,
+        config: SecurityConfig,
+        route_configs: Collection[RouteConfig] | None,
+    ) -> bool:
+        return route_config_applies(
+            route_configs, lambda rc: bool(rc.custom_validators)
+        )
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
         route_config = getattr(request.state, "route_config", None)

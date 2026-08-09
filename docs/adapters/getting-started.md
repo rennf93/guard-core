@@ -120,7 +120,7 @@ What You Get for Free
 
 Everything inside `guard-core` works out of the box once you implement the four components above:
 
-- **17 security checks** executing in a defined pipeline order (emergency mode, HTTPS enforcement, IP security, cloud provider blocking, rate limiting, suspicious activity detection, and more)
+- **A 17-check catalogue** executing in a defined pipeline order (emergency mode, HTTPS enforcement, IP security, cloud provider blocking, rate limiting, suspicious activity detection, and more), with each deployment building only the checks its `SecurityConfig` and registered routes can actually trigger -- see [Middleware Integration](middleware-integration.md#build-time-elimination) for what your adapter needs to expose to get that optimization
 - **Attack detection engine** with pattern compilation, semantic analysis, anomaly detection, and performance monitoring
 - **Rate limiting** with per-endpoint granularity, Redis-backed distributed counters, and Lua-script atomicity
 - **IP ban management** with auto-ban thresholds, TTL-based expiry, and Redis persistence

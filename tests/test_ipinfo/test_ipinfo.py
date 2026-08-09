@@ -81,7 +81,7 @@ async def test_db_initialization_retry(tmp_path: Path) -> None:
             "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
             return_value=mock_session,
         ),
-        patch("asyncio.sleep") as mock_sleep,
+        patch.object(db, "_sleep", AsyncMock()) as mock_sleep,
         patch("builtins.open", Mock()),
     ):
         await db.initialize()

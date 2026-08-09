@@ -21,10 +21,18 @@ from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
 class SecurityCheck(ABC):
+    requires: ClassVar[tuple[str, ...]] = ()
+
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         self.middleware = middleware
         self.config = middleware.config
         self.logger = middleware.logger
+
+    @classmethod
+    def applies_to(
+        cls, config: "SecurityConfig", route_configs: "Collection[RouteConfig] | None"
+    ) -> bool:
+        return True
 
     @abstractmethod
     async def check(self, request: GuardRequest) -> GuardResponse | None: ...
@@ -79,6 +87,20 @@ Delegates to `middleware.create_error_response()`. The middleware implementation
 
 Returns `self.config.passive_mode`. When passive mode is active, checks should log and emit events but not block requests.
 
+### The `applies_to` Contract
+
+Every check may override two class-level members that `build_default_pipeline` (`guard_core/core/checks/factory.py`) consults before a check is even instantiated:
+
+**`applies_to(config, route_configs) -> bool`** (classmethod)
+
+Declares whether the effective `SecurityConfig` and registered `route_configs` can ever make this check fire. The base implementation returns `True` unconditionally, so a new check that does not override it is always built and always runs -- writing a new check requires no changes here to stay correct, only an optional opt-in to build-time elimination. `route_configs` is `Collection[RouteConfig] | None`: `None` means the adapter could not enumerate its routes (unknown), and a known-empty tuple means no route carries a decorator.
+
+**`requires: ClassVar[tuple[str, ...]]`**
+
+Names the packaging extra(s) the check's handler needs, for example `("cloud",)` on `CloudProviderCheck`. Defaults to `()`.
+
+**The rule when writing a predicate**: when in doubt, return `True`. Elimination is strictly an optimization, never a security decision -- a predicate that is uncertain whether the configuration can trigger the check must keep it, the same way every route-driven predicate in `guard_core.core.checks.helpers.route_config_applies` treats `route_configs is None` as "keep." A check that guards a resource writable from outside `SecurityConfig` entirely, the way `IpSecurityCheck` fronts a ban store that behavioral rules and other processes can write to, should not override `applies_to` at all and should rely on the base `True`. See [Build-Time Elimination](../architecture/pipeline.md#build-time-elimination) for the full mechanism and the per-check predicate table.
+
 SecurityCheckPipeline
 ---------------------
 
@@ -86,7 +108,9 @@ The pipeline holds an ordered list of `SecurityCheck` instances and executes the
 
 ```python
 class SecurityCheckPipeline:
-    def __init__(self, checks: list[SecurityCheck]) -> None: ...
+    def __init__(
+        self, checks: list[SecurityCheck], muted_check_logs: set[str] | None = None
+    ) -> None: ...
     async def execute(self, request: GuardRequest) -> GuardResponse | None: ...
     def add_check(self, check: SecurityCheck) -> None: ...
     def insert_check(self, index: int, check: SecurityCheck) -> None: ...
@@ -128,8 +152,8 @@ flowchart TD
 When a check raises an exception:
 
 - The error is logged with `exc_info=True` for full traceback.
-- If `config.fail_secure` is set (opt-in, not a standard `SecurityConfig` field — use `hasattr`), the pipeline returns a `500` error response (fail-closed behavior).
-- Otherwise, the pipeline continues to the next check (fail-open behavior).
+- `fail_secure` is a standard `SecurityConfig` field, defaulting to `True`; when it is `True`, the pipeline returns a `500` error response (fail-closed behavior).
+- With `fail_secure=False`, the pipeline continues to the next check (fail-open behavior).
 
 ### Pipeline Manipulation
 

@@ -68,7 +68,9 @@ class SecurityEventBus:
         reason: str,
         metadata: dict[str, Any],
     ) -> Any:
-        from guard_agent import SecurityEvent
+        from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+        SecurityEvent = get_telemetry_model("SecurityEvent")
 
         return SecurityEvent(
             timestamp=datetime.now(timezone.utc),

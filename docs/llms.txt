@@ -16,7 +16,7 @@ Guard Core is the framework-agnostic security engine that powers the Guard ecosy
   - Docs: https://rennf93.github.io/guard-core/latest/architecture/overview/
 - **Protocol Layer**: GuardRequest, GuardResponse, GuardResponseFactory, GuardMiddlewareProtocol
   - Docs: https://rennf93.github.io/guard-core/latest/architecture/protocols/
-- **Security Pipeline**: SecurityCheckPipeline, 17 checks in execution order, fail-open/fail-secure
+- **Security Pipeline**: SecurityCheckPipeline, 17-check catalogue in execution order, applies_to build-time filtering, fail-open/fail-secure
   - Docs: https://rennf93.github.io/guard-core/latest/architecture/pipeline/
 - **Event System**: SecurityEventBus, MetricsCollector, agent integration
   - Docs: https://rennf93.github.io/guard-core/latest/architecture/events/
@@ -40,7 +40,7 @@ Guard Core is the framework-agnostic security engine that powers the Guard ecosy
 ### Engine Internals
 - **Security Checks**: SecurityCheck base class, SecurityCheckPipeline, helper functions
   - Docs: https://rennf93.github.io/guard-core/latest/internals/checks/
-- **Check Implementations**: All 17 checks with blocking conditions and configuration
+- **Check Implementations**: All 17 checks with blocking conditions, configuration, and applies_to elimination predicates
   - Docs: https://rennf93.github.io/guard-core/latest/internals/check-implementations/
 - **IP Management**: IPBanManager, allow/block logic, CIDR support, client IP extraction
   - Docs: https://rennf93.github.io/guard-core/latest/internals/ip-management/
@@ -81,7 +81,7 @@ Guard Core defines three runtime-checkable protocols that adapters must implemen
 - `GuardResponse`: status_code, headers (MutableMapping), body
 - `GuardResponseFactory`: create_response(content, status_code), create_redirect_response(url, status_code)
 
-### Security Check Pipeline (17 checks in order)
+### Security Check Pipeline (17-check catalogue, in order)
 1. Route configuration extraction
 2. Emergency mode
 3. HTTPS enforcement
@@ -99,6 +99,8 @@ Guard Core defines three runtime-checkable protocols that adapters must implemen
 15. Rate limiting
 16. Suspicious activity detection
 17. Custom request checks
+
+Each check declares an `applies_to(config, route_configs)` classmethod; `build_default_pipeline` builds only the checks that return `True` for the effective configuration. The base implementation returns `True`, so a check that does not override it always runs. A default `SecurityConfig()` with no route decorators builds only 4 of the 17: route configuration extraction, IP security, rate limiting, suspicious activity detection. `enable_dynamic_rules=True` keeps all 7 checks whose predicate depends on a flag `DynamicRuleManager` can mutate at runtime (emergency mode, cloud IP refresh, IP security, cloud provider blocking, user agent filtering, rate limiting, suspicious activity detection), regardless of every other flag. IP security is never eliminated: it fronts an unconditional ban lookup whose store is writable from behaviour-rule bans and from other processes sharing the same Redis.
 
 ### Package Information
 - **PyPI**: `uv add guard-core` (recommended) · `poetry add guard-core` · `pip install guard-core`

@@ -22,6 +22,7 @@ class DynamicRuleManager:
     current_rules: DynamicRules | None = None
     update_task: threading.Thread | None = None
     _lock: threading.Lock
+    _stop_event: threading.Event
 
     _SNAPSHOT_FIELDS = (
         "blocked_countries",
@@ -52,12 +53,14 @@ class DynamicRuleManager:
             cls._instance.current_rules = None
             cls._instance.update_task = None
             cls._instance._lock = threading.Lock()
+            cls._instance._stop_event = threading.Event()
         return cls._instance
 
     def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
 
         if self.config.enable_dynamic_rules and not self.update_task:
+            self._stop_event.clear()
             self.update_task = threading.Thread(
                 target=self._rule_update_loop, daemon=True
             )
@@ -102,13 +105,16 @@ class DynamicRuleManager:
         return False
 
     def _rule_update_loop(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             try:
                 self.update_rules()
-                time.sleep(self.config.dynamic_rule_interval)
+                self._interruptible_sleep(self.config.dynamic_rule_interval)
             except Exception as e:
                 self.logger.error(f"Error in dynamic rule update loop: {e}")
-                time.sleep(min(60, self.config.dynamic_rule_interval))
+                self._interruptible_sleep(min(60, self.config.dynamic_rule_interval))
+
+    def _interruptible_sleep(self, timeout: float) -> None:
+        self._stop_event.wait(timeout=timeout)
 
     def _should_update_rules(self, rules: DynamicRules) -> bool:
         if not self.current_rules:
@@ -126,7 +132,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             reason = f"Received updated rules {rules.rule_id} v{rules.version}"
 
@@ -348,7 +356,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -375,7 +385,9 @@ class DynamicRuleManager:
             return
 
         try:
-            from guard_agent import SecurityEvent
+            from guard_core._pydantic_plugin_mute import get_telemetry_model
+
+            SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
@@ -399,7 +411,8 @@ class DynamicRuleManager:
         self.update_rules()
 
     def stop(self) -> None:
-        if self.update_task and self.update_task.is_alive():
+        if self.update_task:
+            self._stop_event.set()
             self.update_task.join(timeout=5)
             self.update_task = None
             self.logger.info("Stopped dynamic rule update loop")
