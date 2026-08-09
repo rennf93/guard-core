@@ -1,9 +1,22 @@
 import ast
+import sys
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import guard_core
+from guard_core.models import SecurityConfig
+from tests.test_sync.conftest import (
+    _GUARD_AGENT_FINDER_ATTR,
+    _calling_module_name,
+    _guard_agent_import_is_allowed,
+    _GuardAgentImportFinder,
+    _is_guard_core_module,
+)
 
 PACKAGE_ROOT = Path(guard_core.__file__).resolve().parent
+_CONFTEST_MODULE = sys.modules[_GuardAgentImportFinder.__module__]
 ALLOWED_MODULES = frozenset(
     {
         PACKAGE_ROOT / "_pydantic_plugin_mute.py",
@@ -87,8 +100,17 @@ def test_no_module_outside_the_allowlist_uses_a_known_guard_agent_import_shape()
 
     It cannot catch a dynamically constructed module name (built from string
     concatenation, a variable, or anything else a static scan cannot resolve
-    to a literal). This is a lint on the known shapes, not a proof that no
-    code path can ever reach `guard_agent`."""
+    to a literal), and it only sees source that exists on disk, not source a
+    coverage run actually executes. This is a lint on the known shapes at edit
+    time, not a proof. `_GuardAgentImportFinder` in `tests/conftest.py`
+    (exercised below and installed for the whole test session) is the proof:
+    it hooks `sys.meta_path` itself, so it catches every shape including a
+    dynamically constructed module name, `importlib.import_module`, and
+    `__import__` alike, for any `guard_agent` import that actually executes.
+    The two are complementary, not redundant: the AST scan catches an
+    unexercised bypass this session's coverage never runs through; the finder
+    proves every import that *did* run stayed inside the allowlist, which
+    static source scanning alone cannot claim."""
     violations = [
         violation
         for path in _guard_core_source_files()
@@ -127,3 +149,136 @@ def test_scanner_catches_every_synthetic_guard_agent_bypass_shape() -> None:
     }
     for label, source in bypass_shapes.items():
         assert _runtime_guard_agent_references(source, label), label
+
+
+def test_is_guard_core_module() -> None:
+    assert _is_guard_core_module("guard_core") is True
+    assert _is_guard_core_module("guard_core.models") is True
+    assert _is_guard_core_module("guard_core.decorators.base") is True
+    assert _is_guard_core_module("guard_agent") is False
+    assert _is_guard_core_module("tests.test_telemetry_model_access") is False
+    assert _is_guard_core_module(None) is False
+
+
+def test_guard_agent_import_is_allowed() -> None:
+    assert _guard_agent_import_is_allowed(
+        "guard_core._pydantic_plugin_mute", "guard_agent"
+    )
+    assert _guard_agent_import_is_allowed(
+        "guard_core._pydantic_plugin_mute", "guard_agent.models"
+    )
+    assert _guard_agent_import_is_allowed("guard_core.models", "guard_agent")
+    assert not _guard_agent_import_is_allowed("guard_core.models", "guard_agent.models")
+    assert not _guard_agent_import_is_allowed(
+        "guard_core.decorators.base", "guard_agent"
+    )
+
+
+def test_calling_module_name_returns_none_for_a_none_frame() -> None:
+    assert _calling_module_name(None) is None
+
+
+def test_calling_module_name_resolves_the_immediate_caller() -> None:
+    assert _calling_module_name(sys._getframe(0)) == __name__
+
+
+def test_finder_ignores_imports_that_are_not_guard_agent() -> None:
+    finder = _GuardAgentImportFinder()
+
+    assert finder.find_spec("json", None) is None
+    assert finder.find_spec("guard_agent_lookalike", None) is None
+    assert finder.violations == []
+
+
+def test_finder_records_a_violation_for_a_disallowed_guard_core_caller() -> None:
+    finder = _GuardAgentImportFinder()
+
+    with patch.object(
+        _CONFTEST_MODULE,
+        "_calling_module_name",
+        return_value="guard_core.decorators.base",
+    ):
+        assert finder.find_spec("guard_agent", None) is None
+        assert finder.find_spec("guard_agent.models", None) is None
+
+    assert finder.violations == [
+        "guard_core.decorators.base imports guard_agent",
+        "guard_core.decorators.base imports guard_agent.models",
+    ]
+
+
+def test_finder_ignores_a_non_guard_core_caller() -> None:
+    finder = _GuardAgentImportFinder()
+
+    with patch.object(
+        _CONFTEST_MODULE,
+        "_calling_module_name",
+        return_value="tests.test_agent.test_models_agent_integration",
+    ):
+        assert finder.find_spec("guard_agent", None) is None
+
+    assert finder.violations == []
+
+
+def test_finder_allows_the_mute_module_for_any_guard_agent_submodule() -> None:
+    finder = _GuardAgentImportFinder()
+
+    with patch.object(
+        _CONFTEST_MODULE,
+        "_calling_module_name",
+        return_value="guard_core._pydantic_plugin_mute",
+    ):
+        assert finder.find_spec("guard_agent", None) is None
+        assert finder.find_spec("guard_agent.models", None) is None
+
+    assert finder.violations == []
+
+
+def test_finder_allows_models_only_for_the_bare_guard_agent_package() -> None:
+    finder = _GuardAgentImportFinder()
+
+    with patch.object(
+        _CONFTEST_MODULE, "_calling_module_name", return_value="guard_core.models"
+    ):
+        assert finder.find_spec("guard_agent", None) is None
+        assert finder.find_spec("guard_agent.models", None) is None
+
+    assert finder.violations == ["guard_core.models imports guard_agent.models"]
+
+
+@contextmanager
+def _isolated_import_finder() -> Generator[_GuardAgentImportFinder, None, None]:
+    session_finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
+    if session_finder is not None and session_finder in sys.meta_path:
+        sys.meta_path.remove(session_finder)
+    original_guard_agent = sys.modules.pop("guard_agent", None)
+    finder = _GuardAgentImportFinder()
+    sys.meta_path.insert(0, finder)
+    try:
+        yield finder
+    finally:
+        sys.meta_path.remove(finder)
+        if original_guard_agent is not None:
+            sys.modules["guard_agent"] = original_guard_agent
+        else:
+            sys.modules.pop("guard_agent", None)
+        if session_finder is not None:
+            sys.meta_path.insert(0, session_finder)
+
+
+def test_finder_allows_to_agent_config_through_real_import_machinery() -> None:
+    with _isolated_import_finder() as finder:
+        config = SecurityConfig(enable_agent=True, agent_api_key="test-key")
+        config.to_agent_config()
+
+    assert finder.violations == []
+
+
+def test_finder_catches_a_disallowed_caller_through_real_import_machinery() -> None:
+    with _isolated_import_finder() as finder:
+        exec(
+            compile("import guard_agent\n", "<fake-bypass>", "exec"),
+            {"__name__": "guard_core._test_fake_bypass"},
+        )
+
+    assert finder.violations == ["guard_core._test_fake_bypass imports guard_agent"]

@@ -1,7 +1,10 @@
 import os
 import re
+import sys
 from collections.abc import AsyncGenerator
+from importlib.machinery import ModuleSpec
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 import pytest
@@ -295,3 +298,65 @@ def clean_rate_limiter() -> None:
     from guard_core.handlers.ratelimit_handler import RateLimitManager
 
     RateLimitManager._instance = None
+
+
+_GUARD_AGENT_FINDER_ATTR = "_guard_core_agent_import_finder"
+
+
+def _calling_module_name(frame: FrameType | None) -> str | None:
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if "importlib" not in filename and not filename.startswith("<frozen"):
+            name: str | None = frame.f_globals.get("__name__")
+            return name
+        frame = frame.f_back
+    return None
+
+
+def _is_guard_core_module(name: str | None) -> bool:
+    return name is not None and (name == "guard_core" or name.startswith("guard_core."))
+
+
+def _guard_agent_import_is_allowed(caller: str, fullname: str) -> bool:
+    if caller == "guard_core._pydantic_plugin_mute":
+        return True
+    return caller == "guard_core.models" and fullname == "guard_agent"
+
+
+class _GuardAgentImportFinder:
+    def __init__(self) -> None:
+        self.violations: list[str] = []
+
+    def find_spec(
+        self, fullname: str, path: Any, target: Any = None
+    ) -> ModuleSpec | None:
+        if fullname == "guard_agent" or fullname.startswith("guard_agent."):
+            caller = _calling_module_name(sys._getframe(1))
+            if (
+                caller is not None
+                and _is_guard_core_module(caller)
+                and not _guard_agent_import_is_allowed(caller, fullname)
+            ):
+                self.violations.append(f"{caller} imports {fullname}")
+        return None
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if getattr(sys, _GUARD_AGENT_FINDER_ATTR, None) is not None:
+        return
+    finder = _GuardAgentImportFinder()
+    sys.meta_path.insert(0, finder)
+    setattr(sys, _GUARD_AGENT_FINDER_ATTR, finder)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
+    if finder is None:
+        return
+    delattr(sys, _GUARD_AGENT_FINDER_ATTR)
+    if finder in sys.meta_path:
+        sys.meta_path.remove(finder)
+    assert not finder.violations, (
+        "guard_agent imported outside the pydantic-plugin-mute allowlist: "
+        + "; ".join(finder.violations)
+    )
