@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import Generator
 from datetime import datetime, timezone
 from typing import Any
@@ -84,11 +85,7 @@ async def test_initialize_agent_with_dynamic_rules_enabled(
     assert manager.update_task is not None
     assert isinstance(manager.update_task, asyncio.Task)
 
-    manager.update_task.cancel()
-    try:
-        await manager.update_task
-    except asyncio.CancelledError:
-        pass
+    await manager.stop()
 
 
 @pytest.mark.asyncio
@@ -124,12 +121,7 @@ async def test_initialize_agent_prevents_duplicate_tasks(
 
     assert first_task is second_task
 
-    if manager.update_task:
-        manager.update_task.cancel()
-        try:
-            await manager.update_task
-        except asyncio.CancelledError:
-            pass
+    await manager.stop()
 
 
 @pytest.mark.asyncio
@@ -163,13 +155,11 @@ async def test_rule_update_loop_normal_operation(
             return
 
     with patch.object(manager, "update_rules", mock_update_rules):
-        loop_task = asyncio.create_task(manager._rule_update_loop())
+        manager.update_task = asyncio.create_task(manager._rule_update_loop())
 
         await asyncio.sleep(2.5)
 
-        loop_task.cancel()
-
-        await loop_task
+        await manager.stop()
 
     assert update_count >= 2
 
@@ -194,13 +184,11 @@ async def test_rule_update_loop_handles_exceptions(
 
     with patch.object(manager, "update_rules", mock_update_rules):
         with caplog.at_level(logging.ERROR):
-            loop_task = asyncio.create_task(manager._rule_update_loop())
+            manager.update_task = asyncio.create_task(manager._rule_update_loop())
 
             await asyncio.sleep(2.5)
 
-            loop_task.cancel()
-
-            await loop_task
+            await manager.stop()
 
     assert "Error in dynamic rule update loop: Test exception" in caplog.text
     assert call_count >= 1
@@ -228,6 +216,22 @@ async def test_rule_update_loop_cancellation_logged(  # async-only
             await loop_task
 
     assert "Dynamic rule update loop cancelled" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_interruptible_sleep_returns_immediately_when_stopped(
+    config: SecurityConfig,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager._stop_event.set()
+
+    start = time.monotonic()
+    await manager._interruptible_sleep(30)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 1
 
 
 @pytest.mark.asyncio

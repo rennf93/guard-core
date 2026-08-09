@@ -79,7 +79,7 @@ def test_db_initialization_retry(tmp_path: Path) -> None:
             "guard_core.sync.handlers.ipinfo_handler.requests.Session",
             return_value=mock_session,
         ),
-        patch("time.sleep") as mock_sleep,
+        patch.object(db, "_sleep", MagicMock()) as mock_sleep,
         patch("builtins.open", Mock()),
     ):
         db.initialize()

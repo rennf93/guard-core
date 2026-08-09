@@ -84,7 +84,7 @@ def test_initialize_agent_with_dynamic_rules_enabled(
     assert manager.update_task is not None
     assert isinstance(manager.update_task, threading.Thread)
 
-    manager.update_task.join(timeout=1)
+    manager.stop()
 
 
 def test_initialize_agent_with_dynamic_rules_disabled(
@@ -118,8 +118,7 @@ def test_initialize_agent_prevents_duplicate_tasks(
 
     assert first_task is second_task
 
-    if manager.update_task:
-        manager.update_task.join(timeout=1)
+    manager.stop()
 
 
 def test_initialize_redis(
@@ -151,13 +150,15 @@ def test_rule_update_loop_normal_operation(
             return
 
     with patch.object(manager, "update_rules", mock_update_rules):
-        loop_task = threading.Thread(target=manager._rule_update_loop, daemon=True)
+        manager.update_task = threading.Thread(
+            target=manager._rule_update_loop, daemon=True
+        )
 
-        loop_task.start()
+        manager.update_task.start()
 
         time.sleep(2.5)
 
-        loop_task.join(timeout=1)
+        manager.stop()
 
     assert update_count >= 2
 
@@ -181,16 +182,33 @@ def test_rule_update_loop_handles_exceptions(
 
     with patch.object(manager, "update_rules", mock_update_rules):
         with caplog.at_level(logging.ERROR):
-            loop_task = threading.Thread(target=manager._rule_update_loop, daemon=True)
+            manager.update_task = threading.Thread(
+                target=manager._rule_update_loop, daemon=True
+            )
 
-            loop_task.start()
+            manager.update_task.start()
 
             time.sleep(2.5)
 
-            loop_task.join(timeout=1)
+            manager.stop()
 
     assert "Error in dynamic rule update loop: Test exception" in caplog.text
     assert call_count >= 1
+
+
+def test_interruptible_sleep_returns_immediately_when_stopped(
+    config: SecurityConfig,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager._stop_event.set()
+
+    start = time.monotonic()
+    manager._interruptible_sleep(30)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 1
 
 
 def test_update_rules_disabled(

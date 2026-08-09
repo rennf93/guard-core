@@ -169,8 +169,11 @@ class IPInfoManager:
                 except Exception:
                     if attempt == retries - 1:
                         raise
-                    time.sleep(backoff)
+                    self._sleep(backoff)
                     backoff *= 2
+
+    def _sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
 
     def _is_db_outdated(self) -> bool:
         if not self.db_path.exists():

@@ -170,8 +170,11 @@ class IPInfoManager:
                 except Exception:
                     if attempt == retries - 1:
                         raise
-                    await asyncio.sleep(backoff)
+                    await self._sleep(backoff)
                     backoff *= 2
+
+    async def _sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
 
     def _is_db_outdated(self) -> bool:
         if not self.db_path.exists():

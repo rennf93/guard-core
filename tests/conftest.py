@@ -9,6 +9,7 @@ from pytest import TempPathFactory
 
 from guard_core.handlers import suspatterns_handler as _suspatterns_module
 from guard_core.handlers.cloud_handler import cloud_handler
+from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.handlers.ipban_handler import IPBanManager
 from guard_core.handlers.ipinfo_handler import IPInfoManager
 from guard_core.handlers.ratelimit_handler import rate_limit_handler
@@ -195,6 +196,11 @@ async def reset_state() -> AsyncGenerator[None, None]:
     sus_patterns_handler.compiled_custom_patterns = set()
 
     IPBanManager._instance = None
+
+    dynamic_rule_instance = DynamicRuleManager._instance
+    if dynamic_rule_instance and dynamic_rule_instance.update_task:
+        await dynamic_rule_instance.stop()
+    DynamicRuleManager._instance = None
 
 
 @pytest.fixture

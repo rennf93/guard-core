@@ -107,7 +107,7 @@ SUBS: list[tuple[str, str]] = [
     (r"^import asyncio$", "import threading\nimport time"),
     (r"(\s+)import asyncio$", r"\1pass"),
     (r"asyncio\.Lock\b", "threading.Lock"),
-    (r"asyncio\.Event\(\)", "threading.Event()"),
+    (r"asyncio\.Event\b", "threading.Event"),
     (r"asyncio\.sleep", "time.sleep"),
     (
         r"asyncio\.to_thread\(\s*([^,\n]+),\s*([^)\n]+?)\s*\)",
@@ -303,15 +303,26 @@ DOTALL_FIXUPS: list[tuple[str, str]] = [
     ),
     (
         r"def stop\(self\) -> None:\n\s+if self\.update_task:\n"
+        r"\s+self\._stop_event\.set\(\)\n"
         r"\s+self\.update_task\.cancel\(\)\n"
         r"\s+pass\n"
         r"\s+self\.update_task = None\n"
         r"\s+self\.logger\.info\(\"Stopped dynamic rule update loop\"\)",
         "def stop(self) -> None:\n"
-        "        if self.update_task and self.update_task.is_alive():\n"
+        "        if self.update_task:\n"
+        "            self._stop_event.set()\n"
         "            self.update_task.join(timeout=5)\n"
         "            self.update_task = None\n"
         '            self.logger.info("Stopped dynamic rule update loop")',
+    ),
+    (
+        r"    def _interruptible_sleep\(self, timeout: float\) -> None:\n"
+        r"        try:\n"
+        r"            self\._stop_event\.wait\(\)\.join\(timeout=timeout\)\n"
+        r"        except asyncio\.TimeoutError:\n"
+        r"            pass",
+        "    def _interruptible_sleep(self, timeout: float) -> None:\n"
+        "        self._stop_event.wait(timeout=timeout)",
     ),
 ]
 
