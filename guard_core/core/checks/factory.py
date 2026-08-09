@@ -63,6 +63,14 @@ def _collect_route_configs(
     return tuple(decorator._route_configs.values())
 
 
+def _route_config_revision(middleware: "GuardMiddlewareProtocol") -> int | None:
+    decorator = getattr(middleware, "guard_decorator", None)
+    if decorator is None:
+        return None
+    revision: int = decorator.route_config_revision
+    return revision
+
+
 def _build_checks(
     middleware: "GuardMiddlewareProtocol",
 ) -> list[SecurityCheck]:
@@ -85,4 +93,5 @@ def build_default_pipeline(
         config=config,
         rebuild_checks=lambda: _build_checks(middleware),
         watched_container_fields=WATCHED_CONTAINER_FIELDS,
+        route_config_revision=lambda: _route_config_revision(middleware),
     )

@@ -20,6 +20,7 @@ class SecurityCheckPipeline:
         config: SecurityConfig | None = None,
         rebuild_checks: Callable[[], list[SecurityCheck]] | None = None,
         watched_container_fields: tuple[str, ...] | None = None,
+        route_config_revision: Callable[[], int | None] | None = None,
     ) -> None:
         self.checks = checks
         self.muted_check_logs = muted_check_logs or set()
@@ -27,11 +28,13 @@ class SecurityCheckPipeline:
         self._config = config
         self._rebuild_checks = rebuild_checks
         self._watched_container_fields = watched_container_fields or ()
+        self._route_config_revision = route_config_revision
         self._rebuild_lock = threading.Lock()
         self._built_revision = config.revision if config is not None else None
         self._built_signature = (
             self._container_signature(config) if config is not None else ()
         )
+        self._built_route_config_revision = self._current_route_config_revision()
 
     @staticmethod
     def _container_size(value: Sized | None) -> int:
@@ -43,10 +46,19 @@ class SecurityCheckPipeline:
             for field in self._watched_container_fields
         )
 
+    def _current_route_config_revision(self) -> int | None:
+        if self._route_config_revision is None:
+            return None
+        return self._route_config_revision()
+
     def _is_stale(self, config: SecurityConfig) -> bool:
         if config.revision != self._built_revision:
             return True
-        return self._container_signature(config) != self._built_signature
+        if self._container_signature(config) != self._built_signature:
+            return True
+        return (
+            self._current_route_config_revision() != self._built_route_config_revision
+        )
 
     def _rebuild_if_stale(self) -> None:
         config = self._config
@@ -56,6 +68,7 @@ class SecurityCheckPipeline:
             return
         revision = config.revision
         signature = self._container_signature(config)
+        route_config_revision = self._current_route_config_revision()
         muted_check_logs = config.muted_check_logs
         checks = self._rebuild_checks()
         with self._rebuild_lock:
@@ -63,6 +76,7 @@ class SecurityCheckPipeline:
             self.muted_check_logs = muted_check_logs
             self._built_revision = revision
             self._built_signature = signature
+            self._built_route_config_revision = route_config_revision
 
     def _log_extra(self, check: SecurityCheck, request: SyncGuardRequest) -> dict:
         return {
