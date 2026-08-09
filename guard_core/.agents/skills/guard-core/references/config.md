@@ -35,9 +35,9 @@ Per-route rate limiting (`rate_limit`, `rate_limit_window`, `geo_rate_limits`) a
 
 ### Telemetry
 
-`enable_agent`, `agent_api_key` (required when `enable_agent=True`), `agent_endpoint`, `agent_project_id`, `agent_buffer_size`, `agent_flush_interval`, `agent_status_interval`, `agent_enable_events`, `agent_enable_metrics`, `agent_timeout`, `agent_retry_attempts`, `agent_project_encryption_key`, `agent_guard_version`, `agent_strict`, `enable_enrichment` (requires `enable_agent=True`), `enable_otel`, `otel_service_name`, `otel_exporter_endpoint`, `otel_resource_attributes`, `enable_logfire`, `logfire_service_name`.
+`enable_agent`, `agent_api_key` (required when `enable_agent=True`), `agent_strict`, `agent_endpoint`, `agent_project_id`, `agent_buffer_size`, `agent_flush_interval`, `agent_status_interval`, `agent_enable_events`, `agent_enable_metrics`, `agent_timeout`, `agent_retry_attempts`, `agent_project_encryption_key`, `agent_guard_version`, `agent_high_watermark_ratio`, `agent_max_concurrent_flushes`, `agent_buffer_overflow_policy` (`Literal["drop", "block", "raise"] | None`, rejected at construction if set to anything else), `agent_backoff_factor`, `agent_sensitive_headers`, `agent_max_payload_size`, `agent_compression_enabled`, `agent_compression_threshold`, `agent_install_id`, `agent_payload_signing_secret`, `on_error` (also forwarded to `AgentConfig.on_error`, receiving guard-agent's `transport_send`/`encryption` failures alongside guard-core's own `agent_init`/`geoip` failures), `enable_enrichment` (requires `enable_agent=True`), `enable_otel`, `otel_service_name`, `otel_exporter_endpoint`, `otel_resource_attributes`, `enable_logfire`, `logfire_service_name`.
 
-`to_agent_config()` builds an `AgentConfig` from the agent fields when `enable_agent=True` and `agent_api_key` is set, else returns `None`.
+`to_agent_config()` builds an `AgentConfig` from the agent fields when `enable_agent=True` and `agent_api_key` is set, else returns `None`. The ten `agent_*` fields listed above with a `None` default (plus `on_error`) are each omitted from the `AgentConfig(...)` call when unset, so `AgentConfig`'s own default applies instead of a duplicated value drifting out of sync with guard-agent.
 
 ### Pipeline behavior
 
@@ -61,4 +61,4 @@ Per-route gates -- `required_headers`, `blocked_user_agents`, `max_request_size`
 
 ## Validation hooks
 
-`validate_agent_config` raises `ValueError` if `enable_agent=True` but `agent_api_key` is missing. `enable_enrichment=True` without `enable_agent=True` raises `ValidationError`. Country-list conflicts emit a warning (not an error) when both `whitelist_countries` and `blocked_countries` are set.
+`validate_agent_config` raises `ValueError` if `enable_agent=True` but `agent_api_key` is missing. `enable_enrichment=True` without `enable_agent=True` raises `ValidationError`. Country-list conflicts emit a warning (not an error) when both `whitelist_countries` and `blocked_countries` are set. `SecurityConfig` still allows unknown constructor keyword arguments (`extra="ignore"`, unchanged); `warn_unknown_fields` logs a `guard_core.models` warning naming each one so a typo'd field name is not silently a no-op. `extra="forbid"` is the intended behavior at a future major release; this warning is the migration runway.

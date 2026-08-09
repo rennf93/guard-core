@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+Unreleased
+----------
+
+### Added
+
+- `SecurityConfig` gains ten new optional fields that forward to `AgentConfig` fields `to_agent_config()` previously had no way to set at all: `agent_high_watermark_ratio`, `agent_max_concurrent_flushes`, `agent_buffer_overflow_policy` (typed `Literal["drop", "block", "raise"] | None`, so an invalid value is rejected by `SecurityConfig` validation instead of surfacing later from inside guard-agent), `agent_backoff_factor`, `agent_sensitive_headers`, `agent_max_payload_size`, `agent_compression_enabled`, `agent_compression_threshold`, `agent_install_id`, and `agent_payload_signing_secret`. A user configuring guard-core through an adapter such as fastapi-guard had no supported route to any of these ten settings. Each field defaults to `None`, and `to_agent_config()` omits it from the `AgentConfig(...)` call when unset, so `AgentConfig`'s own defaults stay the single source of truth and every existing caller's behaviour is unchanged.
+- `SecurityConfig` still accepts unknown constructor keyword arguments without error (`extra="ignore"`, unchanged), so `SecurityConfig(agent_compresion_enabled=False)` used to construct cleanly and silently do nothing. A new `model_validator(mode="before")`, `warn_unknown_fields`, now logs a `guard_core.models` warning naming each unknown key, stating plainly that it was ignored and had no effect, and suggesting the nearest real field name when one is close enough to guess at. Construction still succeeds and the unknown key is still dropped exactly as before; only a log line is added. `extra="forbid"`, which would reject the construction outright, is the intended behaviour at a future major release; this warning is the migration runway, not a stand-in for it.
+
+### Fixed
+
+- `SecurityConfig.on_error`'s own field description names its `stage` argument as one of `agent_init`, `geoip`, `transport_send`, `encryption`, but `to_agent_config()` never passed `on_error` through to `AgentConfig`. `transport_send` and `encryption` are emitted only from inside guard-agent's transport layer, so those two documented stages could never reach a caller's hook through any supported configuration path. `to_agent_config()` now forwards `on_error` to `AgentConfig.on_error` under the same omit-if-`None` rule as the ten fields above, restoring the behaviour the field's own description already promised.
+
+### Behaviour changes
+
+- Anyone who already sets `SecurityConfig.on_error` will start receiving calls for the `transport_send` and `encryption` stages once guard-agent is in use: those two stages fire only from guard-agent's transport layer and were previously undeliverable because `to_agent_config()` did not forward the hook. The `agent_init` and `geoip` stages guard-core fires directly are unaffected.
+
+___
+
+v3.11.0 (2026-08-09)
+-------------------
+
+Ten AgentConfig settings were unreachable, on_error never forwarded, and unknown config keys now warn (v3.11.0)
+---------------------------------------------------------------------------------------------------------------
+
+### Added
+
+- Ten new optional `SecurityConfig` fields expose `AgentConfig` settings that previously had no counterpart of any kind: `agent_high_watermark_ratio`, `agent_max_concurrent_flushes`, `agent_buffer_overflow_policy`, `agent_backoff_factor`, `agent_sensitive_headers`, `agent_max_payload_size`, `agent_compression_enabled`, `agent_compression_threshold`, `agent_install_id`, `agent_payload_signing_secret`. `to_agent_config()` forwarded 13 of `AgentConfig`'s 24 fields; adapters pass `SecurityConfig` straight through, so no supported configuration path could reach the other ten. Nothing appeared broken because each silently fell back to guard-agent's default. Every new field defaults to `None`, and `to_agent_config()` omits `None` values from the `AgentConfig(...)` call rather than passing them through, so guard-agent's own defaults remain the single source of truth and cannot drift across the package boundary. Behaviour is unchanged for any configuration that does not set them.
+- `SecurityConfig` now logs a warning naming any unrecognised constructor keyword. Pydantic's default `extra="ignore"` silently discarded them, so a typo such as `agent_compresion_enabled=False` was accepted, had no effect, and produced no diagnostic. A `model_validator(mode="before")` inspects the raw input before Pydantic drops unknown keys and logs each one through `guard_core.models`. `extra` deliberately remains `ignore`: rejecting unknown keys outright is a breaking change and belongs in 4.0, so this warning is the migration runway for it.
+
+### Fixed
+
+- `SecurityConfig.on_error` was never forwarded to `AgentConfig`, so two of the four stages its own field description documents could never fire. The description names `agent_init`, `geoip`, `transport_send` and `encryption` as the possible `stage` values, but guard-core emits only `geoip`; `transport_send` and `encryption` are emitted inside guard-agent, which never received the hook. The callback is now forwarded under the same omit-if-`None` rule as the ten fields above, with no separate `agent_on_error` field, since one hook receiving all four stages is the documented design. guard-core's own consumption of `on_error` is unchanged.
+
+### Behaviour changes
+
+- Applications that already set `SecurityConfig.on_error` will begin receiving agent side errors through it, under the `transport_send` and `encryption` stages. This was always the documented contract; the hook simply never reached the agent. A callback that assumes it only ever sees `geoip` should be reviewed before upgrading.
+
+___
+
 v3.10.0 (2026-08-09)
 -------------------
 

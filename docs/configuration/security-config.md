@@ -22,6 +22,7 @@ Core Settings
 | `custom_request_check`    | `Callable \| None`          | `None`   | Global async function for custom request validation.   |
 | `custom_response_modifier`| `Callable \| None`          | `None`   | Global async function to modify responses.             |
 | `route_resolution_strict` | `bool`                      | `False`  | Block with `500` when the adapter reports it could not resolve the route, instead of running the pipeline with no per-route config. Also turns requests to paths the app does not serve into `500`s rather than `404`s. See [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match). |
+| `on_error`                | `Callable[[str, BaseException, dict], None] \| None` | `None` | Best-effort callback invoked when a middleware/agent step fails, receiving `(stage, exception, context)`. `stage` is one of `agent_init`, `geoip`, `transport_send`, `encryption`. Also forwarded to `AgentConfig.on_error` when the agent is enabled; see [Agent / Telemetry](#agent--telemetry). |
 
 **Default `exclude_paths`**: `["/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/favicon.ico", "/static"]`
 
@@ -379,20 +380,38 @@ Agent / Telemetry
 !!! note "Internal Configuration"
     Agent fields are typically not exposed to end users. They are used for Guard Agent SaaS integration.
 
-| Field                    | Type          | Default                           | Description                         |
-|--------------------------|---------------|-----------------------------------|-------------------------------------|
-| `enable_agent`           | `bool`        | `False`                           | Enable Guard Agent telemetry.       |
-| `agent_api_key`          | `str \| None` | `None`                            | API key for the SaaS platform.      |
-| `agent_endpoint`         | `str`         | `"https://api.guard-core.com"` | Agent endpoint URL.                 |
-| `agent_project_id`       | `str \| None` | `None`                            | Project identifier.                 |
-| `agent_buffer_size`      | `int`         | `100`                             | Events to buffer before flush.      |
-| `agent_flush_interval`   | `int`         | `30`                              | Seconds between automatic flushes.  |
-| `agent_enable_events`    | `bool`        | `True`                            | Send security events.               |
-| `agent_enable_metrics`   | `bool`        | `True`                            | Send performance metrics.           |
-| `agent_timeout`          | `int`         | `30`                              | HTTP request timeout in seconds.    |
-| `agent_retry_attempts`   | `int`         | `3`                               | Retry attempts for failed requests. |
+| Field                             | Type                                        | Default                        | Description                         |
+|-----------------------------------|----------------------------------------------|--------------------------------|--------------------------------------|
+| `enable_agent`                    | `bool`                                       | `False`                        | Enable Guard Agent telemetry.       |
+| `agent_api_key`                   | `str \| None`                                | `None`                          | API key for the SaaS platform.      |
+| `agent_strict`                    | `bool`                                       | `False`                        | Raise at middleware init instead of degrading to agent-off when an enabled agent cannot be initialized. |
+| `agent_endpoint`                  | `str`                                         | `"https://api.guard-core.com"` | Agent endpoint URL.                 |
+| `agent_project_id`                | `str \| None`                                | `None`                          | Project identifier.                 |
+| `agent_buffer_size`               | `int`                                         | `100`                           | Events to buffer before flush.      |
+| `agent_flush_interval`            | `int`                                         | `30`                            | Seconds between automatic flushes.  |
+| `agent_enable_events`             | `bool`                                       | `True`                          | Send security events.               |
+| `agent_enable_metrics`            | `bool`                                       | `True`                          | Send performance metrics.           |
+| `agent_timeout`                   | `int`                                         | `30`                            | HTTP request timeout in seconds.    |
+| `agent_retry_attempts`            | `int`                                         | `3`                             | Retry attempts for failed requests. |
+| `agent_project_encryption_key`    | `str \| None`                                | `None`                          | Per-project AES-256-GCM key that switches the agent to the encrypted events endpoint. Required for API keys with encryption enforced server-side. |
+| `agent_guard_version`             | `str \| None`                                | `None`                          | Framework wrapper version (e.g. fastapi-guard's `__version__`) reported alongside agent telemetry. |
+| `agent_status_interval`           | `int`                                         | `300`                           | Seconds between agent status reports to the SaaS. Must be between 60 and 86400. |
+| `agent_high_watermark_ratio`      | `float \| None`                              | `None`                          | Buffer occupancy ratio that triggers an early flush. `None` defers to the agent's own default (`0.8`). |
+| `agent_max_concurrent_flushes`    | `int \| None`                                | `None`                          | Maximum concurrent early-flush operations. `None` defers to the agent's own default (`1`). |
+| `agent_buffer_overflow_policy`    | `Literal["drop", "block", "raise"] \| None`  | `None`                          | Behavior when the agent's in-memory buffer is full. `None` defers to the agent's own default (`"drop"`). |
+| `agent_backoff_factor`            | `float \| None`                              | `None`                          | Backoff factor for agent HTTP retries. `None` defers to the agent's own default. |
+| `agent_sensitive_headers`         | `list[str] \| None`                          | `None`                          | Header names excluded from telemetry payloads. `None` defers to the agent's own default. |
+| `agent_max_payload_size`          | `int \| None`                                | `None`                          | Maximum payload size in bytes included in events. `None` defers to the agent's own default. |
+| `agent_compression_enabled`       | `bool \| None`                               | `None`                          | Gzip-compress outgoing batch bodies above `agent_compression_threshold`. `None` defers to the agent's own default. |
+| `agent_compression_threshold`     | `int \| None`                                | `None`                          | Minimum body size in bytes before gzip compression applies. `None` defers to the agent's own default. |
+| `agent_install_id`                | `str \| None`                                | `None`                          | Override the agent install ID. `None` auto-generates one. |
+| `agent_payload_signing_secret`    | `str \| None`                                | `None`                          | HMAC-SHA256 secret used to sign the `X-Payload-Signature` header. |
 
-**Validator**: `agent_api_key` is required when `enable_agent` is `True`.
+**Validator**: `agent_api_key` is required when `enable_agent` is `True`. `agent_buffer_overflow_policy` rejects any value other than `"drop"`, `"block"`, or `"raise"` at construction time.
+
+`SecurityConfig.on_error` (documented under [Core Settings](#core-settings) hooks) is also forwarded to `AgentConfig.on_error` when the agent is enabled, so the same callback receives agent-side `transport_send` and `encryption` failures in addition to guard-core's own `agent_init` and `geoip` failures.
+
+All eleven fields above with a `None` default follow the same rule: `to_agent_config()` omits a field from the `AgentConfig` call entirely when it is `None`, so an unset field is controlled by `AgentConfig`'s own default rather than by a value duplicated into guard-core.
 
 ___
 
@@ -424,6 +443,7 @@ Validators
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent` is `True`. Requires `enable_agent` when `enable_dynamic_rules` is `True`. |
 | `validate_optional_extras_installed` | model-level | Requires the `redis` extra when `enable_redis` is `True`, the `cloud` extra (`aiohttp` or `requests`) when cloud blocking is enabled (`block_cloud_providers` or `enable_dynamic_rules`), and the `geo` extra (`maxminddb`) when country rules are configured with no custom `geo_ip_handler`. Raises `ValueError` naming the missing extra's install command, checked via `importlib.util.find_spec` (never a bare `import`). See [Installation](../installation.md#optional-dependency-extras). |
+| `warn_unknown_fields` | model-level, `mode="before"` | Compares the constructor keyword arguments against `model_fields` (and any field's `alias`) and logs a `guard_core.models` warning naming each unknown key, since `SecurityConfig` still allows unknown keys through (`extra="ignore"`) rather than raising. Construction still succeeds and the unknown key is still dropped; only a log line is added, so a typo'd field name is no longer a silent no-op. `extra="forbid"` is the intended behavior at a future major release. |
 
 !!! warning "Silent filtering"
     `validate_cloud_providers` silently drops unrecognized provider names. `{"AWS", "InvalidProvider"}` becomes `{"AWS"}` without raising an error.

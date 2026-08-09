@@ -242,3 +242,96 @@ def test_agent_status_interval_rejects_above_86400() -> None:
 
     with pytest.raises(ValidationError):
         SecurityConfig(agent_status_interval=86401)
+
+
+def _sample_on_error_hook(
+    stage: str, exc: BaseException, context: dict[str, object]
+) -> None:
+    raise NotImplementedError
+
+
+FORWARDED_OPTIONAL_AGENT_FIELDS: list[tuple[str, str, object]] = [
+    ("agent_high_watermark_ratio", "high_watermark_ratio", 0.5),
+    ("agent_max_concurrent_flushes", "max_concurrent_flushes", 4),
+    ("agent_buffer_overflow_policy", "buffer_overflow_policy", "block"),
+    ("agent_backoff_factor", "backoff_factor", 2.5),
+    ("agent_sensitive_headers", "sensitive_headers", ["x-secret"]),
+    ("agent_max_payload_size", "max_payload_size", 2048),
+    ("agent_compression_enabled", "compression_enabled", False),
+    ("agent_compression_threshold", "compression_threshold", 4096),
+    ("agent_install_id", "install_id", "custom-install-id"),
+    ("agent_payload_signing_secret", "payload_signing_secret", "sekret"),
+    ("on_error", "on_error", _sample_on_error_hook),
+]
+
+
+@pytest.mark.parametrize(
+    "security_field, agent_field, value", FORWARDED_OPTIONAL_AGENT_FIELDS
+)
+def test_to_agent_config_forwards_optional_field_when_set(
+    security_field: str, agent_field: str, value: object
+) -> None:
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+        **{security_field: value},
+    )
+
+    result = config.to_agent_config()
+
+    assert result is not None
+    assert getattr(result, agent_field) == value
+
+
+def test_to_agent_config_forwards_on_error_by_identity() -> None:
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+        on_error=_sample_on_error_hook,
+    )
+
+    result = config.to_agent_config()
+
+    assert result is not None
+    assert result.on_error is _sample_on_error_hook
+
+
+def test_to_agent_config_omits_none_optional_fields_leaving_agent_defaults() -> None:
+    from guard_agent import AgentConfig
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+    )
+
+    result = config.to_agent_config()
+
+    assert result is not None
+    for security_field, agent_field, _value in FORWARDED_OPTIONAL_AGENT_FIELDS:
+        assert getattr(config, security_field) is None
+        expected_default = AgentConfig.model_fields[agent_field].get_default(
+            call_default_factory=True
+        )
+        assert getattr(result, agent_field) == expected_default
+
+
+def test_agent_buffer_overflow_policy_rejects_invalid_value() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        SecurityConfig(agent_buffer_overflow_policy="nonsense")
+
+
+def test_agent_optional_fields_default_to_none() -> None:
+    config = SecurityConfig()
+
+    assert config.agent_high_watermark_ratio is None
+    assert config.agent_max_concurrent_flushes is None
+    assert config.agent_buffer_overflow_policy is None
+    assert config.agent_backoff_factor is None
+    assert config.agent_sensitive_headers is None
+    assert config.agent_max_payload_size is None
+    assert config.agent_compression_enabled is None
+    assert config.agent_compression_threshold is None
+    assert config.agent_install_id is None
+    assert config.agent_payload_signing_secret is None
