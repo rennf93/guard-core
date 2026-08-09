@@ -120,7 +120,7 @@ claude mcp add guard-core -- uv run guard-core-mcp
 
 Install it into the same environment as Guard Core — it introspects what is actually installed there, so an isolated run (`uvx`) has nothing to read.
 
-Adapter developers implement three protocols — `GuardRequest`, `GuardResponse`, and `GuardResponseFactory` — to bridge their framework into the security pipeline. Everything else (17 security checks, detection engine, Redis state, event telemetry) works out of the box.
+Adapter developers implement three protocols (`GuardRequest`, `GuardResponse`, and `GuardResponseFactory`) to bridge their framework into the security pipeline. Everything else (the 17-check catalogue, detection engine, Redis state, event telemetry) works out of the box.
 
 ___
 
@@ -146,10 +146,10 @@ ___
 How Detection Works
 -------------------
 
-1. Request inputs (query, headers, body) are decoded through up to 7 layers covering URL, HTML entities, base64, hex, Unicode escapes, and SQL comments.
-2. Decoded content is matched against ~64 regex patterns across 18 attack categories, with patterns context-filtered to relevant input zones.
+1. Request inputs (query, headers, body) are decoded through up to 7 iterations covering URL, HTML entities, base64, hex, and Unicode escapes, then a final SQL-comment strip.
+2. Decoded content is matched against 88 regex patterns across 18 attack categories, with patterns context-filtered to relevant input zones.
 3. Matched payloads receive a multi-metric semantic score combining keyword overlap, Shannon entropy, encoding-layer count, and obfuscation indicators.
-4. ReDoS protection enforces a 0.1s pattern-validation timeout and a 2-5s match timeout per pattern.
+4. ReDoS protection rejects any custom pattern whose validation probe runs longer than 50ms, and caps every custom pattern's live match at `detection_compiler_timeout` (default 2.0s, configurable 0.1-10.0s). Built-in patterns match directly with no per-match timeout.
 
 The engine is signature-based with multi-metric semantic scoring on top. It is not machine-learning-based and does not learn from traffic.
 
@@ -213,7 +213,7 @@ ___
 Security Pipeline
 -----------------
 
-Guard Core executes 17 security checks in order for every request:
+Guard Core ships a catalogue of 17 security checks, run in this fixed order:
 
 1. Route configuration extraction
 2. Emergency mode
@@ -233,6 +233,8 @@ Guard Core executes 17 security checks in order for every request:
 16. Suspicious activity detection
 17. Custom request checks
 
+A deployment's actual pipeline is usually a subset: each check declares an `applies_to(config, route_configs)` classmethod, and only checks whose effective configuration can trigger them are built. `IpSecurityCheck` is never eliminated. A default `SecurityConfig()` with no route decorators registered builds just `route_config`, `ip_security`, `rate_limit`, and `suspicious_activity`. See the [Pipeline Architecture](https://rennf93.github.io/guard-core/latest/architecture/pipeline/) for the elimination rules.
+
 Each check returns `None` (pass) or a `GuardResponse` (block). The pipeline short-circuits on the first blocking response.
 
 ___
@@ -248,7 +250,6 @@ from guard_core.models import SecurityConfig
 config = SecurityConfig(
     whitelist=["192.168.1.0/24"],
     blacklist=["10.0.0.1"],
-    blocked_countries=["CN"],
     blocked_user_agents=["curl", "wget"],
     auto_ban_threshold=5,
     auto_ban_duration=86400,
@@ -360,6 +361,6 @@ Acknowledgements
 
 - [Pydantic](https://docs.pydantic.dev/)
 - [Redis](https://redis.io/)
-- [httpx](https://www.python-httpx.org/)
+- [aiohttp](https://docs.aiohttp.org/)
 - [cachetools](https://cachetools.readthedocs.io/)
 - [MaxMind DB](https://maxmind.github.io/MaxMind-DB/)

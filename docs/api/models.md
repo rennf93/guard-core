@@ -15,7 +15,7 @@ ___
 SecurityConfig
 --------------
 
-The primary configuration model for guard-core. All security settings are defined here.
+The primary configuration model for guard-core. The code block below groups the most commonly used fields; it is not exhaustive (`SecurityConfig.model_fields` currently has 100 entries) -- introspect the installed model for the authoritative full list: `python -c "from guard_core.models import SecurityConfig; print(list(SecurityConfig.model_fields))"`.
 
 ```python
 class SecurityConfig(BaseModel):
@@ -89,7 +89,7 @@ class SecurityConfig(BaseModel):
     cors_expose_headers: list[str] = Field(default_factory=list)
     cors_max_age: int = Field(default=600)
 
-    block_cloud_providers: set[CloudProvider] | None = Field(default=None)
+    block_cloud_providers: set[str] | None = Field(default=None)
     cloud_ip_refresh_interval: int = Field(default=3600, ge=60, le=86400)
     cloud_ip_store: CloudIpStoreProtocol | CloudIpStoreFactory | None = Field(
         default=None
@@ -180,12 +180,17 @@ class SecurityConfig(BaseModel):
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges |
 | `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IP addresses and CIDR ranges |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Ensures depth is at least 1 |
-| `validate_cloud_providers` | `block_cloud_providers` | Filters to entries present in `VALID_CLOUD_PROVIDERS` (derived from the `CloudProvider` Literal: AWS, GCP, Azure). |
 | `coerce_country_set` | `whitelist_countries`, `blocked_countries` | Accepts list/tuple/set/frozenset, normalizes each entry to uppercase, returns `frozenset[str]`. |
+| `validate_cloud_providers` | `block_cloud_providers` | Keeps an entry only if the part before an optional `:!region` suffix is in `VALID_CLOUD_PROVIDERS` (AWS, GCP, Azure); a region carve-out like `"GCP:!us-central1"` is kept, not stripped to a bare name. |
+| `validate_optional_extras_installed` | model-level | Requires the `redis`/`cloud`/`geo` extra (checked via `importlib.util.find_spec`) when the corresponding feature is configured; raises `ValueError` naming the missing extra's install command. |
+| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when country filtering is configured (falls back to constructing `IPInfoManager` if `ipinfo_token` is set). |
+| `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent=True`; requires `enable_agent=True` when `enable_dynamic_rules=True`. |
+| `warn_deprecated_fields` | model-level | Emits `DeprecationWarning` when `ipinfo_token`/`ipinfo_db_path` is set. |
+| `validate_muted_event_types` | `muted_event_types` | Rejects unknown values (must be a subset of `EVENT_TYPE_VALUES`) |
+| `validate_muted_metric_types` | `muted_metric_types` | Rejects unknown values (must be a subset of `METRIC_TYPE_VALUES`) |
+| `validate_muted_check_logs` | `muted_check_logs` | Rejects unknown values (must be a subset of `CHECK_NAME_VALUES`) |
 | `validate_enabled_detection_categories` | `enabled_detection_categories` | Rejects unknown labels (must be a subset of `ALL_DETECTION_CATEGORIES`) |
 | `validate_threat_ban_config` | `threat_ban_config` | Rejects unknown category keys |
-| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when country filtering is configured |
-| `validate_agent_config` | model-level | Requires `agent_api_key` when agent is enabled |
 
 ### Detection Exclusion Fields
 
@@ -226,7 +231,7 @@ These fields tune how guard-core bootstraps geo-IP and cloud-IP data. They are i
 
 | Field                | Type                                                          | Default | Description                                                      |
 |----------------------|---------------------------------------------------------------|---------|------------------------------------------------------------------|
-| `lazy_init`          | `bool`                                                        | `True`  | When `True` (default), cloud-IP HTTP fetches and IPInfo MMDB downloads run in a background task started at app boot so startup does not block on multi-second network calls. First requests may see partially-populated cloud-IP ranges until the background task finishes (typically 1-3 seconds). Set to `False` to restore synchronous-init behavior — `initialize_redis_handlers` then awaits all initial network calls before returning. |
+| `lazy_init`          | `bool`                                                        | `True`  | When `True` (default), cloud-IP HTTP fetches and IPInfo MMDB downloads run in a background task instead of being awaited inline, so the application does not block on multi-second network calls. This only takes effect when Redis is enabled (`enable_redis=True` with a `redis_handler` wired) **and** the adapter calls `initialize_redis_handlers()` from its own startup hook (e.g. fastapi-guard's lifespan integration) -- it is not triggered by app boot on its own. Without Redis, or without that hook wired, cloud/geo initialization instead happens through their on-demand paths and this flag has no effect. First requests may see partially-populated cloud-IP ranges until the background task completes (typically 1-3 seconds). Set to `False` to restore synchronous-init behavior. |
 | `geo_ip_db_max_age`  | `int`                                                         | `86400` | Maximum age in seconds for IPInfo MMDB before re-download (3600 - 604800). |
 | `cloud_ip_store`     | `CloudIpStoreProtocol \| CloudIpStoreFactory \| None`         | `None`  | Override for the cloud-IP backend. Accepts either a ready instance implementing `CloudIpStoreProtocol`, or a `CloudIpStoreFactory` callable `(RedisHandlerProtocol) -> CloudIpStoreProtocol` invoked once the Redis handler is built. When `None` (default), guard-core auto-constructs a `RedisCloudIpStore` if `enable_redis=True`, else falls back to `InMemoryCloudIpStore`. |
 
@@ -236,7 +241,7 @@ These fields tune how guard-core bootstraps geo-IP and cloud-IP data. They are i
 
 | Symbol                  | Type                       | Description                                                                 |
 |-------------------------|----------------------------|-----------------------------------------------------------------------------|
-| `CloudProvider`         | `Literal["AWS", "GCP", "Azure"]` | Type alias used in the `block_cloud_providers` annotation. Single source of truth for valid provider names. |
+| `CloudProvider`         | `Literal["AWS", "GCP", "Azure"]` | Type alias naming the three user-blockable providers. `block_cloud_providers` itself is typed `set[str] \| None` (not `set[CloudProvider]`), since a validated entry can carry a `:!region` carve-out suffix that isn't a bare `CloudProvider` value. |
 | `VALID_CLOUD_PROVIDERS` | `frozenset[str]`           | Runtime guard set derived from `typing.get_args(CloudProvider)`. Used by `validate_cloud_providers`, `DynamicRules.blocked_cloud_providers` filtering, and the `@block_clouds` decorator. |
 
 Adding a new provider is a one-line edit to the `CloudProvider` Literal — every consumer picks up the change automatically.
@@ -286,7 +291,7 @@ class BehaviorRuleConfig(BaseModel):
 | `window`                    | `int`                                         | `3600`   | Window in seconds.                                                          |
 | `pattern`                   | `str \| None`                                 | `None`   | Match expression for `return_pattern` rules (e.g. `"status:404"`).          |
 | `action`                    | `"ban" \| "log" \| "throttle" \| "alert"`     | `"log"`  | Action when threshold is exceeded.                                          |
-| `ban_duration`              | `int \| None`                                 | `None`   | Override for `auto_ban_duration` when `action="ban"`.                       |
+| `ban_duration`              | `int \| None`                                 | `None`   | Ban duration in seconds when `action="ban"`. When `None`, falls back to a hardcoded 3600 seconds -- independent of `auto_ban_duration`, which only governs the unrelated flat penetration-detection ban path. |
 | `correlate_with_detection`  | `bool`                                        | `False`  | Halve the threshold (floor 1) when the IP has any positive `suspicious_request_counts` entry. |
 
 ___

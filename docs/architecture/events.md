@@ -55,10 +55,11 @@ async def send_middleware_event(
 This is the primary method called by security checks and internal components. It:
 
 1. Returns immediately if `agent_handler` is `None` or `config.agent_enable_events` is `False`
-2. Extracts the client IP from the request (respecting proxy configuration)
-3. Resolves the client's country via `geo_ip_handler.get_country()` (if available)
-4. Constructs a `SecurityEvent` with timestamp, event type, IP, country, user agent, action, reason, endpoint, method, and any additional metadata from `**kwargs`
-5. Sends the event to the agent via `agent_handler.send_event()`
+2. Returns immediately if `event_type` is muted (`event_filter.is_event_allowed(event_type)` is `False`), implementing `config.muted_event_types` for this method
+3. Extracts the client IP from the request (respecting proxy configuration)
+4. Resolves the client's country via `geo_ip_handler.get_country()` (if available)
+5. Constructs a `SecurityEvent` with timestamp, event type, IP, country, user agent, action, reason, endpoint, method, and any additional metadata from `**kwargs`
+6. Sends the event to the agent via `agent_handler.send_event()`
 
 ### Event Types
 

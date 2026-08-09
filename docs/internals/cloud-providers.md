@@ -8,7 +8,7 @@ keywords: cloud providers, AWS, GCP, Azure, IP ranges, cloud blocking, guard-cor
 Cloud Providers
 ===============
 
-Guard-core can block requests originating from cloud provider IP ranges. The `CloudManager` handler fetches the official IP range lists for six providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline. Only AWS, GCP, and Azure are user-blockable via `SecurityConfig.block_cloud_providers` (typed `set[CloudProvider]` where `CloudProvider = Literal["AWS", "GCP", "Azure"]`); the validator drops any other value.
+Guard-core can block requests originating from cloud provider IP ranges. The `CloudManager` handler fetches the official IP range lists for six providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline. Only AWS, GCP, and Azure are user-blockable via `SecurityConfig.block_cloud_providers` (typed `set[str] | None`, validated against `{"AWS", "GCP", "Azure"}`); an entry is kept only if the part before an optional `:!region` suffix is one of those three, so a region carve-out like `"GCP:!us-central1"` (block the provider except that region; supported for GCP and AWS) survives the filter alongside a bare provider name.
 
 CloudManager
 ------------
@@ -36,30 +36,38 @@ class CloudManager:
         return cls._instance
 ```
 
-A module-level instance `cloud_handler` is the canonical access point used throughout guard-core. The module-level `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the default provider set for every fetch and check method. `__new__` also seeds `_store` with an `InMemoryCloudIpStore()` instance, so `_store` is never `None` in normal operation.
+A module-level instance `cloud_handler` is the canonical access point used throughout guard-core. The module-level `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the default provider set for every fetch and check method. `__new__` also seeds `_store` with an `InMemoryCloudIpStore()` instance, so `_store` is never `None` in normal operation. `CloudManager` also carries a `network_regions: dict[str, dict[str, str]]` attribute (network string to region name, per provider), populated alongside `ip_ranges` on every fetch/refresh; it backs the `:!region` carve-out check in `is_cloud_ip()`.
 
 ___
 
 IP Range Fetching
 -----------------
 
-Each provider has a dedicated async fetch function that returns a `set[IPv4Network | IPv6Network]`.
+Each provider has a dedicated async fetch function that returns `tuple[set[IPv4Network | IPv6Network], dict[str, str]]`: the CIDR network set plus a network-string-to-region map used for `:!region` carve-outs.
 
 ### AWS
 
 ```python
-async def fetch_aws_ip_ranges() -> set[IPv4Network | IPv6Network]:
+async def fetch_aws_ip_ranges() -> tuple[
+    set[IPv4Network | IPv6Network], dict[str, str]
+]:
     async with aiohttp.ClientSession() as session:
         response = await session.get(
             "https://ip-ranges.amazonaws.com/ip-ranges.json",
             timeout=aiohttp.ClientTimeout(total=10),
         )
         data = await response.json(content_type=None)
-    return {
-        ipaddress.ip_network(r["ip_prefix"])
-        for r in data["prefixes"]
-        if r["service"] == "AMAZON"
-    }
+    networks = set()
+    regions = {}
+    for ip_range in data["prefixes"]:
+        if ip_range["service"] != "AMAZON":
+            continue
+        network = ipaddress.ip_network(ip_range["ip_prefix"])
+        networks.add(network)
+        region = ip_range.get("region")
+        if region:
+            regions[str(network)] = region
+    return networks, regions
 ```
 
 Filters to `service == "AMAZON"` prefixes only, which covers all AWS services.
@@ -67,7 +75,9 @@ Filters to `service == "AMAZON"` prefixes only, which covers all AWS services.
 ### GCP
 
 ```python
-async def fetch_gcp_ip_ranges() -> set[IPv4Network | IPv6Network]:
+async def fetch_gcp_ip_ranges() -> tuple[
+    set[IPv4Network | IPv6Network], dict[str, str]
+]:
     async with aiohttp.ClientSession() as session:
         response = await session.get(
             "https://www.gstatic.com/ipranges/cloud.json",
@@ -76,7 +86,7 @@ async def fetch_gcp_ip_ranges() -> set[IPv4Network | IPv6Network]:
         data = await response.json(content_type=None)
 ```
 
-GCP publishes IPv4 and IPv6 ranges under different keys in the same JSON file. The function merges both into a single set.
+GCP publishes IPv4 and IPv6 ranges under different keys in the same JSON file. The function merges both into a single set, recording each network's `scope` field as its region.
 
 ### Azure
 
@@ -136,11 +146,11 @@ async def refresh_async(
 2. If found, deserialize into `ipaddress` networks and populate the in-memory cache.
 3. If not found, fetch from the provider, populate in-memory, and write the CIDR set back to the store with a TTL (`self._store.set(provider, ...)`).
 
-`RedisCloudIpStore` JSON-encodes each provider's CIDR set as a sorted list under the `cloud_ip` namespace. Redis keys follow the pattern `{redis_prefix}cloud_ip:{provider}` (e.g., `guard:cloud_ip:AWS`). See [Cloud IP Store](../api/cloud-ip-store.md) for the store API and namespace details.
+`RedisCloudIpStore` JSON-encodes each provider's CIDR set as a sorted list under the `cloud_ip_v2` namespace. Redis keys follow the pattern `{redis_prefix}cloud_ip_v2:{provider}` (e.g., `guard:cloud_ip_v2:AWS`). See [Cloud IP Store](../api/cloud-ip-store.md) for the store API and namespace details.
 
-### Legacy `cloud_ranges` Path (dead code)
+### Legacy `cloud_ranges_v2` Path (dead code)
 
-`refresh_async` begins with an `if self._store is None:` branch that delegates to `_refresh_providers_via_redis_handler`, which uses the legacy `cloud_ranges` namespace directly on the Redis handler:
+`refresh_async` begins with an `if self._store is None:` branch that delegates to `_refresh_providers_via_redis_handler`, which uses the legacy `cloud_ranges_v2` namespace directly on the Redis handler:
 
 ```python
 async def _refresh_providers_via_redis_handler(
@@ -151,7 +161,7 @@ async def _refresh_providers_via_redis_handler(
         return
 
     for provider in providers:
-        cached = await self.redis_handler.get_key("cloud_ranges", provider)
+        cached = await self.redis_handler.get_key("cloud_ranges_v2", provider)
         if cached:
             self.ip_ranges[provider] = {
                 ipaddress.ip_network(ip) for ip in cached.split(",")
@@ -160,7 +170,7 @@ async def _refresh_providers_via_redis_handler(
         ...
 ```
 
-This path stores a comma-separated CIDR string under keys like `{redis_prefix}cloud_ranges:{provider}`. It is **unreachable at runtime**: `__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing in the codebase sets it back to `None`, so the `if self._store is None:` guard is never satisfied and `refresh_async` always takes the store-based path above. The branch is retained only as dead/back-compat code; the `InMemoryCloudIpStore`/`RedisCloudIpStore` path is what runs in all deployments.
+This path stores a comma-separated CIDR string under keys like `{redis_prefix}cloud_ranges_v2:{provider}`. It is **unreachable at runtime**: `__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing in the codebase sets it back to `None`, so the `if self._store is None:` guard is never satisfied and `refresh_async` always takes the store-based path above. The branch is retained only as dead/back-compat code; the `InMemoryCloudIpStore`/`RedisCloudIpStore` path is what runs in all deployments.
 
 ### Sync vs Async Refresh
 
@@ -181,14 +191,19 @@ IP Checking
 ```python
 def is_cloud_ip(self, ip: str, providers: set[str] = _ALL_PROVIDERS) -> bool:
     ip_obj = ipaddress.ip_address(ip)
-    for provider in providers:
+    blocked, carveouts = _parse_cloud_selectors(providers)
+    for provider in blocked:
+        allowed_regions = carveouts.get(provider)
+        provider_regions = self.network_regions.get(provider, {})
         for network in self.ip_ranges.get(provider, set()):
             if ip_obj in network:
+                if allowed_regions and provider_regions.get(str(network)) in allowed_regions:
+                    continue
                 return True
     return False
 ```
 
-Parses the IP once, then iterates over every cached network for the requested providers. Returns `True` on the first match. Invalid IP strings are caught and logged, returning `False`.
+`providers` accepts both bare provider names and `"PROVIDER:!region"` selectors; `_parse_cloud_selectors` splits them into the blocked-provider set and a per-provider carve-out region set. Parses the IP once, then iterates over every cached network for the requested providers, skipping a match whose network falls in a carved-out region. Returns `True` on the first non-carved-out match. Invalid IP strings are caught and logged, returning `False`.
 
 ### `get_cloud_provider_details()`
 
@@ -237,7 +252,11 @@ The `CloudIpRefreshCheck` pipeline check schedules a refresh when enough time ha
 ```python
 class CloudIpRefreshCheck(SecurityCheck):
     async def check(self, request: GuardRequest) -> GuardResponse | None:
-        if not self.config.block_cloud_providers:
+        route_config = getattr(request.state, "route_config", None)
+        cloud_providers_to_check = (
+            self.middleware.route_resolver.get_cloud_providers_to_check(route_config)
+        )
+        if not cloud_providers_to_check:
             return None
 
         if (
@@ -246,8 +265,8 @@ class CloudIpRefreshCheck(SecurityCheck):
         ):
             previous_refresh = self.middleware.last_cloud_ip_refresh
             self.middleware.last_cloud_ip_refresh = int(time.time())
-            scheduled = await cloud_handler.schedule_refresh(
-                {str(provider) for provider in self.config.block_cloud_providers},
+            scheduled = await self.cloud_handler.schedule_refresh(
+                set(cloud_providers_to_check),
                 ttl=self.config.cloud_ip_refresh_interval,
                 refresh=self.middleware.refresh_cloud_ip_ranges,
             )
@@ -258,7 +277,7 @@ class CloudIpRefreshCheck(SecurityCheck):
 
 This check runs on every request but only performs work when:
 
-- `block_cloud_providers` is configured.
+- The resolved provider set is non-empty: `get_cloud_providers_to_check()` is route-aware, so a route-level `block_cloud_providers` alone (with the global `SecurityConfig.block_cloud_providers` unset) still triggers a refresh.
 - The elapsed time since the last refresh exceeds `cloud_ip_refresh_interval`.
 
 The refresh itself never runs on the request path. `schedule_refresh` fires the middleware's `refresh_cloud_ip_ranges()` as a single-flight background task: while one refresh is in flight, further calls are no-ops, so a slow provider fetch cannot block or stampede request handling. The debounce timestamp is bumped up front so concurrent requests don't all try to schedule, and restored if scheduling fails so the next request retries instead of waiting a full interval. Because the background task calls the middleware protocol method, adapter overrides of `refresh_cloud_ip_ranges` stay on the periodic path.

@@ -25,7 +25,9 @@ Defined in `guard_core/decorators/base.py`, `RouteConfig` holds every per-route 
 
 ```python
 class RouteConfig:
-    def __init__(self) -> None:
+    def __init__(self, revision: "RouteConfigRevision | None" = None) -> None:
+        object.__setattr__(self, "_revision", revision)
+        object.__setattr__(self, "_initialized", False)
         self.rate_limit: int | None = None
         self.rate_limit_window: int | None = None
         self.ip_whitelist: list[str] | None = None
@@ -39,7 +41,7 @@ class RouteConfig:
         self.blocked_user_agents: list[str] = []
         self.required_headers: dict[str, str] = {}
         self.behavior_rules: list[BehaviorRule] = []
-        self.block_cloud_providers: set[Literal["AWS", "GCP", "Azure"]] = set()
+        self.block_cloud_providers: set[str] = set()
         self.max_request_size: int | None = None
         self.allowed_content_types: list[str] | None = None
         self.time_restrictions: dict[str, str] | None = None
@@ -52,9 +54,21 @@ class RouteConfig:
         self.excluded_detection_body_fields: set[str] | None = None
         self.enabled_detection_categories: set[str] | None = None
         self.detection_scan_body: bool | None = None
+        object.__setattr__(self, "_initialized", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Tracked-container fields get wrapped in a list/dict/set subclass
+        # whose mutating methods bump `revision` directly (in-place mutation,
+        # not just whole-value assignment, triggers a pipeline rebuild).
+        object.__setattr__(self, name, value)
+        if self._initialized and name not in ("_revision", "_initialized"):
+            if self._revision is not None:
+                self._revision.bump()
 ```
 
-When a decorator is applied to a route function, it creates or updates a `RouteConfig` and associates it with that function's route ID.
+`block_cloud_providers` is `set[str]`, not `set[Literal["AWS", "GCP", "Azure"]]`: a route-level entry can carry a `":!region"` carve-out suffix the same way `SecurityConfig.block_cloud_providers` can.
+
+When a decorator is applied to a route function, it creates or updates a `RouteConfig` and associates it with that function's route ID. `RouteConfig` is not a passive data holder: its `__setattr__` bumps a `RouteConfigRevision` counter owned by `BaseSecurityDecorator` on every attribute assignment made after construction (the `_initialized` flag keeps the constructor's own ~25 field defaults from bumping it), and wraps every mutable-container field a pipeline predicate reads (`custom_validators`, `require_referrer`, `allowed_content_types`, `blocked_user_agents`, `required_headers`, `time_restrictions`, `geo_rate_limits`, `block_cloud_providers`) in a tracked subclass so in-place mutation (`route_config.custom_validators.append(...)`) bumps the counter too. `SecurityCheckPipeline` compares this counter to detect when a route's configuration changed since the pipeline was last built, and rebuilds; see [Config-Revision Rebuild](../architecture/pipeline.md#config-revision-rebuild).
 
 BaseSecurityDecorator
 ---------------------
@@ -66,8 +80,13 @@ class BaseSecurityDecorator:
     def __init__(self, config: SecurityConfig) -> None:
         self.config = config
         self._route_configs: dict[str, RouteConfig] = {}
+        self._route_config_revision = RouteConfigRevision()
         self.behavior_tracker = BehaviorTracker(config)
         self.agent_handler: Any = None
+
+    @property
+    def route_config_revision(self) -> int:
+        return self._route_config_revision.value
 
     def get_route_config(self, route_id: str) -> RouteConfig | None:
         return self._route_configs.get(route_id)
@@ -78,11 +97,12 @@ class BaseSecurityDecorator:
     def _ensure_route_config(self, func: Callable[..., Any]) -> RouteConfig:
         route_id = self._get_route_id(func)
         if route_id not in self._route_configs:
-            config = RouteConfig()
+            config = RouteConfig(self._route_config_revision)
             config.enable_suspicious_detection = (
                 self.config.enable_penetration_detection
             )
             self._route_configs[route_id] = config
+            self._route_config_revision.bump()
         return self._route_configs[route_id]
 
     def _apply_route_config(self, func: Callable[..., Any]) -> DecoratedFunction:
@@ -90,6 +110,8 @@ class BaseSecurityDecorator:
         cast(Any, func)._guard_route_id = route_id
         return cast(DecoratedFunction, func)
 ```
+
+`_route_config_revision` is a separate counter from `SecurityConfig`'s own revision; `build_default_pipeline` reads `guard_decorator.route_config_revision` to know when a route was registered or reconfigured after the pipeline was built. `_ensure_route_config` bumps it explicitly the moment a route id is first seen, in addition to `RouteConfig.__setattr__` bumping it for every field assignment after that.
 
 Key points:
 

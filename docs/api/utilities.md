@@ -20,7 +20,7 @@ setup_custom_logging
 
 ```python
 def setup_custom_logging(
-    log_file: str | None = None
+    log_file: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
     """
     Setup custom logging for Guard Core.
@@ -32,6 +32,7 @@ def setup_custom_logging(
     Args:
         log_file: Optional path to log file. If None, only console output is enabled.
                   If provided, creates the directory if it doesn't exist.
+        log_format: "text" (default) or "json" for structured JSON output.
 
     Returns:
         logging.Logger: Configured logger with namespace "guard_core"
@@ -51,10 +52,14 @@ async def log_activity(
     reason: str = "",
     passive_mode: bool = False,
     trigger_info: str = "",
-    level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING"
-):
+    level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
+    check_name: str | None = None,
+    muted_check_logs: set[str] | None = None,
+) -> None:
     """
     Universal logging function for all types of requests and activities.
+    Returns immediately without logging when `level` is `None`, or when
+    `check_name` is present in `muted_check_logs`.
     """
 ```
 
@@ -109,10 +114,17 @@ is_ip_allowed
 async def is_ip_allowed(
     ip: str,
     config: Any,
-    geo_ip_handler: GeoIPHandler | None = None
+    geo_ip_handler: GeoIPHandler | None = None,
+    *,
+    skip_ip_lists: bool = False,
+    skip_countries: bool = False,
 ) -> bool:
     """
-    Check if IP address is allowed.
+    Check if IP address is allowed. `skip_ip_lists`/`skip_countries` let a
+    caller that has already evaluated one aspect (e.g. a route-level check)
+    skip re-evaluating it here. Delegates to `check_ip_access()`, which also
+    reports cloud-provider blocks; `is_ip_allowed()` keeps its bool-only
+    return for backward compatibility.
     """
 ```
 

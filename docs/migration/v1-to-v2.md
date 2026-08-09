@@ -85,7 +85,7 @@ ___
 Cloud-IP cache Redis namespace migration
 ----------------------------------------
 
-The Redis cache for cloud-provider IP ranges moved from `cloud_ranges` (CSV per provider) to `guard:cloud_ip` (JSON-encoded sorted list per provider). The legacy CSV path is still reachable when `CloudManager._store is None`, but the default and the new `RedisCloudIpStore` write to the new namespace.
+The Redis cache for cloud-provider IP ranges moved from `cloud_ranges` (CSV per provider) to a JSON-encoded-sorted-list namespace prefixed by `redis_prefix`; that namespace is now `cloud_ip_v2` (the legacy read path's namespace was renamed to `cloud_ranges_v2` to match), after a later release added region-carve-out support. The legacy CSV path is gated behind `CloudManager._store is None`, but `CloudManager.__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing resets it to `None`, so that path is unreachable at runtime; the default and `RedisCloudIpStore` both write to `cloud_ip_v2`.
 
 If you have ops tooling, dashboards, or sidecars reading those keys directly, switch to the new namespace. See [Cloud IP Store](../api/cloud-ip-store.md) for details and the protocol contract.
 

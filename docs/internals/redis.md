@@ -17,15 +17,19 @@ RedisManager
 
 ```python
 class RedisManager:
+    _instance: "RedisManager | None" = None
+
     def __new__(cls, config: SecurityConfig) -> "RedisManager":
-        cls._instance = super().__new__(cls)
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance.logger = logging.getLogger("guard_core.handlers.redis")
+            cls._instance.agent_handler = None
         cls._instance.config = config
         cls._instance._closed = False
-        cls._instance.agent_handler = None
         return cls._instance
 ```
 
-Unlike other handlers, `RedisManager` creates a new instance on every construction. The `redis_handler` module-level variable is the class itself (not an instance), allowing deferred instantiation with a config.
+`RedisManager` is a singleton, same pattern as every other handler (`IPBanManager`, `CloudManager`, `RateLimitManager`): the `if cls._instance is None:` guard means the same underlying instance is returned on every construction. What does happen on every construction, singleton or not, is that `config` and `_closed` are re-applied to that instance -- so calling `RedisManager(new_config)` swaps the active config on the shared instance without creating a second one. The `redis_handler` module-level variable is the class itself (not an instance), allowing deferred instantiation with a config.
 
 ### Connection Lifecycle
 

@@ -67,7 +67,7 @@ class RedisCloudIpStore:
     def __init__(
         self,
         redis_handler: RedisHandlerProtocol,
-        key_prefix: str = "cloud_ip",
+        key_prefix: str = "cloud_ip_v2",
     ) -> None: ...
     async def get(self, provider: str) -> set[str] | None: ...
     async def set(self, provider: str, ranges: set[str], ttl: int | None = None) -> None: ...
@@ -96,7 +96,7 @@ config = SecurityConfig(
 )
 ```
 
-Cloud-IP ranges land at Redis keys like `myapp:guard:cloud_ip:AWS`. The redundant `guard:` segment in the previous `key_prefix` default was removed in this release (see CHANGELOG); `RedisManager.set_key` already prepends `redis_prefix`, so the `key_prefix` no longer duplicates it.
+Cloud-IP ranges land at Redis keys like `myapp:guard:cloud_ip_v2:AWS`. `RedisManager.set_key` already prepends `redis_prefix`, so the `key_prefix` default does not duplicate it.
 
 When `enable_redis=False` (or no Redis URL is reachable), the same path falls back to `InMemoryCloudIpStore` — fine for single-process deployments, lost on restart.
 
@@ -134,10 +134,10 @@ ___
 Redis namespace migration
 -------------------------
 
-The v2.0.0 release moved the cloud-IP cache from the legacy `cloud_ranges` namespace (comma-separated CSV values per provider) to `cloud_ip` (JSON-encoded sorted list per provider, prefixed by `redis_prefix`).
+The v2.0.0 release moved the cloud-IP cache from the legacy `cloud_ranges` namespace (comma-separated CSV values per provider) to a JSON-encoded-sorted-list namespace, prefixed by `redis_prefix`; that namespace was itself later renamed to `cloud_ip_v2` when region-carve-out support (`"GCP:!us-central1"`-style selectors) was added, and the legacy read path's namespace was renamed to `cloud_ranges_v2` to match.
 
-- **Default writers** — `RedisCloudIpStore` writes to `<redis_prefix>cloud_ip:<provider>`.
-- **Legacy reader (dead code)** — the legacy CSV path under `cloud_ranges` is gated behind `CloudManager._store is None`. Because `CloudManager.__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing resets it to `None`, that branch is unreachable at runtime; the default and the Redis store both use the new `cloud_ip` namespace.
+- **Default writers**: `RedisCloudIpStore` writes to `<redis_prefix>cloud_ip_v2:<provider>`.
+- **Legacy reader (dead code)**: the legacy CSV path under `cloud_ranges_v2` is gated behind `CloudManager._store is None`. Because `CloudManager.__new__` always seeds `_store` with an `InMemoryCloudIpStore()` and nothing resets it to `None`, that branch is unreachable at runtime; the default and the Redis store both use the `cloud_ip_v2` namespace.
 
 Any ops tooling, dashboards, or sidecars reading those Redis keys directly must switch to the new namespace. On upgrade from a previous release, the cache invalidates once and repopulates within `cloud_ip_refresh_interval`.
 

@@ -1,6 +1,6 @@
 ---
 name: guard-core
-description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the config-derived security pipeline (17-check catalogue), the 18-category detection catalog, telemetry models, and known footguns
+description: Guard Core best practices and conventions for the framework-agnostic Python security engine. Use when working with guard-core, SecurityConfig, the security check pipeline, detection engine (SusPatternsManager, PatternCompiler, ContentPreprocessor, SemanticAnalyzer), telemetry/event bus (OTel, Logfire, guard-agent enrichment), or building a framework adapter via the GuardRequest/GuardResponse/GuardResponseFactory protocols. Covers setup, the config-derived security pipeline (17-check catalogue, only the checks a given config can trigger are actually built), the 18-category detection catalog, telemetry models, and known footguns
 ---
 
 # Guard Core
@@ -31,7 +31,7 @@ pip install "guard-core[otel]"      # OpenTelemetry export
 pip install "guard-core[logfire]"   # Logfire export
 ```
 
-`import guard_core` no longer loads `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography`; a bare import costs roughly 1.6ms. Handlers and third-party libraries load lazily, only when a check that needs them is actually built or a feature that needs them is actually configured. If a feature is configured without its extra installed, `SecurityConfig` raises a `ValueError` at construction time naming the missing extra's install command, instead of surfacing a raw `ImportError` mid-request. See [the config reference](references/config.md#optional-extras) for exactly which flags gate which extra.
+`import guard_core` no longer loads `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography`; a bare import costs roughly 2ms (measured via `python -X importtime`, Python 3.10.19). Handlers and third-party libraries load lazily, only when a check that needs them is actually built or a feature that needs them is actually configured. If a feature is configured without its extra installed, `SecurityConfig` raises a `ValueError` at construction time naming the missing extra's install command, instead of surfacing a raw `ImportError` mid-request. See [the config reference](references/config.md#optional-extras) for exactly which flags gate which extra.
 
 `guard-agent` is an optional runtime dependency pulled in by adapters when `enable_agent=True`; it is not a hard dependency of guard-core.
 
@@ -45,7 +45,6 @@ from guard_core.models import SecurityConfig
 config = SecurityConfig(
     whitelist=["192.168.1.0/24"],
     blacklist=["10.0.0.1"],
-    blocked_countries=["CN"],
     blocked_user_agents=["curl", "wget"],
     auto_ban_threshold=5,
     auto_ban_duration=86400,
@@ -128,7 +127,7 @@ from guard_core.handlers.suspatterns_handler import SusPatternsManager
 from guard_core.detection_result import DetectionResult
 ```
 
-`SusPatternsManager.detect(content, ip_address, context="unknown", correlation_id=None, enabled_categories=None) -> dict[str, Any]` is the primary entry point. It preprocesses (up to 7 decode layers: URL, HTML entities, base64, hex, Unicode escapes, SQL comments, null-byte strip), matches ~64 regex patterns across 18 categories with context filtering, runs a multi-metric semantic score, and returns a threat dict.
+`SusPatternsManager.detect(content, ip_address, context="unknown", correlation_id=None, enabled_categories=None) -> dict[str, Any]` is the primary entry point. It preprocesses (up to 7 decode iterations: URL, HTML entities, base64, hex, Unicode escapes; then a final SQL-comment strip and null-byte strip), matches 88 regex patterns across 18 categories with context filtering, runs a multi-metric semantic score, and returns a threat dict.
 
 The 18 detection categories (`ALL_DETECTION_CATEGORIES`): `xss`, `sqli`, `dir_traversal`, `path_traversal`, `cmd_injection`, `file_inclusion`, `ldap`, `xml`, `ssrf`, `nosql`, `file_upload`, `template`, `http_split`, `sensitive_file`, `cms_probing`, `recon`, `proto_pollution`, `code_injection`.
 

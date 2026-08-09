@@ -43,7 +43,7 @@ The singleton is pre-instantiated as `ip_ban_manager` at module level.
 
 **`ban_ip(ip, duration, reason="threshold_exceeded")`**
 
-Stores `(ip, expiry_timestamp)` in both local cache and Redis. Also fires a ban event to the agent handler if configured.
+Stores `(ip, expiry_timestamp)` in both local cache and Redis. Also fires a ban event to the agent handler if configured. When `ip` contains `"/"` it is treated as a CIDR network and routed to a separate `banned_networks` list/Redis namespace instead (no agent ban event in that branch). `duration` cannot exceed `LOCAL_CACHE_TTL_CAP_SECONDS` (3600s) when Redis is unavailable, since the local `TTLCache` cannot hold a ban longer than its own TTL; exceeding it raises `ValueError`.
 
 **`unban_ip(ip)`**
 
@@ -75,13 +75,13 @@ ___
 IP Allow/Block Logic
 --------------------
 
-The function `is_ip_allowed()` in `guard_core.utils` implements the global IP evaluation chain. `IpSecurityCheck` calls it for every request that reaches this step (after any route-level check has run and not blocked), passing `skip_ip_lists` / `skip_countries` flags that suppress the IP-list or country gate independently: `skip_ip_lists` is `True` whenever the route declares a non-empty `ip_whitelist` (a non-matching IP would already have been denied by the route-level step above, so reaching here means it matched); `skip_countries` is `True` only when the route's `whitelist_countries` actually matches the resolved country for this request. A route `ip_whitelist` match does not, by itself, suppress country enforcement.
+The function `check_ip_access()` in `guard_core.utils` implements the global IP evaluation chain; `IpSecurityCheck._check_global_ip_restrictions` calls it directly. `is_ip_allowed()` is a thin bool-returning wrapper around `check_ip_access()` (same `skip_ip_lists`/`skip_countries` signature) kept for external callers that only need a yes/no answer, not `check_ip_access()`'s richer `IpAccessResult` (which also names the cloud provider and network on a cloud-provider block); it is not called anywhere else inside `guard_core`. `IpSecurityCheck` calls `check_ip_access()` for every request that reaches this step (after any route-level check has run and not blocked), passing `skip_ip_lists` / `skip_countries` flags that suppress the IP-list or country gate independently: `skip_ip_lists` is `True` whenever the route declares a non-empty `ip_whitelist` (a non-matching IP would already have been denied by the route-level step above, so reaching here means it matched); `skip_countries` is `True` only when the route's `whitelist_countries` actually matches the resolved country for this request. A route `ip_whitelist` match does not, by itself, suppress country enforcement.
 
 ### Evaluation Order
 
 ```mermaid
 flowchart TD
-    START["is_ip_allowed()"]
+    START["check_ip_access()"]
     WLSET{"1. whitelist configured?"}
     WL{"2. IP in whitelist?"}
     BL{"3. IP in blacklist?"}
@@ -181,7 +181,7 @@ async def extract_client_ip(
 3. Get `X-Forwarded-For` header value.
 4. If no trusted proxies are configured, log a spoofing warning (if `X-Forwarded-For` is present) and return the connecting IP.
 5. If the connecting IP is not a trusted proxy, log a spoofing warning and return the connecting IP.
-6. If the connecting IP is a trusted proxy, extract the client IP from `X-Forwarded-For` at position `0` (leftmost), respecting `config.trusted_proxy_depth`.
+6. If the connecting IP is a trusted proxy, extract the client IP from `X-Forwarded-For` counting from the right end of the comma-separated list (`ips[-trusted_proxy_depth]`); with the default depth of `1` that is the rightmost entry, not the leftmost, since each proxy hop appends its own view to the right.
 
 ### Trusted Proxy Evaluation
 
