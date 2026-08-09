@@ -2283,7 +2283,7 @@
 <td><code>ban_duration</code></td>
 <td><code>int \| None</code></td>
 <td><code>None</code></td>
-<td>Override for <code>auto_ban_duration</code> when <code>action="ban"</code>. When <code>None</code>, the ban falls back to 3600 seconds.</td>
+<td>Ban duration in seconds when <code>action="ban"</code>. When <code>None</code>, falls back to a hardcoded 3600 seconds -- independent of <code>auto_ban_duration</code>, which only governs the unrelated flat penetration-detection ban path.</td>
 </tr>
 <tr>
 <td><code>correlate_with_detection</code></td>

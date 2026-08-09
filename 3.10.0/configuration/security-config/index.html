@@ -3022,7 +3022,7 @@
 <td><code>block_cloud_providers</code></td>
 <td><code>set[str] \| None</code></td>
 <td><code>None</code></td>
-<td>Providers to block: <code>"AWS"</code>, <code>"GCP"</code>, <code>"Azure"</code>.</td>
+<td>Providers to block. A bare name (<code>"AWS"</code>, <code>"GCP"</code>, <code>"Azure"</code>) blocks the whole provider; a region carve-out (<code>"GCP:!us-central1"</code>) blocks the provider except that region. Region scoping is supported for GCP and AWS.</td>
 </tr>
 <tr>
 <td><code>cloud_ip_refresh_interval</code></td>
@@ -3032,7 +3032,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Validator</strong>: <code>block_cloud_providers</code> is filtered to only include valid values <code>{"AWS", "GCP", "Azure"}</code>.</p>
+<p><strong>Validator</strong>: each entry is kept only if the part before an optional <code>:!region</code> suffix is one of <code>{"AWS", "GCP", "Azure"}</code>; an entry that fails this check is dropped, not the whole set.</p>
 <hr />
 <h2 id="security-headers">Security Headers<a class="headerlink" href="#security-headers" title="Permanent link">&para;</a></h2>
 <table>
@@ -3317,7 +3317,7 @@
 <td><code>log_country_check_level</code></td>
 <td>Same as above (default <code>"INFO"</code>)</td>
 <td><code>"INFO"</code></td>
-<td>Log level for non-block country verdicts (whitelisted / not-affected). <code>None</code> disables. Blocked-country hits always log at <code>WARNING</code>; no-rules / no-geolocation always log at <code>DEBUG</code>.</td>
+<td>Log level for non-block country verdicts (whitelisted / not-affected). <code>None</code> disables. Blocked-country hits log at <code>log_suspicious_level</code> instead (default <code>WARNING</code>); no-rules / no-geolocation always log at <code>DEBUG</code>.</td>
 </tr>
 <tr>
 <td><code>log_format</code></td>
@@ -3481,7 +3481,7 @@
 <tr>
 <td><code>validate_cloud_providers</code></td>
 <td><code>block_cloud_providers</code></td>
-<td>Silently filters invalid providers — only <code>"AWS"</code>, <code>"GCP"</code>, <code>"Azure"</code> are kept.</td>
+<td>Silently filters invalid providers: an entry is kept only if the part before an optional <code>:!region</code> suffix is <code>"AWS"</code>, <code>"GCP"</code>, or <code>"Azure"</code>.</td>
 </tr>
 <tr>
 <td><code>validate_geo_ip_handler_exists</code></td>

@@ -2428,7 +2428,9 @@
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">action</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;ban&quot;</span><span class="p">,</span> <span class="s2">&quot;log&quot;</span><span class="p">,</span> <span class="s2">&quot;throttle&quot;</span><span class="p">,</span> <span class="s2">&quot;alert&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;log&quot;</span><span class="p">,</span>
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">custom_action</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="p">):</span> <span class="o">...</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">ban_duration</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">correlate_with_detection</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="p">):</span> <span class="o">...</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -2468,6 +2470,16 @@
 <td><code>custom_action</code></td>
 <td><code>Callable \| None</code></td>
 <td>Override function <code>(client_ip, endpoint_id, details)</code></td>
+</tr>
+<tr>
+<td><code>ban_duration</code></td>
+<td><code>int \| None</code></td>
+<td>Ban duration in seconds when <code>action="ban"</code>. Falls back to a hardcoded 3600 seconds when <code>None</code>, independent of <code>SecurityConfig.auto_ban_duration</code>.</td>
+</tr>
+<tr>
+<td><code>correlate_with_detection</code></td>
+<td><code>bool</code></td>
+<td>Halve the effective threshold (floor 1) when the IP already has a positive <code>suspicious_request_counts</code> entry.</td>
 </tr>
 </tbody>
 </table>
@@ -2514,8 +2526,8 @@
 <h3 id="key-methods">Key Methods<a class="headerlink" href="#key-methods" title="Permanent link">&para;</a></h3>
 <p><strong><code>track_endpoint_usage(endpoint_id, client_ip, rule) -&gt; bool</code></strong></p>
 <p>Records a usage event and returns <code>True</code> if the count exceeds <code>rule.threshold</code> within <code>rule.window</code>.</p>
-<p><strong><code>track_return_pattern(endpoint_id, client_ip, response, rule) -&gt; bool</code></strong></p>
-<p>Checks if the response matches <code>rule.pattern</code>, records the event if it does, and returns <code>True</code> if the count exceeds the threshold.</p>
+<p><strong><code>track_return_pattern(endpoint_id, client_ip, response, rule, effective_threshold=None) -&gt; bool</code></strong></p>
+<p>Checks if the response matches <code>rule.pattern</code>, records the event if it does, and returns <code>True</code> if the count exceeds the threshold. <code>effective_threshold</code>, when given, is compared instead of <code>rule.threshold</code> -- this is how the caller applies <code>correlate_with_detection</code>'s halved threshold.</p>
 <h3 id="action-execution">Action Execution<a class="headerlink" href="#action-execution" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">await</span> <span class="n">tracker</span><span class="o">.</span><span class="n">apply_action</span><span class="p">(</span><span class="n">rule</span><span class="p">,</span> <span class="n">client_ip</span><span class="p">,</span> <span class="n">endpoint_id</span><span class="p">,</span> <span class="n">details</span><span class="p">)</span>
 </span></code></pre></div>
@@ -2530,7 +2542,7 @@
 <tbody>
 <tr>
 <td><code>ban</code></td>
-<td>Calls <code>ip_ban_manager.ban_ip(client_ip, 3600, "behavioral_violation")</code></td>
+<td>Calls <code>ip_ban_manager.ban_ip(client_ip, rule.ban_duration or 3600, "behavioral_violation")</code></td>
 </tr>
 <tr>
 <td><code>log</code></td>

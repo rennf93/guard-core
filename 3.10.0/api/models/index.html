@@ -2352,7 +2352,7 @@
 <p>The <code>models</code> module defines the Pydantic data models that configure guard-core's behavior.</p>
 <hr />
 <h2 id="securityconfig">SecurityConfig<a class="headerlink" href="#securityconfig" title="Permanent link">&para;</a></h2>
-<p>The primary configuration model for guard-core. All security settings are defined here.</p>
+<p>The primary configuration model for guard-core. The code block below groups the most commonly used fields; it is not exhaustive (<code>SecurityConfig.model_fields</code> currently has 100 entries) -- introspect the installed model for the authoritative full list: <code>python -c "from guard_core.models import SecurityConfig; print(list(SecurityConfig.model_fields))"</code>.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">SecurityConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">arbitrary_types_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
@@ -2424,7 +2424,7 @@
 </span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a>    <span class="n">cors_expose_headers</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
 </span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a>    <span class="n">cors_max_age</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">600</span><span class="p">)</span>
 </span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a>
-</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>    <span class="n">block_cloud_providers</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">CloudProvider</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>    <span class="n">block_cloud_providers</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
 </span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>    <span class="n">cloud_ip_refresh_interval</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">3600</span><span class="p">,</span> <span class="n">ge</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span> <span class="n">le</span><span class="o">=</span><span class="mi">86400</span><span class="p">)</span>
 </span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a>    <span class="n">cloud_ip_store</span><span class="p">:</span> <span class="n">CloudIpStoreProtocol</span> <span class="o">|</span> <span class="n">CloudIpStoreFactory</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
 </span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a>        <span class="n">default</span><span class="o">=</span><span class="kc">None</span>
@@ -2533,14 +2533,49 @@
 <td>Ensures depth is at least 1</td>
 </tr>
 <tr>
-<td><code>validate_cloud_providers</code></td>
-<td><code>block_cloud_providers</code></td>
-<td>Filters to entries present in <code>VALID_CLOUD_PROVIDERS</code> (derived from the <code>CloudProvider</code> Literal: AWS, GCP, Azure).</td>
-</tr>
-<tr>
 <td><code>coerce_country_set</code></td>
 <td><code>whitelist_countries</code>, <code>blocked_countries</code></td>
 <td>Accepts list/tuple/set/frozenset, normalizes each entry to uppercase, returns <code>frozenset[str]</code>.</td>
+</tr>
+<tr>
+<td><code>validate_cloud_providers</code></td>
+<td><code>block_cloud_providers</code></td>
+<td>Keeps an entry only if the part before an optional <code>:!region</code> suffix is in <code>VALID_CLOUD_PROVIDERS</code> (AWS, GCP, Azure); a region carve-out like <code>"GCP:!us-central1"</code> is kept, not stripped to a bare name.</td>
+</tr>
+<tr>
+<td><code>validate_optional_extras_installed</code></td>
+<td>model-level</td>
+<td>Requires the <code>redis</code>/<code>cloud</code>/<code>geo</code> extra (checked via <code>importlib.util.find_spec</code>) when the corresponding feature is configured; raises <code>ValueError</code> naming the missing extra's install command.</td>
+</tr>
+<tr>
+<td><code>validate_geo_ip_handler_exists</code></td>
+<td>model-level</td>
+<td>Requires <code>geo_ip_handler</code> when country filtering is configured (falls back to constructing <code>IPInfoManager</code> if <code>ipinfo_token</code> is set).</td>
+</tr>
+<tr>
+<td><code>validate_agent_config</code></td>
+<td>model-level</td>
+<td>Requires <code>agent_api_key</code> when <code>enable_agent=True</code>; requires <code>enable_agent=True</code> when <code>enable_dynamic_rules=True</code>.</td>
+</tr>
+<tr>
+<td><code>warn_deprecated_fields</code></td>
+<td>model-level</td>
+<td>Emits <code>DeprecationWarning</code> when <code>ipinfo_token</code>/<code>ipinfo_db_path</code> is set.</td>
+</tr>
+<tr>
+<td><code>validate_muted_event_types</code></td>
+<td><code>muted_event_types</code></td>
+<td>Rejects unknown values (must be a subset of <code>EVENT_TYPE_VALUES</code>)</td>
+</tr>
+<tr>
+<td><code>validate_muted_metric_types</code></td>
+<td><code>muted_metric_types</code></td>
+<td>Rejects unknown values (must be a subset of <code>METRIC_TYPE_VALUES</code>)</td>
+</tr>
+<tr>
+<td><code>validate_muted_check_logs</code></td>
+<td><code>muted_check_logs</code></td>
+<td>Rejects unknown values (must be a subset of <code>CHECK_NAME_VALUES</code>)</td>
 </tr>
 <tr>
 <td><code>validate_enabled_detection_categories</code></td>
@@ -2551,16 +2586,6 @@
 <td><code>validate_threat_ban_config</code></td>
 <td><code>threat_ban_config</code></td>
 <td>Rejects unknown category keys</td>
-</tr>
-<tr>
-<td><code>validate_geo_ip_handler_exists</code></td>
-<td>model-level</td>
-<td>Requires <code>geo_ip_handler</code> when country filtering is configured</td>
-</tr>
-<tr>
-<td><code>validate_agent_config</code></td>
-<td>model-level</td>
-<td>Requires <code>agent_api_key</code> when agent is enabled</td>
 </tr>
 </tbody>
 </table>
@@ -2661,7 +2686,7 @@
 <td><code>lazy_init</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>When <code>True</code> (default), cloud-IP HTTP fetches and IPInfo MMDB downloads run in a background task started at app boot so startup does not block on multi-second network calls. First requests may see partially-populated cloud-IP ranges until the background task finishes (typically 1-3 seconds). Set to <code>False</code> to restore synchronous-init behavior — <code>initialize_redis_handlers</code> then awaits all initial network calls before returning.</td>
+<td>When <code>True</code> (default), cloud-IP HTTP fetches and IPInfo MMDB downloads run in a background task instead of being awaited inline, so the application does not block on multi-second network calls. This only takes effect when Redis is enabled (<code>enable_redis=True</code> with a <code>redis_handler</code> wired) <strong>and</strong> the adapter calls <code>initialize_redis_handlers()</code> from its own startup hook (e.g. fastapi-guard's lifespan integration) -- it is not triggered by app boot on its own. Without Redis, or without that hook wired, cloud/geo initialization instead happens through their on-demand paths and this flag has no effect. First requests may see partially-populated cloud-IP ranges until the background task completes (typically 1-3 seconds). Set to <code>False</code> to restore synchronous-init behavior.</td>
 </tr>
 <tr>
 <td><code>geo_ip_db_max_age</code></td>
@@ -2691,7 +2716,7 @@
 <tr>
 <td><code>CloudProvider</code></td>
 <td><code>Literal["AWS", "GCP", "Azure"]</code></td>
-<td>Type alias used in the <code>block_cloud_providers</code> annotation. Single source of truth for valid provider names.</td>
+<td>Type alias naming the three user-blockable providers. <code>block_cloud_providers</code> itself is typed <code>set[str] \| None</code> (not <code>set[CloudProvider]</code>), since a validated entry can carry a <code>:!region</code> carve-out suffix that isn't a bare <code>CloudProvider</code> value.</td>
 </tr>
 <tr>
 <td><code>VALID_CLOUD_PROVIDERS</code></td>
@@ -2786,7 +2811,7 @@
 <td><code>ban_duration</code></td>
 <td><code>int \| None</code></td>
 <td><code>None</code></td>
-<td>Override for <code>auto_ban_duration</code> when <code>action="ban"</code>.</td>
+<td>Ban duration in seconds when <code>action="ban"</code>. When <code>None</code>, falls back to a hardcoded 3600 seconds -- independent of <code>auto_ban_duration</code>, which only governs the unrelated flat penetration-detection ban path.</td>
 </tr>
 <tr>
 <td><code>correlate_with_detection</code></td>

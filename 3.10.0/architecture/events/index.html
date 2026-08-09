@@ -2593,6 +2593,7 @@
 <p>This is the primary method called by security checks and internal components. It:</p>
 <ol>
 <li>Returns immediately if <code>agent_handler</code> is <code>None</code> or <code>config.agent_enable_events</code> is <code>False</code></li>
+<li>Returns immediately if <code>event_type</code> is muted (<code>event_filter.is_event_allowed(event_type)</code> is <code>False</code>), implementing <code>config.muted_event_types</code> for this method</li>
 <li>Extracts the client IP from the request (respecting proxy configuration)</li>
 <li>Resolves the client's country via <code>geo_ip_handler.get_country()</code> (if available)</li>
 <li>Constructs a <code>SecurityEvent</code> with timestamp, event type, IP, country, user agent, action, reason, endpoint, method, and any additional metadata from <code>**kwargs</code></li>

@@ -2592,7 +2592,7 @@
 </table>
 <h3 id="key-methods">Key Methods<a class="headerlink" href="#key-methods" title="Permanent link">&para;</a></h3>
 <p><strong><code>ban_ip(ip, duration, reason="threshold_exceeded")</code></strong></p>
-<p>Stores <code>(ip, expiry_timestamp)</code> in both local cache and Redis. Also fires a ban event to the agent handler if configured.</p>
+<p>Stores <code>(ip, expiry_timestamp)</code> in both local cache and Redis. Also fires a ban event to the agent handler if configured. When <code>ip</code> contains <code>"/"</code> it is treated as a CIDR network and routed to a separate <code>banned_networks</code> list/Redis namespace instead (no agent ban event in that branch). <code>duration</code> cannot exceed <code>LOCAL_CACHE_TTL_CAP_SECONDS</code> (3600s) when Redis is unavailable, since the local <code>TTLCache</code> cannot hold a ban longer than its own TTL; exceeding it raises <code>ValueError</code>.</p>
 <p><strong><code>unban_ip(ip)</code></strong></p>
 <p>Removes the IP from both local cache and Redis.</p>
 <p><strong><code>is_ip_banned(ip) -&gt; bool</code></strong></p>
@@ -2611,10 +2611,10 @@
 <p>Both are optional. Without Redis, bans are local to the process. Without an agent handler, ban/unban events are not sent.</p>
 <hr />
 <h2 id="ip-allowblock-logic">IP Allow/Block Logic<a class="headerlink" href="#ip-allowblock-logic" title="Permanent link">&para;</a></h2>
-<p>The function <code>is_ip_allowed()</code> in <code>guard_core.utils</code> implements the global IP evaluation chain. <code>IpSecurityCheck</code> calls it for every request that reaches this step (after any route-level check has run and not blocked), passing <code>skip_ip_lists</code> / <code>skip_countries</code> flags that suppress the IP-list or country gate independently: <code>skip_ip_lists</code> is <code>True</code> whenever the route declares a non-empty <code>ip_whitelist</code> (a non-matching IP would already have been denied by the route-level step above, so reaching here means it matched); <code>skip_countries</code> is <code>True</code> only when the route's <code>whitelist_countries</code> actually matches the resolved country for this request. A route <code>ip_whitelist</code> match does not, by itself, suppress country enforcement.</p>
+<p>The function <code>check_ip_access()</code> in <code>guard_core.utils</code> implements the global IP evaluation chain; <code>IpSecurityCheck._check_global_ip_restrictions</code> calls it directly. <code>is_ip_allowed()</code> is a thin bool-returning wrapper around <code>check_ip_access()</code> (same <code>skip_ip_lists</code>/<code>skip_countries</code> signature) kept for external callers that only need a yes/no answer, not <code>check_ip_access()</code>'s richer <code>IpAccessResult</code> (which also names the cloud provider and network on a cloud-provider block); it is not called anywhere else inside <code>guard_core</code>. <code>IpSecurityCheck</code> calls <code>check_ip_access()</code> for every request that reaches this step (after any route-level check has run and not blocked), passing <code>skip_ip_lists</code> / <code>skip_countries</code> flags that suppress the IP-list or country gate independently: <code>skip_ip_lists</code> is <code>True</code> whenever the route declares a non-empty <code>ip_whitelist</code> (a non-matching IP would already have been denied by the route-level step above, so reaching here means it matched); <code>skip_countries</code> is <code>True</code> only when the route's <code>whitelist_countries</code> actually matches the resolved country for this request. A route <code>ip_whitelist</code> match does not, by itself, suppress country enforcement.</p>
 <h3 id="evaluation-order">Evaluation Order<a class="headerlink" href="#evaluation-order" title="Permanent link">&para;</a></h3>
 <pre class="mermaid"><code>flowchart TD
-    START["is_ip_allowed()"]
+    START["check_ip_access()"]
     WLSET{"1. whitelist configured?"}
     WL{"2. IP in whitelist?"}
     BL{"3. IP in blacklist?"}
@@ -2691,7 +2691,7 @@
 <li>Get <code>X-Forwarded-For</code> header value.</li>
 <li>If no trusted proxies are configured, log a spoofing warning (if <code>X-Forwarded-For</code> is present) and return the connecting IP.</li>
 <li>If the connecting IP is not a trusted proxy, log a spoofing warning and return the connecting IP.</li>
-<li>If the connecting IP is a trusted proxy, extract the client IP from <code>X-Forwarded-For</code> at position <code>0</code> (leftmost), respecting <code>config.trusted_proxy_depth</code>.</li>
+<li>If the connecting IP is a trusted proxy, extract the client IP from <code>X-Forwarded-For</code> counting from the right end of the comma-separated list (<code>ips[-trusted_proxy_depth]</code>); with the default depth of <code>1</code> that is the rightmost entry, not the leftmost, since each proxy hop appends its own view to the right.</li>
 </ol>
 <h3 id="trusted-proxy-evaluation">Trusted Proxy Evaluation<a class="headerlink" href="#trusted-proxy-evaluation" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">_is_trusted_proxy</span><span class="p">(</span><span class="n">connecting_ip</span><span class="p">,</span> <span class="n">trusted_proxies</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>

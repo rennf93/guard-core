@@ -2249,24 +2249,14 @@
 
 
 <h1 id="api-surface-audit">API Surface Audit<a class="headerlink" href="#api-surface-audit" title="Permanent link">&para;</a></h1>
-<p>A scoped inventory of the guard-core public API surface — the <code>SecurityConfig</code>
-model and the package exports — with a recommended action per item. The goal is
-an intuitive, non-bloated, composable surface. This audit is <strong>non-breaking by
-design</strong>: nothing here removes a field or changes runtime behavior except the
-two already-deprecated <code>ipinfo_*</code> fields, which now emit a runtime
-<code>DeprecationWarning</code> when set.</p>
+<p>A scoped inventory of the guard-core public API surface (the <code>SecurityConfig</code> model and the package exports) with a recommended action per item. The goal is an intuitive, non-bloated, composable surface. This audit is <strong>non-breaking by design</strong>: nothing here removes a field or changes runtime behavior except the two already-deprecated <code>ipinfo_*</code> fields, which now emit a runtime <code>DeprecationWarning</code> when set.</p>
 <p>Current totals (verified against source):</p>
 <ul>
-<li><code>SecurityConfig</code>: <strong>92 fields</strong>, 13 validators, 1 <code>to_agent_config()</code> method
-  (<code>guard_core/models.py</code>).</li>
+<li><code>SecurityConfig</code>: <strong>100 fields</strong>, 14 validators, 1 <code>to_agent_config()</code> method (<code>guard_core/models.py</code>).</li>
 <li><code>guard_core</code> exports: <strong>22</strong> symbols (<code>guard_core/__init__.py</code>).</li>
-<li><code>fastapi-guard</code> re-exports: <strong>24</strong> symbols (the 22 above plus its own
-  <code>SecurityMiddleware</code> and <code>__version__</code>).</li>
+<li><code>fastapi-guard</code> re-exports: <strong>24</strong> symbols (the 22 above plus its own <code>SecurityMiddleware</code> and <code>__version__</code>).</li>
 </ul>
-<p>Recommendation legend: <strong>Keep</strong> (core/everyday or stable advanced) · <strong>Deprecate</strong>
-(scheduled for removal, kept working) · <strong>Group?</strong> (candidate for an optional
-nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities</a>) ·
-<strong>Remove</strong> (none in this audit — removals are out of scope).</p>
+<p>Recommendation legend: <strong>Keep</strong> (core/everyday or stable advanced) · <strong>Deprecate</strong> (scheduled for removal, kept working) · <strong>Group?</strong> (candidate for an optional nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities</a>) · <strong>Remove</strong> (none in this audit, removals are out of scope).</p>
 <h2 id="securityconfig-fields">SecurityConfig fields<a class="headerlink" href="#securityconfig-fields" title="Permanent link">&para;</a></h2>
 <p>Ordered by domain, then by <code>models.py</code> line.</p>
 <table>
@@ -2285,7 +2275,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_agent</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>325</td>
+<td>453</td>
 <td>agent</td>
 <td>Keep</td>
 </tr>
@@ -2293,7 +2283,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_api_key</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>329</td>
+<td>457</td>
 <td>agent</td>
 <td>Keep</td>
 </tr>
@@ -2301,7 +2291,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_strict</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>333</td>
+<td>461</td>
 <td>agent</td>
 <td>Keep</td>
 </tr>
@@ -2309,7 +2299,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_endpoint</code></td>
 <td><code>str</code></td>
 <td><code>"https://api.guard-core.com"</code></td>
-<td>352</td>
+<td>480</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2317,7 +2307,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_project_id</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>357</td>
+<td>485</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2325,7 +2315,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_buffer_size</code></td>
 <td><code>int</code></td>
 <td><code>100</code></td>
-<td>361</td>
+<td>489</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2333,7 +2323,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_flush_interval</code></td>
 <td><code>int</code></td>
 <td><code>30</code></td>
-<td>365</td>
+<td>493</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2341,7 +2331,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_enable_events</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>369</td>
+<td>497</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2349,7 +2339,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_enable_metrics</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>373</td>
+<td>501</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2357,7 +2347,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_timeout</code></td>
 <td><code>int</code></td>
 <td><code>30</code></td>
-<td>377</td>
+<td>505</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2365,7 +2355,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_retry_attempts</code></td>
 <td><code>int</code></td>
 <td><code>3</code></td>
-<td>381</td>
+<td>509</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2373,7 +2363,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_project_encryption_key</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>385</td>
+<td>513</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2381,7 +2371,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_guard_version</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>395</td>
+<td>523</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2389,7 +2379,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>agent_status_interval</code></td>
 <td><code>int</code></td>
 <td><code>300</code></td>
-<td>413</td>
+<td>541</td>
 <td>agent</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2397,7 +2387,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>auto_ban_threshold</code></td>
 <td><code>int</code></td>
 <td><code>10</code></td>
-<td>117</td>
+<td>200</td>
 <td>auto-ban</td>
 <td>Keep</td>
 </tr>
@@ -2405,7 +2395,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>auto_ban_duration</code></td>
 <td><code>int</code></td>
 <td><code>3600</code></td>
-<td>121</td>
+<td>204</td>
 <td>auto-ban</td>
 <td>Keep</td>
 </tr>
@@ -2413,7 +2403,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>threat_ban_config</code></td>
 <td><code>dict[str, ThreatBanConfig]</code></td>
 <td><code>dict</code></td>
-<td>125</td>
+<td>208</td>
 <td>auto-ban</td>
 <td>Keep</td>
 </tr>
@@ -2421,7 +2411,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>global_behavior_rules</code></td>
 <td><code>list[BehaviorRuleConfig]</code></td>
 <td><code>list</code></td>
-<td>133</td>
+<td>216</td>
 <td>behavioral</td>
 <td>Keep</td>
 </tr>
@@ -2429,7 +2419,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>block_cloud_providers</code></td>
 <td><code>set[str] \| None</code></td>
 <td><code>None</code></td>
-<td>232</td>
+<td>327</td>
 <td>cloud</td>
 <td>Keep</td>
 </tr>
@@ -2437,7 +2427,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cloud_ip_refresh_interval</code></td>
 <td><code>int</code></td>
 <td><code>3600</code></td>
-<td>241</td>
+<td>336</td>
 <td>cloud</td>
 <td>Keep</td>
 </tr>
@@ -2445,7 +2435,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cloud_ip_store</code></td>
 <td><code>CloudIpStoreProtocol \| CloudIpStoreFactory \| None</code></td>
 <td><code>None</code></td>
-<td>268</td>
+<td>369</td>
 <td>cloud</td>
 <td>Keep</td>
 </tr>
@@ -2453,7 +2443,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_cors</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>205</td>
+<td>300</td>
 <td>cors</td>
 <td>Keep</td>
 </tr>
@@ -2461,7 +2451,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_allow_origins</code></td>
 <td><code>list[str]</code></td>
 <td><code>["*"]</code></td>
-<td>207</td>
+<td>302</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2469,7 +2459,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_allow_methods</code></td>
 <td><code>list[str]</code></td>
 <td><code>[GET,POST,PUT,PATCH,DELETE,OPTIONS]</code></td>
-<td>211</td>
+<td>306</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2477,7 +2467,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_allow_headers</code></td>
 <td><code>list[str]</code></td>
 <td><code>["*"]</code></td>
-<td>216</td>
+<td>311</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2485,7 +2475,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_allow_credentials</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>220</td>
+<td>315</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2493,7 +2483,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_expose_headers</code></td>
 <td><code>list[str]</code></td>
 <td><code>list</code></td>
-<td>224</td>
+<td>319</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2501,7 +2491,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>cors_max_age</code></td>
 <td><code>int</code></td>
 <td><code>600</code></td>
-<td>228</td>
+<td>323</td>
 <td>cors</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2509,7 +2499,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>whitelist_countries</code></td>
 <td><code>frozenset[str]</code></td>
 <td><code>frozenset</code></td>
-<td>103</td>
+<td>181</td>
 <td>geo/country</td>
 <td>Keep</td>
 </tr>
@@ -2517,7 +2507,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>blocked_countries</code></td>
 <td><code>frozenset[str]</code></td>
 <td><code>frozenset</code></td>
-<td>108</td>
+<td>191</td>
 <td>geo/country</td>
 <td>Keep</td>
 </tr>
@@ -2525,7 +2515,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>geo_ip_handler</code></td>
 <td><code>GeoIPHandler \| None</code></td>
 <td><code>None</code></td>
-<td>66</td>
+<td>94</td>
 <td>geo/country</td>
 <td>Keep</td>
 </tr>
@@ -2533,7 +2523,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>geo_ip_db_max_age</code></td>
 <td><code>int</code></td>
 <td><code>86400</code></td>
-<td>261</td>
+<td>362</td>
 <td>geo/country</td>
 <td>Keep</td>
 </tr>
@@ -2541,7 +2531,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_compiler_timeout</code></td>
 <td><code>float</code></td>
 <td><code>2.0</code></td>
-<td>434</td>
+<td>562</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2549,7 +2539,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_max_content_length</code></td>
 <td><code>int</code></td>
 <td><code>10000</code></td>
-<td>441</td>
+<td>569</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2557,7 +2547,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_max_body_inspect_bytes</code></td>
 <td><code>int</code></td>
 <td><code>262144</code></td>
-<td>449</td>
+<td>576</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2565,7 +2555,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_preserve_attack_patterns</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>448</td>
+<td>589</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2573,7 +2563,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_semantic_threshold</code></td>
 <td><code>float</code></td>
 <td><code>0.7</code></td>
-<td>453</td>
+<td>594</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2581,7 +2571,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_anomaly_threshold</code></td>
 <td><code>float</code></td>
 <td><code>3.0</code></td>
-<td>460</td>
+<td>601</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2589,7 +2579,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_slow_pattern_threshold</code></td>
 <td><code>float</code></td>
 <td><code>0.1</code></td>
-<td>467</td>
+<td>608</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2597,7 +2587,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_monitor_history_size</code></td>
 <td><code>int</code></td>
 <td><code>1000</code></td>
-<td>474</td>
+<td>615</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2605,7 +2595,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_max_tracked_patterns</code></td>
 <td><code>int</code></td>
 <td><code>1000</code></td>
-<td>481</td>
+<td>622</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2613,7 +2603,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_threat_score_threshold</code></td>
 <td><code>float</code></td>
 <td><code>1.0</code></td>
-<td>502</td>
+<td>629</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2621,7 +2611,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>detection_scan_body</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>589</td>
+<td>716</td>
 <td>detection</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2629,7 +2619,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enabled_detection_categories</code></td>
 <td><code>set[str]</code></td>
 <td><code>ALL_DETECTION_CATEGORIES</code></td>
-<td>566</td>
+<td>724</td>
 <td>detection</td>
 <td>Keep</td>
 </tr>
@@ -2637,7 +2627,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>excluded_detection_headers</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>547</td>
+<td>695</td>
 <td>detection (excl.)</td>
 <td>Keep</td>
 </tr>
@@ -2645,7 +2635,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>excluded_detection_params</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>554</td>
+<td>702</td>
 <td>detection (excl.)</td>
 <td>Keep</td>
 </tr>
@@ -2653,7 +2643,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>excluded_detection_body_fields</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>560</td>
+<td>708</td>
 <td>detection (excl.)</td>
 <td>Keep</td>
 </tr>
@@ -2661,7 +2651,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_penetration_detection</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>299</td>
+<td>400</td>
 <td>detection</td>
 <td>Keep</td>
 </tr>
@@ -2669,7 +2659,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_dynamic_rules</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>405</td>
+<td>533</td>
 <td>dynamic-rules</td>
 <td>Keep</td>
 </tr>
@@ -2677,7 +2667,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>dynamic_rule_interval</code></td>
 <td><code>int</code></td>
 <td><code>300</code></td>
-<td>409</td>
+<td>537</td>
 <td>dynamic-rules</td>
 <td>Keep</td>
 </tr>
@@ -2685,7 +2675,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>emergency_mode</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>420</td>
+<td>548</td>
 <td>dynamic-rules</td>
 <td>Keep</td>
 </tr>
@@ -2693,7 +2683,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>emergency_whitelist</code></td>
 <td><code>list[str]</code></td>
 <td><code>list</code></td>
-<td>424</td>
+<td>552</td>
 <td>dynamic-rules</td>
 <td>Keep</td>
 </tr>
@@ -2701,7 +2691,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>endpoint_rate_limits</code></td>
 <td><code>dict[str, tuple[int, int]]</code></td>
 <td><code>dict</code></td>
-<td>429</td>
+<td>557</td>
 <td>dynamic-rules</td>
 <td>Keep</td>
 </tr>
@@ -2709,7 +2699,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_enrichment</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>536</td>
+<td>684</td>
 <td>enrichment</td>
 <td>Keep</td>
 </tr>
@@ -2717,7 +2707,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>ipinfo_token</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>313</td>
+<td>441</td>
 <td>ipinfo</td>
 <td><strong>Deprecate (warns)</strong></td>
 </tr>
@@ -2725,7 +2715,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>ipinfo_db_path</code></td>
 <td><code>Path \| None</code></td>
 <td><code>Path("data/ipinfo/country_asn.mmdb")</code></td>
-<td>319</td>
+<td>447</td>
 <td>ipinfo</td>
 <td><strong>Deprecate (warns)</strong></td>
 </tr>
@@ -2733,7 +2723,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>custom_log_file</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>141</td>
+<td>224</td>
 <td>logging</td>
 <td>Keep</td>
 </tr>
@@ -2741,7 +2731,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>log_suspicious_level</code></td>
 <td><code>Literal[...] \| None</code></td>
 <td><code>"WARNING"</code></td>
-<td>146</td>
+<td>229</td>
 <td>logging</td>
 <td>Keep</td>
 </tr>
@@ -2749,7 +2739,15 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>log_request_level</code></td>
 <td><code>Literal[...] \| None</code></td>
 <td><code>None</code></td>
-<td>150</td>
+<td>233</td>
+<td>logging</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>log_country_check_level</code></td>
+<td><code>Literal[...] \| None</code></td>
+<td><code>"INFO"</code></td>
+<td>237</td>
 <td>logging</td>
 <td>Keep</td>
 </tr>
@@ -2757,7 +2755,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>log_format</code></td>
 <td><code>Literal["text","json"]</code></td>
 <td><code>"text"</code></td>
-<td>154</td>
+<td>249</td>
 <td>logging</td>
 <td>Keep</td>
 </tr>
@@ -2765,7 +2763,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_logfire</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>526</td>
+<td>674</td>
 <td>logfire</td>
 <td>Keep</td>
 </tr>
@@ -2773,7 +2771,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>logfire_service_name</code></td>
 <td><code>str</code></td>
 <td><code>"guard-core"</code></td>
-<td>531</td>
+<td>679</td>
 <td>logfire</td>
 <td>Keep</td>
 </tr>
@@ -2781,7 +2779,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>muted_event_types</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>488</td>
+<td>636</td>
 <td>muted</td>
 <td>Keep</td>
 </tr>
@@ -2789,7 +2787,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>muted_metric_types</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>493</td>
+<td>641</td>
 <td>muted</td>
 <td>Keep</td>
 </tr>
@@ -2797,7 +2795,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>muted_check_logs</code></td>
 <td><code>set[str]</code></td>
 <td><code>set</code></td>
-<td>498</td>
+<td>646</td>
 <td>muted</td>
 <td>Keep</td>
 </tr>
@@ -2805,7 +2803,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_otel</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>503</td>
+<td>651</td>
 <td>otel</td>
 <td>Keep</td>
 </tr>
@@ -2813,7 +2811,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>otel_service_name</code></td>
 <td><code>str</code></td>
 <td><code>"guard-core"</code></td>
-<td>508</td>
+<td>656</td>
 <td>otel</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2821,7 +2819,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>otel_exporter_endpoint</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td>513</td>
+<td>661</td>
 <td>otel</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2829,7 +2827,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>otel_resource_attributes</code></td>
 <td><code>dict[str, str]</code></td>
 <td><code>dict</code></td>
-<td>518</td>
+<td>666</td>
 <td>otel</td>
 <td>Keep · Group?</td>
 </tr>
@@ -2837,7 +2835,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>trusted_proxies</code></td>
 <td><code>list[str]</code></td>
 <td><code>list</code></td>
-<td>46</td>
+<td>74</td>
 <td>proxy</td>
 <td>Keep</td>
 </tr>
@@ -2845,7 +2843,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>trusted_proxy_depth</code></td>
 <td><code>int</code></td>
 <td><code>1</code></td>
-<td>51</td>
+<td>79</td>
 <td>proxy</td>
 <td>Keep</td>
 </tr>
@@ -2853,7 +2851,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>trust_x_forwarded_proto</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>56</td>
+<td>84</td>
 <td>proxy</td>
 <td>Keep</td>
 </tr>
@@ -2861,7 +2859,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>rate_limit</code></td>
 <td><code>int</code></td>
 <td><code>10</code></td>
-<td>163</td>
+<td>258</td>
 <td>rate-limit</td>
 <td>Keep</td>
 </tr>
@@ -2869,7 +2867,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>rate_limit_window</code></td>
 <td><code>int</code></td>
 <td><code>60</code></td>
-<td>167</td>
+<td>262</td>
 <td>rate-limit</td>
 <td>Keep</td>
 </tr>
@@ -2877,7 +2875,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_rate_limiting</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>295</td>
+<td>396</td>
 <td>rate-limit</td>
 <td>Keep</td>
 </tr>
@@ -2885,7 +2883,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_redis</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>71</td>
+<td>99</td>
 <td>redis</td>
 <td>Keep</td>
 </tr>
@@ -2893,7 +2891,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>redis_url</code></td>
 <td><code>str \| None</code></td>
 <td><code>"redis://localhost:6379"</code></td>
-<td>76</td>
+<td>104</td>
 <td>redis</td>
 <td>Keep</td>
 </tr>
@@ -2901,7 +2899,55 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>redis_prefix</code></td>
 <td><code>str</code></td>
 <td><code>"guard_core:"</code></td>
-<td>81</td>
+<td>109</td>
+<td>redis</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>redis_socket_connect_timeout</code></td>
+<td><code>float \| None</code></td>
+<td><code>2.0</code></td>
+<td>114</td>
+<td>redis</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>redis_socket_timeout</code></td>
+<td><code>float \| None</code></td>
+<td><code>2.0</code></td>
+<td>126</td>
+<td>redis</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>redis_health_check_interval</code></td>
+<td><code>int</code></td>
+<td><code>30</code></td>
+<td>137</td>
+<td>redis</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>redis_max_connections</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>147</td>
+<td>redis</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>redis_retries</code></td>
+<td><code>int</code></td>
+<td><code>1</code></td>
+<td>155</td>
+<td>redis</td>
+<td>Keep · Group?</td>
+</tr>
+<tr>
+<td><code>redis_fail_open</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>414</td>
 <td>redis</td>
 <td>Keep</td>
 </tr>
@@ -2909,7 +2955,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>security_headers</code></td>
 <td><code>dict[str, Any] \| None</code></td>
 <td>headers dict</td>
-<td>175</td>
+<td>270</td>
 <td>security-headers</td>
 <td>Keep</td>
 </tr>
@@ -2917,7 +2963,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enforce_https</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>171</td>
+<td>266</td>
 <td>security-headers</td>
 <td>Keep</td>
 </tr>
@@ -2925,7 +2971,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>whitelist</code></td>
 <td><code>list[str] \| None</code></td>
 <td><code>None</code></td>
-<td>86</td>
+<td>164</td>
 <td>allow/deny</td>
 <td>Keep</td>
 </tr>
@@ -2933,7 +2979,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>blacklist</code></td>
 <td><code>list[str]</code></td>
 <td><code>list</code></td>
-<td>95</td>
+<td>173</td>
 <td>allow/deny</td>
 <td>Keep</td>
 </tr>
@@ -2941,7 +2987,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>blocked_user_agents</code></td>
 <td><code>list[str]</code></td>
 <td><code>list</code></td>
-<td>113</td>
+<td>196</td>
 <td>allow/deny</td>
 <td>Keep</td>
 </tr>
@@ -2949,7 +2995,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>enable_ip_banning</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>291</td>
+<td>392</td>
 <td>ip-banning</td>
 <td>Keep</td>
 </tr>
@@ -2957,7 +3003,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>passive_mode</code></td>
 <td><code>bool</code></td>
 <td><code>False</code></td>
-<td>61</td>
+<td>89</td>
 <td>mode</td>
 <td>Keep</td>
 </tr>
@@ -2965,7 +3011,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>custom_error_responses</code></td>
 <td><code>dict[int, str]</code></td>
 <td><code>dict</code></td>
-<td>159</td>
+<td>254</td>
 <td>hooks</td>
 <td>Keep</td>
 </tr>
@@ -2973,7 +3019,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>custom_request_check</code></td>
 <td><code>Callable[...] \| None</code></td>
 <td><code>None</code></td>
-<td>194</td>
+<td>289</td>
 <td>hooks</td>
 <td>Keep</td>
 </tr>
@@ -2981,7 +3027,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>custom_response_modifier</code></td>
 <td><code>Callable[...] \| None</code></td>
 <td><code>None</code></td>
-<td>198</td>
+<td>293</td>
 <td>hooks</td>
 <td>Keep</td>
 </tr>
@@ -2989,7 +3035,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>on_error</code></td>
 <td><code>Callable[[str, BaseException, dict], None] \| None</code></td>
 <td><code>None</code></td>
-<td>342</td>
+<td>470</td>
 <td>hooks</td>
 <td>Keep</td>
 </tr>
@@ -2997,7 +3043,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>lazy_init</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>248</td>
+<td>343</td>
 <td>init</td>
 <td>Keep</td>
 </tr>
@@ -3005,7 +3051,7 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>exclude_paths</code></td>
 <td><code>list[str]</code></td>
 <td>docs/static defaults</td>
-<td>279</td>
+<td>380</td>
 <td>init</td>
 <td>Keep</td>
 </tr>
@@ -3013,7 +3059,15 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <td><code>fail_secure</code></td>
 <td><code>bool</code></td>
 <td><code>True</code></td>
-<td>303</td>
+<td>404</td>
+<td>failure-mode</td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>route_resolution_strict</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>426</td>
 <td>failure-mode</td>
 <td>Keep</td>
 </tr>
@@ -3024,72 +3078,37 @@ nested sub-config, see <a href="#grouping-opportunities">Grouping opportunities<
 <ul>
 <li>agent: 14</li>
 <li>detection (incl. 3 <code>excluded_detection_*</code> + <code>enable_penetration_detection</code>): 16</li>
-<li>hooks: 4 · logging: 4 · geo/country: 4 · otel: 4</li>
+<li>redis: 9</li>
+<li>hooks: 4 · logging: 5 · geo/country: 4 · otel: 4</li>
 <li>cors: 7 · dynamic-rules: 5</li>
-<li>auto-ban: 3 · cloud: 3 · muted: 3 · proxy: 3 · rate-limit: 3 · redis: 3 · allow/deny: 3</li>
-<li>security-headers: 2 · ipinfo: 2 · logfire: 2 · init: 2</li>
-<li>behavioral: 1 · enrichment: 1 · ip-banning: 1 · mode: 1 · failure-mode: 1</li>
+<li>auto-ban: 3 · cloud: 3 · muted: 3 · proxy: 3 · rate-limit: 3 · allow/deny: 3</li>
+<li>security-headers: 2 · ipinfo: 2 · logfire: 2 · init: 2 · failure-mode: 2</li>
+<li>behavioral: 1 · enrichment: 1 · ip-banning: 1 · mode: 1</li>
 </ul>
-<p><strong>Total: 92 fields.</strong></p>
+<p><strong>Total: 100 fields.</strong></p>
 <h2 id="deprecations-wired-in-this-audit">Deprecations (wired in this audit)<a class="headerlink" href="#deprecations-wired-in-this-audit" title="Permanent link">&para;</a></h2>
-<p><code>ipinfo_token</code> and <code>ipinfo_db_path</code> have self-described as <em>Deprecated</em> for some
-time, directing users to a custom <code>geo_ip_handler</code>. They now emit a runtime
-<code>DeprecationWarning</code> <strong>when explicitly set</strong> — the warning is raised from a
-<code>model_validator</code> keyed on <code>model_fields_set</code>, so it fires once at construction
-and never on internal access or when the field is left at its default.</p>
+<p><code>ipinfo_token</code> and <code>ipinfo_db_path</code> have self-described as <em>Deprecated</em> for some time, directing users to a custom <code>geo_ip_handler</code>. They now emit a runtime <code>DeprecationWarning</code> <strong>when explicitly set</strong>: the warning is raised from a <code>model_validator</code> keyed on <code>model_fields_set</code>, so it fires once at construction and never on internal access or when the field is left at its default.</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ipinfo_token is deprecated and will be removed in a future release;
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>create a custom geo_ip_handler instead.
 </span></code></pre></div>
 <ul>
-<li>Non-breaking: both fields keep working; the engine still auto-builds an
-  <code>IPInfoManager</code> from them when country lists are set and no <code>geo_ip_handler</code>
-  is supplied (<code>validate_geo_ip_handler_exists</code>).</li>
-<li>Removal target: a future <strong>major</strong> release. Until then, migrate by passing a
-  <code>geo_ip_handler</code> (any <code>GeoIPHandler</code>) directly.</li>
-<li>The suite filters this specific warning (<code>pyproject.toml</code> <code>filterwarnings</code>)
-  so existing fixtures stay quiet; dedicated tests assert it still fires.</li>
+<li>Non-breaking: both fields keep working; the engine still auto-builds an <code>IPInfoManager</code> from them when country lists are set and no <code>geo_ip_handler</code> is supplied (<code>validate_geo_ip_handler_exists</code>).</li>
+<li>Removal target: a future <strong>major</strong> release. Until then, migrate by passing a <code>geo_ip_handler</code> (any <code>GeoIPHandler</code>) directly.</li>
+<li>The suite filters this specific warning (<code>pyproject.toml</code> <code>filterwarnings</code>) so existing fixtures stay quiet; dedicated tests assert it still fires.</li>
 </ul>
 <h2 id="grouping-opportunities">Grouping opportunities<a class="headerlink" href="#grouping-opportunities" title="Permanent link">&para;</a></h2>
-<p>Four prefixes dominate the field count and are good candidates for <strong>optional</strong>
-nested sub-config models (e.g. <code>config.agent.*</code>, <code>config.cors.*</code>,
-<code>config.detection.*</code>, <code>config.otel.*</code>): agent (14), detection (16), cors (7),
-otel (4). Presented as an option, <strong>not applied</strong>, because of the trade-offs:</p>
+<p>Four prefixes dominate the field count and are good candidates for <strong>optional</strong> nested sub-config models (e.g. <code>config.agent.*</code>, <code>config.cors.*</code>, <code>config.detection.*</code>, <code>config.otel.*</code>): agent (14), detection (16), cors (7), otel (4). Presented as an option, <strong>not applied</strong>, because of the trade-offs:</p>
 <ul>
-<li><strong>For:</strong> smaller top-level namespace; related knobs discoverable together;
-  clearer typing per concern.</li>
-<li><strong>Against (breaking unless aliased):</strong> the current flat construction
-  (<code>SecurityConfig(agent_api_key=..., cors_allow_origins=...)</code>) is the documented,
-  intuitive surface the design partner likes. Any grouping must ship as a
-  <strong>non-breaking additive alias layer</strong> (accept both flat and nested, keep flat
-  in <code>__init__</code> signatures) or it breaks every existing call site.</li>
+<li><strong>For:</strong> smaller top-level namespace; related knobs discoverable together; clearer typing per concern.</li>
+<li><strong>Against (breaking unless aliased):</strong> the current flat construction (<code>SecurityConfig(agent_api_key=..., cors_allow_origins=...)</code>) is the documented, intuitive surface the design partner likes. Any grouping must ship as a <strong>non-breaking additive alias layer</strong> (accept both flat and nested, keep flat in <code>__init__</code> signatures) or it breaks every existing call site.</li>
 </ul>
-<p>Recommendation: defer. If pursued, do it as an additive alias layer behind its
-own change with a migration note, never as a silent restructure.</p>
+<p>Recommendation: defer. If pursued, do it as an additive alias layer behind its own change with a migration note, never as a silent restructure.</p>
 <h2 id="exports">Exports<a class="headerlink" href="#exports" title="Permanent link">&para;</a></h2>
-<p><code>guard_core/__init__.py</code> <code>__all__</code> (22): <code>SecurityConfig</code>, <code>SecurityDecorator</code>,
-<code>RouteConfig</code>, <code>BehaviorTracker</code>, <code>BehaviorRule</code>, <code>ip_ban_manager</code>,
-<code>IPBanManager</code>, <code>cloud_handler</code>, <code>CloudManager</code>, <code>IPInfoManager</code>,
-<code>rate_limit_handler</code>, <code>RateLimitManager</code>, <code>redis_handler</code>, <code>RedisManager</code>,
-<code>security_headers_manager</code>, <code>SecurityHeadersManager</code>, <code>sus_patterns_handler</code>,
-<code>GeoIPHandler</code>, <code>RedisHandlerProtocol</code>, <code>GuardRequest</code>, <code>GuardResponse</code>,
-<code>GuardResponseFactory</code>.</p>
-<p><code>fastapi-guard/guard/__init__.py</code> <code>__all__</code> (24): the 22 above + the
-fastapi-guard-only <code>SecurityMiddleware</code> and <code>__version__</code>.</p>
-<p><strong>Drift status: none today</strong> — the two lists agree (24 = 22 + 2). The risk is
-future drift, because fastapi-guard hand-duplicates the 22 names. Single source
-of truth: fastapi-guard derives its <code>__all__</code> from <code>guard_core.__all__</code> plus its
-two locals, and a test asserts every exported name is importable, so a new
-guard-core export can't silently go missing downstream. <code>IPInfoManager</code> stays
-exported even though <code>ipinfo_*</code> config is deprecated — custom <code>geo_ip_handler</code>
-implementations may still construct it directly.</p>
+<p><code>guard_core/__init__.py</code> <code>__all__</code> (22): <code>SecurityConfig</code>, <code>SecurityDecorator</code>, <code>RouteConfig</code>, <code>BehaviorTracker</code>, <code>BehaviorRule</code>, <code>ip_ban_manager</code>, <code>IPBanManager</code>, <code>cloud_handler</code>, <code>CloudManager</code>, <code>IPInfoManager</code>, <code>rate_limit_handler</code>, <code>RateLimitManager</code>, <code>redis_handler</code>, <code>RedisManager</code>, <code>security_headers_manager</code>, <code>SecurityHeadersManager</code>, <code>sus_patterns_handler</code>, <code>GeoIPHandler</code>, <code>RedisHandlerProtocol</code>, <code>GuardRequest</code>, <code>GuardResponse</code>, <code>GuardResponseFactory</code>.</p>
+<p><code>fastapi-guard/guard/__init__.py</code> <code>__all__</code> (24): the 22 above + the fastapi-guard-only <code>SecurityMiddleware</code> and <code>__version__</code>.</p>
+<p><strong>Drift status: none today</strong> (the two lists agree, 24 = 22 + 2). The risk is future drift, because fastapi-guard hand-duplicates the 22 names. Single source of truth: fastapi-guard derives its <code>__all__</code> from <code>guard_core.__all__</code> plus its two locals, and a test asserts every exported name is importable, so a new guard-core export can't silently go missing downstream. <code>IPInfoManager</code> stays exported even though <code>ipinfo_*</code> config is deprecated; custom <code>geo_ip_handler</code> implementations may still construct it directly.</p>
 <h2 id="validators-methods-reference">Validators &amp; methods (reference)<a class="headerlink" href="#validators-methods-reference" title="Permanent link">&para;</a></h2>
-<p><code>validate_ip_lists</code> (574) · <code>validate_trusted_proxies</code> (592) ·
-<code>validate_proxy_depth</code> (610) · <code>coerce_country_set</code> (616) ·
-<code>validate_cloud_providers</code> (626) · <code>validate_geo_ip_handler_exists</code> (632) ·
-<code>validate_agent_config</code> (651) · <code>warn_deprecated_fields</code> (672, this audit) ·
-<code>validate_muted_event_types</code> · <code>validate_muted_metric_types</code> ·
-<code>validate_enabled_detection_categories</code> · <code>validate_threat_ban_config</code> ·
-<code>validate_muted_check_logs</code> · <code>to_agent_config</code> (method).</p>
+<p><code>validate_ip_lists</code> (733) · <code>validate_trusted_proxies</code> (751) · <code>validate_proxy_depth</code> (769) · <code>coerce_country_set</code> (775) · <code>validate_cloud_providers</code> (785) · <code>validate_optional_extras_installed</code> (791) · <code>validate_geo_ip_handler_exists</code> (815) · <code>validate_agent_config</code> (844) · <code>warn_deprecated_fields</code> (863, this audit) · <code>validate_muted_event_types</code> · <code>validate_muted_metric_types</code> · <code>validate_enabled_detection_categories</code> · <code>validate_threat_ban_config</code> · <code>validate_muted_check_logs</code> · <code>to_agent_config</code> (method). 14 validators total.</p>
 
 
 

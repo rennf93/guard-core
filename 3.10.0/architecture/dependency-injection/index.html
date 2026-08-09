@@ -2988,35 +2988,33 @@
 </table>
 <h3 id="initialization-methods">Initialization Methods<a class="headerlink" href="#initialization-methods" title="Permanent link">&para;</a></h3>
 <h4 id="initialize_redis_handlers"><code>initialize_redis_handlers()</code><a class="headerlink" href="#initialize_redis_handlers" title="Permanent link">&para;</a></h4>
-<p>Wires Redis into all handlers that need distributed state:</p>
 <ol>
-<li>Calls <code>redis_handler.initialize()</code> to establish the Redis connection</li>
-<li>If <code>config.block_cloud_providers</code> is set, initializes <code>cloud_handler</code> with Redis and the configured refresh interval</li>
-<li>Initializes <code>ip_ban_manager</code> with Redis</li>
-<li>Initializes <code>geo_ip_handler</code> with Redis (if provided)</li>
-<li>Initializes <code>rate_limit_handler</code> with Redis (if provided)</li>
-<li>Initializes <code>sus_patterns_handler</code> with Redis</li>
+<li>Calls <code>sus_patterns_handler.configure(config)</code> (always, regardless of Redis).</li>
+<li>If Redis is not enabled/wired (<code>not (config.enable_redis and redis_handler)</code>): when <code>config.lazy_init</code> is <code>True</code> (the default), logs a warning that <code>lazy_init</code> has no effect without Redis and returns; otherwise runs <code>cloud_handler.refresh()</code>/<code>geo_ip_handler.initialize()</code> inline (non-Redis on-demand paths) and returns.</li>
+<li>Otherwise calls <code>redis_handler.initialize()</code> to establish the Redis connection, and wires a custom <code>cloud_ip_store</code> if <code>config.cloud_ip_store</code> is set.</li>
+<li>When <code>config.lazy_init</code> is <code>True</code> (the default), schedules cloud-IP/geo-IP Redis initialization as a background <code>asyncio.Task</code> (<code>_run_lazy_init</code>) instead of awaiting it inline, so app startup is not blocked on multi-second network calls; when <code>False</code>, awaits <code>cloud_handler.initialize_redis(...)</code> (if <code>block_cloud_providers</code> is set) and <code>geo_ip_handler.initialize_redis(...)</code> (if provided) inline before continuing.</li>
+<li>Initializes <code>ip_ban_manager</code> with Redis, then <code>rate_limit_handler</code> (if provided), then <code>sus_patterns_handler</code>, all awaited inline regardless of <code>lazy_init</code>.</li>
 </ol>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">await</span> <span class="n">initializer</span><span class="o">.</span><span class="n">initialize_redis_handlers</span><span class="p">()</span>
 </span></code></pre></div>
 <div class="admonition note">
-<p class="admonition-title">Guarded by config</p>
-<p>This method returns immediately if <code>config.enable_redis</code> is <code>False</code> or <code>redis_handler</code> is <code>None</code>.</p>
+<p class="admonition-title">lazy_init only takes effect with Redis wired</p>
+<p><code>config.lazy_init=True</code> (the default) only defers cloud-IP/geo-IP initialization to a background task when Redis is enabled and a <code>redis_handler</code> is wired. Without Redis, cloud/geo initialization runs through their on-demand paths regardless of <code>lazy_init</code>'s value, and a warning is logged if the flag looked like it should have mattered.</p>
 </div>
 <h4 id="initialize_agent_integrations"><code>initialize_agent_integrations()</code><a class="headerlink" href="#initialize_agent_integrations" title="Permanent link">&para;</a></h4>
-<p>Wires the guard-agent into all handlers and starts the agent:</p>
+<p>Wires telemetry into all handlers and starts the composite handler:</p>
 <ol>
-<li>Calls <code>agent_handler.start()</code> to begin the agent's background flush loop</li>
-<li>If Redis is available, wires Redis into the agent and vice versa</li>
-<li>Calls <code>initialize_agent_for_handlers()</code> to wire the agent into <code>ip_ban_manager</code>, <code>rate_limit_handler</code>, <code>sus_patterns_handler</code>, <code>security_headers_manager</code>, <code>cloud_handler</code>, and <code>geo_ip_handler</code></li>
-<li>If <code>guard_decorator</code> has an <code>initialize_agent</code> method, wires the agent into it</li>
-<li>Calls <code>initialize_dynamic_rule_manager()</code> if <code>config.enable_dynamic_rules</code> is enabled</li>
+<li>Builds <code>composite_handler</code>/<code>event_filter</code> and calls <code>await composite_handler.start()</code> -- not <code>agent_handler.start()</code> directly; <code>CompositeAgentHandler</code> can wrap OTel/Logfire handlers too, so this runs even when no <code>agent_handler</code> is configured at all, as long as <code>enable_otel</code>/<code>enable_logfire</code>/<code>enable_enrichment</code> is set.</li>
+<li>If both <code>agent_handler</code> and <code>redis_handler</code> are present, wires Redis into the agent and vice versa.</li>
+<li>Calls <code>initialize_agent_for_handlers()</code> to wire the composite handler into <code>ip_ban_manager</code>, <code>rate_limit_handler</code>, <code>sus_patterns_handler</code>, <code>security_headers_manager</code>, <code>cloud_handler</code> (if <code>block_cloud_providers</code> is set), and <code>geo_ip_handler</code> (if it defines <code>initialize_agent</code>).</li>
+<li>If <code>guard_decorator</code> has an <code>initialize_agent</code> method, wires the composite handler into it.</li>
+<li>Calls <code>initialize_dynamic_rule_manager()</code> if <code>config.enable_dynamic_rules</code> is enabled.</li>
 </ol>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">await</span> <span class="n">initializer</span><span class="o">.</span><span class="n">initialize_agent_integrations</span><span class="p">()</span>
 </span></code></pre></div>
 <div class="admonition note">
-<p class="admonition-title">Guarded by agent_handler</p>
-<p>This method returns immediately if <code>agent_handler</code> is <code>None</code>.</p>
+<p class="admonition-title">Guard condition covers OTel/Logfire/enrichment too, not just agent_handler</p>
+<p>This method returns immediately only when <code>agent_handler</code> is <code>None</code> <strong>and</strong> <code>enable_otel</code>, <code>enable_logfire</code>, and <code>enable_enrichment</code> are all falsy. With any one of those three set, it proceeds and builds a <code>CompositeAgentHandler</code> even without an <code>agent_handler</code> -- raw OTel/Logfire export does not require guard-agent.</p>
 </div>
 <h4 id="initialize_agent_for_handlers"><code>initialize_agent_for_handlers()</code><a class="headerlink" href="#initialize_agent_for_handlers" title="Permanent link">&para;</a></h4>
 <p>Internal method that wires the agent into individual handlers:</p>
