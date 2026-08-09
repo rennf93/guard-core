@@ -10,6 +10,27 @@ Release Notes
 
 ___
 
+v3.11.0 (2026-08-09)
+-------------------
+
+Ten AgentConfig settings were unreachable, on_error never forwarded, and unknown config keys now warn (v3.11.0)
+---------------------------------------------------------------------------------------------------------------
+
+### Added
+
+- Ten new optional `SecurityConfig` fields expose `AgentConfig` settings that previously had no counterpart of any kind: `agent_high_watermark_ratio`, `agent_max_concurrent_flushes`, `agent_buffer_overflow_policy`, `agent_backoff_factor`, `agent_sensitive_headers`, `agent_max_payload_size`, `agent_compression_enabled`, `agent_compression_threshold`, `agent_install_id`, `agent_payload_signing_secret`. `to_agent_config()` forwarded 13 of `AgentConfig`'s 24 fields; adapters pass `SecurityConfig` straight through, so no supported configuration path could reach the other ten. Nothing appeared broken because each silently fell back to guard-agent's default. Every new field defaults to `None`, and `to_agent_config()` omits `None` values from the `AgentConfig(...)` call rather than passing them through, so guard-agent's own defaults remain the single source of truth and cannot drift across the package boundary. Behaviour is unchanged for any configuration that does not set them.
+- `SecurityConfig` now logs a warning naming any unrecognised constructor keyword. Pydantic's default `extra="ignore"` silently discarded them, so a typo such as `agent_compresion_enabled=False` was accepted, had no effect, and produced no diagnostic. A `model_validator(mode="before")` inspects the raw input before Pydantic drops unknown keys and logs each one through `guard_core.models`. `extra` deliberately remains `ignore`: rejecting unknown keys outright is a breaking change and belongs in 4.0, so this warning is the migration runway for it.
+
+### Fixed
+
+- `SecurityConfig.on_error` was never forwarded to `AgentConfig`, so two of the four stages its own field description documents could never fire. The description names `agent_init`, `geoip`, `transport_send` and `encryption` as the possible `stage` values, but guard-core emits only `geoip`; `transport_send` and `encryption` are emitted inside guard-agent, which never received the hook. The callback is now forwarded under the same omit-if-`None` rule as the ten fields above, with no separate `agent_on_error` field, since one hook receiving all four stages is the documented design. guard-core's own consumption of `on_error` is unchanged.
+
+### Behaviour changes
+
+- Applications that already set `SecurityConfig.on_error` will begin receiving agent side errors through it, under the `transport_send` and `encryption` stages. This was always the documented contract; the hook simply never reached the agent. A callback that assumes it only ever sees `geoip` should be reviewed before upgrading.
+
+___
+
 v3.10.0 (2026-08-09)
 -------------------
 
