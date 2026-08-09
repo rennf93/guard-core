@@ -24,7 +24,7 @@ In your adapter's `pyproject.toml`, add guard-core as a core dependency:
     name = "fastapi-guard"
     requires-python = ">=3.10"
     dependencies = [
-        "guard-core>=1.0.0",
+        "guard-core",
     ]
     ```
 
@@ -33,7 +33,7 @@ In your adapter's `pyproject.toml`, add guard-core as a core dependency:
     ```toml
     [tool.poetry.dependencies]
     python = "^3.10"
-    guard-core = "^1.0.0"
+    guard-core = "*"
     ```
 
 === "setup.cfg"
@@ -41,7 +41,7 @@ In your adapter's `pyproject.toml`, add guard-core as a core dependency:
     ```ini
     [options]
     install_requires =
-        guard-core>=1.0.0
+        guard-core
     python_requires = >=3.10
     ```
 
@@ -100,7 +100,7 @@ Configuring a feature whose extra is not installed raises a `SecurityConfig` val
 
 ### Import Cost
 
-`import guard_core` no longer pulls `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography` into `sys.modules`; every one of those loads lazily on first use of the feature that needs it. A cold `import guard_core` costs roughly 1.6ms.
+`import guard_core` no longer pulls `aiohttp`, `maxminddb`, `redis`, `guard_agent`, or `cryptography` into `sys.modules`; every one of those loads lazily on first use of the feature that needs it. A cold `import guard_core` costs roughly 2ms (measured via `python -X importtime`, Python 3.10.19).
 
 ___
 
@@ -111,7 +111,7 @@ To work on guard-core itself:
 
 ### Prerequisites
 
-- Python 3.10+ (3.10, 3.11, 3.12, 3.13 are all tested)
+- Python 3.10+ (3.10, 3.11, 3.12, 3.13, 3.14 are all tested)
 - [uv](https://docs.astral.sh/uv/) (modern Python package manager)
 - Docker and Docker Compose (for containerized tests)
 - Redis (for local integration tests)
@@ -185,6 +185,7 @@ guard-core/
 │   │   ├── middleware_protocol.py
 │   │   ├── geo_ip_protocol.py
 │   │   ├── redis_protocol.py
+│   │   ├── cloud_ip_store_protocol.py
 │   │   └── agent_protocol.py
 │   ├── core/                  # Modular engine internals
 │   │   ├── checks/            # SecurityCheck base + 17 implementations + pipeline

@@ -9,21 +9,29 @@ import json; print(json.dumps({f: {'default': SecurityConfig.model_fields[f].def
 
 ## Grouped surface
 
+Field names below are verified against the installed `SecurityConfig.model_fields`; a per-route knob (set through a decorator, not `SecurityConfig`) is called out explicitly where one could be confused for a global field of the same shape.
+
 ### IP / geo
 
-`whitelist`, `blacklist` (list of IPs/CIDRs), `blocked_countries`, `allowed_countries`, `whitelist_countries` (warning when both `whitelist_countries` and `blocked_countries` are set), `block_cloud_providers` (`set["AWS"|"GCP"|"Azure"]`), `geo_ip_handler` (`GeoIPHandler | None`), `ipinfo_token` (deprecated, use `geo_ip_handler`), `trusted_proxies`, `trusted_proxy_depth`, `trust_x_forwarded_proto`.
+`whitelist`, `blacklist` (IPs/CIDRs; an explicit whitelist match overrides the blacklist), `blocked_countries`, `whitelist_countries` (ISO 3166-1 alpha-2; a non-empty set is restrictive -- only listed countries pass, and an unresolved country is blocked), `block_cloud_providers` (`set[str]`; bare `"GCP"` blocks the whole provider, `"GCP:!us-central1"` carves out a region for GCP/AWS), `geo_ip_handler` (`GeoIPHandler | None`), `ipinfo_token`/`ipinfo_db_path` (deprecated, create a custom `geo_ip_handler` instead), `trusted_proxies`, `trusted_proxy_depth` (default `1`), `trust_x_forwarded_proto`.
+
+Route-level IP/country overrides (`ip_whitelist`, `ip_blacklist`, `blocked_countries`, `whitelist_countries`, `require_https`) live on `RouteConfig`, set via decorators, not on `SecurityConfig`.
 
 ### Rate limiting / bans
 
-`rate_limit`, `rate_limit_window`, `rate_limit_exempt`, `auto_ban_threshold`, `auto_ban_duration`, `threat_ban` (`ThreatBanConfig`), `ban_duration`, `enable_rate_limit_response_headers`.
+`rate_limit` (default `10`), `rate_limit_window` (default `60`), `auto_ban_threshold` (default `10`), `auto_ban_duration` (default `3600`), `threat_ban_config` (`dict[str, ThreatBanConfig]`; per-category threshold/duration override, unlisted categories fall back to `auto_ban_threshold`/`auto_ban_duration`), `global_behavior_rules` (list of `BehaviorRuleConfig`, applied to every route in addition to any decorator-specified rules), `enable_ip_banning` (default `True`), `enable_rate_limiting` (default `True`), `endpoint_rate_limits` (per-endpoint limits, normally set by dynamic rules).
+
+Per-route rate limiting (`rate_limit`, `rate_limit_window`, `geo_rate_limits`) and per-route `behavior_rules` live on `RouteConfig`.
 
 ### Detection
 
-`detection_max_content_length` (default 10000), `detection_compiler_timeout` (default 5.0s), `detection_validation_timeout` (default 1.0s), `detection_max_pattern_length`, `detection_threat_score_threshold`, `detection_enabled_categories` (subset of the 18), `enable_dynamic_rules`.
+`detection_compiler_timeout` (default `2.0`, range `0.1`-`10.0`; per-pattern match timeout), `detection_max_content_length` (default `10000`), `detection_max_body_inspect_bytes` (default `262144`), `detection_preserve_attack_patterns` (default `True`), `detection_semantic_threshold` (default `0.7`), `detection_anomaly_threshold` (default `3.0`), `detection_slow_pattern_threshold` (default `0.1`), `detection_monitor_history_size` (default `1000`), `detection_max_tracked_patterns` (default `1000`), `detection_threat_score_threshold` (default `1.0`), `detection_scan_body` (default `True`), `enabled_detection_categories` (subset of the 18; `None` means all), `enable_penetration_detection` (default `True`), `enable_dynamic_rules` (default `False`). See `docs/configuration/detection-tuning.md` in the guard-core repository for the full field-by-field tuning guide.
+
+`PatternCompiler.validate_pattern_safety`'s own probe/wait budget (50ms soft, 1.0s hard) is a hardcoded constant, not a `SecurityConfig` field.
 
 ### Redis
 
-`enable_redis` (default `True`), `redis_url` (default `redis://localhost:6379`), `redis_prefix` (default `guard_core:`), `redis_socket_connect_timeout` (default 2.0, must be positive, 0 is non-blocking not disabled), `redis_socket_timeout` (default 2.0), `redis_health_check_interval` (default 30), `redis_max_connections`, `redis_failopen` (default `False`; on Redis errors, block rather than fall open).
+`enable_redis` (default `True`), `redis_url` (default `redis://localhost:6379`), `redis_prefix` (default `guard_core:`), `redis_socket_connect_timeout` (default `2.0`), `redis_socket_timeout` (default `2.0`), `redis_health_check_interval` (default `30`), `redis_max_connections`, `redis_retries` (default `1`; retries with exponential backoff before surfacing a transient Redis error), `redis_fail_open` (default `False`; on `GuardRedisError`, skip the failing check and fall through instead of honoring `fail_secure`).
 
 ### Telemetry
 
@@ -33,7 +41,13 @@ import json; print(json.dumps({f: {'default': SecurityConfig.model_fields[f].def
 
 ### Pipeline behavior
 
-`passive_mode` (log only, no block), `fail_secure` (default `True`; block 500 on check exception vs continue), `enforce_https`, `required_headers`, `blocked_user_agents`, `allowed_user_agents`, `block_empty_user_agents`, `max_request_size`, `block_if_body_too_large`, `custom_validators`, `custom_request_checks`, `time_windows`, `referrer_policy`, `enable_security_headers`, `security_headers`, `cors`, `behavior_rules` (list of `BehaviorRuleConfig`).
+`passive_mode` (log only, no block), `fail_secure` (default `True`; block 500 on check exception vs continue), `enforce_https`, `security_headers` (dict: `enabled`, `hsts`, `csp`, `frame_options`, `content_type_options`, `xss_protection`, `referrer_policy`, `permissions_policy`, `custom` keys), `custom_request_check`, `custom_response_modifier`, `enable_cors`, `cors_allow_origins`, `cors_allow_methods`, `cors_allow_headers`, `cors_allow_credentials`, `cors_expose_headers`, `cors_max_age`, `exclude_paths`, `route_resolution_strict` (default `False`), `lazy_init` (default `True`), `emergency_mode`, `emergency_whitelist`.
+
+Per-route gates -- `required_headers`, `blocked_user_agents`, `max_request_size`, `allowed_content_types`, `custom_validators`, `time_restrictions`, `require_referrer`, `auth_required`, `api_key_required` -- live on `RouteConfig`, set via decorators, not on `SecurityConfig`.
+
+### Logging
+
+`custom_log_file`, `log_suspicious_level` (default `WARNING`), `log_request_level` (default `None`; set to enable request logging), `log_country_check_level` (default `INFO`; non-block country verdicts, `None` silences them), `log_format` (`"text"` or `"json"`), `custom_error_responses`.
 
 ### Mute sets
 

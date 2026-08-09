@@ -172,19 +172,47 @@ def security_config_redis(ipinfo_db_path: Path) -> SecurityConfig:
     )
 ```
 
-And autouse cleanup fixtures that run automatically. `reset_state` resets the `IPBanManager` singleton and restores `sus_patterns_handler.patterns` (along with the cloud and IPInfo handlers); `redis_cleanup` and `reset_rate_limiter` clear distributed and rate-limit state:
+And autouse cleanup fixtures that run automatically. `reset_state` resets the `IPBanManager`, `CloudManager`, `IPInfoManager`, and `DynamicRuleManager` singletons before each test, and after each test rebuilds `sus_patterns_handler.patterns`/`compiled_patterns` from `_pattern_definitions` (discarding any patterns added during the test) rather than snapshotting and restoring a copy; `redis_cleanup` and `reset_rate_limiter` clear distributed and rate-limit state:
 
 ```python
 @pytest.fixture(autouse=True)
 async def reset_state() -> AsyncGenerator[None, None]:
     IPBanManager._instance = None
-    original_patterns = sus_patterns_handler.patterns.copy()
+
+    cloud_instance = cloud_handler._instance
+    if cloud_instance:
+        cloud_instance.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
+        cloud_instance.redis_handler = None
+        cloud_instance.agent_handler = None
+        cloud_instance._store = InMemoryCloudIpStore()
+
+    if IPInfoManager._instance:
+        if IPInfoManager._instance.reader:
+            IPInfoManager._instance.reader.close()
+        IPInfoManager._instance.agent_handler = None
+        IPInfoManager._instance = None
+
     yield
-    sus_patterns_handler.patterns = original_patterns.copy()
+    spm = type(sus_patterns_handler)
+    spm._instance = sus_patterns_handler
+    spm._config = None
+    sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
+    sus_patterns_handler.compiled_patterns = [
+        (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+        for pattern, contexts, category in spm._pattern_definitions
+    ]
+    sus_patterns_handler.custom_patterns = set()
+    sus_patterns_handler.compiled_custom_patterns = set()
+
     IPBanManager._instance = None
+
+    dynamic_rule_instance = DynamicRuleManager._instance
+    if dynamic_rule_instance and dynamic_rule_instance.update_task:
+        await dynamic_rule_instance.stop()
+    DynamicRuleManager._instance = None
 ```
 
-These cleanup fixtures are critical. `IPBanManager` is a singleton and `sus_patterns_handler` holds mutable pattern state. Without resetting them between tests, state leaks across test cases.
+These cleanup fixtures are critical. `IPBanManager`, `CloudManager`, `IPInfoManager`, and `DynamicRuleManager` are singletons, and `sus_patterns_handler` holds mutable pattern state. Without resetting them between tests, state leaks across test cases.
 
 Testing Individual Security Checks
 ----------------------------------

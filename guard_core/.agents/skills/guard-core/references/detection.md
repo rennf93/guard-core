@@ -57,7 +57,7 @@ Each has a default weight of `1.0` in `DETECTION_CATEGORY_WEIGHTS`; specific reg
 
 ## Tuning knobs (SecurityConfig)
 
-`detection_max_content_length` (default 10000), `detection_compiler_timeout` (default 5.0s), `detection_validation_timeout` (default 1.0s), `detection_threat_score_threshold`, `detection_enabled_categories` (subset of the 18), `detection_max_pattern_length`.
+`detection_max_content_length` (default 10000), `detection_compiler_timeout` (default 2.0s, range 0.1-10.0), `detection_threat_score_threshold` (default 1.0), `enabled_detection_categories` (subset of the 18, `None` means all). `PatternCompiler.validate_pattern_safety`'s 50ms/1.0s probe budget is a hardcoded constant, not a config field.
 
 ## Adding patterns
 

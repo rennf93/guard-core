@@ -33,7 +33,7 @@ class BehaviorRuleConfig(BaseModel):
 | `window`                    | `int`                                         | `3600`   | Window in seconds.                                                                           |
 | `pattern`                   | `str \| None`                                 | `None`   | Match expression for `return_pattern` rules. Status patterns use `"status:404"`; body patterns are matched as substrings. |
 | `action`                    | `"ban" \| "log" \| "throttle" \| "alert"`     | `"log"`  | Action when threshold is exceeded.                                                           |
-| `ban_duration`              | `int \| None`                                 | `None`   | Override for `auto_ban_duration` when `action="ban"`. When `None`, the ban falls back to 3600 seconds. |
+| `ban_duration`              | `int \| None`                                 | `None`   | Ban duration in seconds when `action="ban"`. When `None`, falls back to a hardcoded 3600 seconds -- independent of `auto_ban_duration`, which only governs the unrelated flat penetration-detection ban path. |
 | `correlate_with_detection`  | `bool`                                        | `False`  | Halve the threshold (floor 1) when the IP has any positive `suspicious_request_counts` entry. |
 
 ___

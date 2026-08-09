@@ -36,8 +36,9 @@ The main decorator class that combines all security capabilities. This is the pr
 ```python
 from guard_core import SecurityConfig
 from guard_core.decorators import SecurityDecorator
+from guard_core.handlers.ipinfo_handler import IPInfoManager
 
-config = SecurityConfig()
+config = SecurityConfig(geo_ip_handler=IPInfoManager(token="your-ipinfo-token"))
 guard_deco = SecurityDecorator(config)
 
 @app.get("/api/sensitive")
@@ -47,6 +48,8 @@ guard_deco = SecurityDecorator(config)
 def sensitive_endpoint():
     return {"data": "sensitive"}
 ```
+
+`block_countries()`/`allow_countries()` need a `geo_ip_handler` on `SecurityConfig` to do anything: `check_country_access()` returns `None` (no verdict) immediately when `geo_ip_handler` is falsy, so a route decorated with a country rule but no handler configured silently never blocks or allows based on country.
 
 ___
 

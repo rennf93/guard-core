@@ -23,6 +23,8 @@ class BehaviorRule:
         pattern: str | None = None,
         action: Literal["ban", "log", "throttle", "alert"] = "log",
         custom_action: Callable | None = None,
+        ban_duration: int | None = None,
+        correlate_with_detection: bool = False,
     ): ...
 ```
 
@@ -34,6 +36,8 @@ class BehaviorRule:
 | `pattern`       | `str \| None`                            | Pattern for `return_pattern` rules              |
 | `action`        | `"ban" \| "log" \| "throttle" \| "alert"` | Action to take when threshold is exceeded       |
 | `custom_action` | `Callable \| None`                       | Override function `(client_ip, endpoint_id, details)` |
+| `ban_duration`  | `int \| None`                            | Ban duration in seconds when `action="ban"`. Falls back to a hardcoded 3600 seconds when `None`, independent of `SecurityConfig.auto_ban_duration`. |
+| `correlate_with_detection` | `bool`                        | Halve the effective threshold (floor 1) when the IP already has a positive `suspicious_request_counts` entry. |
 
 ### Rule Types
 
@@ -67,9 +71,9 @@ BehaviorTracker
 
 Records a usage event and returns `True` if the count exceeds `rule.threshold` within `rule.window`.
 
-**`track_return_pattern(endpoint_id, client_ip, response, rule) -> bool`**
+**`track_return_pattern(endpoint_id, client_ip, response, rule, effective_threshold=None) -> bool`**
 
-Checks if the response matches `rule.pattern`, records the event if it does, and returns `True` if the count exceeds the threshold.
+Checks if the response matches `rule.pattern`, records the event if it does, and returns `True` if the count exceeds the threshold. `effective_threshold`, when given, is compared instead of `rule.threshold` -- this is how the caller applies `correlate_with_detection`'s halved threshold.
 
 ### Action Execution
 
@@ -81,7 +85,7 @@ await tracker.apply_action(rule, client_ip, endpoint_id, details)
 
 | Action     | Behavior                                                   |
 |------------|-----------------------------------------------------------|
-| `ban`      | Calls `ip_ban_manager.ban_ip(client_ip, 3600, "behavioral_violation")` |
+| `ban`      | Calls `ip_ban_manager.ban_ip(client_ip, rule.ban_duration or 3600, "behavioral_violation")` |
 | `log`      | Logs a warning                                             |
 | `throttle` | Logs a warning (throttling is informational; rate limiting handles enforcement) |
 | `alert`    | Logs at CRITICAL level                                     |

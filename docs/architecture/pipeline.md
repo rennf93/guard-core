@@ -26,55 +26,55 @@ class SecurityCheckPipeline:
         *,
         config: SecurityConfig | None = None,
         rebuild_checks: Callable[[], list[SecurityCheck]] | None = None,
+        watched_container_fields: tuple[str, ...] | None = None,
+        route_config_revision: Callable[[], int | None] | None = None,
     ) -> None:
         self.checks = checks
         self.muted_check_logs = muted_check_logs or set()
         self.logger = logging.getLogger(__name__)
         self._config = config
         self._rebuild_checks = rebuild_checks
+        self._watched_container_fields = watched_container_fields or ()
+        self._route_config_revision = route_config_revision
+        self._rebuild_lock = threading.Lock()
         self._built_revision = config.revision if config is not None else None
+        self._built_signature = (
+            self._container_signature(config) if config is not None else ()
+        )
+        self._built_route_config_revision = self._current_route_config_revision()
 
     async def execute(self, request: GuardRequest) -> GuardResponse | None:
-        self._rebuild_if_stale()
+        try:
+            self._rebuild_if_stale()
+        except Exception as e:
+            response = await self._handle_rebuild_error(request, e)
+            if response is not None:
+                return response
+
         for check in self.checks:
             try:
                 response = await check.check(request)
                 if response is not None:
-                    self.logger.info(
-                        f"Request blocked by {check.check_name}",
-                        extra={
-                            "check": check.check_name,
-                            "path": request.url_path,
-                            "method": request.method,
-                        },
-                    )
+                    if check.check_name not in self.muted_check_logs:
+                        self.logger.debug(
+                            f"Request blocked by {check.check_name}",
+                            extra={
+                                "check": check.check_name,
+                                "path": request.url_path,
+                                "method": request.method,
+                            },
+                        )
                     return response
 
             except Exception as e:
-                self.logger.error(
-                    f"Error in security check {check.check_name}: {e}",
-                    extra={
-                        "check": check.check_name,
-                        "path": request.url_path,
-                        "method": request.method,
-                    },
-                    exc_info=True,
-                )
-
-                if check.config.fail_secure:
-                    self.logger.warning(
-                        f"Blocking request due to check error "
-                        f"in fail-secure mode: {check.check_name}"
-                    )
-                    return await check.create_error_response(
-                        status_code=500,
-                        default_message="Security check failed",
-                    )
-
-                continue
+                error_response = await self._handle_check_error(check, request, e)
+                if error_response is not None:
+                    return error_response
 
         return None
 ```
+
+`_handle_check_error` logs the exception (unless the check is in `muted_check_logs`), skips the check and returns `None` when it is a `GuardRedisError` and `config.redis_fail_open` is `True`, and otherwise blocks with a 500 when `config.fail_secure` is `True` -- the same fail-secure decision shown in [Fail-Open vs Fail-Secure](#fail-open-vs-fail-secure) below, just factored into its own method. The generic `"Request blocked by {check.check_name}"` summary line logs at `DEBUG`, not `INFO`: every check that can block already logs its own detailed, configurable-level line before returning, so this line is a secondary trace, not the primary block-decision log.
 
 ### Config-Revision Rebuild
 
@@ -125,6 +125,7 @@ Every security check extends this abstract base class:
 ```python
 class SecurityCheck(ABC):
     requires: ClassVar[tuple[str, ...]] = ()
+    container_fields: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         self.middleware = middleware
@@ -186,6 +187,7 @@ class SecurityCheck(ABC):
 |---|---|---|---|
 | `applies_to(config, route_configs)` | `@classmethod -> bool` | Returns `True` unconditionally | Declares, at pipeline-build time, whether the effective configuration can ever make this check fire. See [Build-Time Elimination](#build-time-elimination) below. |
 | `requires` | `ClassVar[tuple[str, ...]]` | `()` | Names the packaging extra(s) the check's handler needs (for example `("cloud",)` on `CloudProviderCheck`). |
+| `container_fields` | `ClassVar[tuple[str, ...]]` | `()` | Names the mutable `SecurityConfig` container field(s) this check's `applies_to` reads (for example `("endpoint_rate_limits",)` on `RateLimitCheck`). `factory.WATCHED_CONTAINER_FIELDS` is the union of this attribute across `DEFAULT_CHECK_CLASSES`; see [Config-Revision Rebuild](#config-revision-rebuild) above. |
 
 A check that does not override `applies_to` always runs, because the base implementation returns `True`.
 

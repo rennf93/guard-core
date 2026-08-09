@@ -276,10 +276,10 @@ Cloud Provider Blocking
 
 | Field                      | Type             | Default | Description                              |
 |----------------------------|------------------|---------|------------------------------------------|
-| `block_cloud_providers`    | `set[str] \| None` | `None`  | Providers to block: `"AWS"`, `"GCP"`, `"Azure"`. |
+| `block_cloud_providers`    | `set[str] \| None` | `None`  | Providers to block. A bare name (`"AWS"`, `"GCP"`, `"Azure"`) blocks the whole provider; a region carve-out (`"GCP:!us-central1"`) blocks the provider except that region. Region scoping is supported for GCP and AWS. |
 | `cloud_ip_refresh_interval`| `int`            | `3600`  | Seconds between IP range refreshes (60-86400). |
 
-**Validator**: `block_cloud_providers` is filtered to only include valid values `{"AWS", "GCP", "Azure"}`.
+**Validator**: each entry is kept only if the part before an optional `:!region` suffix is one of `{"AWS", "GCP", "Azure"}`; an entry that fails this check is dropped, not the whole set.
 
 ___
 
@@ -367,7 +367,7 @@ Logging
 |-----------------------|-------------------------------------------------|------------|------------------------------------------|
 | `log_suspicious_level`| `"INFO" \| "DEBUG" \| "WARNING" \| "ERROR" \| "CRITICAL" \| None` | `"WARNING"` | Log level for suspicious requests. `None` disables. |
 | `log_request_level`   | Same as above                                   | `None`     | Log level for all requests. `None` disables. |
-| `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits always log at `WARNING`; no-rules / no-geolocation always log at `DEBUG`. |
+| `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits log at `log_suspicious_level` instead (default `WARNING`); no-rules / no-geolocation always log at `DEBUG`. |
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
 
@@ -420,7 +420,7 @@ Validators
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
-| `validate_cloud_providers` | `block_cloud_providers` | Silently filters invalid providers — only `"AWS"`, `"GCP"`, `"Azure"` are kept. |
+| `validate_cloud_providers` | `block_cloud_providers` | Silently filters invalid providers: an entry is kept only if the part before an optional `:!region` suffix is `"AWS"`, `"GCP"`, or `"Azure"`. |
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent` is `True`. Requires `enable_agent` when `enable_dynamic_rules` is `True`. |
 | `validate_optional_extras_installed` | model-level | Requires the `redis` extra when `enable_redis` is `True`, the `cloud` extra (`aiohttp` or `requests`) when cloud blocking is enabled (`block_cloud_providers` or `enable_dynamic_rules`), and the `geo` extra (`maxminddb`) when country rules are configured with no custom `geo_ip_handler`. Raises `ValueError` naming the missing extra's install command, checked via `importlib.util.find_spec` (never a bare `import`). See [Installation](../installation.md#optional-dependency-extras). |

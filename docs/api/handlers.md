@@ -114,11 +114,12 @@ ___
 CloudManager
 ------------
 
-Fetches and caches IP ranges for AWS, GCP, and Azure cloud providers.
+Fetches and caches IP ranges for six cloud providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr); only AWS, GCP, and Azure are user-blockable through `SecurityConfig.block_cloud_providers`. `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the module-level default used below.
 
 ```python
 class CloudManager:
     ip_ranges: dict[str, set[IPv4Network | IPv6Network]]
+    network_regions: dict[str, dict[str, str]]
     last_updated: dict[str, datetime | None]
     redis_handler: Any
     agent_handler: Any
@@ -127,7 +128,7 @@ class CloudManager:
     async def initialize_redis(
         self,
         redis_handler: Any,
-        providers: set[str] = {"AWS", "GCP", "Azure"},
+        providers: set[str] = _ALL_PROVIDERS,
         ttl: int = 3600,
     ) -> None:
         """
@@ -140,7 +141,7 @@ class CloudManager:
         """
 
     async def refresh(
-        self, providers: set[str] = {"AWS", "GCP", "Azure"}
+        self, providers: set[str] = _ALL_PROVIDERS
     ) -> None:
         """
         Refresh IP ranges without Redis. Raises RuntimeError if Redis is enabled.
@@ -148,7 +149,7 @@ class CloudManager:
 
     async def refresh_async(
         self,
-        providers: set[str] = {"AWS", "GCP", "Azure"},
+        providers: set[str] = _ALL_PROVIDERS,
         ttl: int = 3600,
     ) -> None:
         """
@@ -156,14 +157,15 @@ class CloudManager:
         """
 
     def is_cloud_ip(
-        self, ip: str, providers: set[str] = {"AWS", "GCP", "Azure"}
+        self, ip: str, providers: set[str] = _ALL_PROVIDERS
     ) -> bool:
         """
         Check whether an IP belongs to any of the given cloud providers.
+        `providers` accepts `"PROVIDER:!region"` carve-out selectors too.
         """
 
     def get_cloud_provider_details(
-        self, ip: str, providers: set[str] = {"AWS", "GCP", "Azure"}
+        self, ip: str, providers: set[str] = _ALL_PROVIDERS
     ) -> tuple[str, str] | None:
         """
         Return (provider, network) for the IP, or None.
@@ -364,9 +366,15 @@ class BehaviorRule:
         pattern: str | None = None,
         action: Literal["ban", "log", "throttle", "alert"] = "log",
         custom_action: Callable | None = None,
+        ban_duration: int | None = None,
+        correlate_with_detection: bool = False,
     ):
         """
-        Define a single behavioral analysis rule.
+        Define a single behavioral analysis rule. `ban_duration` overrides the
+        hardcoded 3600s fallback used when action="ban" and this is left `None`
+        (it does not fall back to `SecurityConfig.auto_ban_duration`).
+        `correlate_with_detection=True` halves the effective threshold (floor 1)
+        when the IP already has a positive suspicious-request count.
         """
 
 
@@ -399,9 +407,12 @@ class BehaviorTracker:
         client_ip: str,
         response: GuardResponse,
         rule: BehaviorRule,
+        effective_threshold: int | None = None,
     ) -> bool:
         """
         Record a return-pattern match. Returns True if the threshold is exceeded.
+        `effective_threshold` overrides `rule.threshold` when given, letting the
+        caller pass the detection-correlation-halved threshold.
         """
 
     async def apply_action(
@@ -483,12 +494,11 @@ class SusPatternsManager:
     @classmethod
     async def add_pattern(
         cls, pattern: str, custom: bool = False
-    ) -> None:
+    ) -> bool:
         """
-        Add a regex pattern to the detection engine.
-        Rejects unsafe or malformed patterns via the ReDoS safety
-        validator: logs a warning and returns without adding the
-        pattern or raising.
+        Add a regex pattern to the detection engine. Returns True on success,
+        False if the ReDoS safety validator rejects the pattern (logs a
+        warning and does not add it, without raising).
         """
 
     @classmethod

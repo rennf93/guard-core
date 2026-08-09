@@ -291,38 +291,35 @@ initializer = HandlerInitializer(
 
 #### `initialize_redis_handlers()`
 
-Wires Redis into all handlers that need distributed state:
-
-1. Calls `redis_handler.initialize()` to establish the Redis connection
-2. If `config.block_cloud_providers` is set, initializes `cloud_handler` with Redis and the configured refresh interval
-3. Initializes `ip_ban_manager` with Redis
-4. Initializes `geo_ip_handler` with Redis (if provided)
-5. Initializes `rate_limit_handler` with Redis (if provided)
-6. Initializes `sus_patterns_handler` with Redis
+1. Calls `sus_patterns_handler.configure(config)` (always, regardless of Redis).
+2. If Redis is not enabled/wired (`not (config.enable_redis and redis_handler)`): when `config.lazy_init` is `True` (the default), logs a warning that `lazy_init` has no effect without Redis and returns; otherwise runs `cloud_handler.refresh()`/`geo_ip_handler.initialize()` inline (non-Redis on-demand paths) and returns.
+3. Otherwise calls `redis_handler.initialize()` to establish the Redis connection, and wires a custom `cloud_ip_store` if `config.cloud_ip_store` is set.
+4. When `config.lazy_init` is `True` (the default), schedules cloud-IP/geo-IP Redis initialization as a background `asyncio.Task` (`_run_lazy_init`) instead of awaiting it inline, so app startup is not blocked on multi-second network calls; when `False`, awaits `cloud_handler.initialize_redis(...)` (if `block_cloud_providers` is set) and `geo_ip_handler.initialize_redis(...)` (if provided) inline before continuing.
+5. Initializes `ip_ban_manager` with Redis, then `rate_limit_handler` (if provided), then `sus_patterns_handler`, all awaited inline regardless of `lazy_init`.
 
 ```python
 await initializer.initialize_redis_handlers()
 ```
 
-!!! note "Guarded by config"
-    This method returns immediately if `config.enable_redis` is `False` or `redis_handler` is `None`.
+!!! note "lazy_init only takes effect with Redis wired"
+    `config.lazy_init=True` (the default) only defers cloud-IP/geo-IP initialization to a background task when Redis is enabled and a `redis_handler` is wired. Without Redis, cloud/geo initialization runs through their on-demand paths regardless of `lazy_init`'s value, and a warning is logged if the flag looked like it should have mattered.
 
 #### `initialize_agent_integrations()`
 
-Wires the guard-agent into all handlers and starts the agent:
+Wires telemetry into all handlers and starts the composite handler:
 
-1. Calls `agent_handler.start()` to begin the agent's background flush loop
-2. If Redis is available, wires Redis into the agent and vice versa
-3. Calls `initialize_agent_for_handlers()` to wire the agent into `ip_ban_manager`, `rate_limit_handler`, `sus_patterns_handler`, `security_headers_manager`, `cloud_handler`, and `geo_ip_handler`
-4. If `guard_decorator` has an `initialize_agent` method, wires the agent into it
-5. Calls `initialize_dynamic_rule_manager()` if `config.enable_dynamic_rules` is enabled
+1. Builds `composite_handler`/`event_filter` and calls `await composite_handler.start()` -- not `agent_handler.start()` directly; `CompositeAgentHandler` can wrap OTel/Logfire handlers too, so this runs even when no `agent_handler` is configured at all, as long as `enable_otel`/`enable_logfire`/`enable_enrichment` is set.
+2. If both `agent_handler` and `redis_handler` are present, wires Redis into the agent and vice versa.
+3. Calls `initialize_agent_for_handlers()` to wire the composite handler into `ip_ban_manager`, `rate_limit_handler`, `sus_patterns_handler`, `security_headers_manager`, `cloud_handler` (if `block_cloud_providers` is set), and `geo_ip_handler` (if it defines `initialize_agent`).
+4. If `guard_decorator` has an `initialize_agent` method, wires the composite handler into it.
+5. Calls `initialize_dynamic_rule_manager()` if `config.enable_dynamic_rules` is enabled.
 
 ```python
 await initializer.initialize_agent_integrations()
 ```
 
-!!! note "Guarded by agent_handler"
-    This method returns immediately if `agent_handler` is `None`.
+!!! note "Guard condition covers OTel/Logfire/enrichment too, not just agent_handler"
+    This method returns immediately only when `agent_handler` is `None` **and** `enable_otel`, `enable_logfire`, and `enable_enrichment` are all falsy. With any one of those three set, it proceeds and builds a `CompositeAgentHandler` even without an `agent_handler` -- raw OTel/Logfire export does not require guard-agent.
 
 #### `initialize_agent_for_handlers()`
 

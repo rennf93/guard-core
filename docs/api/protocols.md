@@ -193,6 +193,8 @@ class GeoIPHandler(Protocol):
     async def initialize_redis(self, redis_handler: RedisHandlerProtocol) -> None: ...
     async def initialize_agent(self, agent_handler: AgentHandlerProtocol) -> None: ...
     def get_country(self, ip: str) -> str | None: ...
+    async def refresh(self) -> None: ...
+    def close(self) -> None: ...
 ```
 
 | Method            | Description                                         |
@@ -200,6 +202,8 @@ class GeoIPHandler(Protocol):
 | `is_initialized`  | Whether the handler has been initialized.           |
 | `initialize()`    | Perform async initialization (e.g., download DB).   |
 | `get_country(ip)` | Return ISO country code for the IP, or `None`.      |
+| `refresh()`       | Reload the dataset from source (periodic update). Required by the protocol even if a given implementation makes it a no-op. |
+| `close()`         | Release the dataset/file handles.                   |
 
 ___
 
