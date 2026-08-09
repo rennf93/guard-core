@@ -1,6 +1,8 @@
 import logging
+import threading
 import time
 from collections.abc import Callable, Sized
+from typing import cast
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.exceptions import GuardRedisError
@@ -25,6 +27,7 @@ class SecurityCheckPipeline:
         self._config = config
         self._rebuild_checks = rebuild_checks
         self._watched_container_fields = watched_container_fields or ()
+        self._rebuild_lock = threading.Lock()
         self._built_revision = config.revision if config is not None else None
         self._built_signature = (
             self._container_signature(config) if config is not None else ()
@@ -40,17 +43,26 @@ class SecurityCheckPipeline:
             for field in self._watched_container_fields
         )
 
+    def _is_stale(self, config: SecurityConfig) -> bool:
+        if config.revision != self._built_revision:
+            return True
+        return self._container_signature(config) != self._built_signature
+
     def _rebuild_if_stale(self) -> None:
         config = self._config
         if config is None or self._rebuild_checks is None:
             return
-        if config.revision == self._built_revision:
-            if self._container_signature(config) == self._built_signature:
-                return
-        self.checks = self._rebuild_checks()
-        self.muted_check_logs = config.muted_check_logs
-        self._built_revision = config.revision
-        self._built_signature = self._container_signature(config)
+        if not self._is_stale(config):
+            return
+        revision = config.revision
+        signature = self._container_signature(config)
+        muted_check_logs = config.muted_check_logs
+        checks = self._rebuild_checks()
+        with self._rebuild_lock:
+            self.checks = checks
+            self.muted_check_logs = muted_check_logs
+            self._built_revision = revision
+            self._built_signature = signature
 
     def _log_extra(self, check: SecurityCheck, request: GuardRequest) -> dict:
         return {
@@ -93,8 +105,33 @@ class SecurityCheckPipeline:
 
         return None
 
+    async def _handle_rebuild_error(
+        self, request: GuardRequest, error: Exception
+    ) -> GuardResponse | None:
+        self.logger.error(
+            f"Error rebuilding security checks: {error}",
+            extra={"path": request.url_path, "method": request.method},
+            exc_info=True,
+        )
+        config = cast(SecurityConfig, self._config)
+        if not config.fail_secure:
+            return None
+        if not self.checks:
+            raise error
+        self.logger.warning("Blocking request due to rebuild error in fail-secure mode")
+        return await self.checks[0].create_error_response(
+            status_code=500,
+            default_message="Security check failed",
+        )
+
     async def execute(self, request: GuardRequest) -> GuardResponse | None:
-        self._rebuild_if_stale()
+        try:
+            self._rebuild_if_stale()
+        except Exception as e:
+            response = await self._handle_rebuild_error(request, e)
+            if response is not None:
+                return response
+
         request.state._guard_pipeline_start = time.monotonic()
 
         for check in self.checks:
