@@ -135,6 +135,37 @@ def test_fetch_azure_ip_ranges_url_in_plain_text(
     assert ipaddress.IPv4Network("10.0.0.0/8") in result
 
 
+def test_fetch_azure_ip_ranges_ignores_non_servicetags_json(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='var m = "https://download.microsoft.com/download/manifests/index.json";'
+    )
+    mock_aiohttp_session.get = MagicMock(return_value=mock_html_resp)
+
+    result = fetch_azure_ip_ranges()
+    assert result == set()
+
+
+def test_fetch_azure_ip_ranges_preserves_query_string(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/x/ServiceTags.json?v=2">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = MagicMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = fetch_azure_ip_ranges()
+    assert ipaddress.IPv4Network("10.0.0.0/8") in result
+    download_call = mock_aiohttp_session.get.call_args_list[1]
+    assert (
+        download_call.args[0] == "https://download.microsoft.com/x/ServiceTags.json?v=2"
+    )
+
+
 def test_cloud_ip_ranges() -> None:
     with (
         patch(
