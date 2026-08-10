@@ -92,12 +92,12 @@ async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6N
 
         decoded_html = html.unescape(page_text)
         match = re.search(
-            r'href=["\'](https://download\.microsoft\.com/[^"\']+\.json)["\']',
+            r'href=["\'](https://download\.microsoft\.com/[^"\']+\.json(?:\?[^"\']*)?)["\']',
             decoded_html,
         )
         if not match:
             match = re.search(
-                r"(https://download\.microsoft\.com/[^\"\s<>]+\.json)",
+                r"(https://download\.microsoft\.com/[^\"\s<>]+ServiceTags[^\"\s<>]*\.json(?:\?[^\"\s<>]*)?)",
                 decoded_html,
             )
         if not match:
