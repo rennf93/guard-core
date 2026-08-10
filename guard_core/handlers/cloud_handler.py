@@ -91,19 +91,34 @@ async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6N
             page_text = await response.text()
 
         decoded_html = html.unescape(page_text)
-        pattern = r'href=["\'](https://download\.microsoft\.com/.{1,500}?\.json)["\']'
-        match = re.search(pattern, decoded_html)
-
+        match = re.search(
+            r'href=["\'](https://download\.microsoft\.com/[^"\']+\.json)["\']',
+            decoded_html,
+        )
+        if not match:
+            match = re.search(
+                r"(https://download\.microsoft\.com/[^\"\s<>]+\.json)",
+                decoded_html,
+            )
         if not match:
             raise ValueError("Could not find Azure IP ranges download URL")
 
         download_url = match.group(1)
-        async with aiohttp.ClientSession() as session:
-            response = await session.get(
-                download_url, timeout=aiohttp.ClientTimeout(total=10)
-            )
-            response.raise_for_status()
-            data = await response.json(content_type=None)
+        data: Any = None
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    response = await session.get(
+                        download_url,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    )
+                    response.raise_for_status()
+                    data = await response.json(content_type=None)
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(2)
 
         return {
             ipaddress.ip_network(ip_range)

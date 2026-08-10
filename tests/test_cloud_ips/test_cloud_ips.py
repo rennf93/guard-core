@@ -120,6 +120,21 @@ async def test_fetch_azure_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
     assert len(result) == 2
 
 
+async def test_fetch_azure_ip_ranges_url_in_plain_text(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='var url = "https://download.microsoft.com/x/ServiceTags_Public.json";'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+    assert ipaddress.IPv4Network("10.0.0.0/8") in result
+
+
 async def test_cloud_ip_ranges() -> None:
     with (
         patch(
@@ -351,10 +366,39 @@ async def test_fetch_azure_ip_ranges_download_failure(
         side_effect=Exception("Download failed")
     )
     mock_aiohttp_session.get = AsyncMock(
-        side_effect=[mock_html_resp, mock_download_resp]
+        side_effect=[
+            mock_html_resp,
+            mock_download_resp,
+            mock_download_resp,
+            mock_download_resp,
+        ]
     )
-    result = await fetch_azure_ip_ranges()
+    with patch(
+        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    ):
+        result = await fetch_azure_ip_ranges()
     assert result == set()
+
+
+async def test_fetch_azure_ip_ranges_retries_then_succeeds(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    failing_resp = MagicMock()
+    failing_resp.raise_for_status = MagicMock(side_effect=Exception("transient"))
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["192.168.1.0/24"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[mock_html_resp, failing_resp, mock_json_resp]
+    )
+    with patch(
+        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    ):
+        result = await fetch_azure_ip_ranges()
+    assert ipaddress.IPv4Network("192.168.1.0/24") in result
 
 
 async def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> None:
