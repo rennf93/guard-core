@@ -35,7 +35,10 @@ async def test_honeypot_form_exception_caught(
 
     mock_request = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/x-www-form-urlencoded"},
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "content-length": "16",
+        },
         body_content=b"\xff\xfe invalid utf8",
     )
 
@@ -152,3 +155,68 @@ async def test_honeypot_modifying_methods_without_content_type(
 
     result = await validator(mock_request)
     assert result is None
+
+
+class _BodyTrackingRequest:
+    def __init__(self, body: bytes = b"", content_length: int | None = None) -> None:
+        self._body = body
+        self.headers: dict[str, str] = {"content-type": "application/json"}
+        if content_length is not None:
+            self.headers["content-length"] = str(content_length)
+        self.method = "POST"
+        self.body_read = False
+
+    async def body(self) -> bytes:
+        self.body_read = True
+        return self._body
+
+
+async def test_honeypot_missing_content_length_not_read(
+    decorator: SecurityDecorator,
+) -> None:
+    # Fail-closed: a chunked request (no Content-Length) must not trigger an
+    # unbounded body read on the honeypot path. See GHSA-xv6g-49vj-7w9c.
+    mock_func = Mock()
+    mock_func.__name__ = mock_func.__qualname__ = "test_func"
+    mock_func.__module__ = "test_module"
+
+    honeypot_decorator = decorator.honeypot_detection(["trap_field"])
+    decorated_func = honeypot_decorator(mock_func)
+
+    route_id = decorated_func._guard_route_id
+    route_config = decorator.get_route_config(route_id)
+    assert route_config is not None
+    validator = route_config.custom_validators[0]
+
+    request = _BodyTrackingRequest(body=b'{"trap_field": "value"}', content_length=None)
+
+    result = await validator(request)
+
+    assert request.body_read is False
+    assert result is None
+
+
+async def test_honeypot_under_cap_body_still_read_and_blocked(
+    decorator: SecurityDecorator,
+) -> None:
+    # Control: a bounded body (Content-Length under cap) is still read and the
+    # trap field triggers the 403 response.
+    mock_func = Mock()
+    mock_func.__name__ = mock_func.__qualname__ = "test_func"
+    mock_func.__module__ = "test_module"
+
+    honeypot_decorator = decorator.honeypot_detection(["trap_field"])
+    decorated_func = honeypot_decorator(mock_func)
+
+    route_id = decorated_func._guard_route_id
+    route_config = decorator.get_route_config(route_id)
+    assert route_config is not None
+    validator = route_config.custom_validators[0]
+
+    request = _BodyTrackingRequest(body=b'{"trap_field": "value"}', content_length=24)
+
+    result = await validator(request)
+
+    assert request.body_read is True
+    assert result is not None
+    assert result.status_code == 403
