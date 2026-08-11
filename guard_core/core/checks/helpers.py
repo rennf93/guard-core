@@ -191,58 +191,61 @@ async def escalate_suspicious_if_threat(
     if not client_ip:
         return
 
-    route_config = getattr(request.state, "route_config", None)
-    result = await detect_penetration_patterns(
-        request, route_config, config, middleware.route_resolver.should_bypass_check
-    )
+    try:
+        route_config = getattr(request.state, "route_config", None)
+        result = await detect_penetration_patterns(
+            request, route_config, config, middleware.route_resolver.should_bypass_check
+        )
 
-    if not result.is_threat or result.trigger_info == "disabled_by_decorator":
-        return
+        if not result.is_threat or result.trigger_info == "disabled_by_decorator":
+            return
 
-    threat_categories = list(result.threat_categories)
+        threat_categories = list(result.threat_categories)
 
-    if client_ip not in middleware.suspicious_request_counts:
-        middleware.suspicious_request_counts[client_ip] = {}
-    ip_counts = middleware.suspicious_request_counts[client_ip]
-    categories = threat_categories or ["uncategorized"]
-    for category in categories:
-        ip_counts[category] = ip_counts.get(category, 0) + 1
+        if client_ip not in middleware.suspicious_request_counts:
+            middleware.suspicious_request_counts[client_ip] = {}
+        ip_counts = middleware.suspicious_request_counts[client_ip]
+        categories = threat_categories or ["uncategorized"]
+        for category in categories:
+            ip_counts[category] = ip_counts.get(category, 0) + 1
 
-    if not config.enable_ip_banning:
-        return
+        if not config.enable_ip_banning:
+            return
 
-    for category in threat_categories:
-        entry = config.threat_ban_config.get(category)
-        if entry is None:
-            continue
-        if ip_counts.get(category, 0) >= entry.threshold:
+        for category in threat_categories:
+            entry = config.threat_ban_config.get(category)
+            if entry is None:
+                continue
+            if ip_counts.get(category, 0) >= entry.threshold:
+                await ip_ban_manager.ban_ip(
+                    client_ip, entry.duration, f"penetration_attempt:{category}"
+                )
+                await log_activity(
+                    request,
+                    logger,
+                    log_type="suspicious",
+                    reason=f"IP banned due to {category} threshold: "
+                    f"{client_ip} - {result.trigger_info}",
+                    level=config.log_suspicious_level,
+                    check_name=check_name,
+                    muted_check_logs=muted_check_logs,
+                )
+                return
+
+        total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
+        if total >= config.auto_ban_threshold:
             await ip_ban_manager.ban_ip(
-                client_ip, entry.duration, f"penetration_attempt:{category}"
+                client_ip, config.auto_ban_duration, "penetration_attempt"
             )
             await log_activity(
                 request,
                 logger,
                 log_type="suspicious",
-                reason=f"IP banned due to {category} threshold: "
+                reason=f"IP banned due to suspicious activity: "
                 f"{client_ip} - {result.trigger_info}",
                 level=config.log_suspicious_level,
                 check_name=check_name,
                 muted_check_logs=muted_check_logs,
             )
-            return
-
-    total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
-    if total >= config.auto_ban_threshold:
-        await ip_ban_manager.ban_ip(
-            client_ip, config.auto_ban_duration, "penetration_attempt"
-        )
-        await log_activity(
-            request,
-            logger,
-            log_type="suspicious",
-            reason=f"IP banned due to suspicious activity: "
-            f"{client_ip} - {result.trigger_info}",
-            level=config.log_suspicious_level,
-            check_name=check_name,
-            muted_check_logs=muted_check_logs,
-        )
+    except Exception:
+        logger.exception("escalate_suspicious_if_threat failed for %s", client_ip)

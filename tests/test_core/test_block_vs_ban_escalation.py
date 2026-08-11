@@ -418,3 +418,66 @@ async def test_no_double_count_blocked_probe_increments_once(
 
     assert len(detect_calls) == 1
     assert mw.suspicious_request_counts["30.0.0.1"] == {"xss": 1}
+
+
+async def test_global_ip_block_still_returns_403_when_ban_ip_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        auto_ban_duration=7200,
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = AsyncMock()
+    ban.ban_ip = AsyncMock(side_effect=ValueError("duration exceeds local cap"))
+    check.ip_ban_manager = ban
+
+    _patch_detect_threat(monkeypatch)
+
+    with (
+        patch(
+            "guard_core.core.checks.implementations.ip_security.check_ip_access",
+            new_callable=AsyncMock,
+            return_value=IpAccessResult(False, "blocked"),
+        ),
+        patch("guard_core.core.checks.implementations.ip_security.log_activity"),
+    ):
+        result = await check._check_global_ip_restrictions(
+            _make_request("50.0.0.1"), "50.0.0.1"
+        )
+
+    assert result is not None
+    assert result.status_code == 403
+    ban.ban_ip.assert_called_once_with("50.0.0.1", 7200, "penetration_attempt")
+    mw.logger.exception.assert_called_once()
+    assert mw.logger.exception.call_args.args[1] == "50.0.0.1"
+
+
+async def test_user_agent_block_still_returns_403_when_ban_ip_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        auto_ban_duration=7200,
+        blocked_user_agents=[r"badbot"],
+    )
+    mw = _make_middleware(config)
+    check = UserAgentCheck(mw)
+    ban = AsyncMock()
+    ban.ban_ip = AsyncMock(side_effect=ValueError("duration exceeds local cap"))
+    check.ip_ban_manager = ban
+
+    _patch_detect_threat(monkeypatch)
+
+    result = await check.check(_make_request("51.0.0.1"))
+
+    assert result is not None
+    assert result.status_code == 403
+    ban.ban_ip.assert_called_once_with("51.0.0.1", 7200, "penetration_attempt")
+    mw.logger.exception.assert_called_once()
+    assert mw.logger.exception.call_args.args[1] == "51.0.0.1"
