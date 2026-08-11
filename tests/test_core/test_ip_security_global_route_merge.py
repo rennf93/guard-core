@@ -52,6 +52,11 @@ def _unbanned(ip_security_check: IpSecurityCheck) -> Any:
 def _patches(ip_security_check: IpSecurityCheck) -> Any:
     _unbanned(ip_security_check)
     patch("guard_core.core.checks.implementations.ip_security.log_activity").start()
+    patch(
+        "guard_core.core.checks.implementations.ip_security."
+        "escalate_suspicious_if_threat",
+        new=AsyncMock(),
+    ).start()
     yield
     patch.stopall()
 

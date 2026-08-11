@@ -1,14 +1,18 @@
+import logging
 import re
 from collections.abc import Callable, Collection
 from ipaddress import ip_address
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from guard_core.decorators.base import RouteConfig
 from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
-from guard_core.utils import _ip_in_list, detect_penetration_attempt
+from guard_core.utils import _ip_in_list, detect_penetration_attempt, log_activity
+
+if TYPE_CHECKING:
+    from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
 
 
 def route_config_applies(
@@ -172,3 +176,73 @@ async def detect_penetration_patterns(
 
     reason = _get_detection_disabled_reason(config, route_specific_detection)
     return DetectionResult(is_threat=False, trigger_info=reason)
+
+
+async def escalate_suspicious_if_threat(
+    middleware: "GuardMiddlewareProtocol",
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    request: GuardRequest,
+    client_ip: str,
+    logger: logging.Logger,
+    check_name: str,
+    muted_check_logs: set[str],
+) -> None:
+    if not client_ip:
+        return
+
+    route_config = getattr(request.state, "route_config", None)
+    result = await detect_penetration_patterns(
+        request, route_config, config, middleware.route_resolver.should_bypass_check
+    )
+
+    if not result.is_threat or result.trigger_info == "disabled_by_decorator":
+        return
+
+    threat_categories = list(result.threat_categories)
+
+    if client_ip not in middleware.suspicious_request_counts:
+        middleware.suspicious_request_counts[client_ip] = {}
+    ip_counts = middleware.suspicious_request_counts[client_ip]
+    categories = threat_categories or ["uncategorized"]
+    for category in categories:
+        ip_counts[category] = ip_counts.get(category, 0) + 1
+
+    if not config.enable_ip_banning:
+        return
+
+    for category in threat_categories:
+        entry = config.threat_ban_config.get(category)
+        if entry is None:
+            continue
+        if ip_counts.get(category, 0) >= entry.threshold:
+            await ip_ban_manager.ban_ip(
+                client_ip, entry.duration, f"penetration_attempt:{category}"
+            )
+            await log_activity(
+                request,
+                logger,
+                log_type="suspicious",
+                reason=f"IP banned due to {category} threshold: "
+                f"{client_ip} - {result.trigger_info}",
+                level=config.log_suspicious_level,
+                check_name=check_name,
+                muted_check_logs=muted_check_logs,
+            )
+            return
+
+    total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
+    if total >= config.auto_ban_threshold:
+        await ip_ban_manager.ban_ip(
+            client_ip, config.auto_ban_duration, "penetration_attempt"
+        )
+        await log_activity(
+            request,
+            logger,
+            log_type="suspicious",
+            reason=f"IP banned due to suspicious activity: "
+            f"{client_ip} - {result.trigger_info}",
+            level=config.log_suspicious_level,
+            check_name=check_name,
+            muted_check_logs=muted_check_logs,
+        )

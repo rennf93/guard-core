@@ -1,9 +1,10 @@
 from collections.abc import Collection
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.helpers import (
     check_user_agent_allowed,
+    escalate_suspicious_if_threat,
     route_config_applies,
 )
 from guard_core.core.events.event_types import (
@@ -16,9 +17,18 @@ from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import log_activity
 
+if TYPE_CHECKING:
+    from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
+
 
 class UserAgentCheck(SecurityCheck):
     container_fields: ClassVar[tuple[str, ...]] = ("blocked_user_agents",)
+
+    def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
+        super().__init__(middleware)
+        from guard_core.handlers.ipban_handler import ip_ban_manager
+
+        self.ip_ban_manager = ip_ban_manager
 
     @property
     def check_name(self) -> str:
@@ -82,6 +92,18 @@ class UserAgentCheck(SecurityCheck):
                 )
 
             if not self.config.passive_mode:
+                client_ip = getattr(request.state, "client_ip", None)
+                if client_ip:
+                    await escalate_suspicious_if_threat(
+                        self.middleware,
+                        self.config,
+                        self.ip_ban_manager,
+                        request,
+                        client_ip,
+                        self.logger,
+                        self.check_name,
+                        self.config.muted_check_logs,
+                    )
                 return await self.middleware.create_error_response(
                     status_code=403,
                     default_message="User-Agent not allowed",

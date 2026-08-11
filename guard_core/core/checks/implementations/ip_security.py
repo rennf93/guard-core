@@ -1,7 +1,11 @@
 from typing import TYPE_CHECKING, Any
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import check_country_access, check_route_ip_access
+from guard_core.core.checks.helpers import (
+    check_country_access,
+    check_route_ip_access,
+    escalate_suspicious_if_threat,
+)
 from guard_core.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_IP_BLOCKED,
@@ -120,6 +124,16 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
+            await escalate_suspicious_if_threat(
+                self.middleware,
+                self.config,
+                self.ip_ban_manager,
+                request,
+                client_ip,
+                self.logger,
+                self.check_name,
+                self.config.muted_check_logs,
+            )
             return await self.middleware.create_error_response(
                 status_code=403,
                 default_message="Forbidden",
@@ -183,6 +197,16 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
+            await escalate_suspicious_if_threat(
+                self.middleware,
+                self.config,
+                self.ip_ban_manager,
+                request,
+                client_ip,
+                self.logger,
+                self.check_name,
+                self.config.muted_check_logs,
+            )
             return await self.middleware.create_error_response(
                 status_code=403,
                 default_message="Forbidden",
