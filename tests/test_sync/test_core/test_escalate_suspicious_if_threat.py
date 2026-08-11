@@ -333,3 +333,56 @@ def test_muted_check_logs_suppresses_log(
     ban.ban_ip.assert_called_once()
     log_mock.assert_called_once()
     assert log_mock.call_args.kwargs["muted_check_logs"] == {"ip_security"}
+
+
+def test_flat_ban_ip_raise_is_swallowed_and_logged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        enable_ip_banning=True, auto_ban_threshold=1, auto_ban_duration=300
+    )
+    mw = _make_middleware()
+    ban = MagicMock()
+    ban.ban_ip = MagicMock(side_effect=ValueError("duration exceeds local cap"))
+    _patch_detect(
+        monkeypatch,
+        DetectionResult(is_threat=True, trigger_info="t", threat_categories=["xss"]),
+    )
+    _patch_log(monkeypatch)
+    logger = MagicMock()
+
+    escalate_suspicious_if_threat(
+        mw, config, ban, _make_request(), "40.0.0.1", logger, "ip_security", set()
+    )
+
+    assert mw.suspicious_request_counts["40.0.0.1"] == {"xss": 1}
+    ban.ban_ip.assert_called_once_with("40.0.0.1", 300, "penetration_attempt")
+    logger.exception.assert_called_once()
+    assert logger.exception.call_args.args[1] == "40.0.0.1"
+
+
+def test_per_category_ban_ip_raise_is_swallowed_and_logged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        enable_ip_banning=True,
+        auto_ban_threshold=1000,
+        threat_ban_config={"xss": ThreatBanConfig(threshold=1, duration=99999)},
+    )
+    mw = _make_middleware()
+    ban = MagicMock()
+    ban.ban_ip = MagicMock(side_effect=ValueError("duration exceeds local cap"))
+    _patch_detect(
+        monkeypatch,
+        DetectionResult(is_threat=True, trigger_info="t", threat_categories=["xss"]),
+    )
+    _patch_log(monkeypatch)
+    logger = MagicMock()
+
+    escalate_suspicious_if_threat(
+        mw, config, ban, _make_request(), "41.0.0.1", logger, "ip_security", set()
+    )
+
+    ban.ban_ip.assert_called_once_with("41.0.0.1", 99999, "penetration_attempt:xss")
+    logger.exception.assert_called_once()
+    assert logger.exception.call_args.args[1] == "41.0.0.1"
