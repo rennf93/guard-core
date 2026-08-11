@@ -181,6 +181,7 @@ Then implement the three protocols:
 ```python
 from guard_core.protocols import GuardRequest, GuardResponse, GuardResponseFactory
 
+
 class MyFrameworkRequest:
     """Wraps your framework's request into GuardRequest protocol."""
 

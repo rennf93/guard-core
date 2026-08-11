@@ -74,7 +74,9 @@ def _get_in_memory_request_count(
     self, client_ip, window_start, current_time, endpoint_path=""
 ) -> int:
     key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
-    while self.request_timestamps[key] and self.request_timestamps[key][0] <= window_start:
+    while (
+        self.request_timestamps[key] and self.request_timestamps[key][0] <= window_start
+    ):
         self.request_timestamps[key].popleft()
     request_count = len(self.request_timestamps[key])
     self.request_timestamps[key].append(current_time)

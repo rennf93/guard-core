@@ -28,8 +28,12 @@ class CloudManager:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance.ip_ranges = {
-                "AWS": set(), "GCP": set(), "Azure": set(),
-                "DigitalOcean": set(), "Linode": set(), "Vultr": set(),
+                "AWS": set(),
+                "GCP": set(),
+                "Azure": set(),
+                "DigitalOcean": set(),
+                "Linode": set(),
+                "Vultr": set(),
             }
             cls._instance.last_updated = {p: None for p in _ALL_PROVIDERS}
             cls._instance._store = InMemoryCloudIpStore()
@@ -197,7 +201,10 @@ def is_cloud_ip(self, ip: str, providers: set[str] = _ALL_PROVIDERS) -> bool:
         provider_regions = self.network_regions.get(provider, {})
         for network in self.ip_ranges.get(provider, set()):
             if ip_obj in network:
-                if allowed_regions and provider_regions.get(str(network)) in allowed_regions:
+                if (
+                    allowed_regions
+                    and provider_regions.get(str(network)) in allowed_regions
+                ):
                     continue
                 return True
     return False
@@ -242,7 +249,8 @@ The `SecurityConfig` model exposes:
 
 ```python
 cloud_ip_refresh_interval: int = Field(
-    default=3600, ge=60,
+    default=3600,
+    ge=60,
     description="Interval in seconds between cloud IP range refreshes",
 )
 ```
@@ -309,7 +317,10 @@ When a cloud IP is blocked and an agent handler is configured, `CloudManager` di
 
 ```python
 async def send_cloud_detection_event(
-    self, ip: str, provider: str, network: str,
+    self,
+    ip: str,
+    provider: str,
+    network: str,
     action_taken: str = "request_blocked",
 ) -> None:
     await self._send_cloud_event(
@@ -338,7 +349,9 @@ cloud_details = cloud_handler.get_cloud_provider_details(client_ip, providers)
 if cloud_details and cloud_handler.agent_handler:
     provider, network = cloud_details
     await cloud_handler.send_cloud_detection_event(
-        client_ip, provider, network,
+        client_ip,
+        provider,
+        network,
         "request_blocked" if not passive_mode else "logged_only",
     )
 ```

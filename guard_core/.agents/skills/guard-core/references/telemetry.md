@@ -49,7 +49,7 @@ From `guard_core.core.events.event_types`:
 `guard.behavior.correlation_key` source:
 
 ```python
-sha256(f"{ip}|{service}|{floor(now/300)}").hexdigest()[:16]
+sha256(f"{ip}|{service}|{floor(now / 300)}").hexdigest()[:16]
 ```
 
 All fields are nullable and absent unless context is available.

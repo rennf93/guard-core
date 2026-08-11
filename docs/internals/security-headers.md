@@ -115,7 +115,9 @@ headers = await security_headers_manager.get_headers(request_path="/api/data")
 ### CORS Headers
 
 ```python
-cors_headers = await security_headers_manager.get_cors_headers(origin="https://example.com")
+cors_headers = await security_headers_manager.get_cors_headers(
+    origin="https://example.com"
+)
 ```
 
 Returns an empty dict if:

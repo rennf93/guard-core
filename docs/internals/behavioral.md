@@ -140,21 +140,23 @@ from guard_core.handlers.behavior_handler import BehaviorRule
 
 security = SecurityDecorator(config)
 
-@security.behavior_analysis(rules=[
-    BehaviorRule(
-        rule_type="usage",
-        threshold=100,
-        window=300,
-        action="throttle",
-    ),
-    BehaviorRule(
-        rule_type="return_pattern",
-        threshold=10,
-        window=60,
-        pattern="status:429",
-        action="ban",
-    ),
-])
-async def my_endpoint():
-    ...
+
+@security.behavior_analysis(
+    rules=[
+        BehaviorRule(
+            rule_type="usage",
+            threshold=100,
+            window=300,
+            action="throttle",
+        ),
+        BehaviorRule(
+            rule_type="return_pattern",
+            threshold=10,
+            window=60,
+            pattern="status:429",
+            action="ban",
+        ),
+    ]
+)
+async def my_endpoint(): ...
 ```

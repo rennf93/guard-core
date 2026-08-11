@@ -354,6 +354,7 @@ class MyFrameworkMixin(BaseSecurityMixin):
             route_config = self._ensure_route_config(func)
             route_config.session_quota = {session_key: 1}
             return self._apply_route_config(func)
+
         return decorator
 
 
@@ -372,9 +373,7 @@ The decorator needs async initialization for behavior tracking and agent integra
 async def initialize(self) -> None:
     if self.guard_decorator:
         if self.redis_handler:
-            await self.guard_decorator.initialize_behavior_tracking(
-                self.redis_handler
-            )
+            await self.guard_decorator.initialize_behavior_tracking(self.redis_handler)
         if self.agent_handler:
             await self.guard_decorator.initialize_agent(self.agent_handler)
 ```
