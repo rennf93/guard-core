@@ -45,22 +45,26 @@ async def test_at_cap_body_is_still_read_and_scanned() -> None:
     assert result.is_threat is True
 
 
-async def test_missing_content_length_still_scans() -> None:
+async def test_missing_content_length_not_read_or_scanned() -> None:
+    # Fail-closed: a chunked request (no Content-Length) must not trigger an
+    # unbounded body read. See GHSA-xv6g-49vj-7w9c.
     request = _BodyRequest(body=_SQLI_BODY, content_length=None)
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
     result = await detect_penetration_attempt(cast(GuardRequest, request), config)
 
-    assert request.body_read is True
-    assert result.is_threat is True
+    assert request.body_read is False
+    assert result.is_threat is False
 
 
-async def test_malformed_content_length_falls_back_to_scanning() -> None:
+async def test_malformed_content_length_not_read_or_scanned() -> None:
+    # Fail-closed: a malformed Content-Length must not trigger an unbounded
+    # body read. See GHSA-xv6g-49vj-7w9c.
     request = _BodyRequest(body=_SQLI_BODY, content_length=None)
     request.headers["content-length"] = "not-a-number"
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
     result = await detect_penetration_attempt(cast(GuardRequest, request), config)
 
-    assert request.body_read is True
-    assert result.is_threat is True
+    assert request.body_read is False
+    assert result.is_threat is False

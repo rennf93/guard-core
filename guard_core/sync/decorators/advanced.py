@@ -3,9 +3,11 @@ from collections.abc import Callable, MutableMapping
 from typing import Any
 from urllib.parse import parse_qs
 
+from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.decorators.base import BaseSecurityMixin, DecoratedFunction
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+from guard_core.sync.utils import _body_exceeds_inspection_cap
 
 
 class _SimpleResponse:
@@ -28,6 +30,10 @@ class _SimpleResponse:
 
 
 class AdvancedMixin(BaseSecurityMixin):
+    # Provided by BaseSecurityDecorator at runtime; declared here so mixin
+    # methods can access the active SecurityConfig for fail-closed body caps.
+    config: SecurityConfig
+
     def time_window(
         self, start_time: str, end_time: str, timezone: str = "UTC"
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
@@ -55,6 +61,8 @@ class AdvancedMixin(BaseSecurityMixin):
     def honeypot_detection(
         self, trap_fields: list[str]
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        config = self.config
+
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             def honeypot_validator(
                 request: SyncGuardRequest,
@@ -84,6 +92,12 @@ class AdvancedMixin(BaseSecurityMixin):
                     return None
 
                 if request.method not in ["POST", "PUT", "PATCH"]:
+                    return None
+
+                if _body_exceeds_inspection_cap(request, config):
+                    # Fail-closed: an unbounded body (no/malformed Content-Length,
+                    # e.g. Transfer-Encoding: chunked) is not read. See
+                    # GHSA-xv6g-49vj-7w9c.
                     return None
 
                 content_type = request.headers.get("content-type", "")

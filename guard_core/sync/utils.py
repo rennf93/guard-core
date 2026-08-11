@@ -1143,11 +1143,17 @@ def _body_exceeds_inspection_cap(
         return False
     content_length = request.headers.get("content-length")
     if content_length is None:
-        return False
+        # Fail-closed: no Content-Length (e.g. Transfer-Encoding: chunked)
+        # means the body length is unknown, so do not attempt an unbounded
+        # read. The body is skipped rather than buffered in full.
+        # See GHSA-xv6g-49vj-7w9c.
+        return True
     try:
         return int(content_length) > config.detection_max_body_inspect_bytes
     except ValueError:
-        return False
+        # Fail-closed: a malformed Content-Length is treated as over-cap for
+        # the same reason as a missing one. See GHSA-xv6g-49vj-7w9c.
+        return True
 
 
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
