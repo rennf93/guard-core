@@ -178,6 +178,83 @@ async def detect_penetration_patterns(
     return DetectionResult(is_threat=False, trigger_info=reason)
 
 
+def _increment_suspicious_counts(
+    middleware: "GuardMiddlewareProtocol",
+    client_ip: str,
+    threat_categories: list[str],
+) -> None:
+    if client_ip not in middleware.suspicious_request_counts:
+        middleware.suspicious_request_counts[client_ip] = {}
+    ip_counts = middleware.suspicious_request_counts[client_ip]
+    categories = threat_categories or ["uncategorized"]
+    for category in categories:
+        ip_counts[category] = ip_counts.get(category, 0) + 1
+
+
+async def _try_escalation_per_category_ban(
+    request: GuardRequest,
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    middleware: "GuardMiddlewareProtocol",
+    client_ip: str,
+    trigger_info: str,
+    threat_categories: list[str],
+    logger: logging.Logger,
+    check_name: str,
+    muted_check_logs: set[str],
+) -> bool:
+    ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
+    for category in threat_categories:
+        entry = config.threat_ban_config.get(category)
+        if entry is None:
+            continue
+        if ip_counts.get(category, 0) >= entry.threshold:
+            await ip_ban_manager.ban_ip(
+                client_ip, entry.duration, f"penetration_attempt:{category}"
+            )
+            await log_activity(
+                request,
+                logger,
+                log_type="suspicious",
+                reason=f"IP banned due to {category} threshold: "
+                f"{client_ip} - {trigger_info}",
+                level=config.log_suspicious_level,
+                check_name=check_name,
+                muted_check_logs=muted_check_logs,
+            )
+            return True
+    return False
+
+
+async def _try_escalation_flat_ban(
+    request: GuardRequest,
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    middleware: "GuardMiddlewareProtocol",
+    client_ip: str,
+    trigger_info: str,
+    logger: logging.Logger,
+    check_name: str,
+    muted_check_logs: set[str],
+) -> bool:
+    total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
+    if total < config.auto_ban_threshold:
+        return False
+    await ip_ban_manager.ban_ip(
+        client_ip, config.auto_ban_duration, "penetration_attempt"
+    )
+    await log_activity(
+        request,
+        logger,
+        log_type="suspicious",
+        reason=f"IP banned due to suspicious activity: {client_ip} - {trigger_info}",
+        level=config.log_suspicious_level,
+        check_name=check_name,
+        muted_check_logs=muted_check_logs,
+    )
+    return True
+
+
 async def escalate_suspicious_if_threat(
     middleware: "GuardMiddlewareProtocol",
     config: SecurityConfig,
@@ -201,51 +278,35 @@ async def escalate_suspicious_if_threat(
             return
 
         threat_categories = list(result.threat_categories)
-
-        if client_ip not in middleware.suspicious_request_counts:
-            middleware.suspicious_request_counts[client_ip] = {}
-        ip_counts = middleware.suspicious_request_counts[client_ip]
-        categories = threat_categories or ["uncategorized"]
-        for category in categories:
-            ip_counts[category] = ip_counts.get(category, 0) + 1
+        _increment_suspicious_counts(middleware, client_ip, threat_categories)
 
         if not config.enable_ip_banning:
             return
 
-        for category in threat_categories:
-            entry = config.threat_ban_config.get(category)
-            if entry is None:
-                continue
-            if ip_counts.get(category, 0) >= entry.threshold:
-                await ip_ban_manager.ban_ip(
-                    client_ip, entry.duration, f"penetration_attempt:{category}"
-                )
-                await log_activity(
-                    request,
-                    logger,
-                    log_type="suspicious",
-                    reason=f"IP banned due to {category} threshold: "
-                    f"{client_ip} - {result.trigger_info}",
-                    level=config.log_suspicious_level,
-                    check_name=check_name,
-                    muted_check_logs=muted_check_logs,
-                )
-                return
+        if await _try_escalation_per_category_ban(
+            request,
+            config,
+            ip_ban_manager,
+            middleware,
+            client_ip,
+            result.trigger_info,
+            threat_categories,
+            logger,
+            check_name,
+            muted_check_logs,
+        ):
+            return
 
-        total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
-        if total >= config.auto_ban_threshold:
-            await ip_ban_manager.ban_ip(
-                client_ip, config.auto_ban_duration, "penetration_attempt"
-            )
-            await log_activity(
-                request,
-                logger,
-                log_type="suspicious",
-                reason=f"IP banned due to suspicious activity: "
-                f"{client_ip} - {result.trigger_info}",
-                level=config.log_suspicious_level,
-                check_name=check_name,
-                muted_check_logs=muted_check_logs,
-            )
+        await _try_escalation_flat_ban(
+            request,
+            config,
+            ip_ban_manager,
+            middleware,
+            client_ip,
+            result.trigger_info,
+            logger,
+            check_name,
+            muted_check_logs,
+        )
     except Exception:
         logger.exception("escalate_suspicious_if_threat failed for %s", client_ip)
