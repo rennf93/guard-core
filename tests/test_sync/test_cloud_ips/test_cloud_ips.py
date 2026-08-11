@@ -383,6 +383,7 @@ def test_fetch_azure_ip_ranges_download_failure(
     with patch("guard_core.sync.handlers.cloud_handler.time.sleep"):
         result = fetch_azure_ip_ranges()
     assert result == set()
+    assert mock_aiohttp_session.get.call_count == 4
 
 
 def test_fetch_azure_ip_ranges_retries_then_succeeds(

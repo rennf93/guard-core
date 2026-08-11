@@ -409,6 +409,7 @@ async def test_fetch_azure_ip_ranges_download_failure(
     ):
         result = await fetch_azure_ip_ranges()
     assert result == set()
+    assert mock_aiohttp_session.get.await_count == 4
 
 
 async def test_fetch_azure_ip_ranges_retries_then_succeeds(
