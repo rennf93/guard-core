@@ -36,9 +36,7 @@ If possible, provide a pseudocode example of how this feature might be implement
 ```python
 from guard_core.models import SecurityConfig
 
-config = SecurityConfig(
-    new_feature=SomeConfiguration(...)
-)
+config = SecurityConfig(new_feature=SomeConfiguration(...))
 ```
 
 ___

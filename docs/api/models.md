@@ -53,12 +53,12 @@ class SecurityConfig(BaseModel):
     )
 
     custom_log_file: str | None = Field(default=None)
-    log_suspicious_level: Literal[
-        "INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"
-    ] | None = Field(default="WARNING")
-    log_request_level: Literal[
-        "INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"
-    ] | None = Field(default=None)
+    log_suspicious_level: (
+        Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None
+    ) = Field(default="WARNING")
+    log_request_level: (
+        Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None
+    ) = Field(default=None)
     log_format: Literal["text", "json"] = Field(default="text")
 
     custom_error_responses: dict[int, str] = Field(default_factory=dict)
@@ -70,19 +70,17 @@ class SecurityConfig(BaseModel):
 
     security_headers: dict[str, Any] | None = Field(default_factory=...)
 
-    custom_request_check: Callable[
-        [GuardRequest], Awaitable[GuardResponse | None]
-    ] | None = Field(default=None)
-    custom_response_modifier: Callable[
-        [GuardResponse], Awaitable[GuardResponse]
-    ] | None = Field(default=None)
+    custom_request_check: (
+        Callable[[GuardRequest], Awaitable[GuardResponse | None]] | None
+    ) = Field(default=None)
+    custom_response_modifier: (
+        Callable[[GuardResponse], Awaitable[GuardResponse]] | None
+    ) = Field(default=None)
 
     enable_cors: bool = Field(default=False)
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_methods: list[str] = Field(
-        default_factory=lambda: [
-            "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
-        ]
+        default_factory=lambda: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     )
     cors_allow_headers: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = Field(default=False)
@@ -100,8 +98,12 @@ class SecurityConfig(BaseModel):
 
     exclude_paths: list[str] = Field(
         default_factory=lambda: [
-            "/docs", "/redoc", "/openapi.json",
-            "/openapi.yaml", "/favicon.ico", "/static",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/openapi.yaml",
+            "/favicon.ico",
+            "/static",
         ]
     )
 
@@ -110,15 +112,11 @@ class SecurityConfig(BaseModel):
     enable_penetration_detection: bool = Field(default=True)
 
     ipinfo_token: str | None = Field(default=None)
-    ipinfo_db_path: Path | None = Field(
-        default=Path("data/ipinfo/country_asn.mmdb")
-    )
+    ipinfo_db_path: Path | None = Field(default=Path("data/ipinfo/country_asn.mmdb"))
 
     enable_agent: bool = Field(default=False)
     agent_api_key: str | None = Field(default=None)
-    agent_endpoint: str = Field(
-        default="https://api.guard-core.com"
-    )
+    agent_endpoint: str = Field(default="https://api.guard-core.com")
     agent_project_id: str | None = Field(default=None)
     agent_buffer_size: int = Field(default=100)
     agent_flush_interval: int = Field(default=30)
@@ -132,38 +130,18 @@ class SecurityConfig(BaseModel):
 
     emergency_mode: bool = Field(default=False)
     emergency_whitelist: list[str] = Field(default_factory=list)
-    endpoint_rate_limits: dict[str, tuple[int, int]] = Field(
-        default_factory=dict
-    )
+    endpoint_rate_limits: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
-    detection_compiler_timeout: float = Field(
-        default=2.0, ge=0.1, le=10.0
-    )
-    detection_max_content_length: int = Field(
-        default=10000, ge=1000, le=100000
-    )
-    detection_max_body_inspect_bytes: int = Field(
-        default=262144, ge=1024, le=10485760
-    )
+    detection_compiler_timeout: float = Field(default=2.0, ge=0.1, le=10.0)
+    detection_max_content_length: int = Field(default=10000, ge=1000, le=100000)
+    detection_max_body_inspect_bytes: int = Field(default=262144, ge=1024, le=10485760)
     detection_preserve_attack_patterns: bool = Field(default=True)
-    detection_semantic_threshold: float = Field(
-        default=0.7, ge=0.0, le=1.0
-    )
-    detection_anomaly_threshold: float = Field(
-        default=3.0, ge=1.0, le=10.0
-    )
-    detection_slow_pattern_threshold: float = Field(
-        default=0.1, ge=0.01, le=1.0
-    )
-    detection_monitor_history_size: int = Field(
-        default=1000, ge=100, le=10000
-    )
-    detection_max_tracked_patterns: int = Field(
-        default=1000, ge=100, le=5000
-    )
-    detection_threat_score_threshold: float = Field(
-        default=1.0, ge=0.0, le=10.0
-    )
+    detection_semantic_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    detection_anomaly_threshold: float = Field(default=3.0, ge=1.0, le=10.0)
+    detection_slow_pattern_threshold: float = Field(default=0.1, ge=0.01, le=1.0)
+    detection_monitor_history_size: int = Field(default=1000, ge=100, le=10000)
+    detection_max_tracked_patterns: int = Field(default=1000, ge=100, le=5000)
+    detection_threat_score_threshold: float = Field(default=1.0, ge=0.0, le=10.0)
     detection_scan_body: bool = Field(default=True)
 
     def to_agent_config(self) -> "AgentConfig | None":
@@ -320,9 +298,7 @@ class DynamicRules(BaseModel):
 
     global_rate_limit: int | None = Field(default=None)
     global_rate_window: int | None = Field(default=None)
-    endpoint_rate_limits: dict[str, tuple[int, int]] = Field(
-        default_factory=dict
-    )
+    endpoint_rate_limits: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
     blocked_cloud_providers: set[str] = Field(default_factory=set)
     blocked_user_agents: list[str] = Field(default_factory=list)

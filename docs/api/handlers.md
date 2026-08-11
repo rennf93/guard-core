@@ -140,9 +140,7 @@ class CloudManager:
         Set the agent handler for telemetry events.
         """
 
-    async def refresh(
-        self, providers: set[str] = _ALL_PROVIDERS
-    ) -> None:
+    async def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
         """
         Refresh IP ranges without Redis. Raises RuntimeError if Redis is enabled.
         """
@@ -156,9 +154,7 @@ class CloudManager:
         Refresh IP ranges with optional Redis caching.
         """
 
-    def is_cloud_ip(
-        self, ip: str, providers: set[str] = _ALL_PROVIDERS
-    ) -> bool:
+    def is_cloud_ip(self, ip: str, providers: set[str] = _ALL_PROVIDERS) -> bool:
         """
         Check whether an IP belongs to any of the given cloud providers.
         `providers` accepts `"PROVIDER:!region"` carve-out selectors too.
@@ -196,9 +192,7 @@ class RedisManager:
     logger: logging.Logger
     agent_handler: Any
 
-    def __new__(
-        cls: type["RedisManager"], config: SecurityConfig
-    ) -> "RedisManager":
+    def __new__(cls: type["RedisManager"], config: SecurityConfig) -> "RedisManager":
         """
         Constructor. Accepts a SecurityConfig instance.
         """
@@ -224,9 +218,7 @@ class RedisManager:
         Context manager yielding a live Redis connection.
         """
 
-    async def safe_operation(
-        self, func: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def safe_operation(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """
         Execute a function with an auto-managed Redis connection.
         """
@@ -324,9 +316,7 @@ class SecurityHeadersManager:
         Configure all security header subsystems at once.
         """
 
-    async def get_headers(
-        self, request_path: str | None = None
-    ) -> dict[str, str]:
+    async def get_headers(self, request_path: str | None = None) -> dict[str, str]:
         """
         Build and return the full set of security headers for a request path.
         """
@@ -336,9 +326,7 @@ class SecurityHeadersManager:
         Return CORS headers for the given origin, or empty dict if disallowed.
         """
 
-    async def validate_csp_report(
-        self, report: dict[str, Any]
-    ) -> bool:
+    async def validate_csp_report(self, report: dict[str, Any]) -> bool:
         """
         Validate and log a CSP violation report. Returns True if valid.
         """
@@ -492,9 +480,7 @@ class SusPatternsManager:
         """
 
     @classmethod
-    async def add_pattern(
-        cls, pattern: str, custom: bool = False
-    ) -> bool:
+    async def add_pattern(cls, pattern: str, custom: bool = False) -> bool:
         """
         Add a regex pattern to the detection engine. Returns True on success,
         False if the ReDoS safety validator rejects the pattern (logs a
@@ -502,9 +488,7 @@ class SusPatternsManager:
         """
 
     @classmethod
-    async def remove_pattern(
-        cls, pattern: str, custom: bool = False
-    ) -> bool:
+    async def remove_pattern(cls, pattern: str, custom: bool = False) -> bool:
         """
         Remove a pattern. Returns True if it was found and removed.
         """
@@ -535,9 +519,7 @@ class SusPatternsManager:
         Return which detection engine components are active.
         """
 
-    async def configure_semantic_threshold(
-        self, threshold: float
-    ) -> None:
+    async def configure_semantic_threshold(self, threshold: float) -> None:
         """
         Set the semantic detection threshold (clamped to 0.0-1.0).
         """

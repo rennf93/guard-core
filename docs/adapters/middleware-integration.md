@@ -53,6 +53,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         self.redis_handler = None
         if config.enable_redis:
             from guard_core.handlers.redis_handler import RedisManager
+
             self.redis_handler = RedisManager(config)
 
         self.agent_handler = None
@@ -61,6 +62,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             if agent_config:
                 try:
                     from guard_agent import guard_agent
+
                     self.agent_handler = guard_agent(agent_config)
                 except ImportError:
                     self.logger.warning(
@@ -346,6 +348,7 @@ Guard-core does not manage CORS middleware registration. CORS is framework-speci
 ```python
 from fastapi.middleware.cors import CORSMiddleware
 
+
 @staticmethod
 def configure_cors(app: FastAPI, config: SecurityConfig) -> bool:
     if config.enable_cors:
@@ -388,6 +391,7 @@ Use `app.before_request` and `app.after_request` hooks. Since Flask is synchrono
 
 ```python
 import asyncio
+
 
 @app.before_request
 def guard_before_request():

@@ -84,10 +84,7 @@ is_user_agent_allowed
 ---------------------
 
 ```python
-async def is_user_agent_allowed(
-    user_agent: str,
-    config: Any
-) -> bool:
+async def is_user_agent_allowed(user_agent: str, config: Any) -> bool:
     """
     Check if user agent is allowed.
     """
@@ -98,9 +95,7 @@ check_ip_country
 
 ```python
 async def check_ip_country(
-    request: str | GuardRequest,
-    config: Any,
-    geo_ip_handler: GeoIPHandler
+    request: str | GuardRequest, config: Any, geo_ip_handler: GeoIPHandler
 ) -> bool:
     """
     Check if IP is from a blocked country.
@@ -179,6 +174,7 @@ Example usage:
 from guard_core.protocols import GuardRequest
 from guard_core.utils import detect_penetration_attempt
 
+
 @app.post("/api/submit")
 async def submit_data(request: GuardRequest):
     result = await detect_penetration_attempt(request)
@@ -231,7 +227,7 @@ Usage Examples
 from guard_core.utils import (
     setup_custom_logging,
     log_activity,
-    detect_penetration_attempt
+    detect_penetration_attempt,
 )
 
 # Setup logging (synchronous function)
@@ -246,10 +242,7 @@ await log_activity(request, logger)
 
 # Log suspicious activity
 await log_activity(
-    request,
-    logger,
-    log_type="suspicious",
-    reason="Suspicious pattern detected"
+    request, logger, log_type="suspicious", reason="Suspicious pattern detected"
 )
 
 # Check for penetration attempts
