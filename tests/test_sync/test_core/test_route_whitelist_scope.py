@@ -110,6 +110,10 @@ def test_cloud_block_on_route_whitelisted_ip_is_coherent(_mock_log: Any) -> None
     with (
         patch.object(check, "ip_ban_manager") as mock_ban_manager,
         patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as cloud,
+        patch(
+            "guard_core.sync.core.checks.implementations.ip_security."
+            "escalate_suspicious_if_threat"
+        ),
     ):
         mock_ban_manager.is_ip_banned = MagicMock(return_value=False)
         cloud.is_cloud_ip = Mock(return_value=True)

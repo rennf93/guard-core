@@ -54,6 +54,11 @@ def _patches(ip_security_check: IpSecurityCheck) -> Any:
     patch(
         "guard_core.sync.core.checks.implementations.ip_security.log_activity"
     ).start()
+    patch(
+        "guard_core.sync.core.checks.implementations.ip_security."
+        "escalate_suspicious_if_threat",
+        new=MagicMock(),
+    ).start()
     yield
     patch.stopall()
 

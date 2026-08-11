@@ -5,6 +5,7 @@ from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     check_country_access,
     check_route_ip_access,
+    escalate_suspicious_if_threat,
 )
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
@@ -126,6 +127,16 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
+            escalate_suspicious_if_threat(
+                self.middleware,
+                self.config,
+                self.ip_ban_manager,
+                request,
+                client_ip,
+                self.logger,
+                self.check_name,
+                self.config.muted_check_logs,
+            )
             return self.middleware.create_error_response(
                 status_code=403,
                 default_message="Forbidden",
@@ -189,6 +200,16 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
+            escalate_suspicious_if_threat(
+                self.middleware,
+                self.config,
+                self.ip_ban_manager,
+                request,
+                client_ip,
+                self.logger,
+                self.check_name,
+                self.config.muted_check_logs,
+            )
             return self.middleware.create_error_response(
                 status_code=403,
                 default_message="Forbidden",
