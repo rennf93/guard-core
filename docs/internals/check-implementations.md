@@ -192,7 +192,7 @@ ___
 {
     "start": "09:00",
     "end": "17:00",
-    "timezone": "US/Eastern"  # optional, defaults to UTC
+    "timezone": "US/Eastern",  # optional, defaults to UTC
 }
 ```
 

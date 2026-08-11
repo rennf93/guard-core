@@ -160,8 +160,8 @@ config = SecurityConfig(
     agent_api_key="your-api-key",
     agent_project_id="proj-prod",
     enable_enrichment=True,
-    enable_otel=True,           # optional, routes enrichment to OTel spans
-    enable_logfire=True,        # optional, routes enrichment to Logfire spans
+    enable_otel=True,  # optional, routes enrichment to OTel spans
+    enable_logfire=True,  # optional, routes enrichment to Logfire spans
     otel_service_name="api",
     otel_resource_attributes={"deployment.environment": "prod"},
 )
@@ -188,7 +188,7 @@ When none matches, the two keys stay absent.
 `guard.behavior.correlation_key` is a stable 16-character hex identifier that groups multiple events from the same IP within a 5-minute rolling window. Dashboards that want to surface "attack chains" can group events by this key. The formula is:
 
 ```python
-sha256(f"{ip}|{service}|{floor(now/300)}".encode()).hexdigest()[:16]
+sha256(f"{ip}|{service}|{floor(now / 300)}".encode()).hexdigest()[:16]
 ```
 
 
@@ -211,14 +211,14 @@ initializer = HandlerInitializer(
 )
 
 await initializer.initialize_redis_handlers()
-await initializer.initialize_agent_integrations()   # starts composite_handler
+await initializer.initialize_agent_integrations()  # starts composite_handler
 
 event_bus = initializer.build_event_bus(geo_ip_handler=geo_handler)
 metrics_collector = initializer.build_metrics_collector()
 
 # ... run the app ...
 
-await initializer.shutdown_agent_integrations()     # stops composite_handler
+await initializer.shutdown_agent_integrations()  # stops composite_handler
 ```
 
 `build_event_bus()` and `build_metrics_collector()` raise `RuntimeError` if called before `initialize_agent_integrations()` — the composite handler and event filter must exist first.

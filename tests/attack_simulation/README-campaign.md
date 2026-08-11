@@ -14,6 +14,7 @@ promoting it:
 ```python
 import asyncio
 from tests.attack_simulation.score_payloads import score_payloads
+
 print(asyncio.run(score_payloads(["<candidate payload>"])))
 ```
 

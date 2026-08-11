@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
+
 class SecurityCheck(ABC):
     requires: ClassVar[tuple[str, ...]] = ()
 
@@ -42,8 +43,12 @@ class SecurityCheck(ABC):
     def check_name(self) -> str: ...
 
     async def send_event(
-        self, event_type: str, request: GuardRequest,
-        action_taken: str, reason: str, **kwargs
+        self,
+        event_type: str,
+        request: GuardRequest,
+        action_taken: str,
+        reason: str,
+        **kwargs,
     ) -> None: ...
 
     async def create_error_response(

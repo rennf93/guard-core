@@ -111,9 +111,7 @@ class StarletteGuardResponse:
 
 
 class StarletteResponseFactory:
-    def create_response(
-        self, content: str, status_code: int
-    ) -> StarletteGuardResponse:
+    def create_response(self, content: str, status_code: int) -> StarletteGuardResponse:
         response = PlainTextResponse(content, status_code=status_code)
         return StarletteGuardResponse(response)
 
@@ -170,9 +168,7 @@ class FlaskGuardResponse:
 
 
 class FlaskResponseFactory:
-    def create_response(
-        self, content: str, status_code: int
-    ) -> FlaskGuardResponse:
+    def create_response(self, content: str, status_code: int) -> FlaskGuardResponse:
         return FlaskGuardResponse(content, status_code)
 
     def create_redirect_response(
@@ -214,9 +210,7 @@ class DjangoGuardResponse:
 
 
 class DjangoResponseFactory:
-    def create_response(
-        self, content: str, status_code: int
-    ) -> DjangoGuardResponse:
+    def create_response(self, content: str, status_code: int) -> DjangoGuardResponse:
         response = HttpResponse(content, status=status_code)
         return DjangoGuardResponse(response)
 

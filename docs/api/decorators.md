@@ -41,6 +41,7 @@ from guard_core.handlers.ipinfo_handler import IPInfoManager
 config = SecurityConfig(geo_ip_handler=IPInfoManager(token="your-ipinfo-token"))
 guard_deco = SecurityDecorator(config)
 
+
 @app.get("/api/sensitive")
 @guard_deco.rate_limit(requests=5, window=300)
 @guard_deco.require_ip(whitelist=["10.0.0.0/8"])
@@ -137,8 +138,7 @@ def detection_exclusion(
     body_fields: set[str] | None = None,
     categories: set[str] | None = None,
     scan_body: bool | None = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    ...
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 ```
 
 All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset — the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
@@ -207,19 +207,22 @@ config = SecurityConfig(
     enable_ip_banning=True,
     enable_rate_limiting=True,
     rate_limit=100,
-    rate_limit_window=3600
+    rate_limit_window=3600,
 )
 
 guard_deco = SecurityDecorator(config)
+
 
 @guard_deco.rate_limit(requests=10, window=300)
 @app.get("/api/limited")
 def limited_endpoint():
     return {"data": "limited"}
 
+
 @app.get("/api/public")
 def public_endpoint():
     return {"data": "public"}
+
 
 app.state.guard_decorator = guard_deco
 ```

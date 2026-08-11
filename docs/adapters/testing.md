@@ -138,12 +138,8 @@ class MockGuardResponseFactory:
     def create_response(self, content: str, status_code: int) -> MockGuardResponse:
         return MockGuardResponse(content, status_code)
 
-    def create_redirect_response(
-        self, url: str, status_code: int
-    ) -> MockGuardResponse:
-        return MockGuardResponse(
-            f"Redirect to {url}", status_code, {"Location": url}
-        )
+    def create_redirect_response(self, url: str, status_code: int) -> MockGuardResponse:
+        return MockGuardResponse(f"Redirect to {url}", status_code, {"Location": url})
 ```
 
 ### Pytest Fixtures
@@ -161,6 +157,7 @@ def security_config() -> SecurityConfig:
         auto_ban_threshold=3,
         auto_ban_duration=300,
     )
+
 
 @pytest.fixture
 def security_config_redis(ipinfo_db_path: Path) -> SecurityConfig:
@@ -460,10 +457,12 @@ class AlwaysBlockCheck(SecurityCheck):
 @pytest.mark.asyncio
 async def test_pipeline_passes_when_all_checks_pass():
     middleware = MockMiddleware(SecurityConfig(enable_redis=False))
-    pipeline = SecurityCheckPipeline([
-        AlwaysPassCheck(middleware),
-        AlwaysPassCheck(middleware),
-    ])
+    pipeline = SecurityCheckPipeline(
+        [
+            AlwaysPassCheck(middleware),
+            AlwaysPassCheck(middleware),
+        ]
+    )
 
     request = MockGuardRequest()
     result = await pipeline.execute(request)
@@ -473,11 +472,13 @@ async def test_pipeline_passes_when_all_checks_pass():
 @pytest.mark.asyncio
 async def test_pipeline_blocks_on_first_failure():
     middleware = MockMiddleware(SecurityConfig(enable_redis=False))
-    pipeline = SecurityCheckPipeline([
-        AlwaysPassCheck(middleware),
-        AlwaysBlockCheck(middleware),
-        AlwaysPassCheck(middleware),
-    ])
+    pipeline = SecurityCheckPipeline(
+        [
+            AlwaysPassCheck(middleware),
+            AlwaysBlockCheck(middleware),
+            AlwaysPassCheck(middleware),
+        ]
+    )
 
     request = MockGuardRequest()
     result = await pipeline.execute(request)
@@ -590,6 +591,7 @@ For integration tests that require Redis, use a test fixture with a real or mock
 
 ```python
 import os
+
 
 @pytest.fixture
 def redis_config():

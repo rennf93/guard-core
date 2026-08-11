@@ -56,8 +56,7 @@ Configuration
 ```python
 from guard_core.models import SecurityConfig
 
-config = SecurityConfig(
-)
+config = SecurityConfig()
 ```
 
 ___

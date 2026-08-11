@@ -38,9 +38,7 @@ class PatternCompiler:
         Compile a pattern with LRU caching.
         """
 
-    def create_safe_matcher(
-        self, pattern: str
-    ) -> Callable[[str], re.Match | None]:
+    def create_safe_matcher(self, pattern: str) -> Callable[[str], re.Match | None]:
         """
         Return a callable that matches content against the pattern
         with timeout protection.
@@ -97,9 +95,7 @@ class SemanticAnalyzer:
         and other analysis metadata.
         """
 
-    def get_threat_score(
-        self, analysis: dict[str, Any]
-    ) -> float:
+    def get_threat_score(self, analysis: dict[str, Any]) -> float:
         """
         Calculate an overall threat score from analysis results.
         """
