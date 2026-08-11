@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 import pytest
@@ -83,3 +84,38 @@ def test_whitelist_countries_normalizes_case(tmp_path: Path) -> None:
         ),
     )
     assert config.whitelist_countries == frozenset({"US", "GB", "DE"})
+
+
+def test_both_country_lists_emits_shadow_warning(tmp_path: Path) -> None:
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        SecurityConfig(
+            whitelist_countries=["US", "CA"],
+            blocked_countries=["CN", "RU"],
+            geo_ip_handler=IPInfoManager(
+                token="dummy", db_path=tmp_path / "country_asn.mmdb"
+            ),
+        )
+
+
+def test_whitelist_alone_emits_no_shadow_warning(tmp_path: Path) -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        SecurityConfig(
+            whitelist_countries=["US", "CA"],
+            geo_ip_handler=IPInfoManager(
+                token="dummy", db_path=tmp_path / "country_asn.mmdb"
+            ),
+        )
+    assert not any("blocked_countries is ignored" in str(w.message) for w in caught)
+
+
+def test_blocked_alone_emits_no_shadow_warning(tmp_path: Path) -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        SecurityConfig(
+            blocked_countries=["CN", "RU"],
+            geo_ip_handler=IPInfoManager(
+                token="dummy", db_path=tmp_path / "country_asn.mmdb"
+            ),
+        )
+    assert not any("blocked_countries is ignored" in str(w.message) for w in caught)
