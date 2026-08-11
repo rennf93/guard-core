@@ -105,7 +105,8 @@ async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6N
 
         download_url = match.group(1)
         data: Any = None
-        for attempt in range(3):
+        attempt = 0
+        while True:
             try:
                 async with aiohttp.ClientSession() as session:
                     response = await session.get(
@@ -116,7 +117,8 @@ async def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6N
                     data = await response.json(content_type=None)
                 break
             except Exception:
-                if attempt == 2:
+                attempt += 1
+                if attempt >= 3:
                     raise
                 await asyncio.sleep(2)
 

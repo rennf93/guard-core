@@ -105,7 +105,8 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
 
         download_url = match.group(1)
         data: Any = None
-        for attempt in range(3):
+        attempt = 0
+        while True:
             try:
                 with requests.Session() as session:
                     response = session.get(
@@ -116,7 +117,8 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
                     data = response.json()
                 break
             except Exception:
-                if attempt == 2:
+                attempt += 1
+                if attempt >= 3:
                     raise
                 time.sleep(2)
 
