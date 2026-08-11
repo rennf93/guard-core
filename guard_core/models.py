@@ -967,6 +967,19 @@ class SecurityConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def warn_country_allowlist_shadows_blocklist(self) -> Self:
+        if self.whitelist_countries and self.blocked_countries:
+            warnings.warn(
+                "blocked_countries is ignored when whitelist_countries is "
+                "non-empty: a non-empty whitelist_countries is restrictive "
+                "(only listed countries pass), so blocked_countries has no "
+                "effect. Use one or the other.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_agent_config(self) -> Self:
         if self.enable_agent and not self.agent_api_key:
             raise ValueError("agent_api_key is required when enable_agent is True")

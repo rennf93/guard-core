@@ -18,6 +18,7 @@ Azure IP-range fetch failed on slow egress and anomaly detection over-fired on l
 ### Added
 
 - Two new `SecurityConfig` fields make the statistical-anomaly detector tunable: `detection_anomaly_emission_cooldown` (default `60.0`, bounds 1.0 to 3600.0) sets the minimum seconds between anomaly events for the same pattern, and `detection_min_samples_for_anomaly` (default `30`, bounds 10 to 1000) sets the minimum samples recorded for a pattern before statistical-anomaly detection engages. `anomaly_emission_cooldown` was already a `PerformanceMonitor` constructor parameter but was never wired from `SecurityConfig`, so it was fixed at 60 seconds; the sample floor was a hardcoded `len(recent_times) < 10` check. Both are now passed from config in `suspatterns_handler._apply_enhanced_config`. Raise either to reduce noise and false fires on low-traffic apps.
+- guard-core now emits a `UserWarning` when both `whitelist_countries` and `blocked_countries` are configured, because `blocked_countries` is silently inert under a non-empty `whitelist_countries` (a non-empty whitelist is restrictive, so the blocklist has no effect).
 
 ### Behaviour changes
 

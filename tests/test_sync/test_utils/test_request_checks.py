@@ -2,6 +2,7 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
@@ -220,9 +221,12 @@ def test_whitelist_countries_overrides_blocked_countries(
     mock_ipinfo = mocker.Mock()
     mock_ipinfo.get_country.return_value = "US"
 
-    config = SecurityConfig(
-        blocked_countries=["US"], whitelist_countries=["US"], geo_ip_handler=mock_ipinfo
-    )
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        config = SecurityConfig(
+            blocked_countries=["US"],
+            whitelist_countries=["US"],
+            geo_ip_handler=mock_ipinfo,
+        )
 
     assert not check_ip_country("8.8.8.8", config, mock_ipinfo)
 
