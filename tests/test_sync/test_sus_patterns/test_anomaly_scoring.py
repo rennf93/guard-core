@@ -17,6 +17,35 @@ def test_threshold_field_default_and_bounds() -> None:
         SecurityConfig(detection_threat_score_threshold=-1.0)
 
 
+def test_anomaly_emission_cooldown_default_and_bounds() -> None:
+    assert SecurityConfig().detection_anomaly_emission_cooldown == 60.0
+    raised = SecurityConfig(detection_anomaly_emission_cooldown=300)
+    assert raised.detection_anomaly_emission_cooldown == 300
+    with pytest.raises(ValidationError):
+        SecurityConfig(detection_anomaly_emission_cooldown=0.5)
+    with pytest.raises(ValidationError):
+        SecurityConfig(detection_anomaly_emission_cooldown=4000.0)
+
+
+def test_min_samples_for_anomaly_default_and_bounds() -> None:
+    assert SecurityConfig().detection_min_samples_for_anomaly == 30
+    raised = SecurityConfig(detection_min_samples_for_anomaly=50)
+    assert raised.detection_min_samples_for_anomaly == 50
+    with pytest.raises(ValidationError):
+        SecurityConfig(detection_min_samples_for_anomaly=5)
+    with pytest.raises(ValidationError):
+        SecurityConfig(detection_min_samples_for_anomaly=2000)
+
+
+def test_new_detection_fields_round_trip() -> None:
+    config = SecurityConfig(
+        detection_anomaly_emission_cooldown=300,
+        detection_min_samples_for_anomaly=50,
+    )
+    assert config.detection_anomaly_emission_cooldown == 300
+    assert config.detection_min_samples_for_anomaly == 50
+
+
 def test_resolve_weight_defaults_to_category_one() -> None:
     assert _resolve_pattern_weight(r"some-pattern", "sqli") == 1.0
     assert DETECTION_CATEGORY_WEIGHTS["sqli"] == 1.0

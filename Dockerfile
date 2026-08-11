@@ -26,6 +26,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 COPY guard_core/ /app/guard_core/
 COPY tests/ /app/tests/
+COPY scripts/ /app/scripts/
 COPY docs/ /app/docs/
 
 RUN mkdir -p /app/data/ipinfo

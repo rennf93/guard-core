@@ -488,6 +488,8 @@ class SusPatternsManager:
             slow_pattern_threshold=config.detection_slow_pattern_threshold,
             history_size=config.detection_monitor_history_size,
             max_tracked_patterns=config.detection_max_tracked_patterns,
+            anomaly_emission_cooldown=config.detection_anomaly_emission_cooldown,
+            min_samples_for_anomaly=config.detection_min_samples_for_anomaly,
         )
         instance._semantic_threshold = config.detection_semantic_threshold
         instance._threat_score_threshold = config.detection_threat_score_threshold

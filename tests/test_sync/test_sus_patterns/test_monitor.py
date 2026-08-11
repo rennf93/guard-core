@@ -17,6 +17,7 @@ def test_initialization() -> None:
     assert monitor.history_size == 1000
     assert monitor.max_tracked_patterns == 1000
     assert monitor.anomaly_emission_cooldown == 60.0
+    assert monitor.min_samples_for_anomaly == 30
     assert len(monitor.pattern_stats) == 0
     assert len(monitor.recent_metrics) == 0
     assert len(monitor.anomaly_callbacks) == 0
@@ -27,12 +28,14 @@ def test_initialization() -> None:
         history_size=500,
         max_tracked_patterns=200,
         anomaly_emission_cooldown=30.0,
+        min_samples_for_anomaly=50,
     )
     assert monitor.anomaly_threshold == 5.0
     assert monitor.slow_pattern_threshold == 0.5
     assert monitor.history_size == 500
     assert monitor.max_tracked_patterns == 200
     assert monitor.anomaly_emission_cooldown == 30.0
+    assert monitor.min_samples_for_anomaly == 50
 
 
 def test_initialization_bounds() -> None:
@@ -42,12 +45,14 @@ def test_initialization_bounds() -> None:
         history_size=50,
         max_tracked_patterns=50,
         anomaly_emission_cooldown=0.1,
+        min_samples_for_anomaly=1,
     )
     assert monitor.anomaly_threshold == 1.0
     assert monitor.slow_pattern_threshold == 0.01
     assert monitor.history_size == 100
     assert monitor.max_tracked_patterns == 100
     assert monitor.anomaly_emission_cooldown == 1.0
+    assert monitor.min_samples_for_anomaly == 10
 
     monitor = PerformanceMonitor(
         anomaly_threshold=20.0,
@@ -55,12 +60,14 @@ def test_initialization_bounds() -> None:
         history_size=20000,
         max_tracked_patterns=10000,
         anomaly_emission_cooldown=10000.0,
+        min_samples_for_anomaly=5000,
     )
     assert monitor.anomaly_threshold == 10.0
     assert monitor.slow_pattern_threshold == 10.0
     assert monitor.history_size == 10000
     assert monitor.max_tracked_patterns == 5000
     assert monitor.anomaly_emission_cooldown == 3600.0
+    assert monitor.min_samples_for_anomaly == 1000
 
 
 def test_record_metric_pattern_truncation() -> None:
@@ -158,7 +165,7 @@ def test_check_anomalies_statistical() -> None:
     monitor.register_anomaly_callback(anomaly_callback)
 
     pattern = "stat_pattern"
-    for _ in range(20):
+    for _ in range(35):
         monitor.record_metric(
             pattern=pattern,
             execution_time=0.01,
@@ -213,7 +220,7 @@ def test_statistical_anomaly_zero_std_dev() -> None:
     monitor.register_anomaly_callback(anomaly_callback)
 
     pattern = "zero_std_pattern"
-    for _ in range(15):
+    for _ in range(35):
         monitor.record_metric(
             pattern=pattern,
             execution_time=0.01,
@@ -262,6 +269,17 @@ def test_statistical_anomaly_within_threshold() -> None:
         0.010,
         0.011,
         0.010,
+        0.009,
+        0.010,
+        0.011,
+        0.012,
+        0.009,
+        0.010,
+        0.011,
+        0.010,
+        0.009,
+        0.010,
+        0.011,
         0.009,
         0.010,
         0.011,
@@ -770,7 +788,7 @@ def test_statistical_anomaly_ignores_faster_than_average_execution() -> None:
 
     pattern = "fast_regression_pattern"
     stats = PatternStats(pattern=pattern)
-    stats.recent_times = deque([0.1] * 19 + [0.001], maxlen=100)
+    stats.recent_times = deque([0.1] * 30 + [0.001], maxlen=100)
     monitor.pattern_stats[pattern] = stats
 
     metric = PerformanceMetric(
@@ -792,7 +810,7 @@ def test_statistical_anomaly_detects_slower_than_average_execution() -> None:
 
     pattern = "slow_regression_pattern"
     stats = PatternStats(pattern=pattern)
-    stats.recent_times = deque([0.001] * 19 + [0.1], maxlen=100)
+    stats.recent_times = deque([0.001] * 30 + [0.1], maxlen=100)
     monitor.pattern_stats[pattern] = stats
 
     metric = PerformanceMetric(
@@ -822,7 +840,7 @@ def test_check_anomalies_statistical_ignores_fast_execution() -> None:
     monitor.register_anomaly_callback(anomaly_callback)
 
     pattern = "fast_stat_pattern"
-    for _ in range(20):
+    for _ in range(35):
         monitor.record_metric(
             pattern=pattern,
             execution_time=0.01,
@@ -970,3 +988,109 @@ def test_cooldown_state_does_not_survive_max_tracked_patterns_eviction() -> None
 def test_reserve_anomaly_emission_allows_untracked_pattern() -> None:
     monitor = PerformanceMonitor()
     assert monitor._reserve_anomaly_emission("never_recorded") is True
+
+
+def test_min_samples_for_anomaly_suppresses_below_floor() -> None:
+    monitor = PerformanceMonitor(
+        anomaly_threshold=2.0,
+        slow_pattern_threshold=1.0,
+        min_samples_for_anomaly=20,
+    )
+
+    anomalies_detected = []
+
+    def anomaly_callback(anomaly: dict[str, Any]) -> None:
+        anomalies_detected.append(anomaly)  # pragma: no cover
+
+    monitor.register_anomaly_callback(anomaly_callback)
+
+    pattern = "floor_pattern"
+    for _ in range(18):
+        monitor.record_metric(
+            pattern=pattern,
+            execution_time=0.01,
+            content_length=100,
+            matched=False,
+        )
+
+    monitor.record_metric(
+        pattern=pattern,
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+    )
+
+    assert len(anomalies_detected) == 0
+
+
+def test_min_samples_for_anomaly_fires_above_floor() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0, min_samples_for_anomaly=20)
+
+    anomalies_detected = []
+
+    def anomaly_callback(anomaly: dict[str, Any]) -> None:
+        anomalies_detected.append(anomaly)
+
+    monitor.register_anomaly_callback(anomaly_callback)
+
+    pattern = "above_floor_pattern"
+    for _ in range(20):
+        monitor.record_metric(
+            pattern=pattern,
+            execution_time=0.01,
+            content_length=100,
+            matched=False,
+        )
+
+    anomalies_detected.clear()
+
+    monitor.record_metric(
+        pattern=pattern,
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+    )
+
+    statistical = [a for a in anomalies_detected if a["type"] == "statistical_anomaly"]
+    assert len(statistical) == 1
+    assert statistical[0]["z_score"] > 2.0
+
+
+def test_cooldown_is_configurable_via_constructor() -> None:
+    monitor = PerformanceMonitor(
+        slow_pattern_threshold=0.05, anomaly_emission_cooldown=5.0
+    )
+    agent_handler = MagicMock()
+    agent_handler.send_event = MagicMock()
+
+    clock = {"now": 1000.0}
+    with patch("time.monotonic", side_effect=lambda: clock["now"]):
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+        assert agent_handler.send_event.call_count == 1
+
+        clock["now"] += 2.0
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+        assert agent_handler.send_event.call_count == 1
+
+        clock["now"] += 5.0
+        monitor.record_metric(
+            pattern="stall_pattern",
+            execution_time=0.5,
+            content_length=100,
+            matched=False,
+            agent_handler=agent_handler,
+        )
+
+    assert agent_handler.send_event.call_count == 2
