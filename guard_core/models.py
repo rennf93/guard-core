@@ -711,6 +711,26 @@ class SecurityConfig(BaseModel):
         le=5000,
     )
 
+    detection_anomaly_emission_cooldown: float = Field(
+        default=60.0,
+        description=(
+            "Min seconds between anomaly events for the same pattern. "
+            "Raise to reduce noise on low-traffic apps."
+        ),
+        ge=1.0,
+        le=3600.0,
+    )
+
+    detection_min_samples_for_anomaly: int = Field(
+        default=30,
+        description=(
+            "Minimum samples recorded for a pattern before statistical-anomaly "
+            "detection engages. Raise to reduce false fires on low-traffic apps."
+        ),
+        ge=10,
+        le=1000,
+    )
+
     detection_threat_score_threshold: float = Field(
         default=1.0,
         description="Anomaly score required to flag a request as a threat",

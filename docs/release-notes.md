@@ -13,12 +13,20 @@ ___
 v3.11.1 (2026-08-10)
 -------------------
 
-Azure IP-range fetch failed every refresh for slow egress or region-variant Microsoft pages (v3.11.1)
------------------------------------------------------------------------------------------------------
+Azure IP-range fetch failed on slow egress and anomaly detection over-fired on low-traffic apps (v3.11.1)
+---------------------------------------------------------------------------------------------------------
 
 ### Fixed
 
 - `fetch_azure_ip_ranges` was the only cloud provider fetched by scraping Microsoft's HTML download page with a regex and then downloading the dated ServiceTags JSON under a hard 10-second total timeout. The other five providers hit direct JSON endpoints with small payloads, so only Azure produced a recurring `Failed to fetch Azure IP ranges` error, on every refresh, for deployments whose egress to `download.microsoft.com` could not complete the 4.7 MB download within 10 seconds, or whose region received a details page whose markup the regex did not match. The JSON download timeout is raised to 30 seconds (the other five providers keep their 10-second direct-endpoint timeout), the download is retried up to three times with a 2-second backoff on transient errors, and URL discovery now falls back to a bare-URL search constrained to `ServiceTags` files when the href-wrapped form is not found, covering pages that embed the link in JavaScript or data attributes without matching unrelated `.json` links on the page; both the href and fallback forms preserve a trailing query string. A failed fetch still resolves to an empty range set, so it cannot cause false blocking of legitimate Azure IPs; the change is about reliability and log noise, not enforcement.
+
+### Added
+
+- Two new `SecurityConfig` fields make the statistical-anomaly detector tunable: `detection_anomaly_emission_cooldown` (default `60.0`, bounds 1.0 to 3600.0) sets the minimum seconds between anomaly events for the same pattern, and `detection_min_samples_for_anomaly` (default `30`, bounds 10 to 1000) sets the minimum samples recorded for a pattern before statistical-anomaly detection engages. `anomaly_emission_cooldown` was already a `PerformanceMonitor` constructor parameter but was never wired from `SecurityConfig`, so it was fixed at 60 seconds; the sample floor was a hardcoded `len(recent_times) < 10` check. Both are now passed from config in `suspatterns_handler._apply_enhanced_config`. Raise either to reduce noise and false fires on low-traffic apps.
+
+### Behaviour changes
+
+- The default minimum-samples floor for statistical-anomaly detection rises from 10 to 30. A pattern with fewer than 30 recorded samples no longer emits `pattern_anomaly_statistical_anomaly` events until 30 samples accumulate. This is the intended effect: the old 10-sample floor combined with high variance on low-traffic apps produced a flood of false anomalies. Operators who relied on the old floor can restore it with `detection_min_samples_for_anomaly=10`.
 
 ___
 

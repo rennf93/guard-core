@@ -38,6 +38,7 @@ class PerformanceMonitor:
         history_size: int = 1000,
         max_tracked_patterns: int = 1000,
         anomaly_emission_cooldown: float = 60.0,
+        min_samples_for_anomaly: int = 30,
     ):
         self.anomaly_threshold = max(1.0, min(10.0, float(anomaly_threshold)))
         self.slow_pattern_threshold = max(
@@ -48,6 +49,7 @@ class PerformanceMonitor:
         self.anomaly_emission_cooldown = max(
             1.0, min(3600.0, float(anomaly_emission_cooldown))
         )
+        self.min_samples_for_anomaly = max(10, min(1000, int(min_samples_for_anomaly)))
 
         self.pattern_stats: dict[str, PatternStats] = {}
         self.recent_metrics: deque[PerformanceMetric] = deque(maxlen=history_size)
@@ -134,7 +136,7 @@ class PerformanceMonitor:
         self, metric: PerformanceMetric
     ) -> dict[str, Any] | None:
         stats = self.pattern_stats.get(metric.pattern)
-        if not stats or len(stats.recent_times) < 10:
+        if not stats or len(stats.recent_times) < self.min_samples_for_anomaly:
             return None
 
         recent_times = list(stats.recent_times)

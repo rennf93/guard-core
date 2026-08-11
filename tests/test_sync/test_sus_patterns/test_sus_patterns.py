@@ -213,6 +213,8 @@ def test_init_with_config() -> None:
     config.detection_slow_pattern_threshold = 0.2
     config.detection_monitor_history_size = 100
     config.detection_semantic_threshold = 0.8
+    config.detection_anomaly_emission_cooldown = 45.0
+    config.detection_min_samples_for_anomaly = 25
 
     SusPatternsManager._instance = None
     manager = SusPatternsManager(config)
@@ -226,6 +228,8 @@ def test_init_with_config() -> None:
     assert manager._performance_monitor is not None
     assert manager._performance_monitor.anomaly_threshold == 2.5
     assert manager._performance_monitor.slow_pattern_threshold == 0.2
+    assert manager._performance_monitor.anomaly_emission_cooldown == 45.0
+    assert manager._performance_monitor.min_samples_for_anomaly == 25
     assert manager._semantic_threshold == 0.8
 
     SusPatternsManager._instance = None
