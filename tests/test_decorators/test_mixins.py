@@ -157,7 +157,7 @@ async def test_honeypot_detection_json_trigger() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "content-length": "22"},
         body_content=b'{"honeypot": "filled"}',
     )
     result = await validator(req)
@@ -173,7 +173,7 @@ async def test_honeypot_detection_json_no_trigger() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "content-length": "15"},
         body_content=b'{"name": "test"}',
     )
     result = await validator(req)
@@ -188,7 +188,10 @@ async def test_honeypot_detection_form_trigger() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/x-www-form-urlencoded"},
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "content-length": "16",
+        },
         body_content=b"honeypot=filled",
     )
     result = await validator(req)
@@ -215,7 +218,7 @@ async def test_honeypot_detection_unknown_content_type() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "text/plain"},
+        headers={"content-type": "text/plain", "content-length": "16"},
         body_content=b"honeypot=filled",
     )
     result = await validator(req)
@@ -230,7 +233,10 @@ async def test_honeypot_detection_form_no_trigger() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/x-www-form-urlencoded"},
+        headers={
+            "content-type": "application/x-www-form-urlencoded",
+            "content-length": "9",
+        },
         body_content=b"name=test",
     )
     result = await validator(req)
@@ -245,7 +251,7 @@ async def test_honeypot_detection_invalid_json() -> None:
     validator = rc.custom_validators[0]
     req = MockGuardRequest(
         method="POST",
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "content-length": "15"},
         body_content=b"not json at all",
     )
     result = await validator(req)

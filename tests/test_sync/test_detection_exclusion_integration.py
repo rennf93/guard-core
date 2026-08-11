@@ -36,6 +36,11 @@ class _FakeRequest:
     ) -> None:
         self._query_params = query_params or {}
         self._headers = headers or {}
+        # Real HTTP sets Content-Length for a fixed body; only chunked
+        # transfer-encoding omits it. Mirror that so the fail-closed cap
+        # check does not skip body threats in these detection tests.
+        if body_bytes and "content-length" not in self._headers:
+            self._headers["content-length"] = str(len(body_bytes))
         self._body_bytes = body_bytes
         self._url_path = url_path
         self._method = method
