@@ -32,9 +32,33 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_nonblocking_refresh.py",
     TEST_SYNC_DIR / "test_detection" / "test_builtin_pattern_safety.py",
+    TEST_SYNC_DIR / "test_core" / "test_suspicious_counts_concurrency.py",
+    TEST_SYNC_DIR / "test_cloud_ips" / "test_azure_redirect_real_sockets.py",
 }
 
+_ASYNC_SAFE_READ_SRC = (
+    "async def _safe_read(\n"
+    "    reader: Callable[[], Awaitable[bytes]], timeout: float\n"
+    ") -> bytes | None:\n"
+    "    try:\n"
+    "        return await asyncio.wait_for(reader(), timeout=timeout)\n"
+    "    except Exception:\n"
+    "        return None\n"
+)
+
+_SYNC_SAFE_READ_REPLACEMENT = (
+    "def _safe_read(reader: Callable[[], bytes], timeout: float) -> bytes | None:\n"
+    "    try:\n"
+    "        return reader()\n"
+    "    except Exception:\n"
+    "        return None\n"
+)
+
 SUBS: list[tuple[str, str]] = [
+    (
+        re.escape(_ASYNC_SAFE_READ_SRC),
+        _SYNC_SAFE_READ_REPLACEMENT.replace("\\", "\\\\"),
+    ),
     (
         r"from guard_core\.protocols\.request_protocol import GuardRequest",
         "from guard_core.sync.protocols.request_protocol import SyncGuardRequest",
@@ -86,7 +110,7 @@ SUBS: list[tuple[str, str]] = [
     (r"import aiohttp", "import requests"),
     (r"aiohttp\.ClientSession\(\)", "requests.Session()"),
     (r"aiohttp\.ClientSession", "requests.Session"),
-    (r"aiohttp\.ClientTimeout\(total=(\d+)\)", r"\1"),
+    (r"aiohttp\.ClientTimeout\(total=(\w+)\)", r"\1"),
     (r"await response\.read\(\)", "response.content"),
     (r"await response\.text\(\)", "response.text"),
     (r"await response\.json\(content_type=None\)", "response.json()"),
@@ -261,27 +285,6 @@ DOTALL_FIXUPS: list[tuple[str, str]] = [
         "                target=self._run_lazy_init, daemon=True\n"
         "            )\n"
         "            self._lazy_init_task.start()",
-    ),
-    (
-        r"def handle_passthrough\(\n\s+self,\n\s+request: SyncGuardRequest,\n\s+call_next: Callable\[\[SyncGuardRequest\], GuardResponse\],\n\s+\) -> GuardResponse \| None:\n\s+if not request\.client_host:\n\s+response = call_next\(request\)\n\s+return self\.context\.response_factory\.apply_modifier\(response\)\n\n\s+if self\.context\.validator\.is_path_excluded\(request\):\n\s+response = call_next\(request\)\n\s+return self\.context\.response_factory\.apply_modifier\(response\)\n\n\s+return None",  # noqa: E501
-        "def handle_passthrough(\n"
-        "        self,\n"
-        "        request: SyncGuardRequest,\n"
-        "        call_next: Callable[[SyncGuardRequest], GuardResponse] | None = None,\n"  # noqa: E501
-        "    ) -> GuardResponse | None:\n"
-        "        if not request.client_host:\n"
-        "            if call_next:\n"
-        "                response = call_next(request)\n"
-        "                return self.context.response_factory.apply_modifier(response)\n"  # noqa: E501
-        "            return None\n"
-        "\n"
-        "        if self.context.validator.is_path_excluded(request):\n"
-        "            if call_next:\n"
-        "                response = call_next(request)\n"
-        "                return self.context.response_factory.apply_modifier(response)\n"  # noqa: E501
-        "            return None\n"
-        "\n"
-        "        return None",
     ),
     (
         r"def handle_security_bypass\(\n\s+self,\n\s+request: SyncGuardRequest,\n\s+call_next: Callable\[\[SyncGuardRequest\], GuardResponse\],\n\s+route_config: RouteConfig \| None,",  # noqa: E501

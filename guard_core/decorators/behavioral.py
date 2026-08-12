@@ -3,9 +3,12 @@ from typing import Any, Literal
 
 from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
 from guard_core.handlers.behavior_handler import BehaviorRule
+from guard_core.models import SecurityConfig, _validate_return_pattern_body_scan
 
 
 class BehavioralMixin(BaseSecurityMixin):
+    config: SecurityConfig
+
     def usage_monitor(
         self,
         max_calls: int,
@@ -30,6 +33,8 @@ class BehavioralMixin(BaseSecurityMixin):
         window: int = 86400,
         action: Literal["ban", "log", "throttle", "alert"] = "ban",
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        _validate_return_pattern_body_scan(pattern, self.config)
+
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
 
@@ -48,6 +53,10 @@ class BehavioralMixin(BaseSecurityMixin):
     def behavior_analysis(
         self, rules: list[BehaviorRule]
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        for rule in rules:
+            if rule.rule_type == "return_pattern" and rule.pattern:
+                _validate_return_pattern_body_scan(rule.pattern, self.config)
+
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.behavior_rules.extend(rules)

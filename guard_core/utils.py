@@ -1,11 +1,12 @@
+import asyncio
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from guard_core.detection_result import DetectionResult
 from guard_core.protocols.agent_protocol import AgentHandlerProtocol
@@ -1138,24 +1139,102 @@ def _build_detection_miss() -> DetectionResult:
     return DetectionResult(is_threat=False, trigger_info="")
 
 
-def _body_exceeds_inspection_cap(
-    request: GuardRequest, config: "SecurityConfig | None"
-) -> bool:
-    if config is None:
-        return False
-    content_length = request.headers.get("content-length")
-    if content_length is None:
-        # Fail-closed: no Content-Length (e.g. Transfer-Encoding: chunked)
-        # means the body length is unknown, so do not attempt an unbounded
-        # read. The body is skipped rather than buffered in full.
-        # See GHSA-xv6g-49vj-7w9c.
-        return True
+_CONTENT_LENGTH_RE = re.compile(r"[0-9]+")
+
+
+def _parse_content_length(value: str) -> int | None:
+    stripped = value.strip()
+    if not _CONTENT_LENGTH_RE.fullmatch(stripped):
+        return None
+    parsed = int(stripped)
+    return parsed if parsed > 0 else None
+
+
+@runtime_checkable
+class _BoundedBodyReader(Protocol):
+    async def read_body_prefix(self, max_bytes: int) -> bytes: ...
+
+
+_DEFAULT_BODY_READ_TIMEOUT = 3.0
+
+
+async def _safe_read(
+    reader: Callable[[], Awaitable[bytes]], timeout: float
+) -> bytes | None:
     try:
-        return int(content_length) > config.detection_max_body_inspect_bytes
-    except ValueError:
-        # Fail-closed: a malformed Content-Length is treated as over-cap for
-        # the same reason as a missing one. See GHSA-xv6g-49vj-7w9c.
-        return True
+        return await asyncio.wait_for(reader(), timeout=timeout)
+    except Exception:
+        return None
+
+
+_CAPPED_BODY_PREFIX_STATE_ATTR = "_guard_capped_body_prefix_cache"
+
+
+async def _read_and_cache_body(
+    request: GuardRequest,
+    max_bytes: int,
+    timeout: float,
+    reader: Callable[[], Awaitable[bytes]],
+    accessor: str,
+) -> bytes | None:
+    cached = getattr(request.state, _CAPPED_BODY_PREFIX_STATE_ATTR, None)
+    if cached is not None and cached[0] is request and cached[1] >= max_bytes:
+        cached_bytes: bytes = cached[2]
+        return cached_bytes[:max_bytes]
+
+    prefix: object = await _safe_read(reader, timeout)
+    if prefix is None:
+        return None
+
+    if not isinstance(prefix, bytes):
+        logger.warning(
+            "%s.%s returned %s, not bytes; treating the "
+            "body as unavailable for detection",
+            type(request).__name__,
+            accessor,
+            type(prefix).__name__,
+        )
+        return None
+
+    capped = prefix[:max_bytes]
+    setattr(request.state, _CAPPED_BODY_PREFIX_STATE_ATTR, (request, max_bytes, capped))
+    return capped
+
+
+async def _read_capped_body_prefix(
+    request: GuardRequest, max_bytes: int, timeout: float
+) -> bytes | None:
+    if not isinstance(request, _BoundedBodyReader):
+        return None
+
+    return await _read_and_cache_body(
+        request,
+        max_bytes,
+        timeout,
+        lambda: request.read_body_prefix(max_bytes),
+        "read_body_prefix",
+    )
+
+
+async def _read_capped_body(
+    request: GuardRequest, config: "SecurityConfig | None"
+) -> bytes | None:
+    if config is None:
+        return await _safe_read(request.body, _DEFAULT_BODY_READ_TIMEOUT)
+
+    max_bytes = config.detection_max_body_inspect_bytes
+    timeout = config.body_read_timeout
+    content_length = request.headers.get("content-length")
+
+    if content_length is not None:
+        parsed = _parse_content_length(content_length)
+        if parsed is None or parsed > max_bytes:
+            return None
+        return await _read_and_cache_body(
+            request, max_bytes, timeout, request.body, "body"
+        )
+
+    return await _read_capped_body_prefix(request, max_bytes, timeout)
 
 
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
@@ -1215,11 +1294,12 @@ async def detect_penetration_attempt(
     if not _resolve_scan_body(config, route_config):
         return _build_detection_miss()
 
-    if _body_exceeds_inspection_cap(request, config):
+    body_bytes = await _read_capped_body(request, config)
+    if body_bytes is None:
         return _build_detection_miss()
 
     try:
-        raw_body = (await request.body()).decode()
+        raw_body = body_bytes.decode()
     except Exception:
         return _build_detection_miss()
 

@@ -1,6 +1,12 @@
 import importlib.util
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
+
+try:
+    __version__ = version("guard-core")
+except PackageNotFoundError:
+    __version__ = "unknown"
 
 if TYPE_CHECKING:
     from guard_core.decorators import RouteConfig, SecurityDecorator
@@ -21,8 +27,9 @@ if TYPE_CHECKING:
     from guard_core.models import SecurityConfig
     from guard_core.protocols.geo_ip_protocol import GeoIPHandler
     from guard_core.protocols.redis_protocol import RedisHandlerProtocol
-    from guard_core.protocols.request_protocol import GuardRequest
+    from guard_core.protocols.request_protocol import BoundedBodyReader, GuardRequest
     from guard_core.protocols.response_protocol import (
+        BoundedResponseBodyReader,
         GuardResponse,
         GuardResponseFactory,
     )
@@ -45,6 +52,8 @@ __all__ = [
     "security_headers_manager",
     "SecurityHeadersManager",
     "sus_patterns_handler",
+    "BoundedBodyReader",
+    "BoundedResponseBodyReader",
     "GeoIPHandler",
     "RedisHandlerProtocol",
     "GuardRequest",
@@ -72,9 +81,11 @@ _MODULE_BY_NAME: dict[str, str] = {
     "sus_patterns_handler": "guard_core.handlers.suspatterns_handler",
     "GeoIPHandler": "guard_core.protocols.geo_ip_protocol",
     "RedisHandlerProtocol": "guard_core.protocols.redis_protocol",
+    "BoundedBodyReader": "guard_core.protocols.request_protocol",
     "GuardRequest": "guard_core.protocols.request_protocol",
     "GuardResponse": "guard_core.protocols.response_protocol",
     "GuardResponseFactory": "guard_core.protocols.response_protocol",
+    "BoundedResponseBodyReader": "guard_core.protocols.response_protocol",
     "_mute_pydantic_plugin_instrumentation": "guard_core._pydantic_plugin_mute",
 }
 

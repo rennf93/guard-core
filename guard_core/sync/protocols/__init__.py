@@ -2,14 +2,20 @@ from guard_core.sync.protocols.agent_protocol import SyncAgentHandlerProtocol
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 from guard_core.sync.protocols.middleware_protocol import SyncGuardMiddlewareProtocol
 from guard_core.sync.protocols.redis_protocol import SyncRedisHandlerProtocol
-from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+from guard_core.sync.protocols.request_protocol import (
+    SyncBoundedBodyReader,
+    SyncGuardRequest,
+)
 from guard_core.sync.protocols.response_protocol import (
     GuardResponse,
     GuardResponseFactory,
+    SyncBoundedResponseBodyReader,
 )
 
 __all__ = [
     "SyncAgentHandlerProtocol",
+    "SyncBoundedBodyReader",
+    "SyncBoundedResponseBodyReader",
     "SyncGeoIPHandler",
     "SyncGuardMiddlewareProtocol",
     "SyncGuardRequest",

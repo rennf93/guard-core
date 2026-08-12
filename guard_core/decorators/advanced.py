@@ -7,7 +7,7 @@ from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.utils import _body_exceeds_inspection_cap
+from guard_core.utils import _read_capped_body
 
 
 class _SimpleResponse:
@@ -30,8 +30,6 @@ class _SimpleResponse:
 
 
 class AdvancedMixin(BaseSecurityMixin):
-    # Provided by BaseSecurityDecorator at runtime; declared here so mixin
-    # methods can access the active SecurityConfig for fail-closed body caps.
     config: SecurityConfig
 
     def time_window(
@@ -70,10 +68,9 @@ class AdvancedMixin(BaseSecurityMixin):
                 def _has_trap_field_filled(data: dict[str, Any]) -> bool:
                     return any(field in data and data[field] for field in trap_fields)
 
-                async def _validate_form_data() -> GuardResponse | None:
+                def _validate_form_data(raw_body: bytes) -> GuardResponse | None:
                     try:
-                        raw = (await request.body()).decode()
-                        parsed = parse_qs(raw)
+                        parsed = parse_qs(raw_body.decode())
                         flat = {k: v[0] for k, v in parsed.items() if v}
                         if _has_trap_field_filled(flat):
                             return _SimpleResponse("Forbidden", 403)
@@ -81,10 +78,9 @@ class AdvancedMixin(BaseSecurityMixin):
                         pass
                     return None
 
-                async def _validate_json_data() -> GuardResponse | None:
+                def _validate_json_data(raw_body: bytes) -> GuardResponse | None:
                     try:
-                        raw = (await request.body()).decode()
-                        json_data = json.loads(raw)
+                        json_data = json.loads(raw_body.decode())
                         if _has_trap_field_filled(json_data):
                             return _SimpleResponse("Forbidden", 403)
                     except Exception:
@@ -94,18 +90,16 @@ class AdvancedMixin(BaseSecurityMixin):
                 if request.method not in ["POST", "PUT", "PATCH"]:
                     return None
 
-                if _body_exceeds_inspection_cap(request, config):
-                    # Fail-closed: an unbounded body (no/malformed Content-Length,
-                    # e.g. Transfer-Encoding: chunked) is not read. See
-                    # GHSA-xv6g-49vj-7w9c.
+                raw_body = await _read_capped_body(request, config)
+                if raw_body is None:
                     return None
 
                 content_type = request.headers.get("content-type", "")
 
                 if "application/x-www-form-urlencoded" in content_type:
-                    return await _validate_form_data()
+                    return _validate_form_data(raw_body)
                 elif "application/json" in content_type:
-                    return await _validate_json_data()
+                    return _validate_json_data(raw_body)
 
                 return None
 
