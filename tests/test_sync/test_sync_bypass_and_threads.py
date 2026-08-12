@@ -2,6 +2,8 @@ import threading
 from typing import Any, cast
 from unittest.mock import MagicMock
 
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.bypass.context import BypassContext
 from guard_core.sync.core.bypass.handler import BypassHandler
@@ -42,39 +44,36 @@ def test_bypass_passthrough_no_client_with_call_next() -> None:
     mock_call_next.assert_called_once_with(mock_request)
 
 
-def test_bypass_passthrough_excluded_path_with_call_next() -> None:
+def test_bypass_passthrough_excluded_path_falls_through_and_marks_request() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = "127.0.0.1"
     cast(Any, handler.context.validator).is_path_excluded = MagicMock(return_value=True)
     mock_call_next = MagicMock(return_value=MagicMock())
 
-    cast(Any, handler.context.response_factory).apply_modifier = MagicMock(
-        side_effect=lambda r: r
-    )
-
     result = handler.handle_passthrough(mock_request, call_next=mock_call_next)
-    assert result is not None
-    mock_call_next.assert_called_once_with(mock_request)
+    assert result is None
+    assert mock_request.state.guard_exclusion_scoped is True
+    mock_call_next.assert_not_called()
 
 
-def test_bypass_passthrough_no_client_without_call_next() -> None:
+def test_bypass_passthrough_no_client_omitting_call_next_raises() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = None
 
-    result = handler.handle_passthrough(mock_request)
-    assert result is None
+    with pytest.raises(TypeError):
+        cast(Any, handler.handle_passthrough)(mock_request)
 
 
-def test_bypass_passthrough_excluded_path_without_call_next() -> None:
+def test_bypass_passthrough_excluded_path_omitting_call_next_raises() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = "127.0.0.1"
     cast(Any, handler.context.validator).is_path_excluded = MagicMock(return_value=True)
 
-    result = handler.handle_passthrough(mock_request)
-    assert result is None
+    with pytest.raises(TypeError):
+        cast(Any, handler.handle_passthrough)(mock_request)
 
 
 def test_bypass_security_bypass_without_call_next() -> None:

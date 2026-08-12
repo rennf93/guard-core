@@ -165,17 +165,26 @@ class _BodyTrackingRequest:
             self.headers["content-length"] = str(content_length)
         self.method = "POST"
         self.body_read = False
+        self.state = type("S", (), {})()
 
     def body(self) -> bytes:
         self.body_read = True
         return self._body
 
 
-def test_honeypot_missing_content_length_not_read(
+class _BoundedBodyReaderTrackingRequest(_BodyTrackingRequest):
+    def __init__(self, body: bytes = b"") -> None:
+        super().__init__(body=body, content_length=None)
+        self.prefix_requested_max_bytes: int | None = None
+
+    def read_body_prefix(self, max_bytes: int) -> bytes:
+        self.prefix_requested_max_bytes = max_bytes
+        return self._body[:max_bytes]
+
+
+def test_honeypot_missing_content_length_without_bounded_reader_not_read(
     decorator: SecurityDecorator,
 ) -> None:
-    # Fail-closed: a chunked request (no Content-Length) must not trigger an
-    # unbounded body read on the honeypot path. See GHSA-xv6g-49vj-7w9c.
     mock_func = Mock()
     mock_func.__name__ = mock_func.__qualname__ = "test_func"
     mock_func.__module__ = "test_module"
@@ -196,11 +205,36 @@ def test_honeypot_missing_content_length_not_read(
     assert result is None
 
 
+def test_honeypot_missing_content_length_with_bounded_reader_still_blocks(
+    decorator: SecurityDecorator,
+) -> None:
+    mock_func = Mock()
+    mock_func.__name__ = mock_func.__qualname__ = "test_func"
+    mock_func.__module__ = "test_module"
+
+    honeypot_decorator = decorator.honeypot_detection(["trap_field"])
+    decorated_func = honeypot_decorator(mock_func)
+
+    route_id = decorated_func._guard_route_id
+    route_config = decorator.get_route_config(route_id)
+    assert route_config is not None
+    validator = route_config.custom_validators[0]
+
+    request = _BoundedBodyReaderTrackingRequest(body=b'{"trap_field": "value"}')
+
+    result = validator(request)
+
+    assert request.body_read is False
+    assert request.prefix_requested_max_bytes == (
+        decorator.config.detection_max_body_inspect_bytes
+    )
+    assert result is not None
+    assert result.status_code == 403
+
+
 def test_honeypot_under_cap_body_still_read_and_blocked(
     decorator: SecurityDecorator,
 ) -> None:
-    # Control: a bounded body (Content-Length under cap) is still read and the
-    # trap field triggers the 403 response.
     mock_func = Mock()
     mock_func.__name__ = mock_func.__qualname__ = "test_func"
     mock_func.__module__ = "test_module"

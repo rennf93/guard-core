@@ -136,7 +136,7 @@ def config() -> SecurityConfig:
         agent_api_key="test-api-key",
         agent_endpoint="http://test.example.com",
         enable_dynamic_rules=True,
-        dynamic_rule_interval=5,
+        dynamic_rule_interval=60,
         enable_penetration_detection=True,
         enable_ip_banning=True,
         enable_rate_limiting=True,

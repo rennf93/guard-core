@@ -536,9 +536,12 @@ async def test_apply_rules_emergency_mode(
     sample_rules.emergency_mode = True
     sample_rules.emergency_whitelist = ["192.168.1.1", "10.0.0.1"]
 
-    with patch.object(
-        manager, "_activate_emergency_mode", AsyncMock()
-    ) as mock_emergency_mode:
+    with (
+        patch.object(
+            manager, "_activate_emergency_mode", AsyncMock()
+        ) as mock_emergency_mode,
+        pytest.warns(UserWarning, match="blocked_countries is ignored"),
+    ):
         await manager._apply_rules(sample_rules)
 
         mock_emergency_mode.assert_called_once_with(sample_rules.emergency_whitelist)
@@ -770,7 +773,10 @@ async def test_apply_country_rules_both(
     blocked = ["xx", "yy"]
     allowed = ["us", "ca"]
 
-    with caplog.at_level(logging.INFO):
+    with (
+        caplog.at_level(logging.INFO),
+        pytest.warns(UserWarning, match="blocked_countries is ignored"),
+    ):
         await manager._apply_country_rules(blocked, allowed)
 
     assert manager.config.blocked_countries == frozenset({"XX", "YY"})

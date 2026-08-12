@@ -1,3 +1,5 @@
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.decorators.access_control import AccessControlMixin
 from guard_core.sync.decorators.advanced import AdvancedMixin, _SimpleResponse
@@ -329,7 +331,9 @@ def test_usage_monitor() -> None:
 
 
 def test_return_monitor() -> None:
-    d = _decorator()
+    d = ComposedDecorator(
+        SecurityConfig(enable_redis=False, behavior_scan_response_body=True)
+    )
     decorated = d.return_monitor(
         pattern="error", max_occurrences=5, window=86400, action="log"
     )(_sample_func)
@@ -337,6 +341,35 @@ def test_return_monitor() -> None:
     assert rc is not None
     assert len(rc.behavior_rules) == 1
     assert rc.behavior_rules[0].rule_type == "return_pattern"
+
+
+def test_return_monitor_status_pattern_does_not_require_body_scan() -> None:
+    d = _decorator()
+    decorated = d.return_monitor(
+        pattern="status:500", max_occurrences=5, window=86400, action="log"
+    )(_sample_func)
+    rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
+    assert rc.behavior_rules[0].pattern == "status:500"
+
+
+def test_return_monitor_body_pattern_rejected_when_body_scan_disabled() -> None:
+    d = _decorator()
+    with pytest.raises(ValueError, match="behavior_scan_response_body"):
+        d.return_monitor(pattern="error", max_occurrences=5, window=86400, action="log")
+
+
+def test_behavior_analysis_body_pattern_rejected_when_body_scan_disabled() -> None:
+    from guard_core.sync.handlers.behavior_handler import BehaviorRule
+
+    d = _decorator()
+    rules = [
+        BehaviorRule(
+            rule_type="return_pattern", threshold=5, pattern="json:status==ok"
+        ),
+    ]
+    with pytest.raises(ValueError, match="behavior_scan_response_body"):
+        d.behavior_analysis(rules)
 
 
 def test_behavior_analysis() -> None:

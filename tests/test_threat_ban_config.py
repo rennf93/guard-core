@@ -87,7 +87,7 @@ def _patch_detect_and_ban(
 ) -> None:
     monkeypatch.setattr(
         "guard_core.core.checks.implementations.suspicious_activity"
-        ".detect_penetration_patterns",
+        ".get_cached_detection_result",
         _make_detect_fn(result),
     )
 

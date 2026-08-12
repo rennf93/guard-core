@@ -77,3 +77,25 @@ def test_configure_ignores_object_without_detection_fields(
 
     assert handler._threat_score_threshold == 1.0
     assert handler._compiler is None
+
+
+def test_configure_ignores_config_missing_new_detection_fields(
+    fresh_legacy_singleton: SusPatternsManager,
+) -> None:
+    handler = fresh_legacy_singleton
+
+    class PartialConfig:
+        detection_compiler_timeout = 3.0
+        detection_max_tracked_patterns = 500
+        detection_max_content_length = 20000
+        detection_preserve_attack_patterns = True
+        detection_anomaly_threshold = 2.5
+        detection_slow_pattern_threshold = 0.2
+        detection_monitor_history_size = 100
+        detection_semantic_threshold = 0.8
+        detection_threat_score_threshold = 1.0
+
+    handler.configure(PartialConfig())
+
+    assert handler._threat_score_threshold == 1.0
+    assert handler._compiler is None
