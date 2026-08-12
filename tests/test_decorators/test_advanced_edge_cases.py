@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from guard_core import utils
 from guard_core.decorators import SecurityDecorator
 from guard_core.models import SecurityConfig
 
@@ -224,10 +225,11 @@ async def test_honeypot_missing_content_length_with_bounded_reader_still_blocks(
 
     result = await validator(request)
 
+    cap = decorator.config.detection_max_body_inspect_bytes
+    max_overlap = utils._MAX_STRADDLE_OVERLAP_BYTES
     assert request.body_read is False
-    assert request.prefix_requested_max_bytes == (
-        decorator.config.detection_max_body_inspect_bytes
-    )
+    assert request.prefix_requested_max_bytes is not None
+    assert cap <= request.prefix_requested_max_bytes <= cap + max_overlap
     assert result is not None
     assert result.status_code == 403
 
