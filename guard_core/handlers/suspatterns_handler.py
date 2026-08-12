@@ -23,6 +23,27 @@ logger = logging.getLogger("guard_core.handlers.suspatterns")
 _DEFAULT_MAX_SCAN_LENGTH = 10000
 _DEFAULT_COMPILER_TIMEOUT = 2.0
 
+_ENHANCED_CONFIG_REQUIRED_ATTRS = (
+    "detection_compiler_timeout",
+    "detection_max_tracked_patterns",
+    "detection_max_content_length",
+    "detection_preserve_attack_patterns",
+    "detection_anomaly_threshold",
+    "detection_slow_pattern_threshold",
+    "detection_monitor_history_size",
+    "detection_anomaly_emission_cooldown",
+    "detection_min_samples_for_anomaly",
+    "detection_semantic_threshold",
+    "detection_threat_score_threshold",
+)
+
+
+def _supports_enhanced_config(config: Any) -> bool:
+    return config is not None and all(
+        hasattr(config, attr) for attr in _ENHANCED_CONFIG_REQUIRED_ATTRS
+    )
+
+
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
 _CTX_DIR_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
@@ -466,7 +487,7 @@ class SusPatternsManager:
 
             cls._config = config
 
-            if config and hasattr(config, "detection_compiler_timeout"):
+            if _supports_enhanced_config(config):
                 cls._apply_enhanced_config(cls._instance, config)
             else:
                 cls._apply_legacy_config(cls._instance)
@@ -505,7 +526,7 @@ class SusPatternsManager:
         instance._threat_score_threshold = 1.0
 
     def configure(self, config: Any) -> None:
-        if config is None or not hasattr(config, "detection_compiler_timeout"):
+        if not _supports_enhanced_config(config):
             return
         SusPatternsManager._config = config
         self._apply_enhanced_config(self, config)

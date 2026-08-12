@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from statistics import mean, stdev
 from typing import Any
 
+_DEFAULT_RECENT_TIMES_WINDOW = 100
+
 
 @dataclass
 class PerformanceMetric:
@@ -26,7 +28,9 @@ class PatternStats:
     avg_execution_time: float = 0.0
     max_execution_time: float = 0.0
     min_execution_time: float = float("inf")
-    recent_times: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+    recent_times: deque[float] = field(
+        default_factory=lambda: deque(maxlen=_DEFAULT_RECENT_TIMES_WINDOW)
+    )
     last_anomaly_emitted_at: float | None = None
 
 
@@ -50,9 +54,12 @@ class PerformanceMonitor:
             1.0, min(3600.0, float(anomaly_emission_cooldown))
         )
         self.min_samples_for_anomaly = max(10, min(1000, int(min_samples_for_anomaly)))
+        self._recent_times_maxlen = max(
+            self.min_samples_for_anomaly, _DEFAULT_RECENT_TIMES_WINDOW
+        )
 
         self.pattern_stats: dict[str, PatternStats] = {}
-        self.recent_metrics: deque[PerformanceMetric] = deque(maxlen=history_size)
+        self.recent_metrics: deque[PerformanceMetric] = deque(maxlen=self.history_size)
         self.anomaly_callbacks: list[Any] = []
         self._lock = threading.Lock()
 
@@ -89,7 +96,10 @@ class PerformanceMonitor:
                 if len(self.pattern_stats) >= self.max_tracked_patterns:
                     oldest_pattern = next(iter(self.pattern_stats))
                     del self.pattern_stats[oldest_pattern]
-                self.pattern_stats[pattern] = PatternStats(pattern=pattern)
+                self.pattern_stats[pattern] = PatternStats(
+                    pattern=pattern,
+                    recent_times=deque(maxlen=self._recent_times_maxlen),
+                )
 
             stats = self.pattern_stats[pattern]
             stats.total_executions += 1
