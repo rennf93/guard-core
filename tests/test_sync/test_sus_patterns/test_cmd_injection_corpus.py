@@ -445,3 +445,250 @@ def test_separator_prefixed_substitution_still_flagged(payload: str) -> None:
     assert any(
         threat.get("category") == "cmd_injection" for threat in result["threats"]
     )
+
+
+SQL_BACKTICK_IDENTIFIER_STRINGS_NOT_FLAGGED = [
+    pytest.param(
+        "SELECT `id`, `name` FROM `users` WHERE `active` = 1",
+        id="sql_select_backtick_columns",
+    ),
+    pytest.param(
+        "INSERT INTO `orders` (`id`, `total`) VALUES (1, 9.99)",
+        id="sql_insert_backtick_columns",
+    ),
+    pytest.param(
+        "ALTER TABLE `users` ADD COLUMN `email` VARCHAR(255)",
+        id="sql_alter_table_backtick",
+    ),
+    pytest.param(
+        "SELECT `u`.`id` FROM `users` `u` JOIN `orders` `o` ON `u`.`id` = `o`.`uid`",
+        id="sql_qualified_backtick_join",
+    ),
+    pytest.param(
+        "CREATE TABLE `products` (`id` INT PRIMARY KEY, `sku` VARCHAR(64))",
+        id="sql_create_table_backtick",
+    ),
+    pytest.param(
+        "UPDATE `settings` SET `value` = 'dark' WHERE `key` = 'theme'",
+        id="sql_update_backtick",
+    ),
+    pytest.param(
+        "The column is named `created_at`, not `createdAt`.",
+        id="sql_docs_column_naming",
+    ),
+    pytest.param(
+        "In MySQL, wrap reserved words like `order` and `group` in backticks.",
+        id="sql_docs_reserved_words",
+    ),
+    pytest.param(
+        "DELETE FROM `sessions` WHERE `expires_at` < NOW()",
+        id="sql_delete_backtick",
+    ),
+    pytest.param(
+        "SELECT COUNT(*) FROM `audit_log` WHERE `action` = 'login'",
+        id="sql_count_backtick",
+    ),
+    pytest.param(
+        "Our schema uses `snake_case` for every `table_name`.",
+        id="sql_docs_snake_case",
+    ),
+    pytest.param(
+        "The migration renames `users`.`fullname` to `users`.`full_name`.",
+        id="sql_docs_migration_rename",
+    ),
+    pytest.param(
+        "EXPLAIN SELECT id FROM `inventory` WHERE `sku` = 'ABC123'",
+        id="sql_explain_backtick",
+    ),
+    pytest.param(
+        "GRANT SELECT ON `analytics`.* TO 'readonly'@'%'",
+        id="sql_grant_backtick",
+    ),
+    pytest.param(
+        "The index covers `(tenant_id, created_at)` on `events`.",
+        id="sql_docs_index_mention",
+    ),
+]
+
+JS_TEMPLATE_LITERAL_STRINGS_NOT_FLAGGED = [
+    pytest.param(
+        "const greeting = `Hello ${name}, you have ${count} items`;",
+        id="js_template_literal_greeting",
+    ),
+    pytest.param(
+        "const url = `https://api.example.com/users/${userId}`;",
+        id="js_template_literal_url",
+    ),
+    pytest.param(
+        "console.log(`Fetched ${data.length} rows in ${elapsed}ms`);",
+        id="js_template_literal_console_log",
+    ),
+    pytest.param("return `Total: $${total}`;", id="js_template_literal_total"),
+    pytest.param(
+        "const query = `SELECT id FROM users WHERE id = ${id}`;",
+        id="js_template_literal_sql_interpolation",
+    ),
+    pytest.param(
+        "throw new Error(`Invalid input: ${input}`);",
+        id="js_template_literal_error",
+    ),
+    pytest.param(
+        "const path = `/api/v1/${resource}/${id}`;",
+        id="js_template_literal_path",
+    ),
+    pytest.param(
+        "const label = `${first} ${last}`.trim();",
+        id="js_template_literal_label",
+    ),
+    pytest.param(
+        "logger.info(`Request to ${req.path} took ${ms}ms`);",
+        id="js_template_literal_logger",
+    ),
+    pytest.param(
+        "const msg = `Welcome back, ${user.name}!`;",
+        id="js_template_literal_welcome",
+    ),
+]
+
+CHANGELOG_STRINGS_NOT_FLAGGED = [
+    pytest.param(
+        "Fixed `ls -la` output bug in the file browser.",
+        id="changelog_fixed_ls_bug",
+    ),
+    pytest.param(
+        "Added support for `curl`-style headers in the CLI.",
+        id="changelog_added_curl_support",
+    ),
+    pytest.param(
+        "Removed the deprecated `whoami` alias.", id="changelog_removed_whoami_alias"
+    ),
+    pytest.param(
+        "Renamed `getUserId` to `resolveUserId` for clarity.",
+        id="changelog_renamed_function",
+    ),
+    pytest.param(
+        "Bumped `docker-compose` to v2.24.", id="changelog_bumped_docker_compose"
+    ),
+    pytest.param(
+        "`npm run build` now runs three times faster.",
+        id="changelog_npm_build_speed",
+    ),
+    pytest.param(
+        "Patched a race condition in `id` allocation.",
+        id="changelog_patched_id_race",
+    ),
+    pytest.param(
+        "`eval` calls are now disallowed in the sandbox by default.",
+        id="changelog_eval_disallowed",
+    ),
+    pytest.param(
+        "Improved error messages for `exec` failures.",
+        id="changelog_improved_exec_errors",
+    ),
+    pytest.param(
+        "The `reboot` command now requires confirmation.",
+        id="changelog_reboot_confirmation",
+    ),
+]
+
+SENTENCE_BOUNDARY_BACKTICK_STRINGS_NOT_FLAGGED = [
+    pytest.param("just try `id`", id="chat_message_ends_with_id_no_period"),
+    pytest.param(
+        "no period after this one `whoami`", id="chat_message_ends_with_whoami"
+    ),
+    pytest.param("the fix was to run `ls -la`", id="chat_message_ends_with_ls_la"),
+    pytest.param("final answer: `pwd`", id="chat_message_ends_with_pwd"),
+    pytest.param("the missing command is `env`", id="chat_message_ends_with_env"),
+    pytest.param("closing thought, use `reboot`", id="chat_message_ends_with_reboot"),
+    pytest.param("one more thing, check `uname -a`", id="chat_message_ends_with_uname"),
+    pytest.param("last tip: `history`", id="chat_message_ends_with_history"),
+    pytest.param("final step: `sudo -l`", id="chat_message_ends_with_sudo_l"),
+    pytest.param("and that's it, just `id`", id="chat_message_trailing_id"),
+    pytest.param(
+        "`id` is the command everyone forgets", id="chat_message_starts_with_id"
+    ),
+    pytest.param(
+        "`whoami` is your first debugging step", id="chat_message_starts_with_whoami"
+    ),
+    pytest.param("`ls` before you `rm` anything", id="chat_message_starts_with_ls"),
+    pytest.param(
+        "`env` shows what your shell inherited", id="chat_message_starts_with_env"
+    ),
+    pytest.param(
+        "`pwd` tells you where you are right now", id="chat_message_starts_with_pwd"
+    ),
+]
+
+
+@pytest.mark.parametrize("text", SQL_BACKTICK_IDENTIFIER_STRINGS_NOT_FLAGGED)
+def test_sql_backtick_identifier_not_flagged_as_command_injection(
+    text: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=text, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize("text", JS_TEMPLATE_LITERAL_STRINGS_NOT_FLAGGED)
+def test_js_template_literal_not_flagged_as_command_injection(
+    text: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=text, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize("text", CHANGELOG_STRINGS_NOT_FLAGGED)
+def test_changelog_backtick_mention_not_flagged_as_command_injection(
+    text: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=text, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize("text", SENTENCE_BOUNDARY_BACKTICK_STRINGS_NOT_FLAGGED)
+def test_sentence_boundary_backtick_mention_not_flagged_as_command_injection(
+    text: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=text, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED = [
+    pytest.param("x`id`", id="glued_prefix_single_char_id"),
+    pytest.param("a`whoami`", id="glued_prefix_single_char_whoami"),
+    pytest.param("1`id`", id="glued_prefix_digit_id"),
+    pytest.param("search`id`", id="glued_prefix_word_id"),
+    pytest.param("user`id`123", id="glued_prefix_and_suffix_id"),
+    pytest.param("file`id`.txt", id="glued_prefix_and_dotted_suffix_id"),
+    pytest.param("`id`x", id="glued_suffix_single_char_id"),
+    pytest.param("name=`id`&x=1", id="glued_query_string_context_id"),
+    pytest.param("q`whoami`q", id="glued_prefix_and_suffix_whoami"),
+    pytest.param("term`id`", id="glued_prefix_word_id_variant"),
+    pytest.param("value`reboot`value", id="glued_prefix_and_suffix_reboot"),
+    pytest.param("abc`cat /etc/passwd`", id="glued_prefix_cat_passwd"),
+    pytest.param("img`whoami`.png", id="glued_prefix_and_dotted_suffix_whoami"),
+    pytest.param("1;`id`x", id="glued_separator_prefix_and_suffix_id"),
+    pytest.param("foo`id`", id="glued_prefix_foo_id"),
+    pytest.param("`id`bar", id="glued_suffix_bar_id"),
+    pytest.param("search=test`whoami`", id="glued_query_value_prefix_whoami"),
+    pytest.param("note`rm -rf /`note", id="glued_prefix_and_suffix_rm"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED
+)
+def test_glued_prefix_or_suffix_backtick_payload_is_a_documented_known_gap(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is False
