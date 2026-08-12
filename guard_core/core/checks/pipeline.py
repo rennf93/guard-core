@@ -147,8 +147,13 @@ class SecurityCheckPipeline:
                 return response
 
         request.state._guard_pipeline_start = time.monotonic()
+        exclusion_scoped = (
+            getattr(request.state, "guard_exclusion_scoped", False) is True
+        )
 
         for check in self.checks:
+            if exclusion_scoped and not check.enforced_on_excluded_paths:
+                continue
             try:
                 response = await check.check(request)
                 if response is not None:

@@ -10,6 +10,8 @@ UNRESOLVED_ROUTE_REASON = (
 
 
 class RouteConfigCheck(SecurityCheck):
+    enforced_on_excluded_paths = True
+
     @property
     def check_name(self) -> str:
         return "route_config"

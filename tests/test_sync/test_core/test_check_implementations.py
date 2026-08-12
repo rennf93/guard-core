@@ -1375,7 +1375,7 @@ def test_suspicious_activity_not_detected() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(is_threat=False, trigger_info="not_enabled"),
     ):
         result = check.check(req)
@@ -1389,7 +1389,7 @@ def test_suspicious_activity_disabled_by_decorator() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(
             is_threat=False, trigger_info="disabled_by_decorator"
         ),
@@ -1408,7 +1408,7 @@ def test_suspicious_activity_detected_active() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(is_threat=True, trigger_info="sql_injection"),
     ):
         with patch(f"{_IMPL}.suspicious_activity.log_activity"):
@@ -1425,7 +1425,7 @@ def test_suspicious_activity_detected_passive() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(is_threat=True, trigger_info="xss"),
     ):
         with patch(f"{_IMPL}.suspicious_activity.log_activity"):
@@ -1446,7 +1446,7 @@ def test_suspicious_activity_auto_ban() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(is_threat=True, trigger_info="sqli"),
     ):
         with patch.object(check, "ip_ban_manager") as mock_ban:

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 class SecurityCheck(ABC):
     requires: ClassVar[tuple[str, ...]] = ()
     container_fields: ClassVar[tuple[str, ...]] = ()
+    enforced_on_excluded_paths: ClassVar[bool] = False
 
     def __init__(self, middleware: "GuardMiddlewareProtocol") -> None:
         self.middleware = middleware

@@ -1,11 +1,14 @@
+import time
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from guard_core.core.validation import validator as validator_module
 from guard_core.core.validation.context import ValidationContext
 from guard_core.core.validation.validator import RequestValidator
+from guard_core.models import SecurityConfig
 
 
 @pytest.fixture
@@ -252,3 +255,227 @@ async def test_is_path_excluded_no_match(
 
     assert result is False
     mock_event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_is_path_excluded_rejects_prefix_confusion_at_validator_level(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    validator.context.config.exclude_paths = ["/static"]
+    mock_request.url_path = "/staticadmin"
+
+    result = await validator.is_path_excluded(mock_request)
+
+    assert result is False
+    mock_event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_is_path_excluded_rejects_traversal_escaping_subtree_at_validator_level(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    validator.context.config.exclude_paths = ["/static"]
+    mock_request.url_path = "/static/../../../root/.ssh/id_rsa"
+
+    result = await validator.is_path_excluded(mock_request)
+
+    assert result is False
+    mock_event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_is_path_excluded_emits_event_once_across_many_requests(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health"
+
+    results = [await validator.is_path_excluded(mock_request) for _ in range(100)]
+
+    assert results == [True] * 100
+    mock_event_bus.send_middleware_event.assert_called_once()
+
+
+async def test_is_path_excluded_emits_separate_event_for_second_distinct_path(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health"
+    await validator.is_path_excluded(mock_request)
+
+    mock_request.url_path = "/metrics"
+    await validator.is_path_excluded(mock_request)
+
+    assert mock_event_bus.send_middleware_event.call_count == 2
+    excluded_paths_seen = {
+        call.kwargs["excluded_path"]
+        for call in mock_event_bus.send_middleware_event.call_args_list
+    }
+    assert excluded_paths_seen == {"/health", "/metrics"}
+
+
+async def test_is_path_excluded_emits_again_after_ttl_expires(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health"
+
+    await validator.is_path_excluded(mock_request)
+    assert mock_event_bus.send_middleware_event.call_count == 1
+
+    validator._path_excluded_event_cache.expire(time=time.monotonic() + 301)
+
+    await validator.is_path_excluded(mock_request)
+    assert mock_event_bus.send_middleware_event.call_count == 2
+
+
+async def test_is_path_excluded_decision_unaffected_by_cache_hit(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health"
+
+    first = await validator.is_path_excluded(mock_request)
+    second = await validator.is_path_excluded(mock_request)
+
+    assert first is True
+    assert second is True
+    mock_event_bus.send_middleware_event.assert_called_once()
+
+
+async def test_is_path_excluded_cached_entry_does_not_exclude_unrelated_path(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health"
+    await validator.is_path_excluded(mock_request)
+    mock_event_bus.send_middleware_event.reset_mock()
+
+    mock_request.url_path = "/unrelated"
+    result = await validator.is_path_excluded(mock_request)
+
+    assert result is False
+    mock_event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_is_path_excluded_unresolvable_request_path_is_not_excluded(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    mock_request.url_path = "/health%c0%af.."
+
+    result = await validator.is_path_excluded(mock_request)
+
+    assert result is False
+    mock_event_bus.send_middleware_event.assert_not_called()
+
+
+async def test_is_path_excluded_throttle_keyed_on_normalized_path_not_raw(
+    validator: RequestValidator, mock_request: Any, mock_event_bus: Any
+) -> None:
+    for raw_variant in ("/health", "/x/../health", "/health/.", "/health/"):
+        mock_request.url_path = raw_variant
+        result = await validator.is_path_excluded(mock_request)
+        assert result is True
+
+    assert mock_event_bus.send_middleware_event.call_count == 1
+    assert len(validator._path_excluded_event_cache) == 1
+
+
+async def test_is_path_excluded_reflects_exclude_paths_mutated_at_runtime() -> None:
+    config = SecurityConfig(exclude_paths=["/old"])
+    event_bus = Mock()
+    event_bus.send_middleware_event = AsyncMock()
+    context = ValidationContext(config=config, logger=Mock(), event_bus=event_bus)
+    validator = RequestValidator(context)
+    request = Mock()
+    request.url_path = "/new"
+    request.client_host = "127.0.0.1"
+    request.headers = {}
+
+    assert await validator.is_path_excluded(request) is False
+
+    config.exclude_paths = ["/new"]
+
+    assert await validator.is_path_excluded(request) is True
+
+
+async def test_is_path_excluded_normalizes_exclude_list_once_until_content_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(exclude_paths=["/health"])
+    event_bus = Mock()
+    event_bus.send_middleware_event = AsyncMock()
+    context = ValidationContext(config=config, logger=Mock(), event_bus=event_bus)
+    validator = RequestValidator(context)
+    request = Mock()
+    request.url_path = "/health"
+    request.client_host = "127.0.0.1"
+    request.headers = {}
+
+    call_count = 0
+    original_normalize_exclude_paths = validator_module.normalize_exclude_paths
+
+    def counting_normalize_exclude_paths(paths: Any) -> tuple[str, ...]:
+        nonlocal call_count
+        call_count += 1
+        return original_normalize_exclude_paths(paths)
+
+    monkeypatch.setattr(
+        validator_module, "normalize_exclude_paths", counting_normalize_exclude_paths
+    )
+
+    for _ in range(5):
+        await validator.is_path_excluded(request)
+    assert call_count == 1
+
+    config.exclude_paths = ["/other"]
+    await validator.is_path_excluded(request)
+    assert call_count == 2
+
+
+async def test_is_path_excluded_reflects_exclude_paths_appended_in_place() -> None:
+    config = SecurityConfig(exclude_paths=["/healthz"])
+    event_bus = Mock()
+    event_bus.send_middleware_event = AsyncMock()
+    context = ValidationContext(config=config, logger=Mock(), event_bus=event_bus)
+    validator = RequestValidator(context)
+    request = Mock()
+    request.url_path = "/newsection/x"
+    request.client_host = "127.0.0.1"
+    request.headers = {}
+
+    assert await validator.is_path_excluded(request) is False
+
+    revision_before = config.revision
+    config.exclude_paths.append("/newsection")
+
+    assert config.revision == revision_before
+    assert await validator.is_path_excluded(request) is True
+
+
+async def test_is_path_excluded_reflects_exclude_paths_shrunk_in_place() -> None:
+    config = SecurityConfig(exclude_paths=["/healthz", "/newsection"])
+    event_bus = Mock()
+    event_bus.send_middleware_event = AsyncMock()
+    context = ValidationContext(config=config, logger=Mock(), event_bus=event_bus)
+    validator = RequestValidator(context)
+    request = Mock()
+    request.url_path = "/newsection/x"
+    request.client_host = "127.0.0.1"
+    request.headers = {}
+
+    assert await validator.is_path_excluded(request) is True
+
+    config.exclude_paths.pop()
+
+    assert await validator.is_path_excluded(request) is False
+
+
+async def test_is_path_excluded_reflects_size_preserving_in_place_replace() -> None:
+    config = SecurityConfig(exclude_paths=["/healthz", "/old"])
+    event_bus = Mock()
+    event_bus.send_middleware_event = AsyncMock()
+    context = ValidationContext(config=config, logger=Mock(), event_bus=event_bus)
+    validator = RequestValidator(context)
+    request = Mock()
+    request.url_path = "/new/x"
+    request.client_host = "127.0.0.1"
+    request.headers = {}
+
+    assert await validator.is_path_excluded(request) is False
+
+    config.exclude_paths[1] = "/new"
+
+    assert await validator.is_path_excluded(request) is True

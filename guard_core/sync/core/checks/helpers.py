@@ -1,11 +1,16 @@
 import logging
 import re
+import threading
 from collections.abc import Callable, Collection
 from ipaddress import ip_address
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 from guard_core.models import SecurityConfig
+from guard_core.sync.core.events.event_types import (
+    EVENT_IP_BAN_FAILED,
+    EVENT_PENETRATION_ATTEMPT,
+)
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -15,6 +20,10 @@ if TYPE_CHECKING:
     from guard_core.sync.protocols.middleware_protocol import (
         SyncGuardMiddlewareProtocol,
     )
+
+_MAX_TRACKED_SUSPICIOUS_IPS = 10_000
+_DETECTION_RESULT_STATE_ATTR = "_guard_detection_result_cache"
+_suspicious_counts_lock = threading.Lock()
 
 
 def route_config_applies(
@@ -180,52 +189,46 @@ def detect_penetration_patterns(
     return DetectionResult(is_threat=False, trigger_info=reason)
 
 
+def get_cached_detection_result(
+    request: SyncGuardRequest,
+    route_config: RouteConfig | None,
+    config: SecurityConfig,
+    should_bypass_check_fn: Any,
+) -> DetectionResult:
+    cached = getattr(request.state, _DETECTION_RESULT_STATE_ATTR, None)
+    if cached is not None and cached[0] is request and cached[1] is route_config:
+        return cast(DetectionResult, cached[2])
+
+    result = detect_penetration_patterns(
+        request, route_config, config, should_bypass_check_fn
+    )
+    setattr(
+        request.state, _DETECTION_RESULT_STATE_ATTR, (request, route_config, result)
+    )
+    return result
+
+
 def _increment_suspicious_counts(
     middleware: "SyncGuardMiddlewareProtocol",
     client_ip: str,
-    threat_categories: list[str],
+    categories: str | Collection[str],
 ) -> None:
-    if client_ip not in middleware.suspicious_request_counts:
-        middleware.suspicious_request_counts[client_ip] = {}
-    ip_counts = middleware.suspicious_request_counts[client_ip]
-    categories = threat_categories or ["uncategorized"]
-    for category in categories:
-        ip_counts[category] = ip_counts.get(category, 0) + 1
-
-
-def _try_escalation_per_category_ban(
-    request: SyncGuardRequest,
-    config: SecurityConfig,
-    ip_ban_manager: Any,
-    middleware: "SyncGuardMiddlewareProtocol",
-    client_ip: str,
-    trigger_info: str,
-    threat_categories: list[str],
-    logger: logging.Logger,
-    check_name: str,
-    muted_check_logs: set[str],
-) -> bool:
-    ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
-    for category in threat_categories:
-        entry = config.threat_ban_config.get(category)
-        if entry is None:
-            continue
-        if ip_counts.get(category, 0) >= entry.threshold:
-            ip_ban_manager.ban_ip(
-                client_ip, entry.duration, f"penetration_attempt:{category}"
-            )
-            log_activity(
-                request,
-                logger,
-                log_type="suspicious",
-                reason=f"IP banned due to {category} threshold: "
-                f"{client_ip} - {trigger_info}",
-                level=config.log_suspicious_level,
-                check_name=check_name,
-                muted_check_logs=muted_check_logs,
-            )
-            return True
-    return False
+    resolved_categories: Collection[str] = (
+        (categories,)
+        if isinstance(categories, str)
+        else categories or ("uncategorized",)
+    )
+    with _suspicious_counts_lock:
+        counts = middleware.suspicious_request_counts
+        ip_counts = counts.pop(client_ip, None)
+        if ip_counts is None:
+            if len(counts) >= _MAX_TRACKED_SUSPICIOUS_IPS:
+                oldest_ip = next(iter(counts))
+                del counts[oldest_ip]
+            ip_counts = {}
+        for category in resolved_categories:
+            ip_counts[category] = ip_counts.get(category, 0) + 1
+        counts[client_ip] = ip_counts
 
 
 def _try_escalation_flat_ban(
@@ -255,7 +258,104 @@ def _try_escalation_flat_ban(
     return True
 
 
-def escalate_suspicious_if_threat(
+def _try_escalation_per_category_ban(
+    request: SyncGuardRequest,
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    middleware: "SyncGuardMiddlewareProtocol",
+    client_ip: str,
+    trigger_info: str,
+    logger: logging.Logger,
+    check_name: str,
+    muted_check_logs: set[str],
+    threat_categories: Collection[str],
+) -> bool:
+    ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
+    for category in threat_categories:
+        entry = config.threat_ban_config.get(category)
+        if entry is None or ip_counts.get(category, 0) < entry.threshold:
+            continue
+        ip_ban_manager.ban_ip(
+            client_ip, entry.duration, f"penetration_attempt:{category}"
+        )
+        sus_specs = f"{client_ip} - {trigger_info}"
+        log_activity(
+            request,
+            logger,
+            log_type="suspicious",
+            reason=f"IP banned due to {category} threshold: {sus_specs}",
+            level=config.log_suspicious_level,
+            check_name=check_name,
+            muted_check_logs=muted_check_logs,
+        )
+        return True
+    return False
+
+
+def _try_escalation_bans(
+    request: SyncGuardRequest,
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    middleware: "SyncGuardMiddlewareProtocol",
+    client_ip: str,
+    trigger_info: str,
+    logger: logging.Logger,
+    check_name: str,
+    muted_check_logs: set[str],
+    threat_categories: Collection[str],
+) -> bool:
+    if not config.enable_ip_banning:
+        return False
+    banned = _try_escalation_per_category_ban(
+        request,
+        config,
+        ip_ban_manager,
+        middleware,
+        client_ip,
+        trigger_info,
+        logger,
+        check_name,
+        muted_check_logs,
+        threat_categories,
+    )
+    if banned:
+        return True
+    return _try_escalation_flat_ban(
+        request,
+        config,
+        ip_ban_manager,
+        middleware,
+        client_ip,
+        trigger_info,
+        logger,
+        check_name,
+        muted_check_logs,
+    )
+
+
+def _emit_ban_escalation_failed(
+    middleware: "SyncGuardMiddlewareProtocol",
+    request: SyncGuardRequest,
+    client_ip: str,
+    error: Exception,
+) -> None:
+    middleware.event_bus.send_middleware_event(
+        event_type=EVENT_IP_BAN_FAILED,
+        request=request,
+        action_taken="ban_not_applied",
+        reason=f"Escalation ban failed for {client_ip}: {error}",
+        ip_address=client_ip,
+    )
+
+
+def _log_exception_safely(logger: logging.Logger, message: str, *args: Any) -> None:
+    try:
+        logger.exception(message, *args)
+    except Exception:
+        pass
+
+
+def escalate_identity_violation(
     middleware: "SyncGuardMiddlewareProtocol",
     config: SecurityConfig,
     ip_ban_manager: Any,
@@ -264,49 +364,62 @@ def escalate_suspicious_if_threat(
     logger: logging.Logger,
     check_name: str,
     muted_check_logs: set[str],
+    violation_category: str,
+    trigger_info: str,
 ) -> None:
     if not client_ip:
         return
 
+    if getattr(request.state, "is_whitelisted", False):
+        return
+
     try:
         route_config = getattr(request.state, "route_config", None)
-        result = detect_penetration_patterns(
-            request, route_config, config, middleware.route_resolver.should_bypass_check
+        result = get_cached_detection_result(
+            request,
+            route_config,
+            config,
+            middleware.route_resolver.should_bypass_check,
         )
-
         if not result.is_threat or result.trigger_info == "disabled_by_decorator":
             return
 
-        threat_categories = list(result.threat_categories)
+        threat_categories = list(result.threat_categories) or ["uncategorized"]
         _increment_suspicious_counts(middleware, client_ip, threat_categories)
 
-        if not config.enable_ip_banning:
-            return
-
-        if _try_escalation_per_category_ban(
+        banned = _try_escalation_bans(
             request,
             config,
             ip_ban_manager,
             middleware,
             client_ip,
-            result.trigger_info,
+            trigger_info,
+            logger,
+            check_name,
+            muted_check_logs,
             threat_categories,
-            logger,
-            check_name,
-            muted_check_logs,
-        ):
-            return
-
-        _try_escalation_flat_ban(
-            request,
-            config,
-            ip_ban_manager,
-            middleware,
-            client_ip,
-            result.trigger_info,
-            logger,
-            check_name,
-            muted_check_logs,
         )
-    except Exception:
-        logger.exception("escalate_suspicious_if_threat failed for %s", client_ip)
+
+        middleware.event_bus.send_middleware_event(
+            event_type=EVENT_PENETRATION_ATTEMPT,
+            request=request,
+            action_taken="banned" if banned else "tracked",
+            reason=f"Identity violation escalated: {trigger_info}",
+            request_count=sum(
+                middleware.suspicious_request_counts.get(client_ip, {}).values()
+            ),
+            trigger_info=trigger_info,
+            violation_category=violation_category,
+        )
+    except Exception as exc:
+        _log_exception_safely(
+            logger, "escalate_identity_violation failed for %s", client_ip
+        )
+        try:
+            _emit_ban_escalation_failed(middleware, request, client_ip, exc)
+        except Exception:
+            _log_exception_safely(
+                logger,
+                "Failed to report ban escalation failure for %s",
+                client_ip,
+            )

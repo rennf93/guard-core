@@ -379,7 +379,7 @@ async def test_suspicious_activity_check_passive_mode_unit() -> None:
     request.state.is_whitelisted = False
 
     with patch(
-        "guard_core.core.checks.implementations.suspicious_activity.detect_penetration_patterns",
+        "guard_core.core.checks.implementations.suspicious_activity.get_cached_detection_result",
         return_value=DetectionResult(is_threat=True, trigger_info="SQL injection"),
     ):
         with patch(

@@ -13,10 +13,8 @@ class BehavioralProcessor:
         self.context = context
 
     def _behavior_tracker(self, request: GuardRequest) -> Any | None:
-        # Adapters snapshot this context at construction, before the application
-        # attaches its decorator, so fall back to the per-request decorator the
-        # same way RouteConfigResolver does. Without it every behavioural rule is
-        # silently inert on a decorator-only setup.
+        if getattr(request.state, "guard_exclusion_scoped", False) is True:
+            return None
         if self.context.behavior_tracker is not None:
             return self.context.behavior_tracker
         guard_decorator = self.context.guard_decorator
