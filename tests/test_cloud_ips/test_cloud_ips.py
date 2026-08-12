@@ -1,12 +1,20 @@
 import ipaddress
 import itertools
+import logging
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from guard_core.handlers.cloud_handler import (
+    _AZURE_DOWNLOAD_MAX_ELAPSED_SECONDS,
+    _AZURE_PAGE_FETCH_TIMEOUT_SECONDS,
+    _download_azure_service_tags,
+    _extract_azure_download_url,
+    _extract_failover_link_url,
+    _extract_newest_service_tags_url,
+    _is_trusted_azure_download_url,
     cloud_handler,
     fetch_aws_ip_ranges,
     fetch_azure_ip_ranges,
@@ -163,6 +171,318 @@ async def test_fetch_azure_ip_ranges_preserves_query_string(
     download_call = mock_aiohttp_session.get.call_args_list[1]
     assert (
         download_call.args[0] == "https://download.microsoft.com/x/ServiceTags.json?v=2"
+    )
+
+
+async def test_fetch_azure_ip_ranges_prefers_servicetags_link_over_unrelated_json(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data="""
+        <a href="https://download.microsoft.com/download/manifests/unrelated.json">
+        unrelated download
+        </a>
+        <a href="https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20230515.json">
+        service tags
+        </a>
+        """
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+
+    assert ipaddress.IPv4Network("10.0.0.0/8") in result
+    download_call = mock_aiohttp_session.get.call_args_list[1]
+    assert "ServiceTags_Public_20230515.json" in download_call.args[0]
+
+
+async def test_fetch_azure_ip_ranges_ignores_stale_url_mentioned_before_download_link(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    stale_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20230130.json"
+    )
+    current_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250116.json"
+    )
+    mock_html_resp = _mock_aiohttp_response(
+        text_data=f"""
+        <html>
+        <body>
+          <section class="version-history" aria-label="Previous versions">
+            <p>Looking for an older snapshot? See the prior release archived at
+            {stale_url} for reference.</p>
+          </section>
+          <div id="mainDetailsSection">
+            <a id="failoverLink" href="{current_url}">Manual download</a>
+          </div>
+        </body>
+        </html>
+        """
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["20.20.0.0/16"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+
+    assert ipaddress.IPv4Network("20.20.0.0/16") in result
+    download_call = mock_aiohttp_session.get.call_args_list[1]
+    assert download_call.args[0] == current_url
+
+
+async def test_fetch_azure_ip_ranges_falls_back_to_newest_when_no_failover_link(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    older_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20230130.json"
+    )
+    newer_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250116.json"
+    )
+    mock_html_resp = _mock_aiohttp_response(
+        text_data=f"""
+        <a href="{older_url}">older</a>
+        <a href="{newer_url}">newer</a>
+        """
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["30.30.0.0/16"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+
+    assert ipaddress.IPv4Network("30.30.0.0/16") in result
+    download_call = mock_aiohttp_session.get.call_args_list[1]
+    assert download_call.args[0] == newer_url
+
+
+def test_is_trusted_azure_download_url_accepts_the_real_host() -> None:
+    assert _is_trusted_azure_download_url(
+        "https://download.microsoft.com/download/x/ServiceTags.json"
+    )
+
+
+def test_is_trusted_azure_download_url_rejects_a_different_host() -> None:
+    assert not _is_trusted_azure_download_url(
+        "https://attacker.example.com/fake_ranges.json"
+    )
+
+
+def test_is_trusted_azure_download_url_rejects_non_https_scheme() -> None:
+    assert not _is_trusted_azure_download_url(
+        "http://169.254.169.254/latest/meta-data/"
+    )
+
+
+def test_is_trusted_azure_download_url_rejects_host_suffix_confusable_domain() -> None:
+    assert not _is_trusted_azure_download_url(
+        "https://download.microsoft.com.evil.com/x.json"
+    )
+
+
+async def test_download_azure_service_tags_defaults_to_a_full_budget_with_no_deadline(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(return_value=mock_json_resp)
+
+    data = await _download_azure_service_tags(
+        "https://download.microsoft.com/valid.json"
+    )
+
+    assert data["values"][0]["properties"]["addressPrefixes"] == ["10.0.0.0/8"]
+
+
+def test_extract_failover_link_url_with_no_href_attribute_returns_none() -> None:
+    page = '<div id="mainDetailsSection"><a id="failoverLink">Manual download</a></div>'
+    assert _extract_failover_link_url(page) is None
+
+
+async def test_fetch_azure_ip_ranges_fails_fast_when_deadline_already_exhausted(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    with patch(
+        "guard_core.handlers.cloud_handler.time.monotonic",
+        side_effect=[0.0, _AZURE_DOWNLOAD_MAX_ELAPSED_SECONDS],
+    ):
+        result = await fetch_azure_ip_ranges()
+
+    assert result == set()
+    mock_aiohttp_session.get.assert_not_called()
+
+
+def test_extract_failover_link_url_rejects_untrusted_href() -> None:
+    page = (
+        '<div id="mainDetailsSection">'
+        '<a id="failoverLink" href="https://attacker.example.com/fake_ranges.json">'
+        "Manual download</a></div>"
+    )
+    assert _extract_failover_link_url(page) is None
+    assert _extract_azure_download_url(page) is None
+
+
+async def test_fetch_azure_ip_ranges_falls_back_when_failover_link_is_untrusted(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    legit_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250116.json"
+    )
+    mock_html_resp = _mock_aiohttp_response(
+        text_data=f"""
+        <div id="mainDetailsSection">
+          <a id="failoverLink" href="https://attacker.example.com/fake_ranges.json">
+            Manual download</a>
+        </div>
+        <a href="{legit_url}">service tags</a>
+        """
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["40.40.0.0/16"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+
+    assert ipaddress.IPv4Network("40.40.0.0/16") in result
+    download_call = mock_aiohttp_session.get.call_args_list[1]
+    assert download_call.args[0] == legit_url
+
+
+def test_extract_newest_service_tags_url_rejects_an_impossible_calendar_date() -> None:
+    real_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250115.json"
+    )
+    bogus_url = (
+        "https://download.microsoft.com/download/9/9/9/ServiceTags_Public_99999999.json"
+    )
+    page = f'<a href="{real_url}">a</a> <a href="{bogus_url}">b</a>'
+    assert _extract_newest_service_tags_url(page) == real_url
+
+
+def test_extract_newest_service_tags_url_rejects_a_future_calendar_date() -> None:
+    real_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250115.json"
+    )
+    future_url = (
+        "https://download.microsoft.com/download/9/9/9/ServiceTags_Public_20991231.json"
+    )
+    page = f'<a href="{real_url}">a</a> <a href="{future_url}">b</a>'
+    assert _extract_newest_service_tags_url(page) == real_url
+
+
+def test_extract_newest_service_tags_url_tie_break_is_independent_of_page_order() -> (
+    None
+):
+    legit_url = (
+        "https://download.microsoft.com/download/7/1/D/ServiceTags_Public_20250115.json"
+    )
+    lookalike_url = (
+        "https://download.microsoft.com/download/A/T/K/ServiceTags_Public_20250115.json"
+    )
+    page_a = f'<a href="{lookalike_url}">a</a> <a href="{legit_url}">b</a>'
+    page_b = f'<a href="{legit_url}">a</a> <a href="{lookalike_url}">b</a>'
+    assert _extract_newest_service_tags_url(page_a) == _extract_newest_service_tags_url(
+        page_b
+    )
+
+
+def test_extract_newest_service_tags_url_no_dates_is_independent_of_page_order() -> (
+    None
+):
+    first_url = (
+        "https://download.microsoft.com/download/1/1/1/ServiceTags_Public_stale.json"
+    )
+    second_url = "https://download.microsoft.com/download/2/2/2/ServiceTags_Public.json"
+    page_a = f'<a href="{first_url}">a</a> <a href="{second_url}">b</a>'
+    page_b = f'<a href="{second_url}">a</a> <a href="{first_url}">b</a>'
+    assert _extract_newest_service_tags_url(page_a) == _extract_newest_service_tags_url(
+        page_b
+    )
+
+
+def test_extract_newest_service_tags_url_warns_when_no_candidate_has_a_parseable_date(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    url = "https://download.microsoft.com/download/1/1/1/ServiceTags_Public_vNext.json"
+    page = f'<a href="{url}">current</a>'
+
+    with caplog.at_level(logging.WARNING, logger="guard_core.handlers.cloud"):
+        selected = _extract_newest_service_tags_url(page)
+
+    assert selected == url
+    assert any("no parseable date" in record.message for record in caplog.records)
+
+
+def test_extract_newest_service_tags_url_warns_when_winner_is_implausibly_old(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stale_label = (datetime.now(timezone.utc) - timedelta(days=200)).strftime("%Y%m%d")
+    url = (
+        "https://download.microsoft.com/download/1/1/1/"
+        f"ServiceTags_Public_{stale_label}.json"
+    )
+    page = f'<a href="{url}">current</a>'
+
+    with caplog.at_level(logging.WARNING, logger="guard_core.handlers.cloud"):
+        selected = _extract_newest_service_tags_url(page)
+
+    assert selected == url
+    assert any("possibly stale" in record.message for record in caplog.records)
+
+
+def test_extract_newest_service_tags_url_does_not_warn_for_a_recent_date(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    recent_label = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y%m%d")
+    url = (
+        "https://download.microsoft.com/download/1/1/1/"
+        f"ServiceTags_Public_{recent_label}.json"
+    )
+    page = f'<a href="{url}">current</a>'
+
+    with caplog.at_level(logging.WARNING, logger="guard_core.handlers.cloud"):
+        selected = _extract_newest_service_tags_url(page)
+
+    assert selected == url
+    assert caplog.records == []
+
+
+async def test_azure_page_fetch_shares_the_download_deadline(  # async-only
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.time.monotonic",
+            side_effect=[0.0, 0.0, 12.0],
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.aiohttp.ClientTimeout"
+        ) as mock_client_timeout,
+    ):
+        result = await fetch_azure_ip_ranges()
+
+    assert ipaddress.IPv4Network("10.0.0.0/8") in result
+    page_fetch_timeout = mock_client_timeout.call_args_list[0]
+    download_attempt_timeout = mock_client_timeout.call_args_list[1]
+    assert page_fetch_timeout.kwargs["total"] == _AZURE_PAGE_FETCH_TIMEOUT_SECONDS
+    assert download_attempt_timeout.kwargs["total"] == (
+        _AZURE_DOWNLOAD_MAX_ELAPSED_SECONDS - 12.0
     )
 
 
@@ -386,7 +706,7 @@ async def test_fetch_azure_ip_ranges_url_not_found(
     assert result == set()
 
 
-async def test_fetch_azure_ip_ranges_download_failure(
+async def test_fetch_azure_ip_ranges_bad_status_is_not_retried(
     mock_aiohttp_session: MagicMock,
 ) -> None:
     mock_html_resp = _mock_aiohttp_response(
@@ -394,14 +714,77 @@ async def test_fetch_azure_ip_ranges_download_failure(
     )
     mock_download_resp = MagicMock()
     mock_download_resp.raise_for_status = MagicMock(
-        side_effect=Exception("Download failed")
+        side_effect=Exception("404 Not Found")
+    )
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[mock_html_resp, mock_download_resp]
+    )
+    with patch(
+        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep_mock:
+        result = await fetch_azure_ip_ranges()
+    assert result == set()
+    assert mock_aiohttp_session.get.await_count == 2
+    sleep_mock.assert_not_called()
+
+
+async def test_fetch_azure_ip_ranges_bad_json_body_is_not_retried(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_download_resp = MagicMock()
+    mock_download_resp.raise_for_status = MagicMock()
+    mock_download_resp.json = AsyncMock(side_effect=ValueError("Expecting value"))
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[mock_html_resp, mock_download_resp]
+    )
+    with patch(
+        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep_mock:
+        result = await fetch_azure_ip_ranges()
+    assert result == set()
+    assert mock_aiohttp_session.get.await_count == 2
+    sleep_mock.assert_not_called()
+
+
+async def test_fetch_azure_ip_ranges_retries_then_succeeds(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["192.168.1.0/24"]}}]}
     )
     mock_aiohttp_session.get = AsyncMock(
         side_effect=[
             mock_html_resp,
-            mock_download_resp,
-            mock_download_resp,
-            mock_download_resp,
+            ConnectionError("connection reset"),
+            mock_json_resp,
+        ]
+    )
+    with patch(
+        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    ):
+        result = await fetch_azure_ip_ranges()
+    assert ipaddress.IPv4Network("192.168.1.0/24") in result
+    assert mock_aiohttp_session.get.await_count == 3
+
+
+async def test_fetch_azure_ip_ranges_gives_up_after_max_attempts(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[
+            mock_html_resp,
+            ConnectionError("connection reset"),
+            ConnectionError("connection reset"),
+            ConnectionError("connection reset"),
         ]
     )
     with patch(
@@ -412,25 +795,94 @@ async def test_fetch_azure_ip_ranges_download_failure(
     assert mock_aiohttp_session.get.await_count == 4
 
 
-async def test_fetch_azure_ip_ranges_retries_then_succeeds(
+async def test_fetch_azure_ip_ranges_stops_retrying_past_elapsed_bound(
     mock_aiohttp_session: MagicMock,
 ) -> None:
     mock_html_resp = _mock_aiohttp_response(
         text_data='<a href="https://download.microsoft.com/valid.json">'
     )
-    failing_resp = MagicMock()
-    failing_resp.raise_for_status = MagicMock(side_effect=Exception("transient"))
-    mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["192.168.1.0/24"]}}]}
-    )
     mock_aiohttp_session.get = AsyncMock(
-        side_effect=[mock_html_resp, failing_resp, mock_json_resp]
+        side_effect=[
+            mock_html_resp,
+            ConnectionError("connection reset"),
+            ConnectionError("connection reset"),
+        ]
     )
-    with patch(
-        "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep_mock,
+        patch(
+            "guard_core.handlers.cloud_handler.time.monotonic",
+            side_effect=[0.0, 0.0, 0.0, 25.0],
+        ),
     ):
         result = await fetch_azure_ip_ranges()
-    assert ipaddress.IPv4Network("192.168.1.0/24") in result
+    assert result == set()
+    assert mock_aiohttp_session.get.await_count == 2
+    sleep_mock.assert_not_called()
+
+
+async def test_fetch_azure_ip_ranges_checks_elapsed_before_each_attempt(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[
+            mock_html_resp,
+            ConnectionError("connection reset"),
+            ConnectionError("connection reset"),
+        ]
+    )
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+        ) as sleep_mock,
+        patch(
+            "guard_core.handlers.cloud_handler.time.monotonic",
+            side_effect=[0.0, 0.0, 0.0, 0.5, 25.0],
+        ),
+    ):
+        result = await fetch_azure_ip_ranges()
+    assert result == set()
+    assert mock_aiohttp_session.get.await_count == 2
+    sleep_mock.assert_called_once_with(2.0)
+
+
+async def test_fetch_azure_ip_ranges_sizes_timeout_from_remaining_budget(  # async-only
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/valid.json">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+    )
+    mock_aiohttp_session.get = AsyncMock(
+        side_effect=[
+            mock_html_resp,
+            ConnectionError("connection reset"),
+            mock_json_resp,
+        ]
+    )
+    with (
+        patch(
+            "guard_core.handlers.cloud_handler.asyncio.sleep", new_callable=AsyncMock
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.time.monotonic",
+            side_effect=[0.0, 0.0, 0.0, 15.0, 15.0],
+        ),
+        patch(
+            "guard_core.handlers.cloud_handler.aiohttp.ClientTimeout"
+        ) as mock_client_timeout,
+    ):
+        result = await fetch_azure_ip_ranges()
+    assert ipaddress.IPv4Network("10.0.0.0/8") in result
+    second_attempt_timeout = mock_client_timeout.call_args_list[2]
+    assert second_attempt_timeout.kwargs["total"] == 5.0
 
 
 async def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> None:
