@@ -527,6 +527,7 @@ async def test_apply_rules_emergency_mode(
     config: SecurityConfig,
     mock_agent_handler: AsyncMock,
     sample_rules: DynamicRules,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     DynamicRuleManager._instance = None
 
@@ -540,11 +541,13 @@ async def test_apply_rules_emergency_mode(
         patch.object(
             manager, "_activate_emergency_mode", AsyncMock()
         ) as mock_emergency_mode,
-        pytest.warns(UserWarning, match="blocked_countries is ignored"),
+        caplog.at_level(logging.WARNING),
     ):
         await manager._apply_rules(sample_rules)
 
         mock_emergency_mode.assert_called_once_with(sample_rules.emergency_whitelist)
+
+    assert "country rules cannot take effect" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -725,11 +728,68 @@ async def test_apply_ip_whitelist_with_failures(
 
 
 @pytest.mark.asyncio
-async def test_apply_country_rules_blocked_only(
+async def test_apply_country_rules_blocked_only_skipped_without_geo_handler(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
     DynamicRuleManager._instance = None
 
+    manager = DynamicRuleManager(config)
+
+    blocked = ["xx", "yy"]
+    allowed: list[str] = []
+
+    with caplog.at_level(logging.WARNING):
+        await manager._apply_country_rules(blocked, allowed)
+
+    assert manager.config.blocked_countries == frozenset()
+    assert "country rules cannot take effect" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apply_country_rules_allowed_only_skipped_without_geo_handler(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    blocked: list[str] = []
+    allowed = ["us", "ca"]
+
+    with caplog.at_level(logging.WARNING):
+        await manager._apply_country_rules(blocked, allowed)
+
+    assert manager.config.whitelist_countries == frozenset()
+    assert "country rules cannot take effect" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apply_country_rules_both_skipped_without_geo_handler(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    blocked = ["xx", "yy"]
+    allowed = ["us", "ca"]
+
+    with caplog.at_level(logging.WARNING):
+        await manager._apply_country_rules(blocked, allowed)
+
+    assert manager.config.blocked_countries == frozenset()
+    assert manager.config.whitelist_countries == frozenset()
+    assert "country rules cannot take effect" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apply_country_rules_blocked_only_applies_with_geo_handler_configured(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        config.geo_ip_handler = MagicMock()
     manager = DynamicRuleManager(config)
 
     blocked = ["xx", "yy"]
@@ -744,11 +804,13 @@ async def test_apply_country_rules_blocked_only(
 
 
 @pytest.mark.asyncio
-async def test_apply_country_rules_allowed_only(
+async def test_apply_country_rules_allowed_only_applies_with_geo_handler_configured(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
     DynamicRuleManager._instance = None
 
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        config.geo_ip_handler = MagicMock()
     manager = DynamicRuleManager(config)
 
     blocked: list[str] = []
@@ -759,30 +821,6 @@ async def test_apply_country_rules_allowed_only(
 
     assert manager.config.whitelist_countries == frozenset({"US", "CA"})
 
-    assert "Dynamic rule: Whitelisted countries ['CA', 'US']" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_apply_country_rules_both(
-    config: SecurityConfig, caplog: pytest.LogCaptureFixture
-) -> None:
-    DynamicRuleManager._instance = None
-
-    manager = DynamicRuleManager(config)
-
-    blocked = ["xx", "yy"]
-    allowed = ["us", "ca"]
-
-    with (
-        caplog.at_level(logging.INFO),
-        pytest.warns(UserWarning, match="blocked_countries is ignored"),
-    ):
-        await manager._apply_country_rules(blocked, allowed)
-
-    assert manager.config.blocked_countries == frozenset({"XX", "YY"})
-    assert manager.config.whitelist_countries == frozenset({"US", "CA"})
-
-    assert "Dynamic rule: Blocked countries ['XX', 'YY']" in caplog.text
     assert "Dynamic rule: Whitelisted countries ['CA', 'US']" in caplog.text
 
 

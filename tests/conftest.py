@@ -10,13 +10,22 @@ from typing import Any
 import pytest
 from pytest import TempPathFactory
 
+from guard_core.core.events import logfire_handler as _logfire_handler_module
+from guard_core.core.events import otel_handler as _otel_handler_module
+from guard_core.handlers import ipban_handler as _ipban_module
+from guard_core.handlers import security_headers_handler as _security_headers_module
 from guard_core.handlers import suspatterns_handler as _suspatterns_module
-from guard_core.handlers.cloud_handler import cloud_handler
+from guard_core.handlers.cloud_handler import (
+    _ALL_PROVIDERS,
+    CloudManager,
+    cloud_handler,
+)
 from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.handlers.ipban_handler import IPBanManager
 from guard_core.handlers.ipinfo_handler import IPInfoManager
 from guard_core.handlers.ratelimit_handler import rate_limit_handler
 from guard_core.handlers.redis_handler import RedisManager
+from guard_core.handlers.security_headers_handler import SecurityHeadersManager
 from guard_core.handlers.suspatterns_handler import (
     SusPatternsManager,
     sus_patterns_handler,
@@ -52,6 +61,67 @@ def _isolate_detection_singleton() -> Any:
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
+
+
+def _restore_submodule_identity(module: Any) -> None:
+    """Undo a test that reimported a submodule (`sys.modules.pop` + fresh
+    `import_module`/`reload`), which rebinds the module as a *package*
+    attribute but leaves the old, still-imported package attribute pointing
+    at an orphaned module object that later `unittest.mock.patch()` calls
+    (which resolve targets via attribute traversal, not `sys.modules`) will
+    silently patch instead of the real one.
+    """
+    sys.modules[module.__name__] = module
+    package_name, _, leaf = module.__name__.rpartition(".")
+    package = sys.modules.get(package_name)
+    if package is not None:
+        setattr(package, leaf, module)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_event_handler_modules() -> Any:
+    yield
+    _restore_submodule_identity(_otel_handler_module)
+    _restore_submodule_identity(_logfire_handler_module)
+
+
+_ORIGINAL_IP_BAN_MANAGER = _ipban_module.ip_ban_manager
+_ORIGINAL_SECURITY_HEADERS_MANAGER = _security_headers_module.security_headers_manager
+
+
+def _reset_ip_ban_manager() -> None:
+    IPBanManager._instance = _ORIGINAL_IP_BAN_MANAGER
+    _ipban_module.ip_ban_manager = _ORIGINAL_IP_BAN_MANAGER
+    _ORIGINAL_IP_BAN_MANAGER.banned_ips.clear()
+    _ORIGINAL_IP_BAN_MANAGER.banned_networks.clear()
+    _ORIGINAL_IP_BAN_MANAGER.redis_handler = None
+    _ORIGINAL_IP_BAN_MANAGER.agent_handler = None
+    _ORIGINAL_IP_BAN_MANAGER.evictions_count = 0
+
+
+def _reset_cloud_handler() -> None:
+    from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
+
+    CloudManager._instance = cloud_handler
+    cloud_handler.ip_ranges = {provider: set() for provider in _ALL_PROVIDERS}
+    cloud_handler.network_regions = {provider: {} for provider in _ALL_PROVIDERS}
+    cloud_handler.last_updated = {provider: None for provider in _ALL_PROVIDERS}
+    cloud_handler.redis_handler = None
+    cloud_handler.agent_handler = None
+    cloud_handler._store = InMemoryCloudIpStore()
+    cloud_handler._refresh_task = None
+    cloud_handler._refresh_in_flight = False
+    cloud_handler._empty_ranges_warned_at = {}
+
+
+async def _reset_security_headers_manager() -> None:
+    SecurityHeadersManager._instance = _ORIGINAL_SECURITY_HEADERS_MANAGER
+    _security_headers_module.security_headers_manager = (
+        _ORIGINAL_SECURITY_HEADERS_MANAGER
+    )
+    await _ORIGINAL_SECURITY_HEADERS_MANAGER.reset()
+    _ORIGINAL_SECURITY_HEADERS_MANAGER.agent_handler = None
+    _ORIGINAL_SECURITY_HEADERS_MANAGER.redis_handler = None
 
 
 class MockState:
@@ -169,16 +239,9 @@ class MockGuardResponseFactory:
 
 @pytest.fixture(autouse=True)
 async def reset_state() -> AsyncGenerator[None, None]:
-    IPBanManager._instance = None
-
-    cloud_instance = cloud_handler._instance
-    if cloud_instance:
-        from guard_core.handlers.cloud_ip_stores import InMemoryCloudIpStore
-
-        cloud_instance.ip_ranges = {"AWS": set(), "GCP": set(), "Azure": set()}
-        cloud_instance.redis_handler = None
-        cloud_instance.agent_handler = None
-        cloud_instance._store = InMemoryCloudIpStore()
+    _reset_ip_ban_manager()
+    _reset_cloud_handler()
+    await _reset_security_headers_manager()
 
     if IPInfoManager._instance:
         if IPInfoManager._instance.reader:
@@ -190,6 +253,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     spm = type(sus_patterns_handler)
     spm._instance = sus_patterns_handler
     spm._config = None
+    _suspatterns_module.sus_patterns_handler = sus_patterns_handler
     sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
     sus_patterns_handler.compiled_patterns = [
         (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
@@ -197,8 +261,16 @@ async def reset_state() -> AsyncGenerator[None, None]:
     ]
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
+    sus_patterns_handler._compiler = None
+    sus_patterns_handler._preprocessor = None
+    sus_patterns_handler._semantic_analyzer = None
+    sus_patterns_handler._performance_monitor = None
+    sus_patterns_handler._semantic_threshold = 0.7
+    sus_patterns_handler._threat_score_threshold = 1.0
 
-    IPBanManager._instance = None
+    _reset_ip_ban_manager()
+    _reset_cloud_handler()
+    await _reset_security_headers_manager()
 
     dynamic_rule_instance = DynamicRuleManager._instance
     if dynamic_rule_instance and dynamic_rule_instance.update_task:
@@ -269,7 +341,7 @@ async def redis_cleanup() -> AsyncGenerator[None, None]:
     redis_handler = RedisManager(config)
     await redis_handler.initialize()
     try:
-        await redis_handler.delete_pattern(f"{REDIS_PREFIX}*")
+        await redis_handler.delete_pattern("*")
     except Exception:
         pass
     finally:
@@ -278,7 +350,7 @@ async def redis_cleanup() -> AsyncGenerator[None, None]:
     redis_handler = RedisManager(config)
     await redis_handler.initialize()
     try:
-        await redis_handler.delete_pattern(f"{REDIS_PREFIX}*")
+        await redis_handler.delete_pattern("*")
     except Exception:
         pass
     finally:
