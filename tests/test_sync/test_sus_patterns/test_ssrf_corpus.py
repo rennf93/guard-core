@@ -9,6 +9,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
     _LEGACY_IPV4_HOST_RE,
     _decode_legacy_ipv4_host,
     _decode_legacy_ipv4_part,
+    _is_bare_decimal_legacy_ipv4_part,
     sus_patterns_handler,
 )
 
@@ -31,6 +32,16 @@ VERSION_LIKE_TEXT_NOT_FLAGGED = [
     pytest.param("the price range is $10 to $50 for the order", id="dollar_amount_ten"),
     pytest.param(
         "192.168 is a common prefix in networking docs", id="bare_two_octet_prefix"
+    ),
+]
+
+SCHEME_PORT_NOT_FLAGGED = [
+    pytest.param("redis://6379", id="redis_bare_port"),
+    pytest.param("grpc://50051", id="grpc_bare_port"),
+    pytest.param("amqp://5672", id="amqp_bare_port"),
+    pytest.param("https://2023/blog", id="https_bare_digits_path"),
+    pytest.param(
+        "connect via tcp://8080 for the health probe", id="tcp_bare_port_prose"
     ),
 ]
 
@@ -192,6 +203,14 @@ def test_version_like_text_not_flagged_as_ssrf(text: str) -> None:
     assert result["is_threat"] is False
 
 
+@pytest.mark.parametrize("text", SCHEME_PORT_NOT_FLAGGED)
+def test_scheme_with_bare_port_number_not_flagged_as_ssrf(text: str) -> None:
+    result = sus_patterns_handler.detect(
+        content=text, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
 @pytest.mark.parametrize("payload", KNOWN_GOOD_SSRF_TARGETS)
 def test_known_good_ssrf_targets_still_detected(payload: str) -> None:
     result = sus_patterns_handler.detect(
@@ -273,6 +292,38 @@ def test_decode_legacy_ipv4_part_decodes_bare_zero() -> None:
 
 def test_decode_legacy_ipv4_host_rejects_last_part_exceeding_remaining_bits() -> None:
     assert _decode_legacy_ipv4_host("1.2.3.999") is None
+
+
+def test_decode_legacy_ipv4_host_rejects_bare_small_decimal() -> None:
+    assert _decode_legacy_ipv4_host("6379") is None
+
+
+def test_decode_legacy_ipv4_host_accepts_bare_large_decimal() -> None:
+    assert _decode_legacy_ipv4_host("2130706433") == 2130706433
+
+
+def test_decode_legacy_ipv4_host_accepts_bare_small_octal_zero() -> None:
+    assert _decode_legacy_ipv4_host("0000000000") == 0
+
+
+def test_decode_legacy_ipv4_host_accepts_bare_small_hex() -> None:
+    assert _decode_legacy_ipv4_host("0x1") == 1
+
+
+def test_is_bare_decimal_legacy_ipv4_part_accepts_literal_zero() -> None:
+    assert _is_bare_decimal_legacy_ipv4_part("0") is True
+
+
+def test_is_bare_decimal_legacy_ipv4_part_accepts_nonzero_leading_digit() -> None:
+    assert _is_bare_decimal_legacy_ipv4_part("6379") is True
+
+
+def test_is_bare_decimal_legacy_ipv4_part_rejects_octal_leading_zero() -> None:
+    assert _is_bare_decimal_legacy_ipv4_part("0177") is False
+
+
+def test_is_bare_decimal_legacy_ipv4_part_rejects_hex_prefix() -> None:
+    assert _is_bare_decimal_legacy_ipv4_part("0x7f") is False
 
 
 def test_legacy_ipv4_not_blocked_yields_no_threat_legacy_state() -> None:

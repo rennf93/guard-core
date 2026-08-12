@@ -157,6 +157,21 @@ def _decode_legacy_ipv4_part(part: str) -> int | None:
     return int(part, 10) if part.isdigit() else None
 
 
+_MIN_BARE_DECIMAL_LEGACY_IPV4 = 1 << 24
+
+
+def _is_bare_decimal_legacy_ipv4_part(part: str) -> bool:
+    return part == "0" or part[0] != "0"
+
+
+def _is_ambiguous_bare_decimal_port(parts: list[str], decoded: list[int]) -> bool:
+    if len(decoded) != 1:
+        return False
+    is_small_value = decoded[0] < _MIN_BARE_DECIMAL_LEGACY_IPV4
+    is_bare_decimal = _is_bare_decimal_legacy_ipv4_part(parts[0])
+    return is_small_value and is_bare_decimal
+
+
 def _decode_legacy_ipv4_host(host: str) -> int | None:
     parts = host.split(".")
     if not 1 <= len(parts) <= 4:
@@ -167,6 +182,8 @@ def _decode_legacy_ipv4_host(host: str) -> int | None:
         if value is None:
             return None
         decoded.append(value)
+    if _is_ambiguous_bare_decimal_port(parts, decoded):
+        return None
     for value in decoded[:-1]:
         if value > 255:
             return None
@@ -337,8 +354,8 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
-        (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|$)", _CTX_SQLI, "sqli"),
-        (r"'\s*[\);]*\s*(?:--|#\s*$)", _CTX_SQLI, "sqli"),
+        (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)", _CTX_SQLI, "sqli"),
+        (r"'\s*[\);]*\s*(?:--|#\s*\Z)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             _SINGLE_LINE_PREFIX_RE
@@ -389,7 +406,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:^|;)\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
+            r"(?:\A|;)\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -525,41 +542,49 @@ class SusPatternsManager:
             "sensitive_file",
         ),
         (
-            r"(?:^|/)(?:wp-(?:admin|login|content|includes|config)"
-            r"|administrator|xmlrpc)\.?(?:php)?(?:/|$|\?)",
+            _PATH_ONLY_PREFIX_RE + r"(?:wp-(?:admin|login|content|includes|config)"
+            r"|administrator|xmlrpc)\.?(?:php)?" + _PATH_ONLY_SUFFIX_RE,
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            r"(?:^|/)(?:phpinfo|info|test|php_info)\.php(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:phpinfo|info|test|php_info)\.php"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            r"(?:^|/)[^/]*\."
-            r"(?:bak|backup|old|orig|save|swp|swo|tmp|temp)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE
+            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:bak|backup|old|orig|save|swp|swo|tmp|temp)"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            r"(?:^|/)(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
-            r"|\.npmrc|\.dockerenv|web\.config)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE + r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
+            r"|\.npmrc|\.dockerenv|web\.config)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            r"(?:^|/)[^/]*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action"
-            r"|lua|inc|woa|nsf|esp)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE
+            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do"
+            r"|action|lua|inc|woa|nsf|esp)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
         (
-            r"^/(?:management|system|version|config_dump|credentials)(?:/|$|\?)",
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:management|system|version|config_dump|credentials)"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
         (
-            r"(?:^|/)(?:actuator|server-status|telescope)(?:/|$|\?)",
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:actuator|server-status|telescope)"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
@@ -571,19 +596,32 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            r"(?:^|/)(?:geoserver|confluence|nifi|ScadaBR|pandora_console"
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:geoserver|confluence|nifi|ScadaBR|pandora_console"
             r"|centreon|kylin|decisioncenter|evox|MagicInfo|metasys"
-            r"|officescan|helpdesk|ignite)(?:/|$|\?|\.|-)",
+            r"|officescan|helpdesk|ignite)"
+            + rf"(?:[.\-]{_PATH_ONLY_CHAR_RE}*)?"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
-        (r"(?:^|/)cgi-(?:bin|mod)/", _CTX_RECON, "recon"),
         (
-            r"(?:^|/)(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)(?:\?|$|/)",
+            _PATH_ONLY_PREFIX_RE + r"cgi-(?:bin|mod)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
-        (r"^/(?:language|languages)/", _CTX_RECON, "recon"),
+        (
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)"
+            + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + r"(?:language|languages)" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
         (
             _PATH_ONLY_PREFIX_RE + r"(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
             r"|build\.gradle|appsettings\.json|crossdomain\.xml)"
@@ -593,36 +631,61 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            r"(?:^|/)(?:sap|ise|nidp|cslu|rustfs|developmentserver"
+            _PATH_ONLY_PREFIX_RE + r"(?:sap|ise|nidp|cslu|rustfs|developmentserver"
             r"|fog/management|lms/db|json/login_session|sms_mp"
-            r"|plugin/webs_model|wsman|am_bin)(?:/|$|\?)",
+            r"|plugin/webs_model|wsman|am_bin)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
         (r"(?:nmaplowercheck|nice\s+ports|Trinity\.txt)", _CTX_RECON, "recon"),
-        (r"(?:^|/)\.(?:openclaw|clawdbot)(?:/|$)", _CTX_RECON, "recon"),
-        (r"^/(?:default|inicio|indice|localstart)(?:\.|/|$|\?)", _CTX_RECON, "recon"),
         (
-            r"(?:^|/)(?:\.streamlit|\.gpt-pilot|\.aider|\.cursor"
-            r"|\.windsurf|\.copilot|\.devcontainer)(?:/|$)",
+            _PATH_ONLY_PREFIX_RE + r"\.(?:openclaw|clawdbot)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
         (
-            r"(?:^|/)(?:docker-compose|Dockerfile|Makefile|Vagrantfile"
-            r"|Jenkinsfile|Procfile)(?:\.ya?ml)?(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:default|inicio|indice|localstart)"
+            + rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
         (
-            r"(?:^|/)[^/]*(?:secrets?|credentials?)"
-            r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE + r"(?:\.streamlit|\.gpt-pilot|\.aider|\.cursor"
+            r"|\.windsurf|\.copilot|\.devcontainer)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
-        (r"(?:^|/)autodiscover/", _CTX_RECON, "recon"),
-        (r"^/dns-query(?:\?|$)", _CTX_RECON, "recon"),
-        (r"(?:^|/)\.git/(?:refs|index|HEAD|objects|logs)(?:/|$)", _CTX_RECON, "recon"),
+        (
+            _PATH_ONLY_PREFIX_RE + r"(?:docker-compose|Dockerfile|Makefile|Vagrantfile"
+            r"|Jenkinsfile|Procfile)(?:\.ya?ml)?" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + rf"{_PATH_ONLY_CHAR_RE}*(?:secrets?|credentials?)"
+            r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + r"autodiscover" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + r"dns-query" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE
+            + r"\.git/(?:refs|index|HEAD|objects|logs)"
+            + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
         (
             r"(?:__proto__|constructor)\s*(?:\[\s*[\"']prototype[\"']\s*\]|\.\s*prototype)|[\"']__proto__[\"']\s*:",
             _CTX_PROTO_POLLUTION,
