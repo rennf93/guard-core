@@ -2,11 +2,11 @@
 
 A scoped inventory of the guard-core public API surface (the `SecurityConfig` model and the package exports) with a recommended action per item. The goal is an intuitive, non-bloated, composable surface. This audit is **non-breaking by design**: nothing here removes a field or changes runtime behavior except the two already-deprecated `ipinfo_*` fields, which now emit a runtime `DeprecationWarning` when set.
 
-Current totals (verified against source):
+Current totals (re-verified against source at the time of the response-body-inspection change; the per-field `Line` column below predates several field insertions, including this one, and is not re-verified line-by-line -- treat it as approximate, not authoritative):
 
-- `SecurityConfig`: **110 fields**, 15 validators, 1 `to_agent_config()` method (`guard_core/models.py`).
-- `guard_core` exports: **22** symbols (`guard_core/__init__.py`).
-- `fastapi-guard` re-exports: **24** symbols (the 22 above plus its own `SecurityMiddleware` and `__version__`).
+- `SecurityConfig`: **115 fields**, 18 validators, 1 `to_agent_config()` method (`guard_core/models.py`).
+- `guard_core` exports: **24** symbols (`guard_core/__init__.py`).
+- `fastapi-guard` re-exports: derived from the 24 above plus its own `SecurityMiddleware` and `__version__` (not independently re-verified here; see [Exports](#exports)).
 
 Recommendation legend: **Keep** (core/everyday or stable advanced) · **Deprecate** (scheduled for removal, kept working) · **Group?** (candidate for an optional nested sub-config, see [Grouping opportunities](#grouping-opportunities)) · **Remove** (none in this audit, removals are out of scope).
 
@@ -44,6 +44,9 @@ Ordered by domain, then by `models.py` line.
 | `auto_ban_duration` | `int` | `3600` | 208 | auto-ban | Keep |
 | `threat_ban_config` | `dict[str, ThreatBanConfig]` | `dict` | 212 | auto-ban | Keep |
 | `global_behavior_rules` | `list[BehaviorRuleConfig]` | `list` | 220 | behavioral | Keep |
+| `behavior_scan_response_body` | `bool` | `False` | 323 | behavioral | Keep |
+| `behavior_max_response_body_inspect_bytes` | `int` | `262144` | 342 | behavioral | Keep |
+| `body_read_timeout` | `float` | `3.0` | 363 | behavioral | Keep |
 | `block_cloud_providers` | `set[str] \| None` | `None` | 331 | cloud | Keep |
 | `cloud_ip_refresh_interval` | `int` | `3600` | 340 | cloud | Keep |
 | `cloud_ip_store` | `CloudIpStoreProtocol \| CloudIpStoreFactory \| None` | `None` | 373 | cloud | Keep |
@@ -138,9 +141,9 @@ No field is required (every field has a default or `default_factory`).
 - cors: 7 · dynamic-rules: 5
 - auto-ban: 3 · cloud: 3 · muted: 3 · proxy: 3 · rate-limit: 3 · allow/deny: 3
 - security-headers: 2 · ipinfo: 2 · logfire: 2 · init: 2 · failure-mode: 2
-- behavioral: 1 · enrichment: 1 · ip-banning: 1 · mode: 1
+- behavioral: 4 · enrichment: 1 · ip-banning: 1 · mode: 1
 
-**Total: 110 fields.**
+**Total: 113 fields listed in the table above.** The verified source count is **115**; two fields exist that predate this audit's table and are not yet itemized above (independent of the response-body-inspection change). Domain subtotals above are for the itemized 113.
 
 ## Deprecations (wired in this audit)
 
@@ -166,12 +169,12 @@ Recommendation: defer. If pursued, do it as an additive alias layer behind its o
 
 ## Exports
 
-`guard_core/__init__.py` `__all__` (22): `SecurityConfig`, `SecurityDecorator`, `RouteConfig`, `BehaviorTracker`, `BehaviorRule`, `ip_ban_manager`, `IPBanManager`, `cloud_handler`, `CloudManager`, `IPInfoManager`, `rate_limit_handler`, `RateLimitManager`, `redis_handler`, `RedisManager`, `security_headers_manager`, `SecurityHeadersManager`, `sus_patterns_handler`, `GeoIPHandler`, `RedisHandlerProtocol`, `GuardRequest`, `GuardResponse`, `GuardResponseFactory`.
+`guard_core/__init__.py` `__all__` (24): `SecurityConfig`, `SecurityDecorator`, `RouteConfig`, `BehaviorTracker`, `BehaviorRule`, `ip_ban_manager`, `IPBanManager`, `cloud_handler`, `CloudManager`, `IPInfoManager`, `rate_limit_handler`, `RateLimitManager`, `redis_handler`, `RedisManager`, `security_headers_manager`, `SecurityHeadersManager`, `sus_patterns_handler`, `BoundedBodyReader`, `BoundedResponseBodyReader`, `GeoIPHandler`, `RedisHandlerProtocol`, `GuardRequest`, `GuardResponse`, `GuardResponseFactory`.
 
-`fastapi-guard/guard/__init__.py` `__all__` (24): the 22 above + the fastapi-guard-only `SecurityMiddleware` and `__version__`.
+`fastapi-guard/guard/__init__.py` `__all__`: the 24 above + the fastapi-guard-only `SecurityMiddleware` and `__version__`, if the derivation this section describes still holds -- not independently re-verified against the fastapi-guard repository as part of this update.
 
-**Drift status: none today** (the two lists agree, 24 = 22 + 2). The risk is future drift, because fastapi-guard hand-duplicates the 22 names. Single source of truth: fastapi-guard derives its `__all__` from `guard_core.__all__` plus its two locals, and a test asserts every exported name is importable, so a new guard-core export can't silently go missing downstream. `IPInfoManager` stays exported even though `ipinfo_*` config is deprecated; custom `geo_ip_handler` implementations may still construct it directly.
+Single source of truth: fastapi-guard derives its `__all__` from `guard_core.__all__` plus its two locals, and a test asserts every exported name is importable, so a new guard-core export can't silently go missing downstream. `IPInfoManager` stays exported even though `ipinfo_*` config is deprecated; custom `geo_ip_handler` implementations may still construct it directly. `BoundedBodyReader` and `BoundedResponseBodyReader` are optional capability protocols (bounded body reading for requests and responses respectively), not part of the required `GuardRequest`/`GuardResponse` surface; see [Protocols](../api/protocols.md).
 
 ## Validators & methods (reference)
 
-`warn_unknown_fields` (819) · `validate_ip_lists` (839) · `validate_trusted_proxies` (857) · `validate_proxy_depth` (875) · `coerce_country_set` (881) · `validate_cloud_providers` (891) · `validate_optional_extras_installed` (897) · `validate_geo_ip_handler_exists` (921) · `validate_agent_config` (950) · `warn_deprecated_fields` (969, this audit) · `validate_muted_event_types` · `validate_muted_metric_types` · `validate_enabled_detection_categories` · `validate_threat_ban_config` · `validate_muted_check_logs` · `to_agent_config` (method). 15 validators total.
+`warn_unknown_fields` · `validate_ip_lists` · `validate_trusted_proxies` · `validate_proxy_depth` · `coerce_country_set` · `validate_cloud_providers` · `validate_optional_extras_installed` · `validate_geo_ip_handler_exists` · `warn_country_allowlist_shadows_blocklist` · `validate_agent_config` · `validate_global_return_pattern_body_scan` (this change; rejects a `global_behavior_rules` `return_pattern` rule with a non-`status:` pattern when `behavior_scan_response_body=False`) · `warn_deprecated_fields` · `validate_muted_event_types` · `validate_muted_metric_types` · `validate_enabled_detection_categories` · `validate_threat_ban_config` · `validate_muted_check_logs` · `validate_exclude_paths` · `to_agent_config` (method). 18 validators total (line numbers dropped from this list: several validators shifted position as fields were inserted above them, and were not individually re-verified).

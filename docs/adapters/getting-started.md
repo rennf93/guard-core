@@ -125,7 +125,7 @@ Everything inside `guard-core` works out of the box once you implement the four 
 - **Rate limiting** with per-endpoint granularity, Redis-backed distributed counters, and Lua-script atomicity
 - **IP ban management** with auto-ban thresholds, TTL-based expiry, and Redis persistence
 - **Cloud provider IP blocking** for AWS, GCP, and Azure with automatic range refresh
-- **Behavioral rule processing** for usage frequency tracking and return pattern detection
+- **Behavioral rule processing** for usage frequency tracking and `status:` return-pattern detection out of the box; `json:`/`regex:`/substring return-pattern rules additionally require `SecurityConfig.behavior_scan_response_body=True` and a `BoundedResponseBodyReader` implementation on your response wrapper -- see [GuardResponse](guard-response.md)
 - **Security headers management** (HSTS, CSP, X-Frame-Options, etc.)
 - **Event bus and metrics collection** for telemetry integration
 - **Decorator system** for per-route configuration (`@guard.rate_limit()`, `@guard.require_ip()`, `@guard.block_clouds()`, etc.)

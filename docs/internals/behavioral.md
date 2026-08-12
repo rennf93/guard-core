@@ -49,10 +49,12 @@ class BehaviorRule:
 
 | Format           | Example                       | Matches                                      |
 |------------------|-------------------------------|----------------------------------------------|
-| `status:{code}`  | `status:404`                  | Response status code                         |
-| `json:{path}`    | `json:error.code=="AUTH_FAIL"`| JSON field value via dot-path traversal       |
+| `status:{code}`  | `status:404`                  | Response status code. Always evaluable, regardless of `behavior_scan_response_body`. |
+| `json:{path}`    | `json:error.code=="AUTH_FAIL"`| JSON field value via dot-path traversal, read from the response body |
 | `regex:{pattern}`| `regex:error.*failed`         | Regex match against response body (case-insensitive) |
 | Plain string     | `unauthorized`                | Substring match in response body (case-insensitive) |
+
+The three body-reading formats require `SecurityConfig.behavior_scan_response_body=True`; a rule using one of them is rejected at construction (`ValueError`) if the flag is off, both for `global_behavior_rules` (a `SecurityConfig` model validator) and for `@security.return_monitor()` / `@security.behavior_analysis()` (checked at decoration time in `BehavioralMixin`). See [Response Body Access](#response-body-access) below.
 
 ___
 
@@ -73,7 +75,22 @@ Records a usage event and returns `True` if the count exceeds `rule.threshold` w
 
 **`track_return_pattern(endpoint_id, client_ip, response, rule, effective_threshold=None) -> bool`**
 
-Checks if the response matches `rule.pattern`, records the event if it does, and returns `True` if the count exceeds the threshold. `effective_threshold`, when given, is compared instead of `rule.threshold` -- this is how the caller applies `correlate_with_detection`'s halved threshold.
+Checks if the response matches `rule.pattern`, records the event if it does, and returns `True` if the count exceeds the threshold. `effective_threshold`, when given, is compared instead of `rule.threshold` -- this is how the caller applies `correlate_with_detection`'s halved threshold. A pattern that could not be evaluated (see below) is treated the same as "did not match": no occurrence is recorded and the threshold cannot be exceeded from it.
+
+### Response Body Access
+
+`_check_response_pattern(response, pattern) -> bool | None` is the private method `track_return_pattern` calls to evaluate a single pattern against a single response. Its `status:` branch is unconditional: it reads `response.status_code` and returns a plain `bool`, unaffected by anything below.
+
+For the three body-reading formats, it never reads `GuardResponse.body` and never probes for readability with `hasattr` -- both would make a body that *cannot* be read indistinguishable from a body that is *absent*, which is exactly the bug this design closes (a streaming response's `.body` property raising `AttributeError` used to be swallowed by `hasattr`, silently returning "no match" for every response with a real, unread payload). Instead it does, in order:
+
+1. If `SecurityConfig.behavior_scan_response_body` is `False`, no body is read; the pattern **cannot be evaluated**.
+2. Otherwise it checks, via `isinstance`, whether `response` implements the optional `BoundedResponseBodyReader` capability (`async def read_body_prefix(self, max_bytes: int) -> bytes`). An `isinstance` check against a `runtime_checkable` `Protocol` never invokes a method member, so this is safe even against a response whose (unrelated) `.body` property would raise. If the response does not implement it, the pattern **cannot be evaluated**.
+3. Otherwise it calls `read_body_prefix(behavior_max_response_body_inspect_bytes)` and defensively re-slices the result to the same cap. In the async `guard_core` tree, this call is bounded by `SecurityConfig.body_read_timeout` (default `3.0` seconds) so a stalled adapter cannot hang the request; the sync `guard_core.sync` tree calls it directly and is not bounded by this field at all -- a stalled sync adapter blocks the request for as long as it takes, and the WSGI server's own request timeout is the layer meant to bound that. If the call raises, times out (async only), or returns something other than `bytes`, the pattern **cannot be evaluated**. This read is not cached: each `return_pattern` rule checked against a response calls `read_body_prefix` independently, so a response with several such rules pays one bounded read per rule rather than sharing one across all of them -- a deliberate simplification over an earlier `weakref.WeakKeyDictionary`-keyed cache that broke for any response type using `__slots__` without `__weakref__` and could serve a stale prefix from an adapter-pooled response object.
+4. Only once bytes are actually in hand does it decode and match against `json:` / `regex:` / substring.
+
+"Cannot be evaluated" is a `None` return, distinct from `False` ("evaluated, did not match"). It is logged once per distinct pattern through the same `TTLCache(maxsize=1000, ttl=300)` throttle used elsewhere in this file (`_body_unavailable_log_cache`), so a hot endpoint with an unsupported response type logs at most once per five minutes per pattern rather than once per request. `track_return_pattern` folds `None` into "no occurrence recorded" (see above) -- it never reports a match it did not observe, and it never silently drops a rule without at least one log line explaining why.
+
+Because the response body is application-produced rather than attacker-supplied, `behavior_max_response_body_inspect_bytes` bounds what guard-core *retains*, not what the endpoint produces: an adapter's `read_body_prefix` implementation must buffer at most that many bytes and must still deliver the full, unbounded body to the client afterward, so a large download or an SSE stream stays streaming. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader) for the adapter-side contract.
 
 ### Action Execution
 
