@@ -22,9 +22,9 @@ def test_security_config_keeps_bare_provider() -> None:
     assert config.block_cloud_providers == {"GCP"}
 
 
-def test_security_config_drops_unknown_provider_selector() -> None:
-    config = SecurityConfig(block_cloud_providers={"Bogus:!x", "GCP"})
-    assert config.block_cloud_providers == {"GCP"}
+def test_security_config_rejects_unknown_provider_selector() -> None:
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        SecurityConfig(block_cloud_providers={"Bogus:!x", "GCP"})
 
 
 def test_parse_selectors_bare_provider() -> None:

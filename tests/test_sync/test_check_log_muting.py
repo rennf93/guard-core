@@ -28,7 +28,7 @@ def test_log_activity_emits_when_check_not_muted(
             logger,
             log_type="request",
             check_name="rate_limit",
-            muted_check_logs={"suspicious_activity"},
+            muted_check_logs=frozenset({"suspicious_activity"}),
         )
     assert any("1.2.3.4" in r.getMessage() for r in caplog.records)
 
@@ -43,7 +43,7 @@ def test_log_activity_skips_when_check_muted(
             logger,
             log_type="request",
             check_name="rate_limit",
-            muted_check_logs={"rate_limit"},
+            muted_check_logs=frozenset({"rate_limit"}),
         )
     assert not [r for r in caplog.records if r.name == logger.name]
 
@@ -57,7 +57,7 @@ def test_log_activity_no_check_name_never_mutes(
             _make_request(),
             logger,
             log_type="request",
-            muted_check_logs={"rate_limit"},
+            muted_check_logs=frozenset({"rate_limit"}),
         )
     assert any("1.2.3.4" in r.getMessage() for r in caplog.records)
 

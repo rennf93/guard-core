@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Generator
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,10 +28,11 @@ def reset_singleton() -> Generator[None, None, None]:
 
 @pytest.mark.asyncio
 async def test_apply_rules_rolls_back_on_partial_failure() -> None:
-    config = SecurityConfig()
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(), blocked_countries=frozenset({"XX"})
+    )
 
     with pytest.warns(UserWarning, match="blocked_countries is ignored"):
-        config.blocked_countries = frozenset({"XX"})
         config.whitelist_countries = frozenset({"YY"})
         manager = DynamicRuleManager(config)
 
@@ -51,7 +52,8 @@ async def test_apply_rules_rolls_back_on_partial_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_rules_persists_on_success() -> None:
-    config = SecurityConfig()
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        config = SecurityConfig(geo_ip_handler=MagicMock())
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"])
@@ -62,7 +64,8 @@ async def test_apply_rules_persists_on_success() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_rule_application_serializes() -> None:
-    config = SecurityConfig()
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        config = SecurityConfig(geo_ip_handler=MagicMock())
     manager = DynamicRuleManager(config)
     observed: list[list[str]] = []
 
@@ -93,8 +96,9 @@ async def test_rollback_restores_all_snapshot_fields() -> None:
         rate_limit=100,
         enable_ip_banning=True,
         emergency_mode=False,
+        geo_ip_handler=MagicMock(),
+        blocked_countries=frozenset({"OLD_COUNTRY"}),
     )
-    config.blocked_countries = frozenset({"OLD_COUNTRY"})
     manager = DynamicRuleManager(config)
 
     rules = _rules(
