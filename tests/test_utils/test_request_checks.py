@@ -186,6 +186,8 @@ async def test_whitelisted_country(
     mock_ipinfo.get_country.return_value = "US"
     mock_ipinfo.reader = True
 
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = mock_ipinfo
     security_config.whitelist_countries = frozenset({"US"})
 
     assert not await check_ip_country("8.8.8.8", security_config, mock_ipinfo)
@@ -265,7 +267,7 @@ async def test_cloud_provider_blocking(
     mocker.patch(
         "guard_core.handlers.cloud_handler.cloud_handler.is_cloud_ip", return_value=True
     )
-    security_config.block_cloud_providers = {"AWS"}
+    security_config.block_cloud_providers = frozenset({"AWS"})
 
     assert not await is_ip_allowed("8.8.8.8", security_config)
 
@@ -454,6 +456,8 @@ async def test_check_ip_country_regression_returns_false_when_country_unresolvab
     mock_ipinfo.is_initialized = True
     mock_ipinfo.get_country.return_value = None
 
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = mock_ipinfo
     security_config.blocked_countries = frozenset({"CN"})
 
     result = await check_ip_country("1.1.1.1", security_config, mock_ipinfo)

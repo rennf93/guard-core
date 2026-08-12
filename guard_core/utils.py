@@ -360,7 +360,7 @@ async def log_activity(
     trigger_info: str = "",
     level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
     check_name: str | None = None,
-    muted_check_logs: set[str] | None = None,
+    muted_check_logs: frozenset[str] | None = None,
 ) -> None:
     if level is None:
         return
@@ -1156,15 +1156,34 @@ class _BoundedBodyReader(Protocol):
 
 
 _DEFAULT_BODY_READ_TIMEOUT = 3.0
+_DEFAULT_BODY_READ_MAX_CONCURRENT = 64
+_MAX_STRADDLE_OVERLAP_BYTES = 256
 
 
 async def _safe_read(
-    reader: Callable[[], Awaitable[bytes]], timeout: float
+    reader: Callable[[], Awaitable[bytes]],
+    timeout: float,
+    max_concurrent: int = _DEFAULT_BODY_READ_MAX_CONCURRENT,
 ) -> bytes | None:
     try:
         return await asyncio.wait_for(reader(), timeout=timeout)
     except Exception:
         return None
+
+
+async def _straddle_overlap_bytes() -> int:
+    from guard_core.handlers.suspatterns_handler import sus_patterns_handler
+
+    try:
+        patterns = await sus_patterns_handler.get_all_compiled_patterns()
+    except Exception:
+        return 0
+
+    if not patterns:
+        return 0
+
+    longest = max(len(pattern.pattern) for pattern, _contexts, _category in patterns)
+    return min(longest, _MAX_STRADDLE_OVERLAP_BYTES)
 
 
 _CAPPED_BODY_PREFIX_STATE_ATTR = "_guard_capped_body_prefix_cache"
@@ -1176,13 +1195,14 @@ async def _read_and_cache_body(
     timeout: float,
     reader: Callable[[], Awaitable[bytes]],
     accessor: str,
+    max_concurrent: int,
 ) -> bytes | None:
     cached = getattr(request.state, _CAPPED_BODY_PREFIX_STATE_ATTR, None)
     if cached is not None and cached[0] is request and cached[1] >= max_bytes:
         cached_bytes: bytes = cached[2]
         return cached_bytes[:max_bytes]
 
-    prefix: object = await _safe_read(reader, timeout)
+    prefix: object = await _safe_read(reader, timeout, max_concurrent)
     if prefix is None:
         return None
 
@@ -1202,17 +1222,19 @@ async def _read_and_cache_body(
 
 
 async def _read_capped_body_prefix(
-    request: GuardRequest, max_bytes: int, timeout: float
+    request: GuardRequest, max_bytes: int, timeout: float, max_concurrent: int
 ) -> bytes | None:
     if not isinstance(request, _BoundedBodyReader):
         return None
 
+    fetch_bytes = max_bytes + await _straddle_overlap_bytes()
     return await _read_and_cache_body(
         request,
-        max_bytes,
+        fetch_bytes,
         timeout,
-        lambda: request.read_body_prefix(max_bytes),
+        lambda: request.read_body_prefix(fetch_bytes),
         "read_body_prefix",
+        max_concurrent,
     )
 
 
@@ -1220,10 +1242,13 @@ async def _read_capped_body(
     request: GuardRequest, config: "SecurityConfig | None"
 ) -> bytes | None:
     if config is None:
-        return await _safe_read(request.body, _DEFAULT_BODY_READ_TIMEOUT)
+        return await _safe_read(
+            request.body, _DEFAULT_BODY_READ_TIMEOUT, _DEFAULT_BODY_READ_MAX_CONCURRENT
+        )
 
     max_bytes = config.detection_max_body_inspect_bytes
     timeout = config.body_read_timeout
+    max_concurrent = config.sync_body_read_max_concurrent
     content_length = request.headers.get("content-length")
 
     if content_length is not None:
@@ -1231,10 +1256,10 @@ async def _read_capped_body(
         if parsed is None or parsed > max_bytes:
             return None
         return await _read_and_cache_body(
-            request, max_bytes, timeout, request.body, "body"
+            request, max_bytes, timeout, request.body, "body", max_concurrent
         )
 
-    return await _read_capped_body_prefix(request, max_bytes, timeout)
+    return await _read_capped_body_prefix(request, max_bytes, timeout, max_concurrent)
 
 
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
