@@ -71,14 +71,13 @@ def test_custom_geo_ip_handler_without_maxminddb_validates_cleanly(
     assert config.geo_ip_handler is handler
 
 
-def test_custom_geo_ip_handler_without_country_rules_and_without_maxminddb_warns_only(
+def test_custom_geo_ip_handler_without_country_rules_or_maxminddb_validates_cleanly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("importlib.util.find_spec", _blocking_find_spec("maxminddb"))
     handler = MagicMock(spec=GeoIPHandler)
 
-    with pytest.warns(UserWarning, match="geo_ip_handler is set but"):
-        config = SecurityConfig(geo_ip_handler=handler)
+    config = SecurityConfig(geo_ip_handler=handler)
 
     assert config.geo_ip_handler is handler
 

@@ -121,7 +121,6 @@ def _resolve_geo_ip_handler(
     ipinfo_token: str | None,
     ipinfo_db_path: Path | None,
     geo_ip_db_max_age: int,
-    stacklevel: int,
 ) -> Any:
     has_country_rules = bool(blocked_countries or whitelist_countries)
 
@@ -139,20 +138,11 @@ def _resolve_geo_ip_handler(
             max_age=geo_ip_db_max_age,
         )
 
-    if geo_ip_handler is not None and not has_country_rules:
-        warnings.warn(
-            "geo_ip_handler is set but neither blocked_countries nor "
-            "whitelist_countries is configured, so it will never be "
-            "consulted or initialized; set one of them or drop geo_ip_handler.",
-            UserWarning,
-            stacklevel=stacklevel,
-        )
-
     return geo_ip_handler
 
 
 def _apply_geo_ip_handler_assignment(
-    config: "SecurityConfig", name: str, value: Any, *, stacklevel: int
+    config: "SecurityConfig", name: str, value: Any
 ) -> Any:
     blocked, whitelist, handler, token = _geo_state_candidates(config, name, value)
     resolved = _resolve_geo_ip_handler(
@@ -162,7 +152,6 @@ def _apply_geo_ip_handler_assignment(
         ipinfo_token=token,
         ipinfo_db_path=config.ipinfo_db_path,
         geo_ip_db_max_age=config.geo_ip_db_max_age,
-        stacklevel=stacklevel,
     )
     if name == "geo_ip_handler":
         return resolved
@@ -171,7 +160,7 @@ def _apply_geo_ip_handler_assignment(
     return value
 
 
-def _apply_geo_ip_handler_copy(config: "SecurityConfig", *, stacklevel: int) -> None:
+def _apply_geo_ip_handler_copy(config: "SecurityConfig") -> None:
     resolved = _resolve_geo_ip_handler(
         blocked_countries=config.blocked_countries,
         whitelist_countries=config.whitelist_countries,
@@ -179,7 +168,6 @@ def _apply_geo_ip_handler_copy(config: "SecurityConfig", *, stacklevel: int) -> 
         ipinfo_token=config.ipinfo_token,
         ipinfo_db_path=config.ipinfo_db_path,
         geo_ip_db_max_age=config.geo_ip_db_max_age,
-        stacklevel=stacklevel,
     )
     if resolved is not config.geo_ip_handler:
         BaseModel.__setattr__(config, "geo_ip_handler", resolved)
@@ -384,7 +372,7 @@ def _revalidate_copied_config(
     if _GLOBAL_BEHAVIOR_RULE_FIELDS & update.keys():
         _revalidate_global_behavior_rules(copied)
     if _GEO_STATE_FIELDS & update.keys():
-        _apply_geo_ip_handler_copy(copied, stacklevel=5)
+        _apply_geo_ip_handler_copy(copied)
     for field_name in _FIELD_REVALIDATORS.keys() & update.keys():
         BaseModel.__setattr__(
             copied,

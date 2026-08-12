@@ -788,8 +788,7 @@ async def test_apply_country_rules_blocked_only_applies_with_geo_handler_configu
 ) -> None:
     DynamicRuleManager._instance = None
 
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        config.geo_ip_handler = MagicMock()
+    config.geo_ip_handler = MagicMock()
     manager = DynamicRuleManager(config)
 
     blocked = ["xx", "yy"]
@@ -809,8 +808,7 @@ async def test_apply_country_rules_allowed_only_applies_with_geo_handler_configu
 ) -> None:
     DynamicRuleManager._instance = None
 
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        config.geo_ip_handler = MagicMock()
+    config.geo_ip_handler = MagicMock()
     manager = DynamicRuleManager(config)
 
     blocked: list[str] = []

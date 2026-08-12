@@ -77,7 +77,7 @@ class SecurityConfig(BaseModel):
         if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
             _validate_global_behavior_rule_assignment(self, name, value)
         if name in _GEO_STATE_FIELDS:
-            value = _apply_geo_ip_handler_assignment(self, name, value, stacklevel=4)
+            value = _apply_geo_ip_handler_assignment(self, name, value)
         if name in _FIELD_REVALIDATORS:
             value = _FIELD_REVALIDATORS[name](value)
 
@@ -1036,7 +1036,6 @@ class SecurityConfig(BaseModel):
             ipinfo_token=self.ipinfo_token,
             ipinfo_db_path=self.ipinfo_db_path,
             geo_ip_db_max_age=self.geo_ip_db_max_age,
-            stacklevel=2,
         )
         if resolved is not self.geo_ip_handler:
             self.geo_ip_handler = resolved

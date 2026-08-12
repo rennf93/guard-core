@@ -184,8 +184,7 @@ def test_whitelisted_country(
     mock_ipinfo.get_country.return_value = "US"
     mock_ipinfo.reader = True
 
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = mock_ipinfo
+    security_config.geo_ip_handler = mock_ipinfo
     security_config.whitelist_countries = frozenset({"US"})
 
     assert not check_ip_country("8.8.8.8", security_config, mock_ipinfo)
@@ -455,8 +454,7 @@ def test_check_ip_country_regression_returns_false_when_country_unresolvable(
     mock_ipinfo.is_initialized = True
     mock_ipinfo.get_country.return_value = None
 
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = mock_ipinfo
+    security_config.geo_ip_handler = mock_ipinfo
     security_config.blocked_countries = frozenset({"CN"})
 
     result = check_ip_country("1.1.1.1", security_config, mock_ipinfo)

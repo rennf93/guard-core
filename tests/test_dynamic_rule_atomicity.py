@@ -52,8 +52,7 @@ async def test_apply_rules_rolls_back_on_partial_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_rules_persists_on_success() -> None:
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock())
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"])
@@ -64,8 +63,7 @@ async def test_apply_rules_persists_on_success() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_rule_application_serializes() -> None:
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock())
     manager = DynamicRuleManager(config)
     observed: list[list[str]] = []
 

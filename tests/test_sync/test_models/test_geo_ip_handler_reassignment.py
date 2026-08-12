@@ -32,8 +32,7 @@ def test_blocked_countries_assignment_with_geo_handler_already_set_succeeds(
     tmp_path: Path,
 ) -> None:
     handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn20.mmdb")
-    with pytest.warns(UserWarning, match="never be consulted"):
-        config = SecurityConfig(geo_ip_handler=handler)
+    config = SecurityConfig(geo_ip_handler=handler)
 
     config.blocked_countries = cast(frozenset[str], ["US"])
 
