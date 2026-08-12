@@ -1,4 +1,5 @@
 import concurrent.futures
+import ipaddress
 import logging
 import re
 import time
@@ -112,6 +113,81 @@ _SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
 
+_PATH_ONLY_CHAR_RE = r"[\w.\-~%]"
+_PATH_ONLY_SEP_RE = r"[/\\]"
+_PATH_ONLY_PREFIX_RE = (
+    rf"\A{_PATH_ONLY_SEP_RE}?(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+)
+_PATH_ONLY_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}*)*(?:\?\S*)?\s*\Z"
+
+_SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
+_SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
+
+_LEGACY_IPV4_PART_RE = r"(?:0[xX][0-9a-fA-F]+|0[0-7]+|[1-9]\d*|0)"
+_LEGACY_IPV4_HOST_RE = (
+    r"://(?:[^/@\s]*@)?("
+    + _LEGACY_IPV4_PART_RE
+    + r"(?:\."
+    + _LEGACY_IPV4_PART_RE
+    + r"){0,3})(?=[:/\s]|$)"
+)
+
+_LEGACY_IPV4_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    ipaddress.IPv4Network(cidr)
+    for cidr in (
+        "0.0.0.0/8",
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "100.100.100.200/32",
+    )
+)
+
+
+def _decode_legacy_ipv4_part(part: str) -> int | None:
+    if part.startswith(("0x", "0X")):
+        digits = part[2:]
+        return int(digits, 16) if digits else None
+    if part.startswith("0") and len(part) > 1:
+        digits = part[1:]
+        return int(digits, 8) if all(ch in "01234567" for ch in digits) else None
+    return int(part, 10) if part.isdigit() else None
+
+
+def _decode_legacy_ipv4_host(host: str) -> int | None:
+    parts = host.split(".")
+    if not 1 <= len(parts) <= 4:
+        return None
+    decoded: list[int] = []
+    for part in parts:
+        value = _decode_legacy_ipv4_part(part)
+        if value is None:
+            return None
+        decoded.append(value)
+    for value in decoded[:-1]:
+        if value > 255:
+            return None
+    remaining_bits = 8 * (5 - len(decoded))
+    if decoded[-1] >= (1 << remaining_bits):
+        return None
+    result = 0
+    for value in decoded[:-1]:
+        result = (result << 8) | value
+    return (result << remaining_bits) | decoded[-1]
+
+
+def _is_blocked_legacy_ipv4(ip_int: int) -> bool:
+    address = ipaddress.IPv4Address(ip_int)
+    return any(address in network for network in _LEGACY_IPV4_BLOCKED_NETWORKS)
+
+
+def _legacy_ipv4_match_is_blocked(match: re.Match) -> bool:
+    ip_int = _decode_legacy_ipv4_host(match.group(1))
+    return ip_int is not None and _is_blocked_legacy_ipv4(ip_int)
+
+
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
     category: 1.0 for category in ALL_DETECTION_CATEGORIES
 }
@@ -131,6 +207,24 @@ def _resolve_pattern_weight(pattern: str, category: str) -> float:
 
 def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
     return float(sum(t.get("weight", 1.0) for t in regex_threats))
+
+
+def _build_regex_threat(
+    pattern: re.Pattern, match: re.Match, category: str, pattern_start: float
+) -> dict[str, Any] | None:
+    if pattern.pattern == _LEGACY_IPV4_HOST_RE and not _legacy_ipv4_match_is_blocked(
+        match
+    ):
+        return None
+    return {
+        "type": "regex",
+        "pattern": pattern.pattern,
+        "match": match.group(),
+        "position": match.start(),
+        "execution_time": time.monotonic() - pattern_start,
+        "category": category,
+        "weight": _resolve_pattern_weight(pattern.pattern, category),
+    }
 
 
 class _DetectionState(NamedTuple):
@@ -246,18 +340,29 @@ class SusPatternsManager:
         (r"'\s*[\);]*\s*(?:--|#\s*$)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
-            r"(?:/etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my.cnf|ssh/"
-            r"ssh_config)$)",
+            _SINGLE_LINE_PREFIX_RE
+            + r"etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my\.cnf|"
+            r"ssh/ssh_config)" + _SINGLE_LINE_SUFFIX_RE,
             _CTX_DIR_TRAVERSAL,
             "dir_traversal",
         ),
         (
-            r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)\s*$",
+            _SINGLE_LINE_PREFIX_RE
+            + r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)"
+            + _SINGLE_LINE_SUFFIX_RE,
             _CTX_DIR_TRAVERSAL,
             "dir_traversal",
         ),
-        (r"(?:\/proc\/self\/environ$)", _CTX_DIR_TRAVERSAL, "dir_traversal"),
-        (r"(?:\/var\/log\/[^\/]+$)", _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (
+            _SINGLE_LINE_PREFIX_RE + r"proc/self/environ" + _SINGLE_LINE_SUFFIX_RE,
+            _CTX_DIR_TRAVERSAL,
+            "dir_traversal",
+        ),
+        (
+            _SINGLE_LINE_PREFIX_RE + r"var/log/[^\s/]+" + _SINGLE_LINE_SUFFIX_RE,
+            _CTX_DIR_TRAVERSAL,
+            "dir_traversal",
+        ),
         (
             r";\s*(?:ls|cat|rm|chmod|chown|wget|curl|nc|netcat|ping|telnet)\s+"
             r"-[a-zA-Z]+\s+",
@@ -319,14 +424,17 @@ class SusPatternsManager:
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
-        (r"(?:<\?xml.*?\?>)", _CTX_XML, "xml"),
+        (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
         (
             r"(?:^|\s|/)(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::(?:\d*)\]|"
             r"169\.254(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|10(?:\.\d{1,3}){3}|"
-            r"172\.(?:1[6-9]|2[0-9]|3[01])(?:\.\d{1,3}){2})(?::\d+)?(?:\s|$|/)",
+            r"172\.(?:1[6-9]|2[0-9]|3[01])(?:\.\d{1,3}){2}|"
+            r"metadata\.google\.internal|metadata\.goog|100\.100\.100\.200)"
+            r"(?::\d+)?(?:\s|$|/)",
             _CTX_SSRF,
             "ssrf",
         ),
+        (_LEGACY_IPV4_HOST_RE, _CTX_SSRF, "ssrf"),
         (r"(?:file|dict|gopher|jar|tftp)://[^\s]+", _CTX_SSRF, "ssrf"),
         (
             r"\{\s*\$(?:where|gt|lt|ne|eq|regex|in|nin|all|size|exists|type|mod|"
@@ -384,21 +492,37 @@ class SusPatternsManager:
             _CTX_HTTP_SPLIT,
             "http_split",
         ),
-        (r"(?:^|/)\.env(?:\.\w+)?(?:\?|$|/)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
-            r"(?:^|/)[\w-]*config[\w-]*\."
-            r"(?:env|yml|yaml|json|toml|ini|xml|conf)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE + r"\.env(?:\.\w+)?" + _PATH_ONLY_SUFFIX_RE,
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
-        (r"(?:^|/)[^/]*\.map(?:\?|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
         (
-            r"(?:^|/)[^/]*\."
-            r"(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)(?:\?|$)",
+            _PATH_ONLY_PREFIX_RE
+            + r"[\w-]*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
-        (r"(?:^|/)\.(?:git|svn|hg|bzr)(?:/|$)", _CTX_SENSITIVE_FILE, "sensitive_file"),
+        (
+            _PATH_ONLY_PREFIX_RE
+            + rf"{_PATH_ONLY_CHAR_RE}*\.map"
+            + _PATH_ONLY_SUFFIX_RE,
+            _CTX_SENSITIVE_FILE,
+            "sensitive_file",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE
+            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+            + _PATH_ONLY_SUFFIX_RE,
+            _CTX_SENSITIVE_FILE,
+            "sensitive_file",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + r"\.(?:git|svn|hg|bzr)" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_SENSITIVE_FILE,
+            "sensitive_file",
+        ),
         (
             r"(?:^|/)(?:wp-(?:admin|login|content|includes|config)"
             r"|administrator|xmlrpc)\.?(?:php)?(?:/|$|\?)",
@@ -460,8 +584,10 @@ class SusPatternsManager:
         ),
         (r"^/(?:language|languages)/", _CTX_RECON, "recon"),
         (
-            r"(?:^|/)(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
-            r"|build\.gradle|appsettings\.json|crossdomain\.xml)(?:\?|$|\.)",
+            _PATH_ONLY_PREFIX_RE + r"(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
+            r"|build\.gradle|appsettings\.json|crossdomain\.xml)"
+            + rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?"
+            + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
@@ -699,29 +825,17 @@ class SusPatternsManager:
                 match = pattern.search(content)
 
             if match:
-                return {
-                    "type": "regex",
-                    "pattern": pattern.pattern,
-                    "match": match.group(),
-                    "position": match.start(),
-                    "execution_time": time.monotonic() - pattern_start,
-                    "category": category,
-                    "weight": _resolve_pattern_weight(pattern.pattern, category),
-                }, timeout_occurred
+                threat = _build_regex_threat(pattern, match, category, pattern_start)
+                if threat:
+                    return threat, timeout_occurred
         else:
             match, timeout_occurred = self._check_pattern_with_timeout(
                 pattern, content, ip_address, pattern_start
             )
             if match:
-                return {
-                    "type": "regex",
-                    "pattern": pattern.pattern,
-                    "match": match.group(),
-                    "position": match.start(),
-                    "execution_time": time.monotonic() - pattern_start,
-                    "category": category,
-                    "weight": _resolve_pattern_weight(pattern.pattern, category),
-                }, timeout_occurred
+                threat = _build_regex_threat(pattern, match, category, pattern_start)
+                if threat:
+                    return threat, timeout_occurred
 
         return None, timeout_occurred
 
