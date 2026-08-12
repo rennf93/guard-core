@@ -92,7 +92,9 @@ def test_pipeline_fails_open_on_redis_error_without_logging_when_muted() -> None
         SecurityConfig(fail_secure=True, redis_fail_open=True)
     )
 
-    pipeline = SecurityCheckPipeline([failing_check], muted_check_logs={"ip_security"})
+    pipeline = SecurityCheckPipeline(
+        [failing_check], muted_check_logs=frozenset({"ip_security"})
+    )
     logger = MagicMock()
     pipeline.logger = logger
 

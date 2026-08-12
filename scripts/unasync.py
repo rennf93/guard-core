@@ -10,7 +10,12 @@ SYNC_DIR = ROOT / "guard_core" / "sync"
 TEST_DIR = ROOT / "tests"
 TEST_SYNC_DIR = ROOT / "tests" / "test_sync"
 
-SKIP_SRC = {"models.py", "exceptions.py", "_pydantic_plugin_mute.py"}
+SKIP_SRC = {
+    "models.py",
+    "exceptions.py",
+    "_pydantic_plugin_mute.py",
+    "_security_config_validators.py",
+}
 
 SKIP_DIRS = {"__pycache__", "sync"}
 
@@ -34,11 +39,14 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_detection" / "test_builtin_pattern_safety.py",
     TEST_SYNC_DIR / "test_core" / "test_suspicious_counts_concurrency.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_azure_redirect_real_sockets.py",
+    TEST_SYNC_DIR / "test_utils" / "test_bounded_thread_body_read.py",
 }
 
 _ASYNC_SAFE_READ_SRC = (
     "async def _safe_read(\n"
-    "    reader: Callable[[], Awaitable[bytes]], timeout: float\n"
+    "    reader: Callable[[], Awaitable[bytes]],\n"
+    "    timeout: float,\n"
+    "    max_concurrent: int = _DEFAULT_BODY_READ_MAX_CONCURRENT,\n"
     ") -> bytes | None:\n"
     "    try:\n"
     "        return await asyncio.wait_for(reader(), timeout=timeout)\n"
@@ -47,11 +55,54 @@ _ASYNC_SAFE_READ_SRC = (
 )
 
 _SYNC_SAFE_READ_REPLACEMENT = (
-    "def _safe_read(reader: Callable[[], bytes], timeout: float) -> bytes | None:\n"
-    "    try:\n"
-    "        return reader()\n"
-    "    except Exception:\n"
+    "_sync_body_read_semaphores: dict[int, threading.Semaphore] = {}\n"
+    "_sync_body_read_semaphores_lock = threading.Lock()\n"
+    "\n"
+    "\n"
+    "def _sync_body_read_semaphore(max_concurrent: int) -> threading.Semaphore:\n"
+    "    with _sync_body_read_semaphores_lock:\n"
+    "        semaphore = _sync_body_read_semaphores.get(max_concurrent)\n"
+    "        if semaphore is None:\n"
+    "            semaphore = threading.Semaphore(max_concurrent)\n"
+    "            _sync_body_read_semaphores[max_concurrent] = semaphore\n"
+    "        return semaphore\n"
+    "\n"
+    "\n"
+    "def _safe_read(\n"
+    "    reader: Callable[[], bytes],\n"
+    "    timeout: float,\n"
+    "    max_concurrent: int = _DEFAULT_BODY_READ_MAX_CONCURRENT,\n"
+    ") -> bytes | None:\n"
+    "    deadline = time.monotonic() + timeout\n"
+    "    semaphore = _sync_body_read_semaphore(max_concurrent)\n"
+    "\n"
+    "    if not semaphore.acquire(timeout=max(deadline - time.monotonic(), 0.0)):\n"
+    "        logger.warning(\n"
+    '            "Sync body read concurrency limit reached (max_concurrent=%d); "\n'
+    '            "treating the body as unavailable for detection",\n'
+    "            max_concurrent,\n"
+    "        )\n"
     "        return None\n"
+    "\n"
+    "    result: bytes | None = None\n"
+    "    failed = False\n"
+    "\n"
+    "    def _run() -> None:\n"
+    "        nonlocal result, failed\n"
+    "        try:\n"
+    "            result = reader()\n"
+    "        except Exception:\n"
+    "            failed = True\n"
+    "        finally:\n"
+    "            semaphore.release()\n"
+    "\n"
+    '    thread = threading.Thread(target=_run, name="guard-body-read", daemon=True)\n'
+    "    thread.start()\n"
+    "    thread.join(timeout=max(deadline - time.monotonic(), 0.0))\n"
+    "\n"
+    "    if thread.is_alive() or failed:\n"
+    "        return None\n"
+    "    return result\n"
 )
 
 SUBS: list[tuple[str, str]] = [

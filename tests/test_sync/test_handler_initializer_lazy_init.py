@@ -88,6 +88,7 @@ def test_lazy_init_returns_quickly_with_blocking_background_init() -> None:
 
         assert elapsed < 0.5
         assert initializer._lazy_init_task is not None
+        initializer._lazy_init_task.join(timeout=1.0)
 
 
 def test_lazy_init_cloud_failure_still_runs_geo_init() -> None:

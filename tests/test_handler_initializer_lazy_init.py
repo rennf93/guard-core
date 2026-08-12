@@ -114,6 +114,7 @@ async def test_lazy_init_returns_quickly_with_blocking_background_init() -> None
 
         assert elapsed < 0.5
         assert initializer._lazy_init_task is not None
+        await asyncio.wait_for(initializer._lazy_init_task, timeout=1.0)
 
 
 async def test_lazy_init_cloud_failure_still_runs_geo_init() -> None:

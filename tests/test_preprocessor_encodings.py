@@ -200,3 +200,96 @@ async def test_truncate_preserves_tail_content_after_attack_region(
     assert "<script" in result.lower()
     assert len(result) <= 300
     assert len(result) > len(attack)
+
+
+@pytest.mark.asyncio
+async def test_sql_line_comment_no_longer_discards_xss_payload_after_marker(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("x-- <script>alert(1)</script>")
+    assert result == "x <script>alert(1)</script>"
+
+
+@pytest.mark.asyncio
+async def test_sql_line_comment_no_longer_discards_command_substitution_after_marker(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("a--$(whoami)")
+    assert result == "a $(whoami)"
+
+
+@pytest.mark.asyncio
+async def test_sql_line_comment_no_longer_discards_union_select_after_marker(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("q=1-- OR 1=1 UNION SELECT password")
+    assert result == "q=1 OR 1=1 UNION SELECT password"
+
+
+@pytest.mark.asyncio
+async def test_sql_line_comment_at_end_of_input_still_stripped(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("' OR 1=1 --")
+    assert result == "' OR 1=1"
+
+
+@pytest.mark.asyncio
+async def test_double_dash_cli_flag_no_longer_truncates_rest_of_command(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("`docker run --rm -it alpine sh`")
+    assert result == "`docker run rm -it alpine sh`"
+
+
+def test_strip_sql_comments_standalone_block_comment_preserves_interior(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp._strip_sql_comments("x/* DROP TABLE users */")
+    assert "DROP TABLE users" in result
+
+
+def test_strip_sql_comments_leading_block_comment_preserves_trailing_payload(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp._strip_sql_comments("/*<script>alert(1)</script>*/")
+    assert result.strip() == "<script>alert(1)</script>"
+
+
+def test_strip_sql_comments_empty_block_comment_does_not_leak_none_literal(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp._strip_sql_comments("/**/ tail")
+    assert "None" not in result
+    assert "tail" in result
+
+
+@pytest.mark.asyncio
+async def test_cli_double_dash_flags_are_not_deleted(pp: ContentPreprocessor) -> None:
+    result = await pp.preprocess("docker run --rm -it alpine sh")
+    for word in ("docker", "run", "alpine", "sh"):
+        assert word in result
+
+
+@pytest.mark.asyncio
+async def test_double_slash_in_url_is_left_untouched(pp: ContentPreprocessor) -> None:
+    result = await pp.preprocess("see http://example.com//path for the doc")
+    assert result == "see http://example.com//path for the doc"
+
+
+@pytest.mark.asyncio
+async def test_hash_fragment_words_survive_preprocessing(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("visit http://example.com/page#section for details")
+    assert "section" in result
+    assert "details" in result
+
+
+@pytest.mark.asyncio
+async def test_block_comment_in_prose_preserves_interior_words(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("the file has a /* TODO */ marker inside it")
+    for word in ("TODO", "marker", "inside"):
+        assert word in result
