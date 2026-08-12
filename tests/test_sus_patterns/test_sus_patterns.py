@@ -220,7 +220,7 @@ async def test_get_all_compiled_patterns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_init_with_config() -> None:
+async def test_init_with_full_enhanced_config() -> None:
     config = MagicMock()
     config.detection_compiler_timeout = 3.0
     config.detection_max_tracked_patterns = 500
@@ -232,6 +232,7 @@ async def test_init_with_config() -> None:
     config.detection_semantic_threshold = 0.8
     config.detection_anomaly_emission_cooldown = 45.0
     config.detection_min_samples_for_anomaly = 25
+    config.detection_threat_score_threshold = 1.5
 
     SusPatternsManager._instance = None
     manager = SusPatternsManager(config)
@@ -248,6 +249,38 @@ async def test_init_with_config() -> None:
     assert manager._performance_monitor.anomaly_emission_cooldown == 45.0
     assert manager._performance_monitor.min_samples_for_anomaly == 25
     assert manager._semantic_threshold == 0.8
+    assert manager._threat_score_threshold == 1.5
+
+    SusPatternsManager._instance = None
+
+
+class _PartialDetectionConfig:
+    detection_compiler_timeout = 3.0
+    detection_max_tracked_patterns = 500
+    detection_max_content_length = 20000
+    detection_preserve_attack_patterns = True
+    detection_anomaly_threshold = 2.5
+    detection_slow_pattern_threshold = 0.2
+    detection_monitor_history_size = 100
+    detection_semantic_threshold = 0.8
+    detection_threat_score_threshold = 1.0
+
+
+@pytest.mark.asyncio
+async def test_init_with_config_missing_new_fields_falls_back_to_legacy() -> None:
+    config = _PartialDetectionConfig()
+    assert not hasattr(config, "detection_anomaly_emission_cooldown")
+    assert not hasattr(config, "detection_min_samples_for_anomaly")
+
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager(config)
+
+    assert manager._compiler is None
+    assert manager._preprocessor is None
+    assert manager._semantic_analyzer is None
+    assert manager._performance_monitor is None
+    assert manager._semantic_threshold == 0.7
+    assert manager._threat_score_threshold == 1.0
 
     SusPatternsManager._instance = None
 

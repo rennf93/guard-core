@@ -90,13 +90,6 @@ def test_to_agent_config_propagates_encryption_key() -> None:
 
 
 def test_to_agent_config_propagates_guard_version() -> None:
-    """guard_version was added to AgentConfig in guard-agent 2.4.0.
-
-    We assert at the call-site contract level — to_agent_config() must pass
-    guard_version as a kwarg to AgentConfig. Whether the installed AgentConfig
-    actually stores the field is guard-agent's concern (older versions silently
-    drop unknown kwargs via Pydantic's default extra='ignore').
-    """
     import guard_agent
 
     config = SecurityConfig(
@@ -111,6 +104,45 @@ def test_to_agent_config_propagates_guard_version() -> None:
 
     spy.assert_called_once()
     assert spy.call_args.kwargs.get("guard_version") == "6.7.8"
+
+
+def test_to_agent_config_propagates_guard_core_version_automatically() -> None:
+    import guard_agent
+
+    import guard_core
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-api-key",
+    )
+
+    spy = MagicMock(name="AgentConfig")
+    with patch.object(guard_agent, "AgentConfig", spy):
+        config.to_agent_config()
+
+    spy.assert_called_once()
+    assert spy.call_args.kwargs.get("guard_core_version") == guard_core.__version__
+
+
+def test_to_agent_config_sends_distinct_wrapper_and_core_versions() -> None:
+    import guard_agent
+
+    import guard_core
+
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-api-key",
+        agent_guard_version="fastapi-guard-7.1.0",
+    )
+
+    spy = MagicMock(name="AgentConfig")
+    with patch.object(guard_agent, "AgentConfig", spy):
+        config.to_agent_config()
+
+    kwargs = spy.call_args.kwargs
+    assert kwargs.get("guard_version") == "fastapi-guard-7.1.0"
+    assert kwargs.get("guard_core_version") == guard_core.__version__
+    assert kwargs["guard_version"] != kwargs["guard_core_version"]
 
 
 def test_to_agent_config_import_error() -> None:
@@ -180,13 +212,28 @@ def test_valid_agent_and_dynamic_rules_config() -> None:
     assert config.dynamic_rule_interval == 600
 
 
-def test_to_agent_config_forwards_dynamic_rule_interval() -> None:
-    """`dynamic_rule_interval` was added to AgentConfig in guard-agent 2.6.0.
+def test_dynamic_rule_interval_below_agent_config_floor_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        SecurityConfig(
+            enable_agent=True,
+            agent_api_key="test-key",
+            enable_dynamic_rules=True,
+            dynamic_rule_interval=59,
+        )
 
-    Asserted at the call-site contract level — to_agent_config() must pass
-    dynamic_rule_interval as a kwarg to AgentConfig. Older installed agents
-    silently drop unknown kwargs.
-    """
+
+def test_dynamic_rule_interval_at_agent_config_floor_is_accepted() -> None:
+    config = SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-key",
+        enable_dynamic_rules=True,
+        dynamic_rule_interval=60,
+    )
+
+    assert config.dynamic_rule_interval == 60
+
+
+def test_to_agent_config_forwards_dynamic_rule_interval() -> None:
     import guard_agent
 
     config = SecurityConfig(

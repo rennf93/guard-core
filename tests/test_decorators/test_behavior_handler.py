@@ -1,5 +1,6 @@
+import logging
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,7 +8,34 @@ import pytest
 from guard_core.handlers.behavior_handler import BehaviorRule, BehaviorTracker
 from guard_core.handlers.redis_handler import redis_handler
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 from tests.conftest import MockGuardResponse
+
+
+class _BoundedReaderResponse:
+    def __init__(self, body: bytes, status_code: int = 200) -> None:
+        self._status_code = status_code
+        self._headers: dict[str, str] = {}
+        self._body = body
+        self.read_body_prefix_calls = 0
+        self.body_property_accessed = False
+
+    @property
+    def status_code(self) -> int:
+        return self._status_code
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return self._headers
+
+    @property
+    def body(self) -> bytes:
+        self.body_property_accessed = True
+        return self._body
+
+    async def read_body_prefix(self, max_bytes: int) -> bytes:
+        self.read_body_prefix_calls += 1
+        return self._body[:max_bytes]
 
 
 def test_behavior_rule_creation() -> None:
@@ -233,51 +261,22 @@ async def test_track_return_pattern_with_redis(
 
 
 @pytest.mark.parametrize(
-    "response_data,pattern,expected",
+    "status_code,pattern,expected",
     [
-        ({"status_code": 200}, "status:200", True),
-        ({"status_code": 404}, "status:200", False),
-        (
-            {"body": '{"status": "success"}', "status_code": 200},
-            "json:status==success",
-            True,
-        ),
-        (
-            {"body": '{"status": "error"}', "status_code": 200},
-            "json:status==success",
-            False,
-        ),
-        (
-            {"body": '{"result": {"status": "win"}}', "status_code": 200},
-            "json:result.status==win",
-            True,
-        ),
-        (
-            {"body": "Error: Database connection failed", "status_code": 500},
-            "regex:database.*failed",
-            True,
-        ),
-        (
-            {"body": "Success: Operation completed", "status_code": 200},
-            "regex:database.*failed",
-            False,
-        ),
-        ({"body": "Internal Server Error", "status_code": 500}, "server error", True),
-        ({"body": "Success", "status_code": 200}, "server error", False),
+        (200, "status:200", True),
+        (404, "status:200", False),
     ],
 )
 @pytest.mark.asyncio
 async def test_check_response_pattern(
     security_config: SecurityConfig,
-    response_data: dict[str, Any],
+    status_code: int,
     pattern: str,
     expected: bool,
 ) -> None:
     tracker = BehaviorTracker(security_config)
 
-    response = MockGuardResponse(
-        response_data.get("body", ""), status_code=response_data.get("status_code", 200)
-    )
+    response = MockGuardResponse("", status_code=status_code)
 
     result = await tracker._check_response_pattern(response, pattern)
     assert result == expected
@@ -287,66 +286,217 @@ async def test_check_response_pattern(
 async def test_check_response_pattern_json_invalid(
     security_config: SecurityConfig,
 ) -> None:
+    security_config.behavior_scan_response_body = True
     tracker = BehaviorTracker(security_config)
-    response = MockGuardResponse("invalid json {", status_code=200)
+    response = _BoundedReaderResponse(b"invalid json {", status_code=200)
 
     result = await tracker._check_response_pattern(response, "json:status==success")
-    assert not result
+    assert result is False
 
 
 @pytest.mark.asyncio
-async def test_check_response_pattern_no_body(security_config: SecurityConfig) -> None:
+async def test_check_response_pattern_no_body_when_body_scan_disabled(
+    security_config: SecurityConfig,
+) -> None:
     tracker = BehaviorTracker(security_config)
-    response = MockGuardResponse(status_code=200)
-    response._body = b""
+    response = _BoundedReaderResponse(b"test pattern", status_code=200)
 
     result = await tracker._check_response_pattern(response, "test pattern")
-    assert not result
+
+    assert result is None
+    assert response.read_body_prefix_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_empty_body_is_not_matched(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = _BoundedReaderResponse(b"", status_code=200)
+
+    result = await tracker._check_response_pattern(response, "test pattern")
+    assert result is False
+
+
+class _StreamingResponseWithoutBody:
+    def __init__(self, status_code: int = 200) -> None:
+        self.status_code = status_code
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_missing_bounded_reader_logs_once(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = cast(GuardResponse, _StreamingResponseWithoutBody())
+
+    with patch.object(tracker.logger, "warning") as mock_warning:
+        for _ in range(5):
+            result = await tracker._check_response_pattern(response, "attack-marker")
+
+    assert result is None
+    mock_warning.assert_called_once()
+    assert "attack-marker" in mock_warning.call_args.args
+    assert "could not be evaluated" in mock_warning.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_missing_bounded_reader_logs_per_pattern(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = cast(GuardResponse, _StreamingResponseWithoutBody())
+
+    with patch.object(tracker.logger, "warning") as mock_warning:
+        await tracker._check_response_pattern(response, "pattern-one")
+        await tracker._check_response_pattern(response, "pattern-two")
+
+    assert mock_warning.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_check_response_pattern_bytes_body(
     security_config: SecurityConfig,
 ) -> None:
+    security_config.behavior_scan_response_body = True
     tracker = BehaviorTracker(security_config)
-    response = MockGuardResponse(status_code=200)
-    response._body = b"test content"
+    response = _BoundedReaderResponse(b"test content", status_code=200)
 
     result = await tracker._check_response_pattern(response, "test content")
-    assert result
+    assert result is True
+    assert response.read_body_prefix_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_json_match_via_bounded_reader(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = _BoundedReaderResponse(b'{"status": "success"}', status_code=200)
+
+    result = await tracker._check_response_pattern(response, "json:status==success")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_regex_match_via_bounded_reader(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = _BoundedReaderResponse(
+        b"Error: Database connection failed", status_code=500
+    )
+
+    result = await tracker._check_response_pattern(response, "regex:database.*failed")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_never_reads_body_property(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+    response = _BoundedReaderResponse(b"test content", status_code=200)
+
+    await tracker._check_response_pattern(response, "test content")
+
+    assert response.body_property_accessed is False
 
 
 @pytest.mark.asyncio
 async def test_check_response_pattern_exception(
     security_config: SecurityConfig,
 ) -> None:
+    security_config.behavior_scan_response_body = True
     tracker = BehaviorTracker(security_config)
 
     with patch.object(tracker.logger, "error") as mock_logger:
-        response = MockGuardResponse("test", status_code=200)
+        response = _BoundedReaderResponse(b"test", status_code=200)
 
         with patch("json.loads", side_effect=Exception("Test error")):
             result = await tracker._check_response_pattern(response, "json:test==value")
-            assert not result
+            assert result is False
             mock_logger.assert_called_once()
 
 
+async def test_check_response_pattern_non_bytes_prefix_is_logged_and_not_matched(
+    security_config: SecurityConfig,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config)
+
+    class _StringReturningReader:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        async def read_body_prefix(self, max_bytes: int) -> bytes:
+            return cast(bytes, "not bytes")
+
+    response = cast(GuardResponse, _StringReturningReader())
+
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = await tracker._check_response_pattern(response, "12345")
+
+    assert result is None
+    assert "return_pattern rule with pattern '12345' could not be evaluated" in (
+        caplog.text
+    )
+
+
 @pytest.mark.asyncio
-async def test_check_response_pattern_non_bytes_body(
+async def test_check_response_pattern_raising_bounded_reader_is_could_not_evaluate(
     security_config: SecurityConfig,
 ) -> None:
+    security_config.behavior_scan_response_body = True
     tracker = BehaviorTracker(security_config)
-    response = MockGuardResponse(status_code=200)
 
-    response._body = b"12345"
+    class _RaisingReader:
+        status_code = 200
+        headers: dict[str, str] = {}
 
-    result = await tracker._check_response_pattern(response, "12345")
-    assert result
+        async def read_body_prefix(self, max_bytes: int) -> bytes:
+            raise RuntimeError("stream closed")
 
-    response._body = "12345"  # type: ignore
+    response = cast(GuardResponse, _RaisingReader())
 
-    result2 = await tracker._check_response_pattern(response, "12345")
-    assert result2
+    result = await tracker._check_response_pattern(response, "attack")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_check_response_pattern_oversized_prefix_is_capped(
+    security_config: SecurityConfig,
+) -> None:
+    security_config.behavior_scan_response_body = True
+    security_config.behavior_max_response_body_inspect_bytes = 1024
+
+    class _OverReportingReader:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def __init__(self) -> None:
+            self.requested_max_bytes: int | None = None
+
+        async def read_body_prefix(self, max_bytes: int) -> bytes:
+            self.requested_max_bytes = max_bytes
+            return b"A" * 2000 + b"MARKER"
+
+    tracker = BehaviorTracker(security_config)
+    response = _OverReportingReader()
+
+    result = await tracker._check_response_pattern(
+        cast(GuardResponse, response), "MARKER"
+    )
+
+    assert result is False
+    assert response.requested_max_bytes == 1024
 
 
 @pytest.mark.asyncio
@@ -690,13 +840,10 @@ async def test_log_passive_mode_action_unknown_action_is_noop(
     from guard_core.models import SecurityConfig
 
     tracker = BehaviorTracker(SecurityConfig())
-    # Construct rule with an action value outside the Literal — Literal isn't
-    # enforced at runtime, so the elif-chain falls through with no matching branch.
     rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
-    rule.action = "unknown"  # type: ignore[assignment]
+    cast(Any, rule).action = "unknown"
     with caplog.at_level(logging.INFO):
         tracker._log_passive_mode_action(rule, "1.2.3.4", "details")
-    # Nothing matched; no warnings or criticals for this rule.
     unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
     assert not unknown_logs
 
@@ -711,7 +858,7 @@ async def test_execute_active_mode_action_unknown_action_is_noop(
 
     tracker = BehaviorTracker(SecurityConfig())
     rule = BehaviorRule(rule_type="usage", threshold=1, action="log")
-    rule.action = "unknown"  # type: ignore[assignment]
+    cast(Any, rule).action = "unknown"
     with caplog.at_level(logging.INFO):
         await tracker._execute_active_mode_action(rule, "1.2.3.4", "ep", "details")
     unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]

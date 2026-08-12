@@ -29,19 +29,21 @@ def reset_singleton() -> Generator[None, None, None]:
 @pytest.mark.asyncio
 async def test_apply_rules_rolls_back_on_partial_failure() -> None:
     config = SecurityConfig()
-    config.blocked_countries = frozenset({"XX"})
-    config.whitelist_countries = frozenset({"YY"})
-    manager = DynamicRuleManager(config)
 
-    rules = _rules(blocked_countries=["NEW"], whitelist_countries=["NEW2"])
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        config.blocked_countries = frozenset({"XX"})
+        config.whitelist_countries = frozenset({"YY"})
+        manager = DynamicRuleManager(config)
 
-    with patch.object(
-        manager,
-        "_apply_blocking_rules",
-        AsyncMock(side_effect=RuntimeError("kaboom")),
-    ):
-        with pytest.raises(RuntimeError, match="kaboom"):
-            await manager._apply_rules(rules)
+        rules = _rules(blocked_countries=["NEW"], whitelist_countries=["NEW2"])
+
+        with patch.object(
+            manager,
+            "_apply_blocking_rules",
+            AsyncMock(side_effect=RuntimeError("kaboom")),
+        ):
+            with pytest.raises(RuntimeError, match="kaboom"):
+                await manager._apply_rules(rules)
 
     assert config.blocked_countries == frozenset({"XX"})
     assert config.whitelist_countries == frozenset({"YY"})

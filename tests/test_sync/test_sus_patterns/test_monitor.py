@@ -1056,6 +1056,48 @@ def test_min_samples_for_anomaly_fires_above_floor() -> None:
     assert statistical[0]["z_score"] > 2.0
 
 
+def test_min_samples_for_anomaly_above_100_still_fires() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0, min_samples_for_anomaly=150)
+    assert monitor.min_samples_for_anomaly == 150
+
+    anomalies_detected = []
+
+    def anomaly_callback(anomaly: dict[str, Any]) -> None:
+        anomalies_detected.append(anomaly)
+
+    monitor.register_anomaly_callback(anomaly_callback)
+
+    pattern = "above_100_floor_pattern"
+    for _ in range(150):
+        monitor.record_metric(
+            pattern=pattern,
+            execution_time=0.01,
+            content_length=100,
+            matched=False,
+        )
+
+    assert monitor.pattern_stats[pattern].recent_times.maxlen == 150
+
+    anomalies_detected.clear()
+
+    monitor.record_metric(
+        pattern=pattern,
+        execution_time=0.5,
+        content_length=100,
+        matched=False,
+    )
+
+    statistical = [a for a in anomalies_detected if a["type"] == "statistical_anomaly"]
+    assert len(statistical) == 1
+    assert statistical[0]["z_score"] > 2.0
+
+
+def test_recent_metrics_deque_uses_clamped_history_size() -> None:
+    monitor = PerformanceMonitor(history_size=50)
+    assert monitor.history_size == 100
+    assert monitor.recent_metrics.maxlen == 100
+
+
 def test_cooldown_is_configurable_via_constructor() -> None:
     monitor = PerformanceMonitor(
         slow_pattern_threshold=0.05, anomaly_emission_cooldown=5.0
