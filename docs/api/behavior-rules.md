@@ -8,7 +8,7 @@ keywords: behavior rules, global behavior, 404 noise, return pattern, detection 
 Behavior Rules
 ==============
 
-`BehaviorRuleConfig` is the serializable model for behavior rules. `SecurityConfig.global_behavior_rules: list[BehaviorRuleConfig]` applies those rules to every route, in addition to any decorator-specified rules. Useful for service-wide 404 tracking, frequency caps, and detection-correlated bans.
+`BehaviorRuleConfig` is the serializable model for behavior rules. `SecurityConfig.global_behavior_rules: tuple[BehaviorRuleConfig, ...]` applies those rules to every route, in addition to any decorator-specified rules. Useful for service-wide 404 tracking, frequency caps, and detection-correlated bans.
 
 ___
 
@@ -45,7 +45,7 @@ class BehaviorRuleConfig(BaseModel):
 | `regex:{pattern}` | `regex:error.*failed`          | Regex match (case-insensitive) against the response body. |
 | Plain string      | `unauthorized`                 | Substring match (case-insensitive) against the response body. |
 
-The three body-reading formats require both `SecurityConfig.behavior_scan_response_body=True` and an adapter that implements `BoundedResponseBodyReader` (see [Protocols](protocols.md#boundedresponsebodyreader)); a rule using one of them is rejected at construction if the flag is off, since it could never match. When the flag is on but the concrete response does not implement the capability (for example an adapter that has not added support yet), or -- in the async `guard_core` tree only -- the adapter's `read_body_prefix` call exceeds `SecurityConfig.body_read_timeout` (default `3.0` seconds; the sync tree's `guard_core.sync` calls `read_body_prefix` directly and is not bounded by this value), the rule evaluates to "could not evaluate" rather than a false "no match", and is logged once per pattern (throttled). Each `return_pattern` rule checked against a response performs its own independent `read_body_prefix` call; guard-core does not cache the response body prefix across rules, so a response with several such rules configured pays one bounded read per rule. Upgrading guard-core alone does not restore a previously-working body-reading rule for an adapter that has not yet shipped `BoundedResponseBodyReader` support -- see the CHANGELOG's lockstep-upgrade note.
+The three body-reading formats require both `SecurityConfig.behavior_scan_response_body=True` and an adapter that implements `BoundedResponseBodyReader` (see [Protocols](protocols.md#boundedresponsebodyreader)); a rule using one of them is rejected at construction if the flag is off, since it could never match. When the flag is on but the concrete response does not implement the capability (for example an adapter that has not added support yet), or the adapter's `read_body_prefix` call exceeds `SecurityConfig.body_read_timeout` (default `3.0` seconds, bounded via `asyncio.wait_for` in the async `guard_core` tree and via a joined daemon thread in `guard_core.sync`), the rule evaluates to "could not evaluate" rather than a false "no match", and is logged once per pattern (throttled). Each `return_pattern` rule checked against a response performs its own independent `read_body_prefix` call; guard-core does not cache the response body prefix across rules, so a response with several such rules configured pays one bounded read per rule. Upgrading guard-core alone does not restore a previously-working body-reading rule for an adapter that has not yet shipped `BoundedResponseBodyReader` support -- see the CHANGELOG's lockstep-upgrade note.
 
 ___
 
@@ -54,12 +54,14 @@ SecurityConfig.global_behavior_rules
 
 ```python
 class SecurityConfig(BaseModel):
-    global_behavior_rules: list[BehaviorRuleConfig] = Field(default_factory=list)
+    global_behavior_rules: tuple[BehaviorRuleConfig, ...] = Field(default_factory=tuple)
     behavior_scan_response_body: bool = False
     behavior_max_response_body_inspect_bytes: int = 262144
 ```
 
 Every entry runs against every route alongside any decorator-defined rules on that route. Global rules are evaluated by `BehavioralProcessor.process_global_return_rules()` (for `return_pattern`) and the same usage/frequency tracker the decorator rules use.
+
+`global_behavior_rules` is a tuple, so `.append()`/`.extend()`/`.insert()` raise `AttributeError` instead of silently mutating an unvalidated list. Add a rule with a whole-field reassignment instead: `config.global_behavior_rules = (*config.global_behavior_rules, new_rule)`. Both reassignment and `model_copy(update={"global_behavior_rules": ...})` re-run the same `return_pattern`/`behavior_scan_response_body` check construction does.
 
 `behavior_scan_response_body` and `behavior_max_response_body_inspect_bytes` gate and bound response-body reading for every `return_pattern` rule, global or decorator-attached; see [SecurityConfig - Global Behavior Rules](../configuration/security-config.md#global-behavior-rules) for the full description of both.
 

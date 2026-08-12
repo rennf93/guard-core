@@ -1,25 +1,84 @@
+from typing import Any, cast
+
+import pytest
+
 from guard_core.models import VALID_CLOUD_PROVIDERS, SecurityConfig
 
 
-def test_block_cloud_providers_none_becomes_empty_set() -> None:
+def test_block_cloud_providers_none_becomes_empty_frozenset() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == set()
+    assert config.block_cloud_providers == frozenset()
+    assert isinstance(config.block_cloud_providers, frozenset)
 
 
-def test_block_cloud_providers_filters_invalid_entries() -> None:
-    config = SecurityConfig(block_cloud_providers={"AWS", "Bogus", "GCP"})
-    assert config.block_cloud_providers == {"AWS", "GCP"}
+def test_block_cloud_providers_unset_default_is_none() -> None:
+    assert SecurityConfig().block_cloud_providers is None
+
+
+def test_block_cloud_providers_rejects_invalid_entry() -> None:
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        SecurityConfig(block_cloud_providers={"AWS", "Bogus", "GCP"})
 
 
 def test_block_cloud_providers_accepts_full_valid_set() -> None:
     config = SecurityConfig(block_cloud_providers={"AWS", "GCP", "Azure"})
     assert config.block_cloud_providers == {"AWS", "GCP", "Azure"}
+    assert isinstance(config.block_cloud_providers, frozenset)
+
+
+def test_block_cloud_providers_accepts_region_carve_out() -> None:
+    config = SecurityConfig(block_cloud_providers={"GCP:!us-central1"})
+    assert config.block_cloud_providers == {"GCP:!us-central1"}
 
 
 def test_block_cloud_providers_validator_uses_module_constant() -> None:
     assert VALID_CLOUD_PROVIDERS == frozenset({"AWS", "GCP", "Azure"})
 
 
-def test_block_cloud_providers_invalid_only_returns_empty_set() -> None:
-    config = SecurityConfig(block_cloud_providers={"Bogus1", "Bogus2"})
-    assert config.block_cloud_providers == set()
+def test_block_cloud_providers_rejects_all_invalid_entries() -> None:
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        SecurityConfig(block_cloud_providers={"Bogus1", "Bogus2"})
+
+
+def test_block_cloud_providers_in_place_mutation_is_rejected() -> None:
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+    providers: Any = config.block_cloud_providers
+
+    with pytest.raises(AttributeError):
+        providers.add("GCP")
+
+
+def test_block_cloud_providers_reassignment_revalidates() -> None:
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        config.block_cloud_providers = cast(frozenset[str], {"Bogus"})
+
+    assert config.block_cloud_providers == frozenset({"AWS"})
+
+
+def test_block_cloud_providers_reassignment_accepts_valid_entries() -> None:
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    config.block_cloud_providers = cast(frozenset[str], {"GCP", "Azure"})
+
+    assert config.block_cloud_providers == frozenset({"GCP", "Azure"})
+    assert isinstance(config.block_cloud_providers, frozenset)
+
+
+def test_block_cloud_providers_model_copy_update_revalidates() -> None:
+    base = SecurityConfig(block_cloud_providers={"AWS"})
+
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        base.model_copy(update={"block_cloud_providers": {"Bogus"}})
+
+    assert base.block_cloud_providers == frozenset({"AWS"})
+
+
+def test_block_cloud_providers_model_copy_update_accepts_valid_entries() -> None:
+    base = SecurityConfig(block_cloud_providers={"AWS"})
+
+    copied = base.model_copy(update={"block_cloud_providers": {"GCP"}})
+
+    assert copied.block_cloud_providers == frozenset({"GCP"})
+    assert isinstance(copied.block_cloud_providers, frozenset)

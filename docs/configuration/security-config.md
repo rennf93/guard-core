@@ -36,7 +36,7 @@ Proxy Configuration
 
 | Field                     | Type         | Default  | Description                                            |
 |---------------------------|-------------|----------|--------------------------------------------------------|
-| `trusted_proxies`         | `list[str]` | `[]`     | Trusted proxy IPs or CIDR ranges for X-Forwarded-For.  |
+| `trusted_proxies`         | `tuple[str, ...]` | `()`     | Trusted proxy IPs or CIDR ranges for X-Forwarded-For.  |
 | `trusted_proxy_depth`     | `int`       | `1`      | Number of proxies in the X-Forwarded-For chain.        |
 | `trust_x_forwarded_proto` | `bool`      | `False`  | Trust X-Forwarded-Proto header for HTTPS detection.    |
 
@@ -55,10 +55,10 @@ IP Management
 
 | Field                | Type              | Default           | Description                                    |
 |----------------------|-------------------|-------------------|------------------------------------------------|
-| `whitelist`          | `list[str] \| None` | `None`          | Allowed IPs/CIDRs. `None` disables (allow all).|
-| `blacklist`          | `list[str]`       | `[]`              | Blocked IPs/CIDRs.                             |
-| `whitelist_countries`| `list[str]`       | `[]`              | Allowed countries. Non-empty = only listed pass (unknown blocked). Overrides `blocked_countries`. |
-| `blocked_countries`  | `list[str]`       | `[]`              | Country codes always blocked.                  |
+| `whitelist`          | `tuple[str, ...] \| None` | `None`          | Allowed IPs/CIDRs. `None` disables (allow all).|
+| `blacklist`          | `tuple[str, ...]`       | `()`              | Blocked IPs/CIDRs.                             |
+| `whitelist_countries`| `frozenset[str]`       | `frozenset()`              | Allowed countries. Non-empty = only listed pass (unknown blocked). Overrides `blocked_countries`. |
+| `blocked_countries`  | `frozenset[str]`       | `frozenset()`              | Country codes always blocked.                  |
 | `blocked_user_agents`| `list[str]`       | `[]`              | Regex patterns for blocked user agents.        |
 | `enable_ip_banning`  | `bool`            | `True`            | Enable automatic IP banning.                   |
 | `auto_ban_threshold` | `int`             | `10`              | Suspicious requests before auto-ban.           |
@@ -80,7 +80,7 @@ Per-Category Bans
 
 | Field                | Type                              | Default | Description                                          |
 |----------------------|-----------------------------------|---------|------------------------------------------------------|
-| `threat_ban_config`  | `dict[str, ThreatBanConfig]`      | `{}`    | Per-category ban policy. Validator rejects unknown keys. |
+| `threat_ban_config`  | `MappingProxyType[str, ThreatBanConfig]`      | `mappingproxy({})`    | Per-category ban policy. Validator rejects unknown keys. |
 
 When to use:
 
@@ -112,10 +112,10 @@ Global Behavior Rules
 
 | Field                                        | Type                          | Default    | Description                                  |
 |-----------------------------------------------|-------------------------------|------------|----------------------------------------------|
-| `global_behavior_rules`                        | `list[BehaviorRuleConfig]`    | `[]`       | Behavior rules merged into every route.      |
+| `global_behavior_rules`                        | `tuple[BehaviorRuleConfig, ...]` | `()`    | Behavior rules merged into every route. Immutable: reassign the whole field to change it, `.append()` raises `AttributeError`. |
 | `behavior_scan_response_body`                  | `bool`                        | `False`    | Read response bodies to evaluate `return_pattern` rules whose pattern is not `status:` (`json:`, `regex:`, or a bare substring). Off by default: no response body is ever read for pattern matching, and constructing a `return_pattern` rule with a non-`status:` pattern while this is `False` raises `ValueError` instead of silently accepting a rule that can never match. `status:` patterns match on `status_code` alone and are unaffected. |
 | `behavior_max_response_body_inspect_bytes`     | `int`                         | `262144`   | Maximum bytes read from the start of a response body and held for `return_pattern` inspection when `behavior_scan_response_body` is `True`. Bounds what guard-core retains, not what the application produces; a streaming response stays streaming to the client. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader). |
-| `body_read_timeout`                            | `float`                       | `3.0`      | **Async `guard_core` tree only.** Seconds to wait for an adapter's `read_body_prefix`/`body` call before giving up. Bounds the request-body detection read and the response-body behaviour-rule read against a stalled or misbehaving adapter/stream; on timeout the body is treated as unavailable, the same fail-closed outcome already used when the adapter raises. The sync tree (`guard_core.sync`) calls the adapter's read directly and ignores this field entirely; a stalled sync adapter read blocks the request exactly like any other slow call in a WSGI application, so bound it with the WSGI server's own request timeout (gunicorn `--timeout`, uWSGI `harakiri`) instead. |
+| `body_read_timeout`                            | `float`                       | `3.0`      | Seconds to wait for an adapter's `read_body_prefix`/`body` call before giving up. Bounds the request-body detection read and the response-body behaviour-rule read against a stalled or misbehaving adapter/stream; on timeout the body is treated as unavailable, the same fail-closed outcome already used when the adapter raises. The async `guard_core` tree bounds the wait via `asyncio.wait_for`. The sync tree (`guard_core.sync`) cannot cancel a blocking call from the outside, so each read attempt runs on its own daemon thread and this value bounds how long the caller joins that thread instead; see `sync_body_read_max_concurrent` for the concurrent-thread budget. |
 
 When to use:
 
@@ -173,7 +173,7 @@ These fields opt request components out of penetration detection. The header set
 | `excluded_detection_headers`       | `set[str]`  | `set()`                          | Header names skipped by detection. Merged with the hardcoded default list. |
 | `excluded_detection_params`        | `set[str]`  | `set()`                          | Query parameter names skipped by detection.                                |
 | `excluded_detection_body_fields`   | `set[str]`  | `set()`                          | Top-level JSON body keys skipped by detection.                             |
-| `enabled_detection_categories`     | `set[str]`  | full `ALL_DETECTION_CATEGORIES`  | Categories scanned for. Validator rejects unknown labels.                  |
+| `enabled_detection_categories`     | `frozenset[str]`  | full `ALL_DETECTION_CATEGORIES`  | Categories scanned for. Validator rejects unknown labels.                  |
 
 When to use:
 
@@ -298,7 +298,7 @@ Cloud Provider Blocking
 
 | Field                      | Type             | Default | Description                              |
 |----------------------------|------------------|---------|------------------------------------------|
-| `block_cloud_providers`    | `set[str] \| None` | `None`  | Providers to block. A bare name (`"AWS"`, `"GCP"`, `"Azure"`) blocks the whole provider; a region carve-out (`"GCP:!us-central1"`) blocks the provider except that region. Region scoping is supported for GCP and AWS. |
+| `block_cloud_providers`    | `frozenset[str] \| None` | `None`  | Providers to block. A bare name (`"AWS"`, `"GCP"`, `"Azure"`) blocks the whole provider; a region carve-out (`"GCP:!us-central1"`) blocks the provider except that region. Region scoping is supported for GCP and AWS. An unrecognized provider name raises `ValueError`. |
 | `cloud_ip_refresh_interval`| `int`            | `3600`  | Seconds between IP range refreshes (60-86400). |
 
 **Validator**: each entry is kept only if the part before an optional `:!region` suffix is one of `{"AWS", "GCP", "Azure"}`; an entry that fails this check is dropped, not the whole set.
@@ -460,11 +460,11 @@ Validators
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
-| `validate_cloud_providers` | `block_cloud_providers` | Silently filters invalid providers: an entry is kept only if the part before an optional `:!region` suffix is `"AWS"`, `"GCP"`, or `"Azure"`. |
-| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. |
+| `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |
+| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent` is `True`. Requires `enable_agent` when `enable_dynamic_rules` is `True`. |
 | `validate_optional_extras_installed` | model-level | Requires the `redis` extra when `enable_redis` is `True`, the `cloud` extra (`aiohttp` or `requests`) when cloud blocking is enabled (`block_cloud_providers` or `enable_dynamic_rules`), and the `geo` extra (`maxminddb`) when country rules are configured with no custom `geo_ip_handler`. Raises `ValueError` naming the missing extra's install command, checked via `importlib.util.find_spec` (never a bare `import`). See [Installation](../installation.md#optional-dependency-extras). |
 | `warn_unknown_fields` | model-level, `mode="before"` | Compares the constructor keyword arguments against `model_fields` (and any field's `alias`) and logs a `guard_core.models` warning naming each unknown key, since `SecurityConfig` still allows unknown keys through (`extra="ignore"`) rather than raising. Construction still succeeds and the unknown key is still dropped; only a log line is added, so a typo'd field name is no longer a silent no-op. `extra="forbid"` is the intended behavior at a future major release. |
 
-!!! warning "Silent filtering"
-    `validate_cloud_providers` silently drops unrecognized provider names. `{"AWS", "InvalidProvider"}` becomes `{"AWS"}` without raising an error.
+!!! warning "Unknown provider names raise"
+    `validate_cloud_providers` rejects a `block_cloud_providers` entry whose provider name (the part before an optional `:!region` suffix) is not `"AWS"`, `"GCP"`, or `"Azure"`. `{"AWS", "InvalidProvider"}` raises `ValueError` naming `InvalidProvider` instead of silently blocking only `"AWS"`.

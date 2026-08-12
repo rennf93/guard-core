@@ -1,12 +1,11 @@
 import difflib
-import importlib.util
 import logging
 import warnings
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from ipaddress import ip_address, ip_network
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, get_args
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -19,6 +18,37 @@ from pydantic import (
 from typing_extensions import Self
 
 from guard_core import __version__
+from guard_core._security_config_validators import (
+    _FIELD_REVALIDATORS,
+    _GEO_STATE_FIELDS,
+    _GLOBAL_BEHAVIOR_RULE_FIELDS,
+    BehaviorRuleConfig,
+    ThreatBanConfig,
+    _apply_geo_ip_handler_assignment,
+    _country_shadow_should_warn,
+    _extra_installed,
+    _resolve_geo_ip_handler,
+    _revalidate_copied_config,
+    _validate_block_cloud_providers_value,
+    _validate_enabled_detection_categories_value,
+    _validate_exclude_paths_value,
+    _validate_global_behavior_rule_assignment,
+    _validate_ip_or_cidr_list,
+    _validate_muted_check_logs_value,
+    _validate_muted_event_types_value,
+    _validate_muted_metric_types_value,
+    _validate_return_pattern_body_scan,
+    _validate_threat_ban_config_value,
+    _warn_country_allowlist_shadows_blocklist,
+    cloud_blocking_enabled,
+)
+from guard_core._security_config_validators import (
+    VALID_CLOUD_PROVIDERS as VALID_CLOUD_PROVIDERS,
+)
+from guard_core._security_config_validators import CloudProvider as CloudProvider
+from guard_core._security_config_validators import (
+    return_pattern_requires_response_body as return_pattern_requires_response_body,
+)
 from guard_core.exceptions import AgentPackageNotInstalledError
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 from guard_core.protocols.cloud_ip_store_protocol import (
@@ -35,100 +65,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("guard_core.models")
 
-CloudProvider = Literal["AWS", "GCP", "Azure"]
-VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
-
-
-def _extra_installed(*module_names: str) -> bool:
-    return any(importlib.util.find_spec(name) is not None for name in module_names)
-
-
-def cloud_blocking_enabled(config: "SecurityConfig") -> bool:
-    return bool(config.block_cloud_providers) or config.enable_dynamic_rules
-
-
-_COUNTRY_RULE_FIELDS = frozenset({"blocked_countries", "whitelist_countries"})
-
-
-def _validate_exclude_paths_value(v: list[str], *, stacklevel: int) -> list[str]:
-    from guard_core.core.validation.path_matching import normalize_url_path
-
-    for entry in v:
-        normalized = normalize_url_path(entry)
-        if normalized is None:
-            raise ValueError(
-                f"exclude_paths entry {entry!r} could not be normalized "
-                "(malformed percent-encoding or invalid UTF-8); it would "
-                "silently exclude nothing at request time. Fix or remove it."
-            )
-        if normalized != "/":
-            continue
-        if entry != "/":
-            raise ValueError(
-                f"exclude_paths entry {entry!r} normalizes to the root "
-                "path '/', which would exclude the entire application "
-                "from all security checks. Remove it, or configure the "
-                "literal '/' if you really intend to exclude everything."
-            )
-        warnings.warn(
-            "exclude_paths contains the literal '/' entry, which "
-            "excludes the entire application from all security checks "
-            "(IP banning, rate limiting, penetration detection, "
-            "everything). Confirm this is intentional.",
-            UserWarning,
-            stacklevel=stacklevel,
-        )
-    return v
-
-
-def _warn_country_allowlist_shadows_blocklist(*, stacklevel: int) -> None:
-    warnings.warn(
-        "blocked_countries is ignored when whitelist_countries is "
-        "non-empty: a non-empty whitelist_countries is restrictive "
-        "(only listed countries pass), so blocked_countries has no "
-        "effect. Use one or the other.",
-        UserWarning,
-        stacklevel=stacklevel,
-    )
-
-
-def _normalized_country_value(value: Any) -> Any:
-    if isinstance(value, list | tuple | set | frozenset):
-        return frozenset(str(item).upper() for item in value)
-    return value
-
-
-class ThreatBanConfig(BaseModel):
-    threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
-    duration: int = Field(ge=1, description="Ban duration in seconds.")
-
-
-class BehaviorRuleConfig(BaseModel):
-    rule_type: Literal["usage", "return_pattern", "frequency"]
-    threshold: int = Field(ge=1)
-    window: int = Field(default=3600, ge=1)
-    pattern: str | None = None
-    action: Literal["ban", "log", "throttle", "alert"] = "log"
-    ban_duration: int | None = Field(default=None, ge=1)
-    correlate_with_detection: bool = False
-
-
-def return_pattern_requires_response_body(pattern: str) -> bool:
-    return not pattern.startswith("status:")
-
-
-def _validate_return_pattern_body_scan(pattern: str, config: "SecurityConfig") -> None:
-    if not return_pattern_requires_response_body(pattern):
-        return
-    if config.behavior_scan_response_body:
-        return
-    raise ValueError(
-        f"return_pattern rule with pattern {pattern!r} requires reading the "
-        "response body, but behavior_scan_response_body is False. This rule "
-        "would never match: set behavior_scan_response_body=True to enable "
-        "response-body inspection, or use a status: pattern instead."
-    )
-
 
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -138,19 +74,14 @@ class SecurityConfig(BaseModel):
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "exclude_paths":
             value = _validate_exclude_paths_value(value, stacklevel=3)
+        if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
+            _validate_global_behavior_rule_assignment(self, name, value)
+        if name in _GEO_STATE_FIELDS:
+            value = _apply_geo_ip_handler_assignment(self, name, value, stacklevel=4)
+        if name in _FIELD_REVALIDATORS:
+            value = _FIELD_REVALIDATORS[name](value)
 
-        should_warn = False
-        if name in _COUNTRY_RULE_FIELDS:
-            new_whitelist = (
-                value if name == "whitelist_countries" else self.whitelist_countries
-            )
-            new_blocked = (
-                value if name == "blocked_countries" else self.blocked_countries
-            )
-            if new_whitelist and new_blocked:
-                should_warn = _normalized_country_value(
-                    value
-                ) != _normalized_country_value(getattr(self, name, None))
+        should_warn = _country_shadow_should_warn(self, name, value)
 
         super().__setattr__(name, value)
         if name != "_revision":
@@ -166,13 +97,13 @@ class SecurityConfig(BaseModel):
         self, *, update: Mapping[str, Any] | None = None, deep: bool = False
     ) -> Self:
         copied = super().model_copy(update=update, deep=deep)
-        if update and "exclude_paths" in update:
-            _validate_exclude_paths_value(copied.exclude_paths, stacklevel=3)
+        if update:
+            _revalidate_copied_config(copied, update)
         return copied
 
-    trusted_proxies: list[str] = Field(
-        default_factory=list,
-        description="List of trusted proxy IPs or CIDR ranges for X-Forwarded-For",
+    trusted_proxies: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Trusted proxy IPs or CIDR ranges for X-Forwarded-For",
     )
 
     trusted_proxy_depth: int = Field(
@@ -260,7 +191,7 @@ class SecurityConfig(BaseModel):
         ),
     )
 
-    whitelist: list[str] | None = Field(
+    whitelist: tuple[str, ...] | None = Field(
         default=None,
         description=(
             "Allowed IP addresses or CIDR ranges. A non-empty whitelist is "
@@ -269,8 +200,8 @@ class SecurityConfig(BaseModel):
         ),
     )
 
-    blacklist: list[str] = Field(
-        default_factory=list,
+    blacklist: tuple[str, ...] = Field(
+        default_factory=tuple,
         description=(
             "Blocked IP addresses or CIDR ranges. Enforced ahead of country and "
             "cloud-provider checks, but overridden by an explicit whitelist match."
@@ -304,16 +235,16 @@ class SecurityConfig(BaseModel):
         default=3600, description="Duration of auto-ban in seconds (default: 1 hour)"
     )
 
-    threat_ban_config: dict[str, ThreatBanConfig] = Field(
-        default_factory=dict,
+    threat_ban_config: MappingProxyType[str, ThreatBanConfig] = Field(
+        default_factory=lambda: MappingProxyType({}),
         description=(
             "Per-category ban thresholds and durations. "
             "Unlisted categories fall back to auto_ban_threshold / auto_ban_duration."
         ),
     )
 
-    global_behavior_rules: list[BehaviorRuleConfig] = Field(
-        default_factory=list,
+    global_behavior_rules: tuple[BehaviorRuleConfig, ...] = Field(
+        default_factory=tuple,
         description=(
             "Behaviour rules applied to every route, in addition to any "
             "decorator-specified rules. Useful for global 404 tracking."
@@ -364,25 +295,41 @@ class SecurityConfig(BaseModel):
         default=3.0,
         description=(
             "Seconds to wait for an adapter's read_body_prefix or body call "
-            "before giving up. Applies to the ASYNC guard_core tree only "
-            "(guard_core.utils, guard_core.handlers.behavior_handler): it "
-            "bounds both the request-body detection read and the "
-            "response-body behaviour-rule read against a stalled or "
-            "misbehaving adapter/stream (a stalled SSE producer, a long-poll "
-            "that never yields, a buggy implementation) via asyncio.wait_for; "
-            "on timeout the body is treated as unavailable, the same "
+            "before giving up. Applies to both the ASYNC guard_core tree "
+            "(guard_core.utils, guard_core.handlers.behavior_handler), where "
+            "it bounds the read via asyncio.wait_for, and the SYNC tree "
+            "(guard_core.sync), where a blocking call cannot be cancelled "
+            "from the outside, so each read attempt instead runs on its own "
+            "daemon thread and this value bounds how long the caller joins "
+            "that thread (see sync_body_read_max_concurrent for the thread "
+            "budget). In both trees it bounds the request-body detection "
+            "read and the response-body behaviour-rule read against a "
+            "stalled or misbehaving adapter/stream (a stalled SSE producer, "
+            "a long-poll that never yields, a buggy implementation); on "
+            "timeout the body is treated as unavailable, the same "
             "fail-closed outcome already used when the adapter raises. The "
-            "SYNC tree (guard_core.sync) calls the adapter's read directly "
-            "and does not use this value at all -- a blocking call cannot be "
-            "cancelled from the outside without the thread-pool machinery "
-            "guard-core removed for leaking threads and silently dropping "
-            "detections under ordinary concurrent load, so a stalled sync "
-            "adapter read stalls the request exactly like any other slow "
-            "call in a WSGI application. Bound it with the WSGI server's own "
-            "request timeout instead (gunicorn --timeout, uWSGI harakiri)."
+            "sync tree's timed-out thread keeps running in the background "
+            "until the adapter's call itself returns; only the caller stops "
+            "waiting for it."
         ),
         gt=0.0,
         le=30.0,
+    )
+
+    sync_body_read_max_concurrent: int = Field(
+        default=64,
+        description=(
+            "Maximum number of daemon threads the SYNC guard_core tree may "
+            "have blocked at once inside an adapter's read_body_prefix or "
+            "body call. A blocking sync read cannot be cancelled, so each "
+            "attempt runs on its own daemon thread and waits up to "
+            "body_read_timeout for it; once this many threads are already "
+            "blocked on a stalled read, further attempts queue for the same "
+            "budget and then give up and log the exhaustion, keeping the "
+            "thread count bounded instead of growing without limit."
+        ),
+        ge=1,
+        le=10000,
     )
 
     custom_log_file: str | None = Field(
@@ -488,12 +435,14 @@ class SecurityConfig(BaseModel):
         default=600, description="Maximum age of CORS preflight results"
     )
 
-    block_cloud_providers: set[str] | None = Field(
+    block_cloud_providers: frozenset[str] | None = Field(
         default=None,
         description=(
             "Cloud providers to block. A bare provider ('GCP') blocks the whole "
             "provider; a region carve-out ('GCP:!us-central1') blocks the provider "
-            "except that region. Region scoping is supported for GCP and AWS."
+            "except that region. Region scoping is supported for GCP and AWS. An "
+            "unrecognized provider name raises ValueError rather than being "
+            "silently dropped."
         ),
     )
 
@@ -907,18 +856,18 @@ class SecurityConfig(BaseModel):
         le=10.0,
     )
 
-    muted_event_types: set[str] = Field(
-        default_factory=set,
+    muted_event_types: frozenset[str] = Field(
+        default_factory=frozenset,
         description="Event types to mute from telemetry dispatch",
     )
 
-    muted_metric_types: set[str] = Field(
-        default_factory=set,
+    muted_metric_types: frozenset[str] = Field(
+        default_factory=frozenset,
         description="Metric types to mute from telemetry dispatch",
     )
 
-    muted_check_logs: set[str] = Field(
-        default_factory=set,
+    muted_check_logs: frozenset[str] = Field(
+        default_factory=frozenset,
         description="Security check names to mute from pipeline logging",
     )
 
@@ -995,8 +944,8 @@ class SecurityConfig(BaseModel):
             "body is then never read or matched, regardless of its shape."
         ),
     )
-    enabled_detection_categories: set[str] = Field(
-        default_factory=lambda: set(ALL_DETECTION_CATEGORIES),
+    enabled_detection_categories: frozenset[str] = Field(
+        default_factory=lambda: frozenset(ALL_DETECTION_CATEGORIES),
         description=(
             "Detection categories to scan for. Defaults to all. "
             f"Valid values: {sorted(ALL_DETECTION_CATEGORIES)}"
@@ -1024,41 +973,15 @@ class SecurityConfig(BaseModel):
             )
         return data
 
-    @field_validator("whitelist", "blacklist")
-    def validate_ip_lists(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
-            return None
+    @field_validator("whitelist", "blacklist", mode="before")
+    def validate_ip_lists(cls, v: Any) -> Any:
+        return _validate_ip_or_cidr_list(v, invalid_message="Invalid IP or CIDR range")
 
-        validated = []
-        for entry in v:
-            try:
-                if "/" in entry:
-                    network = ip_network(entry, strict=False)
-                    validated.append(str(network))
-                else:
-                    addr = ip_address(entry)
-                    validated.append(str(addr))
-            except ValueError:
-                raise ValueError(f"Invalid IP or CIDR range: {entry}") from None
-        return validated
-
-    @field_validator("trusted_proxies")
-    def validate_trusted_proxies(cls, v: list[str]) -> list[str]:
-        if not v:
-            return []
-
-        validated = []
-        for entry in v:
-            try:
-                if "/" in entry:
-                    network = ip_network(entry, strict=False)
-                    validated.append(str(network))
-                else:
-                    addr = ip_address(entry)
-                    validated.append(str(addr))
-            except ValueError:
-                raise ValueError(f"Invalid proxy IP or CIDR range: {entry}") from None
-        return validated
+    @field_validator("trusted_proxies", mode="before")
+    def validate_trusted_proxies(cls, v: Any) -> Any:
+        return _validate_ip_or_cidr_list(
+            v, invalid_message="Invalid proxy IP or CIDR range"
+        )
 
     @field_validator("trusted_proxy_depth")
     def validate_proxy_depth(cls, v: int) -> int:
@@ -1077,10 +1000,8 @@ class SecurityConfig(BaseModel):
         )
 
     @field_validator("block_cloud_providers", mode="before")
-    def validate_cloud_providers(cls, v: Any) -> set[str]:
-        if v is None:
-            return set()
-        return {sel for sel in v if sel.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
+    def validate_cloud_providers(cls, v: Any) -> frozenset[str]:
+        return _validate_block_cloud_providers_value(v)
 
     @model_validator(mode="after")
     def validate_optional_extras_installed(self) -> Self:
@@ -1108,30 +1029,17 @@ class SecurityConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_geo_ip_handler_exists(self) -> Self:
-        has_country_rules = bool(self.blocked_countries or self.whitelist_countries)
-
-        if self.geo_ip_handler is None and has_country_rules:
-            if self.ipinfo_token:
-                from guard_core.handlers.ipinfo_handler import IPInfoManager
-
-                self.geo_ip_handler = IPInfoManager(
-                    token=self.ipinfo_token,
-                    db_path=self.ipinfo_db_path,
-                    max_age=self.geo_ip_db_max_age,
-                )
-            else:
-                raise ValueError(
-                    "geo_ip_handler is required "
-                    "if blocked_countries or whitelist_countries is set"
-                )
-        elif self.geo_ip_handler is not None and not has_country_rules:
-            warnings.warn(
-                "geo_ip_handler is set but neither blocked_countries nor "
-                "whitelist_countries is configured, so it will never be "
-                "consulted or initialized; set one of them or drop geo_ip_handler.",
-                UserWarning,
-                stacklevel=2,
-            )
+        resolved = _resolve_geo_ip_handler(
+            blocked_countries=self.blocked_countries,
+            whitelist_countries=self.whitelist_countries,
+            geo_ip_handler=self.geo_ip_handler,
+            ipinfo_token=self.ipinfo_token,
+            ipinfo_db_path=self.ipinfo_db_path,
+            geo_ip_db_max_age=self.geo_ip_db_max_age,
+            stacklevel=2,
+        )
+        if resolved is not self.geo_ip_handler:
+            self.geo_ip_handler = resolved
 
         return self
 
@@ -1181,63 +1089,25 @@ class SecurityConfig(BaseModel):
             )
         return self
 
-    @field_validator("muted_event_types")
-    def validate_muted_event_types(cls, v: set[str]) -> set[str]:
-        from guard_core.core.events.event_types import EVENT_TYPE_VALUES
+    @field_validator("muted_event_types", mode="before")
+    def validate_muted_event_types(cls, v: Any) -> frozenset[str]:
+        return _validate_muted_event_types_value(v)
 
-        invalid = v - EVENT_TYPE_VALUES
-        if invalid:
-            raise ValueError(
-                f"Unknown event types in muted_event_types: {sorted(invalid)}. "
-                f"Valid: {sorted(EVENT_TYPE_VALUES)}"
-            )
-        return v
+    @field_validator("muted_metric_types", mode="before")
+    def validate_muted_metric_types(cls, v: Any) -> frozenset[str]:
+        return _validate_muted_metric_types_value(v)
 
-    @field_validator("muted_metric_types")
-    def validate_muted_metric_types(cls, v: set[str]) -> set[str]:
-        from guard_core.core.events.event_types import METRIC_TYPE_VALUES
+    @field_validator("enabled_detection_categories", mode="before")
+    def validate_enabled_detection_categories(cls, v: Any) -> frozenset[str]:
+        return _validate_enabled_detection_categories_value(v)
 
-        invalid = v - METRIC_TYPE_VALUES
-        if invalid:
-            raise ValueError(
-                f"Unknown metric types in muted_metric_types: {sorted(invalid)}. "
-                f"Valid: {sorted(METRIC_TYPE_VALUES)}"
-            )
-        return v
+    @field_validator("threat_ban_config", mode="before")
+    def validate_threat_ban_config(cls, v: Any) -> MappingProxyType[str, Any]:
+        return _validate_threat_ban_config_value(v)
 
-    @field_validator("enabled_detection_categories")
-    def validate_enabled_detection_categories(cls, v: set[str]) -> set[str]:
-        unknown = v - ALL_DETECTION_CATEGORIES
-        if unknown:
-            raise ValueError(
-                f"Unknown detection categories: {sorted(unknown)}. "
-                f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
-            )
-        return v
-
-    @field_validator("threat_ban_config")
-    def validate_threat_ban_config(
-        cls, v: dict[str, ThreatBanConfig]
-    ) -> dict[str, ThreatBanConfig]:
-        unknown = set(v.keys()) - ALL_DETECTION_CATEGORIES
-        if unknown:
-            raise ValueError(
-                f"Unknown threat categories in threat_ban_config: {sorted(unknown)}. "
-                f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
-            )
-        return v
-
-    @field_validator("muted_check_logs")
-    def validate_muted_check_logs(cls, v: set[str]) -> set[str]:
-        from guard_core.core.events.event_types import CHECK_NAME_VALUES
-
-        invalid = v - CHECK_NAME_VALUES
-        if invalid:
-            raise ValueError(
-                f"Unknown check names in muted_check_logs: {sorted(invalid)}. "
-                f"Valid: {sorted(CHECK_NAME_VALUES)}"
-            )
-        return v
+    @field_validator("muted_check_logs", mode="before")
+    def validate_muted_check_logs(cls, v: Any) -> frozenset[str]:
+        return _validate_muted_check_logs_value(v)
 
     @field_validator("exclude_paths")
     def validate_exclude_paths(cls, v: list[str]) -> list[str]:
