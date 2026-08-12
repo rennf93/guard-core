@@ -85,7 +85,7 @@ async def test_mutating_config_makes_eliminated_cloud_provider_check_block() -> 
     assert "cloud_provider" not in pipeline.get_check_names()
 
     cloud_handler.ip_ranges["AWS"].add(ip_network("3.0.0.0/8"))
-    config.block_cloud_providers = {"AWS"}
+    config.block_cloud_providers = frozenset({"AWS"})
 
     request = MockGuardRequest(client_host="3.0.0.9")
     with patch.object(cloud_handler, "schedule_refresh", AsyncMock(return_value=False)):
@@ -229,15 +229,14 @@ async def test_replacing_blocked_user_agent_in_place_does_not_rebuild() -> None:
         rebuild_spy.assert_not_called()
 
 
-async def test_adding_block_cloud_provider_in_place_runs_eliminated_check() -> None:
-    config = _neutral_config(block_cloud_providers=set())
+async def test_reassigning_block_cloud_providers_runs_eliminated_check() -> None:
+    config = _neutral_config(block_cloud_providers=frozenset())
     middleware = _build_middleware(config)
     pipeline = build_default_pipeline(middleware)
     assert "cloud_provider" not in pipeline.get_check_names()
 
     cloud_handler.ip_ranges["AWS"].add(ip_network("4.0.0.0/8"))
-    assert config.block_cloud_providers is not None
-    config.block_cloud_providers.add("AWS")
+    config.block_cloud_providers = frozenset({"AWS"})
 
     request = MockGuardRequest(client_host="4.0.0.9")
     with patch.object(cloud_handler, "schedule_refresh", AsyncMock(return_value=False)):
@@ -248,8 +247,8 @@ async def test_adding_block_cloud_provider_in_place_runs_eliminated_check() -> N
     assert result.status_code == 403
 
 
-async def test_swapping_block_cloud_provider_in_place_does_not_rebuild() -> None:
-    config = _neutral_config(block_cloud_providers={"AWS"})
+async def test_reassigning_block_cloud_providers_rebuilds_every_time() -> None:
+    config = _neutral_config(block_cloud_providers=frozenset({"AWS"}))
     middleware = _build_middleware(config)
 
     with patch.object(
@@ -259,17 +258,15 @@ async def test_swapping_block_cloud_provider_in_place_does_not_rebuild() -> None
         assert "cloud_provider" in pipeline.get_check_names()
         rebuild_spy.reset_mock()
 
-        assert config.block_cloud_providers is not None
-        config.block_cloud_providers.symmetric_difference_update({"AWS", "GCP"})
+        config.block_cloud_providers = frozenset({"GCP"})
 
         request = MockGuardRequest(client_host="198.51.100.123")
         with patch.object(
             cloud_handler, "schedule_refresh", AsyncMock(return_value=False)
         ):
-            for _ in range(5):
-                await pipeline.execute(request)
+            await pipeline.execute(request)
 
-        rebuild_spy.assert_not_called()
+        rebuild_spy.assert_called_once()
 
 
 async def test_setting_an_endpoint_rate_limit_in_place_makes_eliminated_check_run() -> (
@@ -311,17 +308,17 @@ async def test_overwriting_an_endpoint_rate_limit_value_in_place_does_not_rebuil
 
 
 @pytest.mark.parametrize("field_name", ["blacklist", "whitelist"])
-def test_mutating_blacklist_or_whitelist_in_place_never_flips_any_check_applies_to(
+def test_reassigning_blacklist_or_whitelist_never_flips_any_check_applies_to(
     field_name: str,
 ) -> None:
     assert field_name not in factory.WATCHED_CONTAINER_FIELDS
 
-    config = SecurityConfig(**{field_name: []})
+    config = SecurityConfig(**{field_name: ()})
     before = {
         cls: cls.applies_to(config, None) for cls in factory.DEFAULT_CHECK_CLASSES
     }
 
-    getattr(config, field_name).append("203.0.113.5")
+    setattr(config, field_name, ("203.0.113.5",))
 
     after = {cls: cls.applies_to(config, None) for cls in factory.DEFAULT_CHECK_CLASSES}
 

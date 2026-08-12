@@ -255,7 +255,7 @@ async def test_pipeline_skips_block_log_when_check_is_muted(
 
     pipeline = SecurityCheckPipeline(
         [MockCheck(mock_middleware, "muted_check", should_block=True)],
-        muted_check_logs={"muted_check"},
+        muted_check_logs=frozenset({"muted_check"}),
     )
     request = Mock()
     request.url_path = "/x"
@@ -275,7 +275,7 @@ async def test_pipeline_skips_error_log_when_check_is_muted(
 
     pipeline = SecurityCheckPipeline(
         [FailingCheck(mock_middleware, name="muted_fail")],
-        muted_check_logs={"muted_fail"},
+        muted_check_logs=frozenset({"muted_fail"}),
     )
     request = Mock()
     request.url_path = "/x"
@@ -300,7 +300,7 @@ async def test_pipeline_skips_fail_secure_log_when_check_is_muted(
 
     pipeline = SecurityCheckPipeline(
         [failing],
-        muted_check_logs={"muted_fs"},
+        muted_check_logs=frozenset({"muted_fs"}),
     )
     request = Mock()
     request.url_path = "/x"

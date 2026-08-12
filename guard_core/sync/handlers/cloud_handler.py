@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -494,7 +494,7 @@ class CloudManager:
             f"+{len(added)} added, -{len(removed)} removed"
         )
 
-    def _refresh_providers(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+    def _refresh_providers(self, providers: Collection[str] = _ALL_PROVIDERS) -> None:
         for provider in providers:
             try:
                 ranges, regions = _fetch_provider_ranges(provider)
@@ -512,7 +512,7 @@ class CloudManager:
     def initialize_redis(
         self,
         redis_handler: SyncRedisHandlerProtocol,
-        providers: set[str] = _ALL_PROVIDERS,
+        providers: Collection[str] = _ALL_PROVIDERS,
         ttl: int = 3600,
     ) -> None:
         self.redis_handler = redis_handler
@@ -525,13 +525,13 @@ class CloudManager:
     def initialize_agent(self, agent_handler: SyncAgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
-    def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+    def refresh(self, providers: Collection[str] = _ALL_PROVIDERS) -> None:
         if self.redis_handler is not None:
             raise RuntimeError("Use refresh_async() when Redis is enabled")
         self._refresh_providers(providers)
 
     def refresh_async(
-        self, providers: set[str] = _ALL_PROVIDERS, ttl: int = 3600
+        self, providers: Collection[str] = _ALL_PROVIDERS, ttl: int = 3600
     ) -> None:
         if self._store is None:
             self._refresh_providers_via_redis_handler(providers, ttl=ttl)
@@ -564,7 +564,7 @@ class CloudManager:
                     self.ip_ranges[provider] = set()
 
     def _refresh_providers_via_redis_handler(
-        self, providers: set[str], ttl: int = 3600
+        self, providers: Collection[str], ttl: int = 3600
     ) -> None:
         if self.redis_handler is None:
             self._refresh_providers(providers)

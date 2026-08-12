@@ -62,7 +62,7 @@ def test_whitelisted_ip_is_never_escalated(
         "1.1.1.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "trigger",
     )
@@ -86,7 +86,7 @@ def test_falsy_client_ip_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
         "",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "trigger",
     )
@@ -111,7 +111,7 @@ def test_no_threat_no_counter_change_no_ban(
         "1.1.1.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "trigger",
     )
@@ -135,7 +135,7 @@ def test_disabled_by_decorator_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
         "1.1.1.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "trigger",
     )
@@ -165,7 +165,7 @@ def test_never_reads_the_detection_pipeline_when_not_configured(
         "3.3.3.3",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "trigger",
     )
@@ -191,7 +191,7 @@ def test_increments_the_real_detected_threat_category_not_the_synthetic_label(
         "2.2.2.2",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "user_agent",
         "Blocked user agent: curl",
     )
@@ -216,7 +216,7 @@ def test_increments_every_real_detected_category_in_one_call(
         "2.2.2.3",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )
@@ -240,7 +240,7 @@ def test_no_detected_category_falls_back_to_uncategorized(
         "2.2.2.4",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )
@@ -262,7 +262,7 @@ def test_ip_banning_disabled_no_ban(monkeypatch: pytest.MonkeyPatch) -> None:
         "3.3.3.3",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -285,7 +285,7 @@ def test_below_flat_threshold_no_ban(monkeypatch: pytest.MonkeyPatch) -> None:
         "4.4.4.4",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -312,7 +312,7 @@ def test_flat_threshold_met_after_repeated_violations(
         "7.7.7.7",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "user_agent",
         "t",
     )
@@ -326,7 +326,7 @@ def test_flat_threshold_met_after_repeated_violations(
         "7.7.7.7",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "user_agent",
         "t",
     )
@@ -351,7 +351,7 @@ def test_first_violation_bans_immediately_when_threshold_is_one(
         "11.0.0.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )
@@ -379,7 +379,7 @@ def test_per_category_ban_config_overrides_a_high_flat_threshold(
         "9.9.9.9",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "IP blocked by blocked_countries",
     )
@@ -409,7 +409,7 @@ def test_per_category_ban_takes_priority_over_flat_ban(
         "9.9.9.10",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )
@@ -435,7 +435,7 @@ def test_muted_check_logs_suppresses_log(monkeypatch: pytest.MonkeyPatch) -> Non
         "12.0.0.1",
         MagicMock(),
         "ip_security",
-        {"ip_security"},
+        frozenset({"ip_security"}),
         "user_agent",
         "t",
     )
@@ -463,7 +463,7 @@ def test_penetration_attempt_event_emitted_when_banned(
         "13.0.0.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "hit",
     )
@@ -490,7 +490,7 @@ def test_penetration_attempt_event_emitted_when_not_banned(
         "14.0.0.1",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "hit",
     )
@@ -516,7 +516,7 @@ def test_penetration_attempt_event_still_carries_the_synthetic_identity_label(
         "14.0.0.2",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "hit",
     )
@@ -546,7 +546,7 @@ def test_ban_failure_is_swallowed_logged_and_made_visible(
         "40.0.0.1",
         logger,
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -582,7 +582,7 @@ def test_redis_error_during_ban_is_swallowed_logged_and_made_visible(
         "42.0.0.1",
         logger,
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -619,7 +619,7 @@ def test_ban_and_event_bus_both_failing_does_not_raise(
         "43.0.0.1",
         logger,
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -657,7 +657,7 @@ def test_a_broken_log_sink_never_escapes(
         "44.0.0.1",
         logger,
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -684,7 +684,7 @@ def test_bounds_suspicious_request_counts_size(
         "3.3.3.3",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_restriction",
         "t",
     )
@@ -716,7 +716,7 @@ def test_touching_an_entry_protects_it_from_a_fresh_ip_flood(
             client_ip,
             MagicMock(),
             "ip_security",
-            set(),
+            frozenset(),
             "ip_blocked",
             "t",
         )
@@ -757,7 +757,7 @@ def test_untouched_entry_is_the_first_evicted_when_over_capacity(
             ip,
             MagicMock(),
             "ip_security",
-            set(),
+            frozenset(),
             "ip_blocked",
             "t",
         )
@@ -770,7 +770,7 @@ def test_untouched_entry_is_the_first_evicted_when_over_capacity(
         "b",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )
@@ -783,7 +783,7 @@ def test_untouched_entry_is_the_first_evicted_when_over_capacity(
         "d",
         MagicMock(),
         "ip_security",
-        set(),
+        frozenset(),
         "ip_blocked",
         "t",
     )

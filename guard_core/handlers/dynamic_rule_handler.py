@@ -263,6 +263,18 @@ class DynamicRuleManager:
     async def _apply_country_rules(
         self, blocked: list[str], allowed: list[str]
     ) -> None:
+        if (
+            (blocked or allowed)
+            and self.config.geo_ip_handler is None
+            and not self.config.ipinfo_token
+        ):
+            self.logger.warning(
+                "Dynamic rule: country rules cannot take effect (blocked="
+                f"{blocked}, allowed={allowed}); no geo_ip_handler or "
+                "ipinfo_token is configured to resolve IPs to countries"
+            )
+            return
+
         if blocked:
             normalized_blocked = frozenset(c.upper() for c in blocked)
             self.config.blocked_countries = normalized_blocked
@@ -295,7 +307,9 @@ class DynamicRuleManager:
             )
 
     async def _apply_cloud_provider_rules(self, providers: set[str]) -> None:
-        valid = {p for p in providers if p.partition(":!")[0] in VALID_CLOUD_PROVIDERS}
+        valid = frozenset(
+            p for p in providers if p.partition(":!")[0] in VALID_CLOUD_PROVIDERS
+        )
         self.config.block_cloud_providers = valid
         invalid = providers - valid
         if invalid:

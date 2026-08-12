@@ -126,7 +126,7 @@ def test_is_request_https_trust_disabled(
 def test_is_request_https_no_trusted_proxies(
     validator: RequestValidator, mock_request: Any
 ) -> None:
-    validator.context.config.trusted_proxies = []
+    validator.context.config.trusted_proxies = ()
     mock_request.url_scheme = "http"
     mock_request.headers = {"X-Forwarded-Proto": "https"}
 
