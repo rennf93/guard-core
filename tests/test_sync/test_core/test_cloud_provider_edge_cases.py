@@ -13,7 +13,7 @@ from guard_core.sync.decorators.base import RouteConfig
 @pytest.fixture
 def mock_middleware() -> Mock:
     config = SecurityConfig()
-    config.block_cloud_providers = {"aws", "gcp"}
+    config.block_cloud_providers = frozenset({"AWS", "GCP"})
     config.passive_mode = False
 
     middleware = Mock()

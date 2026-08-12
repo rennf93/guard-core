@@ -25,7 +25,7 @@ def security_config() -> SecurityConfig:
     config = SecurityConfig()
     config.enforce_https = True
     config.trust_x_forwarded_proto = True
-    config.trusted_proxies = ["192.168.1.0/24", "10.0.0.1"]
+    config.trusted_proxies = ("192.168.1.0/24", "10.0.0.1")
     return config
 
 

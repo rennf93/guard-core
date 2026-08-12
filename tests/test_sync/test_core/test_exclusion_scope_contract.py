@@ -360,6 +360,8 @@ def test_non_blacklisted_ip_still_passes_through_excluded_path() -> None:
 def test_blocked_country_is_enforced_on_excluded_path() -> None:
     client_ip = "198.51.100.24"
     config = _config()
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        config.geo_ip_handler = MagicMock()
     config.blocked_countries = frozenset({"CN"})
     middleware = _build_middleware(config)
     middleware.geo_ip_handler = MagicMock()

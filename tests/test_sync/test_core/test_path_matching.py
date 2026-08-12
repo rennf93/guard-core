@@ -153,3 +153,81 @@ def test_normalize_url_path_fails_closed_on_invalid_utf8_continuation() -> None:
 
 def test_normalize_url_path_leaves_malformed_percent_sequence_literal() -> None:
     assert normalize_url_path("/static%zz/js") == "/static%zz/js"
+
+
+def test_normalize_url_path_collapses_matrix_param_dot_segment_traversal() -> None:
+    assert normalize_url_path("/static/..;/etc/passwd") == "/etc/passwd"
+
+
+def test_path_is_excluded_matrix_param_dot_segment_traversal_escapes() -> None:
+    assert path_is_excluded("/static/..;/etc/passwd", ["/static"]) is False
+
+
+def test_normalize_url_path_preserves_legitimate_matrix_params() -> None:
+    assert (
+        normalize_url_path("/orders;customer=42/items") == "/orders;customer=42/items"
+    )
+    assert (
+        normalize_url_path("/static/app.js;jsessionid=ABC123")
+        == "/static/app.js;jsessionid=ABC123"
+    )
+
+
+def test_path_is_excluded_matrix_param_at_prefix_boundary_fails_closed() -> None:
+    assert path_is_excluded("/static;version=2/app.js", ["/static"]) is False
+
+
+def test_path_is_excluded_matrix_param_nested_under_excluded_prefix() -> None:
+    assert path_is_excluded("/static/app.js;jsessionid=ABC123", ["/static"]) is True
+
+
+def test_normalize_url_path_collapses_single_dot_segment_with_matrix_params() -> None:
+    assert normalize_url_path("/static/.;x/js/app.js") == "/static/js/app.js"
+
+
+def test_path_is_excluded_single_dot_segment_matrix_param_stays_excluded() -> None:
+    assert path_is_excluded("/static/.;x/js/app.js", ["/static"]) is True
+
+
+def test_normalize_url_path_collapses_dot_segment_with_multi_matrix_params() -> None:
+    assert normalize_url_path("/static/..;a=1;b=2/etc/passwd") == "/etc/passwd"
+
+
+@pytest.mark.parametrize("encoded_semicolon", ["%3b", "%3B"])
+def test_normalize_url_path_collapses_percent_encoded_semicolon_dot_segment(
+    encoded_semicolon: str,
+) -> None:
+    url_path = f"/static/..{encoded_semicolon}/etc/passwd"
+    assert normalize_url_path(url_path) == "/etc/passwd"
+    assert path_is_excluded(url_path, ["/static"]) is False
+
+
+def test_normalize_url_path_collapses_double_encoded_semicolon_dot_segment() -> None:
+    encoded = _nested_percent_encode("..;", 2)
+    url_path = f"/static/{encoded}/etc/passwd"
+    assert normalize_url_path(url_path) == "/etc/passwd"
+    assert path_is_excluded(url_path, ["/static"]) is False
+
+
+def test_normalize_url_path_collapses_backslash_delimited_dot_segment_params() -> None:
+    assert normalize_url_path("/static\\..;\\etc\\passwd") == "/etc/passwd"
+
+
+def test_normalize_url_path_leaves_lone_semicolon_segment_literal() -> None:
+    assert normalize_url_path("/static/;/etc/passwd") == "/static/;/etc/passwd"
+
+
+def test_path_is_excluded_lone_semicolon_segment_stays_excluded() -> None:
+    assert path_is_excluded("/static/;/etc/passwd", ["/static"]) is True
+
+
+def test_normalize_url_path_leaves_empty_base_matrix_param_segment_literal() -> None:
+    assert normalize_url_path("/static/;foo/js") == "/static/;foo/js"
+
+
+def test_normalize_url_path_leaves_comma_delimited_segment_literal() -> None:
+    assert normalize_url_path("/static/..,foo/etc") == "/static/..,foo/etc"
+
+
+def test_path_is_excluded_comma_delimited_segment_is_not_a_dot_segment() -> None:
+    assert path_is_excluded("/static/..,foo/etc", ["/static"]) is True

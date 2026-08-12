@@ -38,7 +38,7 @@ def _req(rc: RouteConfig, ip: str = "1.2.3.4") -> Mock:
 async def test_route_whitelist_is_not_global_trust(_mock_log: Any) -> None:
     cfg = SecurityConfig()
     cfg.passive_mode = False
-    cfg.blacklist = ["1.2.3.4"]
+    cfg.blacklist = ("1.2.3.4",)
     rc = RouteConfig()
     rc.ip_whitelist = ["1.2.3.4"]
     rc.rate_limit = 1
@@ -101,7 +101,7 @@ async def test_route_whitelisted_ip_still_scanned_for_attacks(_mock_log: Any) ->
 async def test_cloud_block_on_route_whitelisted_ip_is_coherent(_mock_log: Any) -> None:
     cfg = SecurityConfig()
     cfg.passive_mode = False
-    cfg.block_cloud_providers = {"AWS"}
+    cfg.block_cloud_providers = frozenset({"AWS"})
     rc = RouteConfig()
     rc.ip_whitelist = ["1.2.3.4"]
     req = _req(rc)

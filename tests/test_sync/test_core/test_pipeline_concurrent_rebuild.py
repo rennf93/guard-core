@@ -65,7 +65,7 @@ def test_concurrent_rebuild_self_heals_a_lost_check() -> None:
     slow_thread.start()
     assert build_started.wait(timeout=5)
 
-    config.block_cloud_providers = {"AWS"}
+    config.block_cloud_providers = frozenset({"AWS"})
 
     fast_thread = threading.Thread(target=pipeline._rebuild_if_stale)
     fast_thread.start()

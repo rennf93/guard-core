@@ -4,7 +4,7 @@ import ipaddress
 import logging
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -494,7 +494,9 @@ class CloudManager:
             f"+{len(added)} added, -{len(removed)} removed"
         )
 
-    async def _refresh_providers(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+    async def _refresh_providers(
+        self, providers: Collection[str] = _ALL_PROVIDERS
+    ) -> None:
         for provider in providers:
             try:
                 ranges, regions = await _fetch_provider_ranges(provider)
@@ -512,7 +514,7 @@ class CloudManager:
     async def initialize_redis(
         self,
         redis_handler: RedisHandlerProtocol,
-        providers: set[str] = _ALL_PROVIDERS,
+        providers: Collection[str] = _ALL_PROVIDERS,
         ttl: int = 3600,
     ) -> None:
         self.redis_handler = redis_handler
@@ -525,13 +527,13 @@ class CloudManager:
     async def initialize_agent(self, agent_handler: AgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
-    async def refresh(self, providers: set[str] = _ALL_PROVIDERS) -> None:
+    async def refresh(self, providers: Collection[str] = _ALL_PROVIDERS) -> None:
         if self.redis_handler is not None:
             raise RuntimeError("Use refresh_async() when Redis is enabled")
         await self._refresh_providers(providers)
 
     async def refresh_async(
-        self, providers: set[str] = _ALL_PROVIDERS, ttl: int = 3600
+        self, providers: Collection[str] = _ALL_PROVIDERS, ttl: int = 3600
     ) -> None:
         if self._store is None:
             await self._refresh_providers_via_redis_handler(providers, ttl=ttl)
@@ -564,7 +566,7 @@ class CloudManager:
                     self.ip_ranges[provider] = set()
 
     async def _refresh_providers_via_redis_handler(
-        self, providers: set[str], ttl: int = 3600
+        self, providers: Collection[str], ttl: int = 3600
     ) -> None:
         if self.redis_handler is None:
             await self._refresh_providers(providers)

@@ -15,7 +15,7 @@ class SecurityCheckPipeline:
     def __init__(
         self,
         checks: list[SecurityCheck],
-        muted_check_logs: set[str] | None = None,
+        muted_check_logs: frozenset[str] | None = None,
         *,
         config: SecurityConfig | None = None,
         rebuild_checks: Callable[[], list[SecurityCheck]] | None = None,
@@ -23,7 +23,7 @@ class SecurityCheckPipeline:
         route_config_revision: Callable[[], int | None] | None = None,
     ) -> None:
         self.checks = checks
-        self.muted_check_logs = muted_check_logs or set()
+        self.muted_check_logs = muted_check_logs or frozenset()
         self.logger = logging.getLogger(__name__)
         self._config = config
         self._rebuild_checks = rebuild_checks

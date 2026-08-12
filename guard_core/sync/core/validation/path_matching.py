@@ -29,9 +29,15 @@ def _decode_percent_recursive(raw_path: str) -> str | None:
     return decoded
 
 
+def _fold_dot_segment_params(segment: str) -> str:
+    base = segment.split(";", 1)[0]
+    return base if base in (".", "..") else segment
+
+
 def _collapse_dot_segments(decoded: str) -> str:
     segments: list[str] = []
-    for segment in decoded.replace("\\", "/").split("/"):
+    for raw_segment in decoded.replace("\\", "/").split("/"):
+        segment = _fold_dot_segment_params(raw_segment)
         if segment in ("", "."):
             continue
         if segment == "..":

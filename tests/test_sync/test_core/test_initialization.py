@@ -13,7 +13,7 @@ def security_config() -> SecurityConfig:
     config.enable_redis = True
     config.enable_agent = True
     config.enable_dynamic_rules = False
-    config.block_cloud_providers = set()
+    config.block_cloud_providers = frozenset()
     return config
 
 
@@ -135,7 +135,7 @@ def test_initialize_redis_handlers_with_cloud(
     security_config: SecurityConfig,
     mock_redis_handler: Mock,
 ) -> None:
-    security_config.block_cloud_providers = {"aws", "gcp"}
+    security_config.block_cloud_providers = frozenset({"AWS", "GCP"})
 
     with (
         patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
@@ -253,7 +253,7 @@ def test_initialize_agent_for_handlers_with_cloud(
     security_config: SecurityConfig,
     mock_agent_handler: Mock,
 ) -> None:
-    security_config.block_cloud_providers = {"aws"}
+    security_config.block_cloud_providers = frozenset({"AWS"})
 
     with (
         patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
@@ -606,8 +606,8 @@ def test_build_composite_handler_no_agent(security_config: SecurityConfig) -> No
 def test_build_event_filter(security_config: SecurityConfig) -> None:
     from guard_core.sync.core.events.event_types import EventFilter
 
-    security_config.muted_event_types = {"penetration_attempt"}
-    security_config.muted_metric_types = {"response_time"}
+    security_config.muted_event_types = frozenset({"penetration_attempt"})
+    security_config.muted_metric_types = frozenset({"response_time"})
     initializer = HandlerInitializer(config=security_config)
     result = initializer.build_event_filter()
     assert isinstance(result, EventFilter)

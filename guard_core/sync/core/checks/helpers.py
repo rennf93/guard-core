@@ -240,7 +240,7 @@ def _try_escalation_flat_ban(
     trigger_info: str,
     logger: logging.Logger,
     check_name: str,
-    muted_check_logs: set[str],
+    muted_check_logs: frozenset[str],
 ) -> bool:
     total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
     if total < config.auto_ban_threshold:
@@ -267,7 +267,7 @@ def _try_escalation_per_category_ban(
     trigger_info: str,
     logger: logging.Logger,
     check_name: str,
-    muted_check_logs: set[str],
+    muted_check_logs: frozenset[str],
     threat_categories: Collection[str],
 ) -> bool:
     ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
@@ -301,7 +301,7 @@ def _try_escalation_bans(
     trigger_info: str,
     logger: logging.Logger,
     check_name: str,
-    muted_check_logs: set[str],
+    muted_check_logs: frozenset[str],
     threat_categories: Collection[str],
 ) -> bool:
     if not config.enable_ip_banning:
@@ -363,7 +363,7 @@ def escalate_identity_violation(
     client_ip: str,
     logger: logging.Logger,
     check_name: str,
-    muted_check_logs: set[str],
+    muted_check_logs: frozenset[str],
     violation_category: str,
     trigger_info: str,
 ) -> None:

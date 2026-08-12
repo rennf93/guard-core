@@ -65,7 +65,7 @@ def _patches(ip_security_check: IpSecurityCheck) -> Any:
 async def test_decorated_route_still_enforces_global_blacklist(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.blacklist = ["1.2.3.4"]
+    security_config.blacklist = ("1.2.3.4",)
     route_config = RouteConfig()
     route_config.rate_limit = 5
 
@@ -81,7 +81,7 @@ async def test_decorated_route_still_enforces_global_blacklist(
 async def test_route_ip_whitelist_overrides_global_blacklist(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.blacklist = ["1.2.3.4"]
+    security_config.blacklist = ("1.2.3.4",)
     route_config = RouteConfig()
     route_config.ip_whitelist = ["1.2.3.4"]
     request = _request_for(route_config)
@@ -97,7 +97,7 @@ async def test_route_country_rules_keep_global_ip_blacklist_active(
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
-    security_config.blacklist = ["1.2.3.4"]
+    security_config.blacklist = ("1.2.3.4",)
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="US")
     route_config = RouteConfig()
@@ -116,7 +116,7 @@ async def test_route_country_rules_keep_global_ip_blacklist_active(
 async def test_route_without_ip_fields_leaves_global_whitelist_semantics(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["9.9.9.9"]
+    security_config.whitelist = ("9.9.9.9",)
     route_config = RouteConfig()
     route_config.rate_limit = 5
     request = _request_for(route_config)
@@ -130,7 +130,7 @@ async def test_route_without_ip_fields_leaves_global_whitelist_semantics(
 async def test_global_whitelist_match_sets_is_whitelisted_with_route_config(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["1.2.3.4"]
+    security_config.whitelist = ("1.2.3.4",)
     route_config = RouteConfig()
     route_config.rate_limit = 5
     request = _request_for(route_config)
@@ -161,7 +161,7 @@ async def test_route_whitelist_with_unparseable_ip_blocks_at_route_step(
 async def test_globally_whitelisted_config_with_unparseable_client_ip_not_whitelisted(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["1.2.3.4"]
+    security_config.whitelist = ("1.2.3.4",)
     route_config = RouteConfig()
     route_config.ip_whitelist = ["9.9.9.9"]
     request = _request_for(route_config)
@@ -192,7 +192,7 @@ async def test_global_check_unparseable_ip_with_route_whitelist_not_whitelisted(
 async def test_route_blacklist_only_still_enforces_global_whitelist(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["1.1.1.1"]
+    security_config.whitelist = ("1.1.1.1",)
     route_config = RouteConfig()
     route_config.ip_blacklist = ["6.6.6.6"]
 
@@ -209,7 +209,7 @@ async def test_route_blacklist_only_still_enforces_global_whitelist(
 async def test_route_blacklist_only_allows_globally_whitelisted_client(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["1.2.3.4"]
+    security_config.whitelist = ("1.2.3.4",)
     route_config = RouteConfig()
     route_config.ip_blacklist = ["6.6.6.6"]
     request = _request_for(route_config)
@@ -225,8 +225,10 @@ async def test_route_blocked_countries_only_still_enforces_global_blocked_countr
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
-    security_config.whitelist = []
-    security_config.blacklist = []
+    security_config.whitelist = ()
+    security_config.blacklist = ()
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"CN"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
@@ -246,7 +248,7 @@ async def test_route_blocked_countries_only_still_enforces_global_blocked_countr
 async def test_route_whitelist_match_overrides_global_whitelist_default_deny(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.whitelist = ["1.1.1.1"]
+    security_config.whitelist = ("1.1.1.1",)
     route_config = RouteConfig()
     route_config.ip_whitelist = ["1.2.3.4"]
     request = _request_for(route_config)
@@ -299,6 +301,8 @@ async def test_route_ip_whitelist_match_does_not_bypass_global_blocked_countries
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"CN"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
@@ -321,6 +325,8 @@ async def test_route_whitelist_countries_match_skips_global_blocked_countries(
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"US"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="US")
@@ -353,7 +359,7 @@ async def test_global_cloud_provider_block_names_provider_not_allowlist(
 ) -> None:
     from guard_core.handlers.cloud_handler import cloud_handler
 
-    security_config.block_cloud_providers = {"AWS"}
+    security_config.block_cloud_providers = frozenset({"AWS"})
 
     with (
         patch.object(cloud_handler, "is_cloud_ip", return_value=True),
@@ -382,6 +388,8 @@ async def test_global_country_block_names_the_country(
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
+    with pytest.warns(UserWarning, match="will never be consulted"):
+        security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"RU"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="RU")
@@ -403,7 +411,7 @@ async def test_global_country_block_names_the_country(
 async def test_global_blacklist_block_keeps_existing_reason(
     ip_security_check: IpSecurityCheck, security_config: SecurityConfig
 ) -> None:
-    security_config.blacklist = ["1.2.3.4"]
+    security_config.blacklist = ("1.2.3.4",)
 
     result = await ip_security_check.check(_request_for(None))
 
