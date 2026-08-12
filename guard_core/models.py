@@ -2,7 +2,7 @@ import difflib
 import importlib.util
 import logging
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -18,6 +18,7 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from guard_core import __version__
 from guard_core.exceptions import AgentPackageNotInstalledError
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 from guard_core.protocols.cloud_ip_store_protocol import (
@@ -46,6 +47,57 @@ def cloud_blocking_enabled(config: "SecurityConfig") -> bool:
     return bool(config.block_cloud_providers) or config.enable_dynamic_rules
 
 
+_COUNTRY_RULE_FIELDS = frozenset({"blocked_countries", "whitelist_countries"})
+
+
+def _validate_exclude_paths_value(v: list[str], *, stacklevel: int) -> list[str]:
+    from guard_core.core.validation.path_matching import normalize_url_path
+
+    for entry in v:
+        normalized = normalize_url_path(entry)
+        if normalized is None:
+            raise ValueError(
+                f"exclude_paths entry {entry!r} could not be normalized "
+                "(malformed percent-encoding or invalid UTF-8); it would "
+                "silently exclude nothing at request time. Fix or remove it."
+            )
+        if normalized != "/":
+            continue
+        if entry != "/":
+            raise ValueError(
+                f"exclude_paths entry {entry!r} normalizes to the root "
+                "path '/', which would exclude the entire application "
+                "from all security checks. Remove it, or configure the "
+                "literal '/' if you really intend to exclude everything."
+            )
+        warnings.warn(
+            "exclude_paths contains the literal '/' entry, which "
+            "excludes the entire application from all security checks "
+            "(IP banning, rate limiting, penetration detection, "
+            "everything). Confirm this is intentional.",
+            UserWarning,
+            stacklevel=stacklevel,
+        )
+    return v
+
+
+def _warn_country_allowlist_shadows_blocklist(*, stacklevel: int) -> None:
+    warnings.warn(
+        "blocked_countries is ignored when whitelist_countries is "
+        "non-empty: a non-empty whitelist_countries is restrictive "
+        "(only listed countries pass), so blocked_countries has no "
+        "effect. Use one or the other.",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+
+
+def _normalized_country_value(value: Any) -> Any:
+    if isinstance(value, list | tuple | set | frozenset):
+        return frozenset(str(item).upper() for item in value)
+    return value
+
+
 class ThreatBanConfig(BaseModel):
     threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
     duration: int = Field(ge=1, description="Ban duration in seconds.")
@@ -61,19 +113,62 @@ class BehaviorRuleConfig(BaseModel):
     correlate_with_detection: bool = False
 
 
+def return_pattern_requires_response_body(pattern: str) -> bool:
+    return not pattern.startswith("status:")
+
+
+def _validate_return_pattern_body_scan(pattern: str, config: "SecurityConfig") -> None:
+    if not return_pattern_requires_response_body(pattern):
+        return
+    if config.behavior_scan_response_body:
+        return
+    raise ValueError(
+        f"return_pattern rule with pattern {pattern!r} requires reading the "
+        "response body, but behavior_scan_response_body is False. This rule "
+        "would never match: set behavior_scan_response_body=True to enable "
+        "response-body inspection, or use a status: pattern instead."
+    )
+
+
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     _revision: int = PrivateAttr(default=0)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        if name == "exclude_paths":
+            value = _validate_exclude_paths_value(value, stacklevel=3)
+
+        should_warn = False
+        if name in _COUNTRY_RULE_FIELDS:
+            new_whitelist = (
+                value if name == "whitelist_countries" else self.whitelist_countries
+            )
+            new_blocked = (
+                value if name == "blocked_countries" else self.blocked_countries
+            )
+            if new_whitelist and new_blocked:
+                should_warn = _normalized_country_value(
+                    value
+                ) != _normalized_country_value(getattr(self, name, None))
+
         super().__setattr__(name, value)
         if name != "_revision":
             object.__setattr__(self, "_revision", self._revision + 1)
+        if should_warn:
+            _warn_country_allowlist_shadows_blocklist(stacklevel=3)
 
     @property
     def revision(self) -> int:
         return self._revision
+
+    def model_copy(
+        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
+    ) -> Self:
+        copied = super().model_copy(update=update, deep=deep)
+        if update and "exclude_paths" in update:
+            _validate_exclude_paths_value(copied.exclude_paths, stacklevel=3)
+        return copied
 
     trusted_proxies: list[str] = Field(
         default_factory=list,
@@ -223,6 +318,71 @@ class SecurityConfig(BaseModel):
             "Behaviour rules applied to every route, in addition to any "
             "decorator-specified rules. Useful for global 404 tracking."
         ),
+    )
+
+    behavior_scan_response_body: bool = Field(
+        default=False,
+        description=(
+            "Read response bodies to evaluate return_pattern behaviour rules "
+            "whose pattern is not a status: pattern (json:, regex:, or a bare "
+            "substring). Default off: with this False, no response body is "
+            "ever read for pattern matching, and such rules never match -- "
+            "construction rejects one instead of accepting a rule that would "
+            "silently no-op (see the return_pattern validator below). "
+            "status: patterns match on status_code alone and are unaffected "
+            "by this flag. Because the response body is application-produced "
+            "rather than attacker-supplied, enabling this on an endpoint that "
+            "streams large responses (a file download, an export, an SSE "
+            "stream) means every response through that endpoint is now read "
+            "up to behavior_max_response_body_inspect_bytes on every request; "
+            "size the cap and pick routes accordingly."
+        ),
+    )
+
+    behavior_max_response_body_inspect_bytes: int = Field(
+        default=262144,
+        description=(
+            "Maximum bytes read from the start of a response body and held "
+            "for return_pattern inspection when behavior_scan_response_body "
+            "is True. This bounds what guard-core retains, not what the "
+            "application produces: an adapter's BoundedResponseBodyReader "
+            "implementation must buffer at most this many bytes internally "
+            "and must still deliver the response's full, unbounded body to "
+            "the client afterward -- a streaming response stays streaming. "
+            "Only this leading prefix is ever scanned; a payload placed "
+            "after it, or a signature split across the boundary, is not "
+            "detected. That tradeoff is inherent to bounded-memory scanning. "
+            "Distinct from detection_max_body_inspect_bytes, which bounds "
+            "request bodies for penetration detection, not response bodies "
+            "for behaviour rules."
+        ),
+        ge=1024,
+        le=10485760,
+    )
+
+    body_read_timeout: float = Field(
+        default=3.0,
+        description=(
+            "Seconds to wait for an adapter's read_body_prefix or body call "
+            "before giving up. Applies to the ASYNC guard_core tree only "
+            "(guard_core.utils, guard_core.handlers.behavior_handler): it "
+            "bounds both the request-body detection read and the "
+            "response-body behaviour-rule read against a stalled or "
+            "misbehaving adapter/stream (a stalled SSE producer, a long-poll "
+            "that never yields, a buggy implementation) via asyncio.wait_for; "
+            "on timeout the body is treated as unavailable, the same "
+            "fail-closed outcome already used when the adapter raises. The "
+            "SYNC tree (guard_core.sync) calls the adapter's read directly "
+            "and does not use this value at all -- a blocking call cannot be "
+            "cancelled from the outside without the thread-pool machinery "
+            "guard-core removed for leaking threads and silently dropping "
+            "detections under ordinary concurrent load, so a stalled sync "
+            "adapter read stalls the request exactly like any other slow "
+            "call in a WSGI application. Bound it with the WSGI server's own "
+            "request timeout instead (gunicorn --timeout, uWSGI harakiri)."
+        ),
+        gt=0.0,
+        le=30.0,
     )
 
     custom_log_file: str | None = Field(
@@ -620,7 +780,9 @@ class SecurityConfig(BaseModel):
     )
 
     dynamic_rule_interval: int = Field(
-        default=300, description="Interval in seconds between dynamic rule updates"
+        default=300,
+        ge=60,
+        description="Interval in seconds between dynamic rule updates",
     )
 
     agent_status_interval: int = Field(
@@ -661,11 +823,18 @@ class SecurityConfig(BaseModel):
     detection_max_body_inspect_bytes: int = Field(
         default=262144,
         description=(
-            "Maximum request body size in bytes read and inspected for penetration "
-            "detection. When the request's Content-Length exceeds this, the body is "
-            "not read or scanned and the request proceeds, bounding memory on the "
-            "detection hot path. Distinct from detection_max_content_length (the regex "
-            "scan window) and max_request_size (the 413 size gate)."
+            "Maximum bytes read from the start of the request body and inspected "
+            "for penetration detection. When the request's Content-Length exceeds "
+            "this, the body is not read or scanned and the request proceeds, "
+            "bounding memory on the detection hot path. This is a memory bound, "
+            "not full-body coverage: only this leading prefix is ever scanned, so "
+            "a payload placed after the first N bytes, or a signature split across "
+            "the boundary, is not detected. That tradeoff is inherent to "
+            "bounded-memory scanning and cannot be closed without reading the "
+            "whole body; raise the cap to shrink the blind spot, at the cost of "
+            "more memory held per inspected request. Distinct from "
+            "detection_max_content_length (the regex scan window) and "
+            "max_request_size (the 413 size gate)."
         ),
         ge=1024,
         le=10485760,
@@ -969,14 +1138,7 @@ class SecurityConfig(BaseModel):
     @model_validator(mode="after")
     def warn_country_allowlist_shadows_blocklist(self) -> Self:
         if self.whitelist_countries and self.blocked_countries:
-            warnings.warn(
-                "blocked_countries is ignored when whitelist_countries is "
-                "non-empty: a non-empty whitelist_countries is restrictive "
-                "(only listed countries pass), so blocked_countries has no "
-                "effect. Use one or the other.",
-                UserWarning,
-                stacklevel=2,
-            )
+            _warn_country_allowlist_shadows_blocklist(stacklevel=4)
         return self
 
     @model_validator(mode="after")
@@ -996,6 +1158,14 @@ class SecurityConfig(BaseModel):
                 "enable_enrichment=False."
             )
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_global_return_pattern_body_scan(self) -> Self:
+        for rule in self.global_behavior_rules:
+            if rule.rule_type != "return_pattern" or not rule.pattern:
+                continue
+            _validate_return_pattern_body_scan(rule.pattern, self)
         return self
 
     @model_validator(mode="after")
@@ -1069,6 +1239,10 @@ class SecurityConfig(BaseModel):
             )
         return v
 
+    @field_validator("exclude_paths")
+    def validate_exclude_paths(cls, v: list[str]) -> list[str]:
+        return _validate_exclude_paths_value(v, stacklevel=4)
+
     def to_agent_config(self) -> "AgentConfig | None":
         if not self.enable_agent or not self.agent_api_key:
             return None
@@ -1102,6 +1276,7 @@ class SecurityConfig(BaseModel):
                 "max_payload_size": self.agent_max_payload_size,
                 "project_encryption_key": self.agent_project_encryption_key,
                 "guard_version": self.agent_guard_version,
+                "guard_core_version": __version__,
                 "compression_enabled": self.agent_compression_enabled,
                 "compression_threshold": self.agent_compression_threshold,
                 "install_id": self.agent_install_id,
