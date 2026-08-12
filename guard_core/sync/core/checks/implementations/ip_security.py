@@ -5,7 +5,7 @@ from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     check_country_access,
     check_route_ip_access,
-    escalate_suspicious_if_threat,
+    escalate_identity_violation,
 )
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
@@ -13,7 +13,7 @@ from guard_core.sync.core.events.event_types import (
 )
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-from guard_core.sync.utils import check_ip_access, log_activity
+from guard_core.sync.utils import IpAccessResult, check_ip_access, log_activity
 
 if TYPE_CHECKING:
     from guard_core.sync.protocols.middleware_protocol import (
@@ -44,6 +44,8 @@ def _resolve_is_whitelisted(
 
 
 class IpSecurityCheck(SecurityCheck):
+    enforced_on_excluded_paths = True
+
     def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
         super().__init__(middleware)
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager
@@ -127,7 +129,7 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
-            escalate_suspicious_if_threat(
+            escalate_identity_violation(
                 self.middleware,
                 self.config,
                 self.ip_ban_manager,
@@ -136,6 +138,8 @@ class IpSecurityCheck(SecurityCheck):
                 self.logger,
                 self.check_name,
                 self.config.muted_check_logs,
+                "ip_restriction",
+                f"IP not allowed by route config: {client_ip}",
             )
             return self.middleware.create_error_response(
                 status_code=403,
@@ -144,12 +148,11 @@ class IpSecurityCheck(SecurityCheck):
 
         return None
 
-    def _check_global_ip_restrictions(
+    def _resolve_global_ip_access(
         self,
-        request: SyncGuardRequest,
         client_ip: str,
-        route_config: RouteConfig | None = None,
-    ) -> GuardResponse | None:
+        route_config: RouteConfig | None,
+    ) -> tuple[IpAccessResult, bool]:
         skip_ip_lists = _route_overrides_ip_lists(route_config)
         skip_countries = _route_country_whitelist_matched(
             client_ip, route_config, self.middleware.geo_ip_handler
@@ -163,9 +166,24 @@ class IpSecurityCheck(SecurityCheck):
             skip_countries=skip_countries,
         )
 
-        request.state.is_whitelisted = _resolve_is_whitelisted(
+        is_whitelisted = _resolve_is_whitelisted(
             client_ip, route_config, self.config, access_result.allowed, skip_ip_lists
         )
+        return access_result, is_whitelisted
+
+    def _check_global_ip_restrictions(
+        self,
+        request: SyncGuardRequest,
+        client_ip: str,
+        route_config: RouteConfig | None = None,
+        *,
+        escalate: bool = True,
+        precomputed: tuple[IpAccessResult, bool] | None = None,
+    ) -> GuardResponse | None:
+        access_result, is_whitelisted = precomputed or self._resolve_global_ip_access(
+            client_ip, route_config
+        )
+        request.state.is_whitelisted = is_whitelisted
 
         if access_result.allowed:
             return None
@@ -200,16 +218,19 @@ class IpSecurityCheck(SecurityCheck):
         )
 
         if not self.config.passive_mode:
-            escalate_suspicious_if_threat(
-                self.middleware,
-                self.config,
-                self.ip_ban_manager,
-                request,
-                client_ip,
-                self.logger,
-                self.check_name,
-                self.config.muted_check_logs,
-            )
+            if escalate:
+                escalate_identity_violation(
+                    self.middleware,
+                    self.config,
+                    self.ip_ban_manager,
+                    request,
+                    client_ip,
+                    self.logger,
+                    self.check_name,
+                    self.config.muted_check_logs,
+                    "ip_blocked",
+                    access_result.reason,
+                )
             return self.middleware.create_error_response(
                 status_code=403,
                 default_message="Forbidden",
@@ -227,14 +248,23 @@ class IpSecurityCheck(SecurityCheck):
         if ban_response:
             return ban_response
 
+        if getattr(request.state, "guard_exclusion_scoped", False) is True:
+            return self._check_global_ip_restrictions(
+                request, client_ip, None, escalate=False
+            )
+
         if self.middleware.route_resolver.should_bypass_check("ip", route_config):
             return None
 
+        precomputed = None
         if route_config:
+            precomputed = self._resolve_global_ip_access(client_ip, route_config)
             route_response = self._check_route_ip_restrictions(
                 request, client_ip, route_config
             )
             if route_response:
                 return route_response
 
-        return self._check_global_ip_restrictions(request, client_ip, route_config)
+        return self._check_global_ip_restrictions(
+            request, client_ip, route_config, precomputed=precomputed
+        )

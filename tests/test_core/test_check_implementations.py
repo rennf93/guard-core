@@ -1381,7 +1381,7 @@ async def test_suspicious_activity_not_detected() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         new_callable=AsyncMock,
         return_value=DetectionResult(is_threat=False, trigger_info="not_enabled"),
     ):
@@ -1396,7 +1396,7 @@ async def test_suspicious_activity_disabled_by_decorator() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         new_callable=AsyncMock,
         return_value=DetectionResult(
             is_threat=False, trigger_info="disabled_by_decorator"
@@ -1416,7 +1416,7 @@ async def test_suspicious_activity_detected_active() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         new_callable=AsyncMock,
         return_value=DetectionResult(is_threat=True, trigger_info="sql_injection"),
     ):
@@ -1434,7 +1434,7 @@ async def test_suspicious_activity_detected_passive() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         new_callable=AsyncMock,
         return_value=DetectionResult(is_threat=True, trigger_info="xss"),
     ):
@@ -1456,7 +1456,7 @@ async def test_suspicious_activity_auto_ban() -> None:
     req.state.is_whitelisted = False
     req.state.client_ip = "1.2.3.4"
     with patch(
-        f"{_IMPL}.suspicious_activity.detect_penetration_patterns",
+        f"{_IMPL}.suspicious_activity.get_cached_detection_result",
         new_callable=AsyncMock,
         return_value=DetectionResult(is_threat=True, trigger_info="sqli"),
     ):

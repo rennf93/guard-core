@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 
@@ -108,7 +109,7 @@ async def test_handle_passthrough_no_client(
     mock_response_factory.apply_modifier.assert_called_once()
 
 
-async def test_handle_passthrough_excluded_path(
+async def test_handle_passthrough_excluded_path_falls_through_marked_exclusion_scoped(
     bypass_handler: BypassHandler,
     mock_request: Mock,
     call_next: Callable[[Mock], Awaitable[Mock]],
@@ -122,10 +123,28 @@ async def test_handle_passthrough_excluded_path(
         cast(Callable[[GuardRequest], Awaitable[GuardResponse]], call_next),
     )
 
-    assert response is not None
-    assert response.status_code == 200
+    assert response is None
+    assert mock_request.state.guard_exclusion_scoped is True
     mock_validator.is_path_excluded.assert_called_once_with(mock_request)
-    mock_response_factory.apply_modifier.assert_called_once()
+    mock_response_factory.apply_modifier.assert_not_called()
+
+
+async def test_handle_passthrough_non_excluded_path_does_not_mark_request(
+    bypass_handler: BypassHandler,
+    mock_request: Mock,
+    call_next: Callable[[Mock], Awaitable[Mock]],
+    mock_validator: Mock,
+) -> None:
+    mock_validator.is_path_excluded.return_value = False
+    mock_request.state = SimpleNamespace()
+
+    response = await bypass_handler.handle_passthrough(
+        mock_request,
+        cast(Callable[[GuardRequest], Awaitable[GuardResponse]], call_next),
+    )
+
+    assert response is None
+    assert not hasattr(mock_request.state, "guard_exclusion_scoped")
 
 
 async def test_handle_passthrough_no_bypass(

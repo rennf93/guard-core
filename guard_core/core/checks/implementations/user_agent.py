@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, ClassVar
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.helpers import (
     check_user_agent_allowed,
-    escalate_suspicious_if_threat,
+    escalate_identity_violation,
     route_config_applies,
 )
 from guard_core.core.events.event_types import (
@@ -94,7 +94,7 @@ class UserAgentCheck(SecurityCheck):
             if not self.config.passive_mode:
                 client_ip = getattr(request.state, "client_ip", None)
                 if client_ip:
-                    await escalate_suspicious_if_threat(
+                    await escalate_identity_violation(
                         self.middleware,
                         self.config,
                         self.ip_ban_manager,
@@ -103,6 +103,8 @@ class UserAgentCheck(SecurityCheck):
                         self.logger,
                         self.check_name,
                         self.config.muted_check_logs,
+                        "user_agent",
+                        f"Blocked user agent: {user_agent}",
                     )
                 return await self.middleware.create_error_response(
                     status_code=403,

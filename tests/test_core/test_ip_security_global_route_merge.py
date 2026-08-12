@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -54,7 +55,7 @@ def _patches(ip_security_check: IpSecurityCheck) -> Any:
     patch("guard_core.core.checks.implementations.ip_security.log_activity").start()
     patch(
         "guard_core.core.checks.implementations.ip_security."
-        "escalate_suspicious_if_threat",
+        "escalate_identity_violation",
         new=AsyncMock(),
     ).start()
     yield
@@ -155,6 +156,21 @@ async def test_route_whitelist_with_unparseable_ip_blocks_at_route_step(
         Any, ip_security_check.middleware
     ).event_bus.send_middleware_event.await_args
     assert event_call.kwargs["event_type"] == "decorator_violation"
+
+
+async def test_globally_whitelisted_config_with_unparseable_client_ip_not_whitelisted(
+    ip_security_check: IpSecurityCheck, security_config: SecurityConfig
+) -> None:
+    security_config.whitelist = ["1.2.3.4"]
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["9.9.9.9"]
+    request = _request_for(route_config)
+    request.state = SimpleNamespace(client_ip="not-an-ip", route_config=route_config)
+
+    result = await ip_security_check.check(request)
+
+    assert result is not None
+    assert getattr(request.state, "is_whitelisted", False) is False
 
 
 async def test_global_check_unparseable_ip_with_route_whitelist_not_whitelisted(

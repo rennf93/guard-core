@@ -20,8 +20,7 @@ class BypassHandler:
             return await self.context.response_factory.apply_modifier(response)
 
         if await self.context.validator.is_path_excluded(request):
-            response = await call_next(request)
-            return await self.context.response_factory.apply_modifier(response)
+            request.state.guard_exclusion_scoped = True
 
         return None
 

@@ -6,6 +6,7 @@ import pytest
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks.implementations.ip_security import IpSecurityCheck
 from guard_core.sync.core.checks.implementations.user_agent import UserAgentCheck
+from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.utils import IpAccessResult
 
@@ -178,6 +179,177 @@ def test_global_ip_block_passive_mode_no_escalation(
     assert detect_called == []
 
 
+def test_globally_whitelisted_ip_blocked_by_route_whitelist_is_not_whitelisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        whitelist=["24.0.0.1"],
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.is_ip_banned = MagicMock(return_value=False)
+    check.ip_ban_manager = ban
+
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["9.9.9.9"]
+    request = _make_request("24.0.0.1")
+    request.state.route_config = route_config
+
+    with patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"):
+        _patch_detect_threat(monkeypatch, is_threat=False, trigger_info="not_enabled")
+        result = check.check(request)
+
+    assert result is not None
+    assert result.status_code == 403
+    assert request.state.is_whitelisted is False
+    assert mw.suspicious_request_counts == {}
+    ban.ban_ip.assert_not_called()
+
+
+def test_global_whitelist_blocked_by_stricter_route_whitelist_escalates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        whitelist=["203.0.113.0/24"],
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.is_ip_banned = MagicMock(return_value=False)
+    check.ip_ban_manager = ban
+
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["10.0.0.1"]
+    request = _make_request("203.0.113.55")
+    request.state.route_config = route_config
+
+    with patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"):
+        _patch_detect_threat(
+            monkeypatch,
+            is_threat=True,
+            trigger_info="sqli hit",
+            threat_categories=["sqli"],
+        )
+        result = check.check(request)
+
+    assert result is not None
+    assert result.status_code == 403
+    assert request.state.is_whitelisted is False
+    assert mw.suspicious_request_counts["203.0.113.55"] == {"sqli": 1}
+    ban.ban_ip.assert_called_once_with(
+        "203.0.113.55", config.auto_ban_duration, "penetration_attempt"
+    )
+
+
+def test_global_whitelist_blocked_by_route_blacklist_still_escalates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        whitelist=["203.0.113.0/24"],
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.is_ip_banned = MagicMock(return_value=False)
+    check.ip_ban_manager = ban
+
+    route_config = RouteConfig()
+    route_config.ip_blacklist = ["203.0.113.55"]
+    request = _make_request("203.0.113.55")
+    request.state.route_config = route_config
+
+    with patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"):
+        _patch_detect_threat(
+            monkeypatch,
+            is_threat=True,
+            trigger_info="sqli hit",
+            threat_categories=["sqli"],
+        )
+        result = check.check(request)
+
+    assert result is not None
+    assert result.status_code == 403
+    assert mw.suspicious_request_counts["203.0.113.55"] == {"sqli": 1}
+    ban.ban_ip.assert_called_once_with(
+        "203.0.113.55", config.auto_ban_duration, "penetration_attempt"
+    )
+
+
+def test_route_blacklist_without_global_whitelist_escalates_as_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.is_ip_banned = MagicMock(return_value=False)
+    check.ip_ban_manager = ban
+
+    route_config = RouteConfig()
+    route_config.ip_blacklist = ["203.0.113.55"]
+    request = _make_request("203.0.113.55")
+    request.state.route_config = route_config
+
+    with patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"):
+        _patch_detect_threat(
+            monkeypatch,
+            is_threat=True,
+            trigger_info="sqli hit",
+            threat_categories=["sqli"],
+        )
+        result = check.check(request)
+
+    assert result is not None
+    assert result.status_code == 403
+    assert mw.suspicious_request_counts["203.0.113.55"] == {"sqli": 1}
+    ban.ban_ip.assert_called_once_with(
+        "203.0.113.55", config.auto_ban_duration, "penetration_attempt"
+    )
+
+
+def test_global_whitelist_and_route_whitelist_both_containing_ip_is_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        whitelist=["203.0.113.0/24"],
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.is_ip_banned = MagicMock(return_value=False)
+    check.ip_ban_manager = ban
+
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["203.0.113.55"]
+    request = _make_request("203.0.113.55")
+    request.state.route_config = route_config
+
+    with patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"):
+        _patch_detect_threat(monkeypatch, is_threat=False, trigger_info="not_enabled")
+        result = check.check(request)
+
+    assert result is None
+    assert mw.suspicious_request_counts == {}
+    ban.ban_ip.assert_not_called()
+
+
 def test_route_ip_block_with_threat_increments_counter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -188,7 +360,6 @@ def test_route_ip_block_with_threat_increments_counter(
     check = IpSecurityCheck(mw)
     ban = MagicMock()
     check.ip_ban_manager = ban
-    from guard_core.sync.decorators.base import RouteConfig
 
     request = _make_request("24.0.0.1")
 
@@ -206,6 +377,34 @@ def test_route_ip_block_with_threat_increments_counter(
     assert mw.suspicious_request_counts["24.0.0.1"] == {"xss": 1}
 
 
+def test_route_ip_block_no_threat_no_counter_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False, enable_ip_banning=True, auto_ban_threshold=1
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    check.ip_ban_manager = ban
+
+    request = _make_request("24.5.0.1")
+
+    with (
+        patch(
+            "guard_core.sync.core.checks.implementations.ip_security.check_route_ip_access",
+            return_value=False,
+        ),
+        patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"),
+    ):
+        _patch_detect_threat(monkeypatch, is_threat=False, trigger_info="not_enabled")
+        result = check._check_route_ip_restrictions(request, "24.5.0.1", RouteConfig())
+
+    assert result is not None
+    assert mw.suspicious_request_counts == {}
+    ban.ban_ip.assert_not_called()
+
+
 def test_route_ip_block_passive_mode_no_escalation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -216,7 +415,6 @@ def test_route_ip_block_passive_mode_no_escalation(
     check = IpSecurityCheck(mw)
     ban = MagicMock()
     check.ip_ban_manager = ban
-    from guard_core.sync.decorators.base import RouteConfig
 
     detect_called: list[int] = []
 
@@ -446,6 +644,8 @@ def test_global_ip_block_still_returns_403_when_ban_ip_raises(
     ban.ban_ip.assert_called_once_with("50.0.0.1", 7200, "penetration_attempt")
     mw.logger.exception.assert_called_once()
     assert mw.logger.exception.call_args.args[1] == "50.0.0.1"
+    event_call = mw.event_bus.send_middleware_event.call_args
+    assert event_call.kwargs["event_type"] == "ip_ban_failed"
 
 
 def test_user_agent_block_still_returns_403_when_ban_ip_raises(
@@ -473,3 +673,44 @@ def test_user_agent_block_still_returns_403_when_ban_ip_raises(
     ban.ban_ip.assert_called_once_with("51.0.0.1", 7200, "penetration_attempt")
     mw.logger.exception.assert_called_once()
     assert mw.logger.exception.call_args.args[1] == "51.0.0.1"
+    event_call = mw.event_bus.send_middleware_event.call_args
+    assert event_call.kwargs["event_type"] == "ip_ban_failed"
+
+
+def test_global_ip_block_survives_ban_and_event_bus_both_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        passive_mode=False,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        fail_secure=True,
+    )
+    mw = _make_middleware(config)
+    check = IpSecurityCheck(mw)
+    ban = MagicMock()
+    ban.ban_ip = MagicMock(side_effect=RuntimeError("redis down, ban not applied"))
+    check.ip_ban_manager = ban
+
+    def selective_failure(*_a: Any, **kwargs: Any) -> None:
+        if kwargs.get("event_type") == "ip_ban_failed":
+            raise ConnectionError("event bus down too")
+
+    mw.event_bus.send_middleware_event = MagicMock(side_effect=selective_failure)
+
+    _patch_detect_threat(monkeypatch)
+
+    with (
+        patch(
+            "guard_core.sync.core.checks.implementations.ip_security.check_ip_access",
+            return_value=IpAccessResult(False, "blocked"),
+        ),
+        patch("guard_core.sync.core.checks.implementations.ip_security.log_activity"),
+    ):
+        result = check._check_global_ip_restrictions(
+            _make_request("52.0.0.1"), "52.0.0.1"
+        )
+
+    assert result is not None
+    assert result.status_code == 403
+    assert mw.logger.exception.call_count == 2

@@ -5,7 +5,8 @@ from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
-    detect_penetration_patterns,
+    _increment_suspicious_counts,
+    get_cached_detection_result,
     route_config_applies,
 )
 from guard_core.sync.core.events.event_types import (
@@ -51,16 +52,6 @@ class SuspiciousActivityCheck(SecurityCheck):
         return sum(
             self.middleware.suspicious_request_counts.get(client_ip, {}).values()
         )
-
-    def _increment_per_category(
-        self, client_ip: str, threat_categories: list[str]
-    ) -> None:
-        if client_ip not in self.middleware.suspicious_request_counts:
-            self.middleware.suspicious_request_counts[client_ip] = {}
-        ip_counts = self.middleware.suspicious_request_counts[client_ip]
-        categories = threat_categories or ["uncategorized"]
-        for category in categories:
-            ip_counts[category] = ip_counts.get(category, 0) + 1
 
     def _handle_suspicious_passive_mode(
         self, request: SyncGuardRequest, client_ip: str, trigger_info: str
@@ -208,7 +199,7 @@ class SuspiciousActivityCheck(SecurityCheck):
         if not client_ip:
             return None
 
-        result = detect_penetration_patterns(
+        result = get_cached_detection_result(
             request,
             route_config,
             self.config,
@@ -232,7 +223,7 @@ class SuspiciousActivityCheck(SecurityCheck):
         trigger_info = result.trigger_info
         threat_categories = list(result.threat_categories)
 
-        self._increment_per_category(client_ip, threat_categories)
+        _increment_suspicious_counts(self.middleware, client_ip, threat_categories)
 
         if self.config.passive_mode:
             self._handle_suspicious_passive_mode(request, client_ip, trigger_info)

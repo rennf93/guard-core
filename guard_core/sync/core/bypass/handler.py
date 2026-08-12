@@ -13,19 +13,14 @@ class BypassHandler:
     def handle_passthrough(
         self,
         request: SyncGuardRequest,
-        call_next: Callable[[SyncGuardRequest], GuardResponse] | None = None,
+        call_next: Callable[[SyncGuardRequest], GuardResponse],
     ) -> GuardResponse | None:
         if not request.client_host:
-            if call_next:
-                response = call_next(request)
-                return self.context.response_factory.apply_modifier(response)
-            return None
+            response = call_next(request)
+            return self.context.response_factory.apply_modifier(response)
 
         if self.context.validator.is_path_excluded(request):
-            if call_next:
-                response = call_next(request)
-                return self.context.response_factory.apply_modifier(response)
-            return None
+            request.state.guard_exclusion_scoped = True
 
         return None
 

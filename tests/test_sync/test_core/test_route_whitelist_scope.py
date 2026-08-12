@@ -88,7 +88,7 @@ def test_route_whitelisted_ip_still_scanned_for_attacks(_mock_log: Any) -> None:
     )
     with patch(
         "guard_core.sync.core.checks.implementations.suspicious_activity."
-        "detect_penetration_patterns",
+        "get_cached_detection_result",
         new=MagicMock(return_value=threat),
     ) as mock_detect:
         result = SuspiciousActivityCheck(_mw(cfg)).check(req)
@@ -112,7 +112,7 @@ def test_cloud_block_on_route_whitelisted_ip_is_coherent(_mock_log: Any) -> None
         patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as cloud,
         patch(
             "guard_core.sync.core.checks.implementations.ip_security."
-            "escalate_suspicious_if_threat"
+            "escalate_identity_violation"
         ),
     ):
         mock_ban_manager.is_ip_banned = MagicMock(return_value=False)

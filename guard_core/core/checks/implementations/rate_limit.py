@@ -31,6 +31,7 @@ def _rate_limit_applies(
 
 class RateLimitCheck(SecurityCheck):
     container_fields: ClassVar[tuple[str, ...]] = ("endpoint_rate_limits",)
+    enforced_on_excluded_paths = True
 
     @property
     def check_name(self) -> str:
