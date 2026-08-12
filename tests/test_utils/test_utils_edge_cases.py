@@ -51,7 +51,7 @@ async def test_extract_client_ip_with_invalid_forwarded_for() -> None:
     request.headers = {"X-Forwarded-For": "invalid-ip-format"}
 
     config = SecurityConfig()
-    config.trusted_proxies = ["192.168.1.1"]
+    config.trusted_proxies = ("192.168.1.1",)
     config.trusted_proxy_depth = 999
 
     with patch(
@@ -69,7 +69,7 @@ async def test_extract_client_ip_logs_warning_on_error() -> None:
     request.headers = {"X-Forwarded-For": "1.2.3.4"}
 
     config = SecurityConfig()
-    config.trusted_proxies = ["192.168.1.1"]
+    config.trusted_proxies = ("192.168.1.1",)
     config.trusted_proxy_depth = 1
 
     with (

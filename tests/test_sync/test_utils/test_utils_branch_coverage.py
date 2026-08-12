@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from guard_core.models import SecurityConfig
 from guard_core.sync.utils import (
     _build_log_message_for_suspicious,
     _check_blocked_countries,
@@ -166,3 +167,42 @@ def test_detect_penetration_attempt_excluded_header_skipped() -> None:
 
     detected = _dpa.is_threat
     assert detected is False
+
+
+def test_detect_penetration_attempt_non_excluded_header_hit() -> None:
+    request = MagicMock()
+    request.client_host = "1.2.3.4"
+    request.query_params = {}
+    request.url_path = "/"
+    request.headers = {"X-Custom": "<script>alert(1)</script>"}
+
+    def _body() -> bytes:
+        return b""
+
+    request.body = _body
+
+    result = detect_penetration_attempt(request)
+
+    assert result.is_threat is True
+
+
+def test_detect_penetration_attempt_scan_body_disabled_skips_the_body() -> None:
+    request = MagicMock()
+    request.client_host = "1.2.3.4"
+    request.query_params = {}
+    request.url_path = "/"
+    request.headers = {}
+    config = SecurityConfig(detection_scan_body=False)
+    body_called = False
+
+    def _body() -> bytes:
+        nonlocal body_called
+        body_called = True
+        return b'{"q": "1 OR 1=1 UNION SELECT password FROM users--"}'
+
+    request.body = _body
+
+    result = detect_penetration_attempt(request, config)
+
+    assert result.is_threat is False
+    assert body_called is False
