@@ -227,8 +227,7 @@ async def test_route_blocked_countries_only_still_enforces_global_blocked_countr
 ) -> None:
     security_config.whitelist = ()
     security_config.blacklist = ()
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = Mock()
+    security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"CN"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
@@ -301,8 +300,7 @@ async def test_route_ip_whitelist_match_does_not_bypass_global_blocked_countries
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = Mock()
+    security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"CN"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="CN")
@@ -325,8 +323,7 @@ async def test_route_whitelist_countries_match_skips_global_blocked_countries(
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = Mock()
+    security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"US"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="US")
@@ -388,8 +385,7 @@ async def test_global_country_block_names_the_country(
     security_config: SecurityConfig,
     mock_middleware: Mock,
 ) -> None:
-    with pytest.warns(UserWarning, match="will never be consulted"):
-        security_config.geo_ip_handler = Mock()
+    security_config.geo_ip_handler = Mock()
     security_config.blocked_countries = frozenset({"RU"})
     mock_middleware.geo_ip_handler = Mock()
     mock_middleware.geo_ip_handler.get_country = Mock(return_value="RU")

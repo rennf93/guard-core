@@ -30,9 +30,13 @@ class _StubGeoIPHandler:
         return
 
 
-def test_geo_ip_handler_without_country_rules_warns() -> None:
-    with pytest.warns(UserWarning, match="geo_ip_handler is set but neither"):
+def test_geo_ip_handler_without_country_rules_does_not_warn() -> None:
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
         SecurityConfig(geo_ip_handler=_StubGeoIPHandler())
+
+    inert_warnings = [r for r in records if "never be consulted" in str(r.message)]
+    assert inert_warnings == []
 
 
 def test_geo_ip_handler_with_blocked_countries_does_not_warn() -> None:
