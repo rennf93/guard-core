@@ -249,7 +249,7 @@ class ContentPreprocessor:
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
 
-    _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.9
+    _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.5
 
     def _is_hex_literal(self, token: str) -> bool:
         return bool(self._HEX_LITERAL_RE.fullmatch(token))
@@ -270,9 +270,16 @@ class ContentPreprocessor:
             padding = (4 - len(token) % 4) % 4
             padded = token + "=" * padding
             try:
-                decoded = base64.b64decode(padded, validate=True).decode("utf-8")
+                raw = base64.b64decode(padded, validate=True)
             except (ValueError, binascii.Error):
                 return token
+            try:
+                decoded = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                lossy = raw.decode("utf-8", errors="replace")
+                if lossy.count("\ufffd") > 1:
+                    return token
+                decoded = lossy
             if (
                 self._printable_ascii_ratio(decoded)
                 >= self._PRINTABLE_ASCII_RATIO_THRESHOLD

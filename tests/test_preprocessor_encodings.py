@@ -237,7 +237,7 @@ def test_decode_base64_candidates_decodes_at_exact_printable_ratio_threshold(
 ) -> None:
     import base64
 
-    raw = b"printableXtextAB18" + b"\x01\x01"
+    raw = b"A" * 10 + b"\x01" * 10
     token = base64.b64encode(raw).decode("ascii")
     result = pp._decode_base64_candidates(token)
     assert result == raw.decode("utf-8")
@@ -248,10 +248,34 @@ def test_decode_base64_candidates_keeps_token_just_below_printable_ratio_thresho
 ) -> None:
     import base64
 
-    raw = b"printableXtextA17" + b"\x01\x01\x01"
+    raw = b"A" * 9 + b"\x01" * 11
     token = base64.b64encode(raw).decode("ascii")
     result = pp._decode_base64_candidates(token)
     assert result == token
+
+
+def test_decode_base64_candidates_decodes_valid_utf8_with_cyrillic_suffix(
+    pp: ContentPreprocessor,
+) -> None:
+    import base64
+
+    plaintext = "<script>alert(document.cookie)</script>АБВГДЕЖЗИЙ"
+    token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert result == plaintext
+    assert "<script>" in result
+
+
+def test_decode_base64_candidates_decodes_despite_single_invalid_trailing_byte(
+    pp: ContentPreprocessor,
+) -> None:
+    import base64
+
+    raw = b"<script>alert(document.cookie)</script>" + bytes([0x80])
+    token = base64.b64encode(raw).decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert "<script>alert(document.cookie)</script>" in result
+    assert result != token
 
 
 def test_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:

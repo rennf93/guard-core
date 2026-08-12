@@ -85,6 +85,19 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "encoding_aware",
     ),
     MaliciousCase(
+        "xss_base64_wrapped_script_alert_with_cyrillic_suffix",
+        "xss",
+        "PHNjcmlwdD5hbGVydChkb2N1bWVudC5jb29raWUpPC9zY3JpcHQ+"
+        "0JDQkdCS0JPQlNCV0JbQl9CY0Jk=",
+        "encoding_aware",
+    ),
+    MaliciousCase(
+        "xss_base64_wrapped_script_alert_with_invalid_utf8_byte",
+        "xss",
+        "PHNjcmlwdD5hbGVydChkb2N1bWVudC5jb29raWUpPC9zY3JpcHQ+gA==",
+        "encoding_aware",
+    ),
+    MaliciousCase(
         "sqli_select_where_password", "sqli", "SELECT password FROM users WHERE id=1"
     ),
     MaliciousCase("sqli_select_star", "sqli", "SELECT * FROM accounts"),
@@ -108,6 +121,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "U0VMRUNUIHBhc3N3b3JkIEZST00gdXNlcnMgV0hFUkUgaWQ9MQ==",
         "encoding_aware",
     ),
+    MaliciousCase("sqli_order_by_string_end_no_comment", "sqli", "1' ORDER BY 3"),
+    MaliciousCase("sqli_hash_comment_string_end", "sqli", "admin'#"),
     MaliciousCase(
         "dir_traversal_double_dotdot_slash", "dir_traversal", "../../../../etc/passwd"
     ),
@@ -228,6 +243,7 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "pattern's whole-string \\A...\\Z anchor even though the payload "
         "itself survives truncation",
     ),
+    MaliciousCase("cmd_shell_dash_c_at_string_start", "cmd_injection", "sh -c id"),
     MaliciousCase(
         "file_inclusion_php_wrapper",
         "file_inclusion",
@@ -424,6 +440,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("cms_probing_phpinfo", "cms_probing", "/phpinfo.php"),
     MaliciousCase("cms_probing_backup_extension", "cms_probing", "/site.bak"),
     MaliciousCase("cms_probing_htpasswd", "cms_probing", "/.htpasswd"),
+    MaliciousCase(
+        "cms_probing_wp_admin_nested_path",
+        "cms_probing",
+        "/blog/wp-admin/setup.php",
+    ),
+    MaliciousCase("cms_probing_phpinfo_with_query", "cms_probing", "/info.php?x=1"),
     MaliciousCase("recon_actuator_probe", "recon", "/actuator/health"),
     MaliciousCase("recon_server_status", "recon", "/server-status"),
     MaliciousCase("recon_cgi_bin_probe", "recon", "/cgi-bin/test.cgi"),
@@ -432,6 +454,18 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("recon_readme_md", "recon", "/README.md"),
     MaliciousCase("recon_git_head", "recon", "/.git/HEAD"),
     MaliciousCase("recon_owa_probe", "recon", "/owa/auth/logon.aspx"),
+    MaliciousCase(
+        "recon_actuator_nested_with_query",
+        "recon",
+        "/api/actuator/health?trace=1",
+    ),
+    MaliciousCase("recon_git_refs_nested_path", "recon", "/repo/.git/refs/heads/main"),
+    MaliciousCase(
+        "recon_docker_compose_nested_with_query",
+        "recon",
+        "/infra/docker-compose.yml?raw=1",
+    ),
+    MaliciousCase("recon_secrets_nested_path", "recon", "/config/app-secrets.yml"),
     MaliciousCase(
         "proto_pollution_isadmin_key",
         "proto_pollution",
@@ -689,6 +723,14 @@ BENIGN_CORPUS: list[BenignCase] = [
     ),
     BenignCase(
         "ssrf_slack_webhook_url", "https://hooks.slack.com/services/T000/B000/XXXX"
+    ),
+    BenignCase("ssrf_scheme_port_redis", "redis://6379"),
+    BenignCase("ssrf_scheme_port_grpc", "grpc://50051"),
+    BenignCase("ssrf_scheme_port_amqp", "amqp://5672"),
+    BenignCase("ssrf_scheme_port_https_path", "https://2023/blog"),
+    BenignCase(
+        "ssrf_scheme_port_tcp_prose",
+        "connect via tcp://8080 for the health probe",
     ),
     BenignCase("nosql_benign_dollar_value_price", '{"price":"$25","name":"coffee"}'),
     BenignCase(
@@ -1004,11 +1046,117 @@ BENIGN_CORPUS: list[BenignCase] = [
         "Legacy download docs:\n"
         "Older clients should use ftp://ftp.example.com/pub/readme.txt",
     ),
+    BenignCase(
+        "sqli_orderby_pagination_note_multiline",
+        "Migration notes:\nFor pagination consistency, always ORDER BY 2\n"
+        "before paginating results.",
+    ),
+    BenignCase(
+        "sqli_shell_comment_hash_multiline",
+        "Example shell command:\necho 'debug' #\nEnables verbose output.",
+    ),
+    BenignCase(
+        "cmd_injection_shell_script_excerpt_multiline",
+        "Deployment script:\nsh -x deploy.sh\necho done",
+    ),
+    BenignCase(
+        "cms_probing_role_list_administrator_multiline",
+        "Available roles for this workspace:\nadministrator\neditor\nviewer\n"
+        "Contact support for role changes.",
+    ),
+    BenignCase(
+        "cms_probing_deprecated_scripts_list_multiline",
+        "Deprecated scripts:\ntest.php\ninfo.php\nRemove these before production.",
+    ),
+    BenignCase(
+        "cms_probing_cleanup_backup_files_multiline",
+        "Files pending cleanup:\nsettings.py.orig\ndata.tmp\n"
+        "Please review before merge.",
+    ),
+    BenignCase(
+        "cms_probing_gitignore_style_list_multiline",
+        "Files to ignore in this repo:\n.DS_Store\nThumbs.db\n.npmrc\n"
+        "Add more as needed.",
+    ),
+    BenignCase(
+        "recon_retired_pages_list_multiline",
+        "Legacy pages retired this quarter:\nhome.shtml\ncontact.cgi\n"
+        "Reach out with questions.",
+    ),
+    BenignCase(
+        "recon_api_routes_doc_multiline",
+        "Internal routes reference:\n/version\n/health\n/metrics",
+    ),
+    BenignCase(
+        "recon_endpoints_list_multiline",
+        "Endpoints exposed by this service:\nactuator\nswagger-ui\n"
+        "Remove before going to prod.",
+    ),
+    BenignCase(
+        "recon_internal_tools_list_multiline",
+        "Internal tools we use:\nconfluence\nhelpdesk\njira",
+    ),
+    BenignCase(
+        "recon_legacy_cgi_paths_doc_multiline",
+        "Legacy web server paths still referenced in docs:\n"
+        "cgi-bin/old-form.cgi\nDo not use in new code.",
+    ),
+    BenignCase(
+        "recon_iot_audit_findings_multiline",
+        "IoT device audit findings:\nHNAP1\nIPCamDesc.xml\n"
+        "Flagged for firmware update.",
+    ),
+    BenignCase(
+        "recon_i18n_routes_doc_multiline",
+        "Supported i18n routes:\n/languages/en\n/languages/fr\n"
+        "Add more locales as needed.",
+    ),
+    BenignCase(
+        "recon_vendor_inventory_multiline",
+        "Vendor systems inventory:\nsap\nwsman\nDecommission by Q3.",
+    ),
+    BenignCase(
+        "recon_bot_integrations_list_multiline",
+        "Bot integrations enabled:\n.clawdbot\nRemove unused integrations.",
+    ),
+    BenignCase(
+        "recon_spanish_routes_doc_multiline",
+        "Spanish site routes:\n/inicio\n/indice\nTranslate remaining pages.",
+    ),
+    BenignCase(
+        "recon_dev_tooling_folders_multiline",
+        "Dev tooling folders in this repo:\n.streamlit\n.devcontainer\n"
+        "Add to .gitignore.",
+    ),
+    BenignCase(
+        "recon_build_files_pr_multiline",
+        "Build files added in this PR:\nDockerfile\nMakefile\nJenkinsfile\n"
+        "Ready for review.",
+    ),
+    BenignCase(
+        "recon_removed_secrets_files_multiline",
+        "Files removed for security reasons:\nold_secrets.yml\n"
+        "legacy_credentials.json\nAudit complete.",
+    ),
+    BenignCase(
+        "recon_proxy_autodiscover_paths_multiline",
+        "Exchange-related paths in our proxy config:\nautodiscover/\n"
+        "Do not cache these responses.",
+    ),
+    BenignCase(
+        "recon_doh_endpoints_doc_multiline",
+        "DoH endpoints supported:\n/dns-query\nSee RFC 8484 for details.",
+    ),
+    BenignCase(
+        "recon_git_troubleshooting_note_multiline",
+        "Git repo troubleshooting notes:\nCorruption found in:\n"
+        ".git/objects\n.git/refs\nRan git fsck to repair.",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 18,
-    "cms_probing": 6,
+    "cmd_injection": 19,
+    "cms_probing": 8,
     "code_injection": 3,
     "dir_traversal": 6,
     "file_inclusion": 8,
@@ -1018,15 +1166,15 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
-    "recon": 8,
+    "recon": 12,
     "sensitive_file": 6,
-    "sqli": 13,
+    "sqli": 15,
     "ssrf": 15,
     "template": 6,
     "xml": 4,
-    "xss": 12,
+    "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 135
+BASELINE_MALICIOUS_DETECTED_TOTAL = 146
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0
