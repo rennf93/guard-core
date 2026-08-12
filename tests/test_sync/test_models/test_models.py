@@ -12,7 +12,7 @@ def test_security_config_validation() -> None:
         whitelist=["10.0.0.0/24", "192.168.1.1"],
         blacklist=["203.0.113.0/25"],
     )
-    assert valid_config.whitelist == ["10.0.0.0/24", "192.168.1.1"]
+    assert valid_config.whitelist == ("10.0.0.0/24", "192.168.1.1")
 
 
 def test_invalid_ip_validation() -> None:
@@ -20,9 +20,9 @@ def test_invalid_ip_validation() -> None:
         SecurityConfig(whitelist=["invalid.ip"], blacklist=["256.0.0.0"])
 
 
-def test_cloud_provider_validation() -> None:
-    config = SecurityConfig(block_cloud_providers={"AWS", "INVALID"})
-    assert config.block_cloud_providers == {"AWS"}
+def test_cloud_provider_validation_rejects_unknown_provider() -> None:
+    with pytest.raises(ValueError, match="Unknown cloud providers"):
+        SecurityConfig(block_cloud_providers={"AWS", "INVALID"})
 
 
 def test_security_config_none_whitelist() -> None:
@@ -32,7 +32,7 @@ def test_security_config_none_whitelist() -> None:
 
 def test_none_cloud_providers() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == set()
+    assert config.block_cloud_providers == frozenset()
 
 
 def test_missing_ipinfo_token() -> None:
@@ -122,7 +122,7 @@ def test_validate_trusted_proxies() -> None:
         SecurityConfig(trusted_proxies=["invalid-ip"])
 
     config = SecurityConfig(trusted_proxies=[])
-    assert config.trusted_proxies == []
+    assert config.trusted_proxies == ()
 
 
 def test_validate_proxy_depth() -> None:

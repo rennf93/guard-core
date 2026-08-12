@@ -253,17 +253,20 @@ def test_raising_bool_on_shadow_check_does_not_mutate_field_or_revision(
     assert config.revision == original_revision
 
 
-def test_raising_bool_with_empty_whitelist_short_circuits_without_raising() -> None:
+def test_raising_bool_on_blocked_countries_without_geo_handler_propagates() -> None:
     class _BoomBool:
         def __bool__(self) -> bool:
             raise RuntimeError("boom")
 
     config = SecurityConfig()
     boom = _BoomBool()
+    revision_before = config.revision
 
-    config.blocked_countries = cast(frozenset[str], boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        config.blocked_countries = cast(frozenset[str], boom)
 
-    assert config.blocked_countries is boom
+    assert config.blocked_countries == frozenset()
+    assert config.revision == revision_before
 
 
 def test_shadow_dedup_compares_non_collection_new_value_without_crashing(
@@ -279,16 +282,82 @@ def test_shadow_dedup_compares_non_collection_new_value_without_crashing(
     assert config.whitelist_countries is non_collection
 
 
-def test_model_copy_update_bypasses_shadow_warning_documented_gap(
+def test_model_copy_update_touching_blocked_countries_warns_on_shadow(
     tmp_path: Path,
 ) -> None:
     geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn6.mmdb")
     base = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=geo_ip_handler)
 
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        shadowed = base.model_copy(update={"blocked_countries": frozenset({"CN"})})
+
+    assert shadowed.whitelist_countries and shadowed.blocked_countries
+
+
+def test_model_copy_update_touching_whitelist_countries_warns_on_shadow(
+    tmp_path: Path,
+) -> None:
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn9.mmdb")
+    base = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=geo_ip_handler)
+
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        shadowed = base.model_copy(update={"whitelist_countries": frozenset({"US"})})
+
+    assert shadowed.whitelist_countries and shadowed.blocked_countries
+
+
+def test_model_copy_update_touching_country_field_without_shadow_emits_no_warning(
+    tmp_path: Path,
+) -> None:
+    base = SecurityConfig()
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn13.mmdb")
+
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        shadowed = base.model_copy(update={"blocked_countries": frozenset({"CN"})})
+        shadowed = base.model_copy(
+            update={
+                "blocked_countries": frozenset({"CN"}),
+                "geo_ip_handler": geo_ip_handler,
+            }
+        )
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert matches == []
-    assert shadowed.whitelist_countries and shadowed.blocked_countries
+    assert shadowed.blocked_countries and not shadowed.whitelist_countries
+
+
+def test_model_copy_update_without_country_fields_skips_shadow_check(
+    tmp_path: Path,
+) -> None:
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn11.mmdb")
+    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+        base = SecurityConfig(
+            whitelist_countries=["US"],
+            blocked_countries=["CN"],
+            geo_ip_handler=geo_ip_handler,
+        )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        copied = base.model_copy(update={"rate_limit": 999})
+
+    matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
+    assert matches == []
+    assert copied.rate_limit == 999
+
+
+def test_model_copy_update_country_shadow_warning_points_at_call_site(
+    tmp_path: Path,
+) -> None:
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn12.mmdb")
+    base = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=geo_ip_handler)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        expected_lineno = _current_lineno() + 1
+        base.model_copy(update={"blocked_countries": frozenset({"CN"})})
+
+    matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
+    assert len(matches) == 1
+    assert matches[0].filename == __file__
+    assert matches[0].lineno == expected_lineno

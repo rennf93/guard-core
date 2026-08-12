@@ -1,0 +1,393 @@
+import importlib.util
+import warnings
+from collections.abc import Callable, Mapping
+from ipaddress import ip_address, ip_network
+from pathlib import Path
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal, get_args
+
+from pydantic import BaseModel, Field
+
+from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
+
+if TYPE_CHECKING:
+    from guard_core.models import SecurityConfig
+
+
+CloudProvider = Literal["AWS", "GCP", "Azure"]
+VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
+
+
+def _extra_installed(*module_names: str) -> bool:
+    return any(importlib.util.find_spec(name) is not None for name in module_names)
+
+
+def cloud_blocking_enabled(config: "SecurityConfig") -> bool:
+    return bool(config.block_cloud_providers) or config.enable_dynamic_rules
+
+
+_COUNTRY_RULE_FIELDS = frozenset({"blocked_countries", "whitelist_countries"})
+_GLOBAL_BEHAVIOR_RULE_FIELDS = frozenset(
+    {"global_behavior_rules", "behavior_scan_response_body"}
+)
+
+
+def _validate_exclude_paths_value(v: list[str], *, stacklevel: int) -> list[str]:
+    from guard_core.core.validation.path_matching import normalize_url_path
+
+    for entry in v:
+        normalized = normalize_url_path(entry)
+        if normalized is None:
+            raise ValueError(
+                f"exclude_paths entry {entry!r} could not be normalized "
+                "(malformed percent-encoding or invalid UTF-8); it would "
+                "silently exclude nothing at request time. Fix or remove it."
+            )
+        if normalized != "/":
+            continue
+        if entry != "/":
+            raise ValueError(
+                f"exclude_paths entry {entry!r} normalizes to the root "
+                "path '/', which would exclude the entire application "
+                "from all security checks. Remove it, or configure the "
+                "literal '/' if you really intend to exclude everything."
+            )
+        warnings.warn(
+            "exclude_paths contains the literal '/' entry, which "
+            "excludes the entire application from all security checks "
+            "(IP banning, rate limiting, penetration detection, "
+            "everything). Confirm this is intentional.",
+            UserWarning,
+            stacklevel=stacklevel,
+        )
+    return v
+
+
+def _warn_country_allowlist_shadows_blocklist(*, stacklevel: int) -> None:
+    warnings.warn(
+        "blocked_countries is ignored when whitelist_countries is "
+        "non-empty: a non-empty whitelist_countries is restrictive "
+        "(only listed countries pass), so blocked_countries has no "
+        "effect. Use one or the other.",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+
+
+def _normalized_country_value(value: Any) -> Any:
+    if isinstance(value, list | tuple | set | frozenset):
+        return frozenset(str(item).upper() for item in value)
+    return value
+
+
+def _country_shadow_should_warn(
+    config: "SecurityConfig", name: str, value: Any
+) -> bool:
+    if name not in _COUNTRY_RULE_FIELDS:
+        return False
+    new_whitelist = (
+        value if name == "whitelist_countries" else config.whitelist_countries
+    )
+    new_blocked = value if name == "blocked_countries" else config.blocked_countries
+    if not (new_whitelist and new_blocked):
+        return False
+    return bool(
+        _normalized_country_value(value)
+        != _normalized_country_value(getattr(config, name, None))
+    )
+
+
+_GEO_STATE_FIELDS = frozenset(
+    {"blocked_countries", "whitelist_countries", "geo_ip_handler", "ipinfo_token"}
+)
+
+
+def _geo_state_candidates(
+    config: "SecurityConfig", name: str, value: Any
+) -> tuple[Any, Any, Any, Any]:
+    return (
+        value if name == "blocked_countries" else config.blocked_countries,
+        value if name == "whitelist_countries" else config.whitelist_countries,
+        value if name == "geo_ip_handler" else config.geo_ip_handler,
+        value if name == "ipinfo_token" else config.ipinfo_token,
+    )
+
+
+def _resolve_geo_ip_handler(
+    *,
+    blocked_countries: Any,
+    whitelist_countries: Any,
+    geo_ip_handler: Any,
+    ipinfo_token: str | None,
+    ipinfo_db_path: Path | None,
+    geo_ip_db_max_age: int,
+    stacklevel: int,
+) -> Any:
+    has_country_rules = bool(blocked_countries or whitelist_countries)
+
+    if geo_ip_handler is None and has_country_rules:
+        if not ipinfo_token:
+            raise ValueError(
+                "geo_ip_handler is required "
+                "if blocked_countries or whitelist_countries is set"
+            )
+        from guard_core.handlers.ipinfo_handler import IPInfoManager
+
+        return IPInfoManager(
+            token=ipinfo_token,
+            db_path=ipinfo_db_path,
+            max_age=geo_ip_db_max_age,
+        )
+
+    if geo_ip_handler is not None and not has_country_rules:
+        warnings.warn(
+            "geo_ip_handler is set but neither blocked_countries nor "
+            "whitelist_countries is configured, so it will never be "
+            "consulted or initialized; set one of them or drop geo_ip_handler.",
+            UserWarning,
+            stacklevel=stacklevel,
+        )
+
+    return geo_ip_handler
+
+
+def _apply_geo_ip_handler_assignment(
+    config: "SecurityConfig", name: str, value: Any, *, stacklevel: int
+) -> Any:
+    blocked, whitelist, handler, token = _geo_state_candidates(config, name, value)
+    resolved = _resolve_geo_ip_handler(
+        blocked_countries=blocked,
+        whitelist_countries=whitelist,
+        geo_ip_handler=handler,
+        ipinfo_token=token,
+        ipinfo_db_path=config.ipinfo_db_path,
+        geo_ip_db_max_age=config.geo_ip_db_max_age,
+        stacklevel=stacklevel,
+    )
+    if name == "geo_ip_handler":
+        return resolved
+    if resolved is not handler:
+        BaseModel.__setattr__(config, "geo_ip_handler", resolved)
+    return value
+
+
+def _apply_geo_ip_handler_copy(config: "SecurityConfig", *, stacklevel: int) -> None:
+    resolved = _resolve_geo_ip_handler(
+        blocked_countries=config.blocked_countries,
+        whitelist_countries=config.whitelist_countries,
+        geo_ip_handler=config.geo_ip_handler,
+        ipinfo_token=config.ipinfo_token,
+        ipinfo_db_path=config.ipinfo_db_path,
+        geo_ip_db_max_age=config.geo_ip_db_max_age,
+        stacklevel=stacklevel,
+    )
+    if resolved is not config.geo_ip_handler:
+        BaseModel.__setattr__(config, "geo_ip_handler", resolved)
+
+
+class ThreatBanConfig(BaseModel):
+    threshold: int = Field(ge=1, description="Number of detections before auto-ban.")
+    duration: int = Field(ge=1, description="Ban duration in seconds.")
+
+
+class BehaviorRuleConfig(BaseModel):
+    rule_type: Literal["usage", "return_pattern", "frequency"]
+    threshold: int = Field(ge=1)
+    window: int = Field(default=3600, ge=1)
+    pattern: str | None = None
+    action: Literal["ban", "log", "throttle", "alert"] = "log"
+    ban_duration: int | None = Field(default=None, ge=1)
+    correlate_with_detection: bool = False
+
+
+def return_pattern_requires_response_body(pattern: str) -> bool:
+    return not pattern.startswith("status:")
+
+
+def _validate_return_pattern_requires_scan(
+    pattern: str, *, scan_response_body: bool
+) -> None:
+    if not return_pattern_requires_response_body(pattern):
+        return
+    if scan_response_body:
+        return
+    raise ValueError(
+        f"return_pattern rule with pattern {pattern!r} requires reading the "
+        "response body, but behavior_scan_response_body is False. This rule "
+        "would never match: set behavior_scan_response_body=True to enable "
+        "response-body inspection, or use a status: pattern instead."
+    )
+
+
+def _validate_return_pattern_body_scan(pattern: str, config: "SecurityConfig") -> None:
+    _validate_return_pattern_requires_scan(
+        pattern, scan_response_body=config.behavior_scan_response_body
+    )
+
+
+def _validate_global_behavior_rule_assignment(
+    config: "SecurityConfig", name: str, value: Any
+) -> None:
+    candidate_rules = (
+        value if name == "global_behavior_rules" else config.global_behavior_rules
+    )
+    candidate_scan_flag = (
+        value
+        if name == "behavior_scan_response_body"
+        else config.behavior_scan_response_body
+    )
+    for rule in candidate_rules:
+        if rule.rule_type != "return_pattern" or not rule.pattern:
+            continue
+        _validate_return_pattern_requires_scan(
+            rule.pattern, scan_response_body=candidate_scan_flag
+        )
+
+
+def _revalidate_global_behavior_rules(config: "SecurityConfig") -> None:
+    for rule in config.global_behavior_rules:
+        if rule.rule_type != "return_pattern" or not rule.pattern:
+            continue
+        _validate_return_pattern_body_scan(rule.pattern, config)
+
+
+def _validate_ip_or_cidr_list(v: Any, *, invalid_message: str) -> Any:
+    if v is None:
+        return None
+    validated: list[str] = []
+    for entry in v:
+        try:
+            if "/" in entry:
+                validated.append(str(ip_network(entry, strict=False)))
+            else:
+                validated.append(str(ip_address(entry)))
+        except ValueError:
+            raise ValueError(f"{invalid_message}: {entry}") from None
+    return tuple(validated)
+
+
+def _validate_whitelist_value(v: Any) -> Any:
+    return _validate_ip_or_cidr_list(v, invalid_message="Invalid IP or CIDR range")
+
+
+def _validate_blacklist_value(v: Any) -> Any:
+    return _validate_ip_or_cidr_list(v, invalid_message="Invalid IP or CIDR range")
+
+
+def _validate_trusted_proxies_value(v: Any) -> Any:
+    return _validate_ip_or_cidr_list(
+        v, invalid_message="Invalid proxy IP or CIDR range"
+    )
+
+
+def _validate_threat_ban_config_value(v: Any) -> MappingProxyType[str, Any]:
+    mapping = {
+        key: value if isinstance(value, ThreatBanConfig) else ThreatBanConfig(**value)
+        for key, value in dict(v).items()
+    }
+    unknown = set(mapping.keys()) - ALL_DETECTION_CATEGORIES
+    if unknown:
+        raise ValueError(
+            f"Unknown threat categories in threat_ban_config: {sorted(unknown)}. "
+            f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+        )
+    return MappingProxyType(mapping)
+
+
+def _validate_enabled_detection_categories_value(v: Any) -> frozenset[str]:
+    result = frozenset(v)
+    unknown = result - ALL_DETECTION_CATEGORIES
+    if unknown:
+        raise ValueError(
+            f"Unknown detection categories: {sorted(unknown)}. "
+            f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+        )
+    return result
+
+
+def _validate_muted_event_types_value(v: Any) -> frozenset[str]:
+    from guard_core.core.events.event_types import EVENT_TYPE_VALUES
+
+    result = frozenset(v)
+    invalid = result - EVENT_TYPE_VALUES
+    if invalid:
+        raise ValueError(
+            f"Unknown event types in muted_event_types: {sorted(invalid)}. "
+            f"Valid: {sorted(EVENT_TYPE_VALUES)}"
+        )
+    return result
+
+
+def _validate_muted_metric_types_value(v: Any) -> frozenset[str]:
+    from guard_core.core.events.event_types import METRIC_TYPE_VALUES
+
+    result = frozenset(v)
+    invalid = result - METRIC_TYPE_VALUES
+    if invalid:
+        raise ValueError(
+            f"Unknown metric types in muted_metric_types: {sorted(invalid)}. "
+            f"Valid: {sorted(METRIC_TYPE_VALUES)}"
+        )
+    return result
+
+
+def _validate_muted_check_logs_value(v: Any) -> frozenset[str]:
+    from guard_core.core.events.event_types import CHECK_NAME_VALUES
+
+    result = frozenset(v)
+    invalid = result - CHECK_NAME_VALUES
+    if invalid:
+        raise ValueError(
+            f"Unknown check names in muted_check_logs: {sorted(invalid)}. "
+            f"Valid: {sorted(CHECK_NAME_VALUES)}"
+        )
+    return result
+
+
+def _validate_block_cloud_providers_value(v: Any) -> frozenset[str]:
+    if v is None:
+        return frozenset()
+    result = frozenset(v)
+    invalid = {
+        sel for sel in result if sel.partition(":!")[0] not in VALID_CLOUD_PROVIDERS
+    }
+    if invalid:
+        raise ValueError(
+            f"Unknown cloud providers in block_cloud_providers: {sorted(invalid)}. "
+            f"Valid: {sorted(VALID_CLOUD_PROVIDERS)} (a bare name blocks the whole "
+            "provider; suffix ':!region' to carve out a region exception)"
+        )
+    return result
+
+
+_FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
+    "whitelist": _validate_whitelist_value,
+    "blacklist": _validate_blacklist_value,
+    "trusted_proxies": _validate_trusted_proxies_value,
+    "threat_ban_config": _validate_threat_ban_config_value,
+    "enabled_detection_categories": _validate_enabled_detection_categories_value,
+    "muted_event_types": _validate_muted_event_types_value,
+    "muted_metric_types": _validate_muted_metric_types_value,
+    "muted_check_logs": _validate_muted_check_logs_value,
+    "block_cloud_providers": _validate_block_cloud_providers_value,
+}
+
+
+def _revalidate_copied_config(
+    copied: "SecurityConfig", update: Mapping[str, Any]
+) -> None:
+    if "exclude_paths" in update:
+        _validate_exclude_paths_value(copied.exclude_paths, stacklevel=4)
+    if _COUNTRY_RULE_FIELDS & update.keys():
+        if copied.whitelist_countries and copied.blocked_countries:
+            _warn_country_allowlist_shadows_blocklist(stacklevel=4)
+    if _GLOBAL_BEHAVIOR_RULE_FIELDS & update.keys():
+        _revalidate_global_behavior_rules(copied)
+    if _GEO_STATE_FIELDS & update.keys():
+        _apply_geo_ip_handler_copy(copied, stacklevel=5)
+    for field_name in _FIELD_REVALIDATORS.keys() & update.keys():
+        BaseModel.__setattr__(
+            copied,
+            field_name,
+            _FIELD_REVALIDATORS[field_name](getattr(copied, field_name)),
+        )
