@@ -51,9 +51,9 @@ class ContentPreprocessor:
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
     _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
-        r"(?<!\w)/\*(?!!).*?\*/|/\*(?!!).*?\*/(?!\w)", re.DOTALL
+        r"(?<!\w)/\*(?!!)(.*?)\*/|/\*(?!!)(.*?)\*/(?!\w)", re.DOTALL
     )
-    _SQL_LINE_COMMENT_RE = re.compile(r"(--|#)[^\n]*")
+    _SQL_LINE_COMMENT_MARKER_RE = re.compile(r"--|#")
 
     async def _send_preprocessor_event(
         self,
@@ -276,8 +276,12 @@ class ContentPreprocessor:
         return self._UNICODE_ESCAPE_RE.sub(_replace, content)
 
     def _strip_sql_comments(self, content: str) -> str:
-        content = self._SQL_BLOCK_COMMENT_STRIP_RE.sub(" ", content)
-        content = self._SQL_LINE_COMMENT_RE.sub(" ", content)
+        def _replace_block_comment(match: re.Match[str]) -> str:
+            body = match.group(1) if match.group(1) is not None else match.group(2)
+            return f" {body} "
+
+        content = self._SQL_BLOCK_COMMENT_STRIP_RE.sub(_replace_block_comment, content)
+        content = self._SQL_LINE_COMMENT_MARKER_RE.sub(" ", content)
         return content
 
     async def decode_common_encodings(self, content: str) -> str:

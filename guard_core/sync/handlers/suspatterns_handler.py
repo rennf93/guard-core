@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 from guard_core.sync.detection_engine import (
     ContentPreprocessor,
@@ -133,6 +133,49 @@ def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
     return float(sum(t.get("weight", 1.0) for t in regex_threats))
 
 
+class _DetectionState(NamedTuple):
+    compiler: PatternCompiler | None
+    preprocessor: ContentPreprocessor | None
+    semantic_analyzer: SemanticAnalyzer | None
+    performance_monitor: PerformanceMonitor | None
+    semantic_threshold: float
+    threat_score_threshold: float
+
+
+_LEGACY_DETECTION_STATE = _DetectionState(
+    compiler=None,
+    preprocessor=None,
+    semantic_analyzer=None,
+    performance_monitor=None,
+    semantic_threshold=0.7,
+    threat_score_threshold=1.0,
+)
+
+
+def _build_enhanced_detection_state(config: Any) -> _DetectionState:
+    return _DetectionState(
+        compiler=PatternCompiler(
+            default_timeout=config.detection_compiler_timeout,
+            max_cache_size=config.detection_max_tracked_patterns,
+        ),
+        preprocessor=ContentPreprocessor(
+            max_content_length=config.detection_max_content_length,
+            preserve_attack_patterns=config.detection_preserve_attack_patterns,
+        ),
+        semantic_analyzer=SemanticAnalyzer(),
+        performance_monitor=PerformanceMonitor(
+            anomaly_threshold=config.detection_anomaly_threshold,
+            slow_pattern_threshold=config.detection_slow_pattern_threshold,
+            history_size=config.detection_monitor_history_size,
+            max_tracked_patterns=config.detection_max_tracked_patterns,
+            anomaly_emission_cooldown=config.detection_anomaly_emission_cooldown,
+            min_samples_for_anomaly=config.detection_min_samples_for_anomaly,
+        ),
+        semantic_threshold=config.detection_semantic_threshold,
+        threat_score_threshold=config.detection_threat_score_threshold,
+    )
+
+
 class SusPatternsManager:
     _instance = None
     _config = None
@@ -227,7 +270,15 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:[;&|`]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
+            r"(?:[;&|]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            r"\A\s*(?:[;&|]\s*)*`\s*(?:[A-Za-z0-9_./~]|\$[({])"
+            r"(?:[^`\\\n]|\\.)*\s*`"
+            r"(?:\s*[;&|]\s*`\s*(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*\s*`)*"
+            r"\s*(?:[;&|]\s*)*\Z",
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -258,7 +309,7 @@ class SusPatternsManager:
             "file_inclusion",
         ),
         (
-            r"(?:\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
+            r"(?:(?<!:)\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
             r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)",
             _CTX_FILE_INCLUSION,
             "file_inclusion",
@@ -270,8 +321,9 @@ class SusPatternsManager:
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"(?:<\?xml.*?\?>)", _CTX_XML, "xml"),
         (
-            r"(?:^|\s|/)(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::(?:\d*)\]|(?:169\.254|192\.168|10\.|"
-            r"172\.(?:1[6-9]|2[0-9]|3[01]))\.\d+)(?:\s|$|/)",
+            r"(?:^|\s|/)(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::(?:\d*)\]|"
+            r"169\.254(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|10(?:\.\d{1,3}){3}|"
+            r"172\.(?:1[6-9]|2[0-9]|3[01])(?:\.\d{1,3}){2})(?::\d+)?(?:\s|$|/)",
             _CTX_SSRF,
             "ssrf",
         ),
@@ -463,12 +515,7 @@ class SusPatternsManager:
     compiled_custom_patterns: set[tuple[re.Pattern, frozenset[str], str]]
     redis_handler: Any
     agent_handler: Any
-    _compiler: PatternCompiler | None
-    _preprocessor: ContentPreprocessor | None
-    _semantic_analyzer: SemanticAnalyzer | None
-    _performance_monitor: PerformanceMonitor | None
-    _semantic_threshold: float
-    _threat_score_threshold: float
+    _detection_state: _DetectionState
 
     def __new__(
         cls: type["SusPatternsManager"], config: Any = None
@@ -487,48 +534,72 @@ class SusPatternsManager:
             cls._config = config
 
             if _supports_enhanced_config(config):
-                cls._apply_enhanced_config(cls._instance, config)
+                cls._instance._detection_state = _build_enhanced_detection_state(config)
             else:
-                cls._apply_legacy_config(cls._instance)
+                cls._instance._detection_state = _LEGACY_DETECTION_STATE
 
         return cls._instance
 
-    @staticmethod
-    def _apply_enhanced_config(instance: "SusPatternsManager", config: Any) -> None:
-        instance._compiler = PatternCompiler(
-            default_timeout=config.detection_compiler_timeout,
-            max_cache_size=config.detection_max_tracked_patterns,
-        )
-        instance._preprocessor = ContentPreprocessor(
-            max_content_length=config.detection_max_content_length,
-            preserve_attack_patterns=config.detection_preserve_attack_patterns,
-        )
-        instance._semantic_analyzer = SemanticAnalyzer()
-        instance._performance_monitor = PerformanceMonitor(
-            anomaly_threshold=config.detection_anomaly_threshold,
-            slow_pattern_threshold=config.detection_slow_pattern_threshold,
-            history_size=config.detection_monitor_history_size,
-            max_tracked_patterns=config.detection_max_tracked_patterns,
-            anomaly_emission_cooldown=config.detection_anomaly_emission_cooldown,
-            min_samples_for_anomaly=config.detection_min_samples_for_anomaly,
-        )
-        instance._semantic_threshold = config.detection_semantic_threshold
-        instance._threat_score_threshold = config.detection_threat_score_threshold
+    @property
+    def _compiler(self) -> PatternCompiler | None:
+        return self._detection_state.compiler
 
-    @staticmethod
-    def _apply_legacy_config(instance: "SusPatternsManager") -> None:
-        instance._compiler = None
-        instance._preprocessor = None
-        instance._semantic_analyzer = None
-        instance._performance_monitor = None
-        instance._semantic_threshold = 0.7
-        instance._threat_score_threshold = 1.0
+    @_compiler.setter
+    def _compiler(self, value: PatternCompiler | None) -> None:
+        self._detection_state = self._detection_state._replace(compiler=value)
+
+    @property
+    def _preprocessor(self) -> ContentPreprocessor | None:
+        return self._detection_state.preprocessor
+
+    @_preprocessor.setter
+    def _preprocessor(self, value: ContentPreprocessor | None) -> None:
+        self._detection_state = self._detection_state._replace(preprocessor=value)
+
+    @property
+    def _semantic_analyzer(self) -> SemanticAnalyzer | None:
+        return self._detection_state.semantic_analyzer
+
+    @_semantic_analyzer.setter
+    def _semantic_analyzer(self, value: SemanticAnalyzer | None) -> None:
+        self._detection_state = self._detection_state._replace(semantic_analyzer=value)
+
+    @property
+    def _performance_monitor(self) -> PerformanceMonitor | None:
+        return self._detection_state.performance_monitor
+
+    @_performance_monitor.setter
+    def _performance_monitor(self, value: PerformanceMonitor | None) -> None:
+        self._detection_state = self._detection_state._replace(
+            performance_monitor=value
+        )
+
+    @property
+    def _semantic_threshold(self) -> float:
+        return self._detection_state.semantic_threshold
+
+    @_semantic_threshold.setter
+    def _semantic_threshold(self, value: float) -> None:
+        self._detection_state = self._detection_state._replace(semantic_threshold=value)
+
+    @property
+    def _threat_score_threshold(self) -> float:
+        return self._detection_state.threat_score_threshold
+
+    @_threat_score_threshold.setter
+    def _threat_score_threshold(self, value: float) -> None:
+        self._detection_state = self._detection_state._replace(
+            threat_score_threshold=value
+        )
 
     def configure(self, config: Any) -> None:
         if not _supports_enhanced_config(config):
             return
         SusPatternsManager._config = config
-        self._apply_enhanced_config(self, config)
+        self._detection_state = _build_enhanced_detection_state(config)
+
+    def _resolve_state(self, state: _DetectionState | None) -> _DetectionState:
+        return state if state is not None else self._detection_state
 
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
@@ -576,16 +647,24 @@ class SusPatternsManager:
         except Exception as e:
             logger.error(f"Failed to send pattern event to agent: {e}")
 
-    def _preprocess_content(self, content: str, correlation_id: str | None) -> str:
-        if not self._preprocessor:
+    def _preprocess_content(
+        self,
+        content: str,
+        correlation_id: str | None,
+        *,
+        state: _DetectionState | None = None,
+    ) -> str:
+        state = self._resolve_state(state)
+        preprocessor = state.preprocessor
+        if not preprocessor:
             max_length = getattr(
                 self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
             )
             return content[:max_length]
 
         context_preprocessor = ContentPreprocessor(
-            max_content_length=self._preprocessor.max_content_length,
-            preserve_attack_patterns=self._preprocessor.preserve_attack_patterns,
+            max_content_length=preprocessor.max_content_length,
+            preserve_attack_patterns=preprocessor.preserve_attack_patterns,
             agent_handler=self.agent_handler,
             correlation_id=correlation_id,
         )
@@ -598,14 +677,18 @@ class SusPatternsManager:
         ip_address: str,
         pattern_start: float,
         category: str,
+        *,
+        state: _DetectionState | None = None,
     ) -> tuple[dict | None, bool]:
+        state = self._resolve_state(state)
         timeout_occurred = False
+        compiler = state.compiler
 
-        if self._compiler:
+        if compiler:
             if category == "custom":
-                safe_matcher = self._compiler.create_safe_matcher(pattern)
+                safe_matcher = compiler.create_safe_matcher(pattern)
                 match = safe_matcher(content)
-                timeout_threshold = 0.9 * self._compiler.default_timeout
+                timeout_threshold = 0.9 * compiler.default_timeout
                 if (
                     match is None
                     and time.monotonic() - pattern_start >= timeout_threshold
@@ -686,7 +769,10 @@ class SusPatternsManager:
         correlation_id: str | None,
         context: str = "unknown",
         enabled_categories: set[str] | None = None,
+        *,
+        state: _DetectionState | None = None,
     ) -> tuple[list[dict], list[str], list[str]]:
+        state = self._resolve_state(state)
         threats = []
         matched_patterns = []
         timeouts = []
@@ -694,6 +780,7 @@ class SusPatternsManager:
         all_patterns = self.get_all_compiled_patterns()
         normalized = self._normalize_context(context)
         skip_filter = normalized in ("unknown", "request_body")
+        performance_monitor = state.performance_monitor
 
         for pattern, contexts, category in all_patterns:
             if not skip_filter and normalized not in contexts:
@@ -708,7 +795,7 @@ class SusPatternsManager:
             pattern_start = time.monotonic()
 
             threat, timeout_occurred = self._check_regex_pattern(
-                pattern, content, ip_address, pattern_start, category
+                pattern, content, ip_address, pattern_start, category, state=state
             )
 
             if timeout_occurred:
@@ -718,8 +805,8 @@ class SusPatternsManager:
                 threats.append(threat)
                 matched_patterns.append(pattern.pattern)
 
-            if self._performance_monitor:
-                self._performance_monitor.record_metric(
+            if performance_monitor:
+                performance_monitor.record_metric(
                     pattern=pattern.pattern,
                     execution_time=time.monotonic() - pattern_start,
                     content_length=len(content),
@@ -731,19 +818,24 @@ class SusPatternsManager:
 
         return threats, matched_patterns, timeouts
 
-    def _check_semantic_threats(self, content: str) -> tuple[list[dict], float]:
-        if not self._semantic_analyzer:
+    def _check_semantic_threats(
+        self, content: str, *, state: _DetectionState | None = None
+    ) -> tuple[list[dict], float]:
+        state = self._resolve_state(state)
+        semantic_analyzer = state.semantic_analyzer
+        if not semantic_analyzer:
             return [], 0.0
 
-        semantic_analysis = self._semantic_analyzer.analyze(content)
-        semantic_score = self._semantic_analyzer.get_threat_score(semantic_analysis)
+        semantic_threshold = state.semantic_threshold
+        semantic_analysis = semantic_analyzer.analyze(content)
+        semantic_score = semantic_analyzer.get_threat_score(semantic_analysis)
         threats = []
 
-        if semantic_score > self._semantic_threshold:
+        if semantic_score > semantic_threshold:
             attack_probs = semantic_analysis.get("attack_probabilities", {})
 
             for attack_type, probability in attack_probs.items():
-                if probability >= self._semantic_threshold:
+                if probability >= semantic_threshold:
                     threats.append(
                         {
                             "type": "semantic",
@@ -753,7 +845,7 @@ class SusPatternsManager:
                         }
                     )
 
-            if not threats and semantic_score >= self._semantic_threshold:
+            if not threats and semantic_score >= semantic_threshold:
                 threats.append(
                     {
                         "type": "semantic",
@@ -788,8 +880,11 @@ class SusPatternsManager:
     ) -> dict[str, Any]:
         original_content = content
         execution_start = time.monotonic()
+        state = self._detection_state
 
-        processed_content = self._preprocess_content(content, correlation_id)
+        processed_content = self._preprocess_content(
+            content, correlation_id, state=state
+        )
 
         regex_threats, matched_patterns, timeouts = self._check_regex_patterns(
             processed_content,
@@ -797,15 +892,16 @@ class SusPatternsManager:
             correlation_id,
             context,
             enabled_categories,
+            state=state,
         )
 
         semantic_threats, semantic_score = self._check_semantic_threats(
-            processed_content
+            processed_content, state=state
         )
 
         threats = regex_threats + semantic_threats
         is_threat = (
-            _regex_anomaly(regex_threats) >= self._threat_score_threshold
+            _regex_anomaly(regex_threats) >= state.threat_score_threshold
             or len(semantic_threats) > 0
         )
 
@@ -813,8 +909,8 @@ class SusPatternsManager:
 
         total_execution_time = time.monotonic() - execution_start
 
-        if self._performance_monitor:
-            self._performance_monitor.record_metric(
+        if state.performance_monitor:
+            state.performance_monitor.record_metric(
                 pattern="overall_detection",
                 execution_time=total_execution_time,
                 content_length=len(content),
@@ -823,6 +919,8 @@ class SusPatternsManager:
                 agent_handler=self.agent_handler,
                 correlation_id=correlation_id,
             )
+
+        detection_method = "enhanced" if state.compiler else "legacy"
 
         if is_threat:
             self._send_threat_event(
@@ -837,6 +935,7 @@ class SusPatternsManager:
                 timeouts,
                 total_execution_time,
                 correlation_id,
+                detection_method,
             )
 
         return {
@@ -847,7 +946,7 @@ class SusPatternsManager:
             "original_length": len(original_content),
             "processed_length": len(processed_content),
             "execution_time": total_execution_time,
-            "detection_method": "enhanced" if self._compiler else "legacy",
+            "detection_method": detection_method,
             "timeouts": timeouts,
             "correlation_id": correlation_id,
         }
@@ -865,8 +964,12 @@ class SusPatternsManager:
         timeouts: list,
         execution_time: float,
         correlation_id: str | None,
+        detection_method: str | None = None,
     ) -> None:
         from guard_core.sync.core.events.event_types import EVENT_PATTERN_DETECTED
+
+        if detection_method is None:
+            detection_method = "enhanced" if self._compiler else "legacy"
 
         pattern_info = "unknown"
         if matched_patterns:
@@ -887,7 +990,7 @@ class SusPatternsManager:
             regex_threats=len(regex_threats),
             semantic_threats=len(semantic_threats),
             timeouts=len(timeouts),
-            detection_method="enhanced" if self._compiler else "legacy",
+            detection_method=detection_method,
             execution_time_ms=int(execution_time * 1000),
             correlation_id=correlation_id,
         )
@@ -1069,12 +1172,13 @@ class SusPatternsManager:
     @classmethod
     def get_performance_stats(cls) -> dict[str, Any] | None:
         instance = cls()
-        if instance._performance_monitor:
+        performance_monitor = instance._performance_monitor
+        if performance_monitor:
             return {
-                "summary": instance._performance_monitor.get_summary_stats(),
-                "slow_patterns": instance._performance_monitor.get_slow_patterns(),
+                "summary": performance_monitor.get_summary_stats(),
+                "slow_patterns": performance_monitor.get_slow_patterns(),
                 "problematic_patterns": (
-                    instance._performance_monitor.get_problematic_patterns()
+                    performance_monitor.get_problematic_patterns()
                 ),
             }
         return None
@@ -1082,11 +1186,12 @@ class SusPatternsManager:
     @classmethod
     def get_component_status(cls) -> dict[str, bool]:
         instance = cls()
+        state = instance._detection_state
         return {
-            "compiler": instance._compiler is not None,
-            "preprocessor": instance._preprocessor is not None,
-            "semantic_analyzer": instance._semantic_analyzer is not None,
-            "performance_monitor": instance._performance_monitor is not None,
+            "compiler": state.compiler is not None,
+            "preprocessor": state.preprocessor is not None,
+            "semantic_analyzer": state.semantic_analyzer is not None,
+            "performance_monitor": state.performance_monitor is not None,
         }
 
     def configure_semantic_threshold(self, threshold: float) -> None:
