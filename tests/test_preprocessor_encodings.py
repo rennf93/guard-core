@@ -1,6 +1,19 @@
+import re
+
 import pytest
 
 from guard_core.detection_engine.preprocessor import ContentPreprocessor
+from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+_CMD_INJECTION_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE | re.MULTILINE)
+    for pattern, _contexts, category in SusPatternsManager._pattern_definitions
+    if category == "cmd_injection"
+]
+
+
+def _cmd_injection_detected(text: str) -> bool:
+    return any(pattern.search(text) for pattern in _CMD_INJECTION_PATTERNS)
 
 
 @pytest.fixture
@@ -127,6 +140,56 @@ def test_decode_base64_candidates_valid(pp: ContentPreprocessor) -> None:
     assert "<script>" in result
 
 
+def test_decode_base64_candidates_leaves_0x_prefixed_hex_literal_untouched(
+    pp: ContentPreprocessor,
+) -> None:
+    token = "0x2f6574632f706173737764"
+    payload = f"LOAD_FILE({token})"
+    result = pp._decode_base64_candidates(payload)
+    assert result == payload
+
+
+def test_is_hex_literal_rejects_bare_hex_pair_without_0x_prefix(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._is_hex_literal("deadbeefdeadbeefdeadbeef") is False
+
+
+def test_decode_base64_candidates_preserves_bare_hex_token_not_valid_utf8(
+    pp: ContentPreprocessor,
+) -> None:
+    token = "deadbeefdeadbeefdeadbeef"
+    result = pp._decode_base64_candidates(token)
+    assert result == token
+
+
+def test_decode_base64_candidates_decodes_hex_lookalike_netcat_evasion_token(
+    pp: ContentPreprocessor,
+) -> None:
+    token = "aCA5aCA0fE5De0A0aCA6"
+    result = pp._decode_base64_candidates(token)
+    assert result == "h 9h 4|NC{@4h :"
+    assert _cmd_injection_detected(result)
+
+
+@pytest.mark.asyncio
+async def test_hex_lookalike_base64_evasion_survives_preprocessing_and_is_detected(
+    pp: ContentPreprocessor,
+) -> None:
+    payload = "aCA5aCA0fE5De0A0aCA6"
+    result = await pp.preprocess(payload)
+    assert _cmd_injection_detected(result)
+
+
+@pytest.mark.asyncio
+async def test_load_file_hex_literal_survives_preprocessing_uncorrupted(
+    pp: ContentPreprocessor,
+) -> None:
+    payload = "LOAD_FILE(0x2f6574632f706173737764)"
+    result = await pp.preprocess(payload)
+    assert "0x2f6574632f706173737764" in result
+
+
 def test_decode_base64_candidates_returns_token_when_decode_fails(
     pp: ContentPreprocessor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -140,6 +203,55 @@ def test_decode_base64_candidates_returns_token_when_decode_fails(
     payload = "PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="
     result = pp._decode_base64_candidates(payload)
     assert result == payload
+
+
+def test_printable_ascii_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
+    assert pp._printable_ascii_ratio("") == 0.0
+
+
+def test_printable_ascii_ratio_of_all_printable_ascii_is_one(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ascii_ratio("hello world 123") == 1.0
+
+
+def test_printable_ascii_ratio_counts_only_ascii_printable_range(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ascii_ratio("ab\x01\x02") == 0.5
+
+
+def test_decode_base64_candidates_keeps_token_when_decoded_bytes_are_not_utf8(
+    pp: ContentPreprocessor,
+) -> None:
+    import base64
+
+    raw = bytes([0xFF, 0xFE, 0xFD, 0xFC] * 5)
+    token = base64.b64encode(raw).decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert result == token
+
+
+def test_decode_base64_candidates_decodes_at_exact_printable_ratio_threshold(
+    pp: ContentPreprocessor,
+) -> None:
+    import base64
+
+    raw = b"printableXtextAB18" + b"\x01\x01"
+    token = base64.b64encode(raw).decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert result == raw.decode("utf-8")
+
+
+def test_decode_base64_candidates_keeps_token_just_below_printable_ratio_threshold(
+    pp: ContentPreprocessor,
+) -> None:
+    import base64
+
+    raw = b"printableXtextA17" + b"\x01\x01\x01"
+    token = base64.b64encode(raw).decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert result == token
 
 
 def test_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:
