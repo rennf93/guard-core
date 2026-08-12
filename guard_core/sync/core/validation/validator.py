@@ -1,13 +1,26 @@
+import hashlib
 from datetime import datetime, timezone
 from ipaddress import ip_address, ip_network
 
+from cachetools import TTLCache
+
 from guard_core.sync.core.validation.context import ValidationContext
+from guard_core.sync.core.validation.path_matching import (
+    normalize_exclude_paths,
+    normalize_url_path,
+    path_matches_exclusions,
+)
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 class RequestValidator:
     def __init__(self, context: ValidationContext) -> None:
         self.context = context
+        self._path_excluded_event_cache: TTLCache[str, bool] = TTLCache(
+            maxsize=1000, ttl=300
+        )
+        self._normalized_exclude_paths: tuple[str, ...] = ()
+        self._normalized_exclude_paths_source: tuple[str, ...] | None = None
 
     def is_request_https(self, request: SyncGuardRequest) -> bool:
         is_https = request.url_scheme == "https"
@@ -52,11 +65,26 @@ class RequestValidator:
             self.context.logger.error(f"Error checking time window: {e!s}")
             return True
 
+    def _current_normalized_exclude_paths(self) -> tuple[str, ...]:
+        current_source = tuple(self.context.config.exclude_paths)
+        if current_source != self._normalized_exclude_paths_source:
+            self._normalized_exclude_paths = normalize_exclude_paths(current_source)
+            self._normalized_exclude_paths_source = current_source
+        return self._normalized_exclude_paths
+
     def is_path_excluded(self, request: SyncGuardRequest) -> bool:
-        if any(
-            request.url_path.startswith(path)
-            for path in self.context.config.exclude_paths
+        normalized_path = normalize_url_path(request.url_path)
+        if normalized_path is None:
+            return False
+
+        if not path_matches_exclusions(
+            normalized_path, self._current_normalized_exclude_paths()
         ):
+            return False
+
+        cache_key = hashlib.sha256(normalized_path.encode()).hexdigest()
+        if cache_key not in self._path_excluded_event_cache:
+            self._path_excluded_event_cache[cache_key] = True
             self.context.event_bus.send_middleware_event(
                 event_type="path_excluded",
                 request=request,
@@ -65,5 +93,5 @@ class RequestValidator:
                 excluded_path=request.url_path,
                 configured_exclusions=self.context.config.exclude_paths,
             )
-            return True
-        return False
+
+        return True
