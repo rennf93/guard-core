@@ -38,6 +38,11 @@ class GuardResponseFactory(Protocol):
 
 The response object returned by your factory and ultimately sent back to the client. The `headers` property **must be mutable** -- guard-core's `ErrorResponseFactory` writes security headers (HSTS, CSP, X-Frame-Options, etc.) directly onto the response via `response.headers[header_name] = header_value`.
 
+`status_code`, `headers`, and `body` are the complete *required* `GuardResponse` surface; implementing just those three is enough to pass the pipeline.
+
+!!! note "Optional: BoundedResponseBodyReader for response-body behavior rules"
+    `body` is not read for behavioral `return_pattern` matching (`json:`, `regex:`, bare-substring) -- only `status:` patterns work against a plain `GuardResponse`. To let those three body-reading formats evaluate, additionally implement the optional `BoundedResponseBodyReader` capability (`async def read_body_prefix(self, max_bytes: int) -> bytes`) alongside `GuardResponse`, and set `SecurityConfig.behavior_scan_response_body=True`. This is genuinely optional: a response that only implements `GuardResponse` remains fully valid, and guard-core reports "could not evaluate" (never a false match or a false non-match) for a `return_pattern` rule it cannot check. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader) for the full contract, including the streaming/memory obligations on your implementation. If your adapter's `GuardResponse` previously matched an ordinary, non-streaming body through the (now-removed) `hasattr(response, "body")` codepath, that rule silently stops matching the moment your consumer upgrades guard-core, until you ship `BoundedResponseBodyReader` support -- this is not optional in the sense of "low priority", it is a required follow-up to avoid a silent regression for anyone using body-reading `return_pattern` rules against your adapter.
+
 ### GuardResponseFactory
 
 A factory that produces `GuardResponse` instances. Guard-core's `ErrorResponseFactory` calls your factory's methods to build framework-native responses. You pass an instance of your factory into the `ResponseContext`, and the entire pipeline uses it from that point forward.

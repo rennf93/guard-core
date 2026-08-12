@@ -16,13 +16,13 @@ Core Settings
 | Field                     | Type                        | Default  | Description                                            |
 |---------------------------|-----------------------------|----------|--------------------------------------------------------|
 | `passive_mode`            | `bool`                      | `False`  | Log-only mode. Logs and emits events but never blocks. |
-| `exclude_paths`           | `list[str]`                 | See below| Paths excluded from all security checks.               |
+| `exclude_paths`           | `list[str]`                 | See below| Paths that skip detection and behavioral analysis; ban enforcement and rate limiting still apply. See [Ban Configuration](../api/ban-config.md#exclude_paths-enforces-bans-and-rate-limits-not-evidence-gathering). |
 | `custom_error_responses`  | `dict[int, str]`            | `{}`     | Override error messages for specific HTTP status codes. |
 | `enforce_https`           | `bool`                      | `False`  | Redirect HTTP requests to HTTPS globally.              |
 | `custom_request_check`    | `Callable \| None`          | `None`   | Global async function for custom request validation.   |
 | `custom_response_modifier`| `Callable \| None`          | `None`   | Global async function to modify responses.             |
 | `route_resolution_strict` | `bool`                      | `False`  | Block with `500` when the adapter reports it could not resolve the route, instead of running the pipeline with no per-route config. Also turns requests to paths the app does not serve into `500`s rather than `404`s. See [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match). |
-| `on_error`                | `Callable[[str, BaseException, dict], None] \| None` | `None` | Best-effort callback invoked when a middleware/agent step fails, receiving `(stage, exception, context)`. `stage` is one of `agent_init`, `geoip`, `transport_send`, `encryption`. Also forwarded to `AgentConfig.on_error` when the agent is enabled; see [Agent / Telemetry](#agent--telemetry). |
+| `on_error`                | `Callable[[str, BaseException, dict], None] \| None` | `None` | Best-effort callback invoked when a middleware/agent step fails, receiving `(stage, exception, context)`. `stage` is one of `agent_init`, `geoip`, `transport_send`, `encryption`. Also forwarded to `AgentConfig.on_error` when the agent is enabled; see [Agent / Telemetry](#agent-telemetry). |
 
 **Default `exclude_paths`**: `["/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/favicon.ico", "/static"]`
 
@@ -110,9 +110,12 @@ Global Behavior Rules
 
 `global_behavior_rules` applies behavior rules to every route without requiring decorators. The merged rules are run alongside any decorator-specified rules. The most common use is service-wide 404-noise correlation, but the same shape supports `usage`, `frequency`, and `return_pattern` rules.
 
-| Field                    | Type                          | Default | Description                                  |
-|--------------------------|-------------------------------|---------|----------------------------------------------|
-| `global_behavior_rules`  | `list[BehaviorRuleConfig]`    | `[]`    | Behavior rules merged into every route.      |
+| Field                                        | Type                          | Default    | Description                                  |
+|-----------------------------------------------|-------------------------------|------------|----------------------------------------------|
+| `global_behavior_rules`                        | `list[BehaviorRuleConfig]`    | `[]`       | Behavior rules merged into every route.      |
+| `behavior_scan_response_body`                  | `bool`                        | `False`    | Read response bodies to evaluate `return_pattern` rules whose pattern is not `status:` (`json:`, `regex:`, or a bare substring). Off by default: no response body is ever read for pattern matching, and constructing a `return_pattern` rule with a non-`status:` pattern while this is `False` raises `ValueError` instead of silently accepting a rule that can never match. `status:` patterns match on `status_code` alone and are unaffected. |
+| `behavior_max_response_body_inspect_bytes`     | `int`                         | `262144`   | Maximum bytes read from the start of a response body and held for `return_pattern` inspection when `behavior_scan_response_body` is `True`. Bounds what guard-core retains, not what the application produces; a streaming response stays streaming to the client. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader). |
+| `body_read_timeout`                            | `float`                       | `3.0`      | **Async `guard_core` tree only.** Seconds to wait for an adapter's `read_body_prefix`/`body` call before giving up. Bounds the request-body detection read and the response-body behaviour-rule read against a stalled or misbehaving adapter/stream; on timeout the body is treated as unavailable, the same fail-closed outcome already used when the adapter raises. The sync tree (`guard_core.sync`) calls the adapter's read directly and ignores this field entirely; a stalled sync adapter read blocks the request exactly like any other slow call in a WSGI application, so bound it with the WSGI server's own request timeout (gunicorn `--timeout`, uWSGI `harakiri`) instead. |
 
 When to use:
 
@@ -133,6 +136,24 @@ config = SecurityConfig(
             action="ban",
             ban_duration=3600,
             correlate_with_detection=True,
+        ),
+    ],
+)
+```
+
+A `json:`, `regex:`, or bare-substring pattern additionally requires `behavior_scan_response_body=True` and an adapter that implements `BoundedResponseBodyReader`; without both, construction rejects the rule outright rather than accepting one that can never match:
+
+```python
+config = SecurityConfig(
+    behavior_scan_response_body=True,
+    behavior_max_response_body_inspect_bytes=65536,
+    global_behavior_rules=[
+        BehaviorRuleConfig(
+            rule_type="return_pattern",
+            threshold=5,
+            window=300,
+            pattern="json:error.code==AUTH_FAIL",
+            action="ban",
         ),
     ],
 )

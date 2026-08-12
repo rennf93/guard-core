@@ -163,6 +163,7 @@ class SecurityConfig(BaseModel):
 | `validate_optional_extras_installed` | model-level | Requires the `redis`/`cloud`/`geo` extra (checked via `importlib.util.find_spec`) when the corresponding feature is configured; raises `ValueError` naming the missing extra's install command. |
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when country filtering is configured (falls back to constructing `IPInfoManager` if `ipinfo_token` is set). |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent=True`; requires `enable_agent=True` when `enable_dynamic_rules=True`. |
+| `validate_global_return_pattern_body_scan` | `global_behavior_rules` | Rejects a `return_pattern` rule whose pattern is not `status:` when `behavior_scan_response_body=False`, since such a rule could never match. |
 | `warn_deprecated_fields` | model-level | Emits `DeprecationWarning` when `ipinfo_token`/`ipinfo_db_path` is set. |
 | `validate_muted_event_types` | `muted_event_types` | Rejects unknown values (must be a subset of `EVENT_TYPE_VALUES`) |
 | `validate_muted_metric_types` | `muted_metric_types` | Rejects unknown values (must be a subset of `METRIC_TYPE_VALUES`) |
@@ -197,11 +198,14 @@ See [Ban Configuration](ban-config.md) for `ThreatBanConfig` details and example
 
 `global_behavior_rules` applies behavior rules to every route without requiring decorators. Useful for global 404 noise tracking or service-wide frequency rules.
 
-| Field                    | Type                          | Default | Description                                  |
-|--------------------------|-------------------------------|---------|----------------------------------------------|
-| `global_behavior_rules`  | `list[BehaviorRuleConfig]`    | `[]`    | Behavior rules merged into every route.      |
+| Field                                       | Type                          | Default    | Description                                  |
+|-----------------------------------------------|-------------------------------|------------|----------------------------------------------|
+| `global_behavior_rules`                        | `list[BehaviorRuleConfig]`    | `[]`       | Behavior rules merged into every route.      |
+| `behavior_scan_response_body`                  | `bool`                        | `False`    | Gates response-body reading for `return_pattern` rules whose pattern is not `status:`. |
+| `behavior_max_response_body_inspect_bytes`     | `int`                         | `262144`   | Cap on bytes read/retained per response when `behavior_scan_response_body` is `True`. |
+| `body_read_timeout`                            | `float`                       | `3.0`      | **Async tree only.** Seconds to wait on an adapter's `read_body_prefix`/`body` call before treating the body as unavailable. Bounds `BoundedBodyReader`, `BoundedResponseBodyReader`, and the plain `GuardRequest.body` read in `guard_core`; ignored by `guard_core.sync`, which calls the adapter's read directly and relies on the WSGI server's own request timeout instead. |
 
-See [Behavior Rules](behavior-rules.md) for `BehaviorRuleConfig` details and the detection-correlation example.
+See [Behavior Rules](behavior-rules.md) for `BehaviorRuleConfig` details, the return-pattern format table, and the detection-correlation example.
 
 ### IP Lifecycle Controls
 
@@ -267,7 +271,7 @@ class BehaviorRuleConfig(BaseModel):
 | `rule_type`                 | `"usage" \| "return_pattern" \| "frequency"`  | required | Rule kind. `return_pattern` matches against response status / body content. |
 | `threshold`                 | `int`                                         | required | Trigger count within `window`.                                              |
 | `window`                    | `int`                                         | `3600`   | Window in seconds.                                                          |
-| `pattern`                   | `str \| None`                                 | `None`   | Match expression for `return_pattern` rules (e.g. `"status:404"`).          |
+| `pattern`                   | `str \| None`                                 | `None`   | Match expression for `return_pattern` rules (e.g. `"status:404"`, or `"json:"` / `"regex:"` / a bare substring against the response body). A body-reading pattern requires `SecurityConfig.behavior_scan_response_body=True`; construction raises `ValueError` otherwise. See [Behavior Rules](behavior-rules.md#return-pattern-formats). |
 | `action`                    | `"ban" \| "log" \| "throttle" \| "alert"`     | `"log"`  | Action when threshold is exceeded.                                          |
 | `ban_duration`              | `int \| None`                                 | `None`   | Ban duration in seconds when `action="ban"`. When `None`, falls back to a hardcoded 3600 seconds -- independent of `auto_ban_duration`, which only governs the unrelated flat penetration-detection ban path. |
 | `correlate_with_detection`  | `bool`                                        | `False`  | Halve the threshold (floor 1) when the IP has any positive `suspicious_request_counts` entry. |
