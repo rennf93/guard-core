@@ -39,6 +39,9 @@ class ContentPreprocessor:
             r"\$\{",
             r"\\x[0-9a-fA-F]{2}",
             r"%[0-9a-fA-F]{2}",
+            r"`",
+            r"\$\(",
+            r"[;&|]",
         ]
 
         self.compiled_indicators = [
@@ -49,6 +52,7 @@ class ContentPreprocessor:
         r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{20,}={0,2}(?![A-Za-z0-9+/=])"
     )
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
+    _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
     _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
         r"(?<!\w)/\*(?!!)(.*?)\*/|/\*(?!!)(.*?)\*/(?!\w)", re.DOTALL
@@ -198,9 +202,16 @@ class ContentPreprocessor:
 
         for start, end in attack_regions:
             if last_end < start and gap_budget > 0:
-                chunk_len = min(start - last_end, gap_budget)
-                result_parts.append(content[last_end : last_end + chunk_len])
-                gap_budget -= chunk_len
+                gap_len = start - last_end
+                if gap_len <= gap_budget:
+                    result_parts.append(content[last_end:start])
+                    gap_budget -= gap_len
+                else:
+                    chunk_len = gap_budget - 1
+                    if chunk_len > 0:
+                        result_parts.append(content[last_end : last_end + chunk_len])
+                    result_parts.append(" ")
+                    gap_budget = 0
             result_parts.append(content[start:end])
             last_end = end
 
@@ -238,20 +249,34 @@ class ContentPreprocessor:
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
 
+    _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.9
+
+    def _is_hex_literal(self, token: str) -> bool:
+        return bool(self._HEX_LITERAL_RE.fullmatch(token))
+
+    def _printable_ascii_ratio(self, text: str) -> float:
+        if not text:
+            return 0.0
+        printable_count = sum(1 for char in text if 0x20 <= ord(char) <= 0x7E)
+        return printable_count / len(text)
+
     def _decode_base64_candidates(self, content: str) -> str:
         import base64
 
         def _replace(match: re.Match[str]) -> str:
             token = match.group(0)
+            if self._is_hex_literal(token):
+                return token
             padding = (4 - len(token) % 4) % 4
             padded = token + "=" * padding
             try:
-                decoded = base64.b64decode(padded, validate=True).decode(
-                    "utf-8", errors="ignore"
-                )
+                decoded = base64.b64decode(padded, validate=True).decode("utf-8")
             except (ValueError, binascii.Error):
                 return token
-            if decoded and any(c.isprintable() for c in decoded):
+            if (
+                self._printable_ascii_ratio(decoded)
+                >= self._PRINTABLE_ASCII_RATIO_THRESHOLD
+            ):
                 return decoded
             return token
 
