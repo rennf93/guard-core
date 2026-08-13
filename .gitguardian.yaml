@@ -1,0 +1,11 @@
+version: 2
+
+secret:
+  ignored-paths:
+    # Detection test-fixture corpora. These hold credential-shaped strings on
+    # purpose (documentation example AWS/GitHub/Stripe/Slack keys and example
+    # JWTs) so the detector can be tested against them; they are synthetic test
+    # vectors, not real credentials.
+    - "tests/test_preprocessor_base64_corpus.py"
+    - "tests/test_sync/test_preprocessor_base64_corpus.py"
+    - "tests/attack_simulation/corpus/benign/encoded_legit.txt"
