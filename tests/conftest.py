@@ -27,6 +27,7 @@ from guard_core.handlers.ratelimit_handler import rate_limit_handler
 from guard_core.handlers.redis_handler import RedisManager
 from guard_core.handlers.security_headers_handler import SecurityHeadersManager
 from guard_core.handlers.suspatterns_handler import (
+    _LEGACY_DETECTION_STATE,
     SusPatternsManager,
     sus_patterns_handler,
 )
@@ -36,28 +37,16 @@ IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or "test:guard_core:"
 
-_DETECTION_SINGLETON_FIELDS = (
-    "_compiler",
-    "_preprocessor",
-    "_semantic_analyzer",
-    "_performance_monitor",
-    "_semantic_threshold",
-    "_threat_score_threshold",
-)
-
 
 @pytest.fixture(autouse=True)
 def _isolate_detection_singleton() -> Any:
     handler = _suspatterns_module.sus_patterns_handler
-    saved_fields = {
-        name: getattr(handler, name) for name in _DETECTION_SINGLETON_FIELDS
-    }
+    saved_state = handler._detection_state
     saved_instance = SusPatternsManager._instance
     saved_config = SusPatternsManager._config
     saved_global = _suspatterns_module.sus_patterns_handler
     yield
-    for name, value in saved_fields.items():
-        setattr(handler, name, value)
+    handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
@@ -261,12 +250,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     ]
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
-    sus_patterns_handler._compiler = None
-    sus_patterns_handler._preprocessor = None
-    sus_patterns_handler._semantic_analyzer = None
-    sus_patterns_handler._performance_monitor = None
-    sus_patterns_handler._semantic_threshold = 0.7
-    sus_patterns_handler._threat_score_threshold = 1.0
+    sus_patterns_handler._detection_state = _LEGACY_DETECTION_STATE
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
