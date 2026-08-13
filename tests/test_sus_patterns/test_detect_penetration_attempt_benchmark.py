@@ -14,6 +14,7 @@ from guard_core.models import SecurityConfig
 from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 from tests.test_sus_patterns.test_detection_benchmark import (
+    _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     BENIGN_CORPUS,
     MALICIOUS_CORPUS,
 )
@@ -136,16 +137,301 @@ _TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "embedded_probe_prose_body",
         _body_request(
-            "Note: the scanner hit /wp-admin/install.php on our staging.",
+            "Note: the scanner hit /wp-admin/install.php on our staging host.",
             "text/plain",
         ),
         False,
-        "prose is scanned as one blob against the whole-content-anchored "
-        "cms_probing pattern; a full sentence around the path never matches "
-        "it, and matching a path substring anywhere in prose is exactly the "
-        "false-positive shape defect 1 removed (2/2 measured benign URL-"
-        "quoting sentences false-positived when that alternative existed), "
-        "so this stays a documented gap",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_bot_probed_install_php",
+        _body_request(
+            "Intrusion alert: a bot probed /wp-admin/install.php from 203.0.113.9.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_waf_blocked_setup_config",
+        _body_request(
+            "Our WAF blocked a request targeting /wp-admin/setup-config.php just now.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_exploit_xmlrpc",
+        _body_request(
+            "Someone attempted to exploit /xmlrpc.php on the checkout server "
+            "overnight.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_attacker_payload_wp_login",
+        _body_request(
+            "The attacker's payload tried to reach /wp-login.php with "
+            "brute-force credentials.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_malicious_probe_phpinfo",
+        _body_request(
+            "Security team confirmed a malicious probe against /phpinfo.php "
+            "last night.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_exploitation_attempts_install_php",
+        _body_request(
+            "Logs show repeated exploitation attempts on /wp-admin/install.php "
+            "this morning.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_botnet_scanning_setup_config",
+        _body_request(
+            "A known botnet is scanning for /wp-admin/setup-config.php across "
+            "our fleet.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_attacker_git_config",
+        _body_request(
+            "We detected an attacker trying to access /.git/config on the "
+            "public endpoint.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_threat_feed_var_www_env",
+        _body_request(
+            "Threat feed flagged traffic hitting /var/www/.env from a Tor exit node.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_honeypot_etc_passwd",
+        _body_request(
+            "The honeypot recorded a request to /etc/passwd from an unknown scanner.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_scanner_hit_htpasswd",
+        _body_request(
+            "Vulnerability scanner attempted a hit on /.htpasswd during the pentest.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_blocked_probe_install_php",
+        _body_request(
+            "Blocked malicious traffic: a probe against /wp-admin/install.php "
+            "was denied.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_repeated_attacks_xmlrpc",
+        _body_request(
+            "Suspicious activity: repeated attacks on /xmlrpc.php from a botnet.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_pentest_exploitation_setup_config",
+        _body_request(
+            "The pentest log shows exploitation of /wp-admin/setup-config.php "
+            "succeeded.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_intrusion_detection_phpinfo",
+        _body_request(
+            "Intrusion detection triggered on a request for /phpinfo.php from "
+            "a scanner.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_credential_stuffing_wp_login",
+        _body_request(
+            "A malicious actor tried /wp-login.php with a credential-stuffing list.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_bad_actor_dotenv",
+        _body_request(
+            "We caught a bad actor probing /.env on the load balancer.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_attacker_pivot_install_php",
+        _body_request(
+            "The attacker pivoted and hit /wp-admin/install.php right after recon.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_soc_exploit_setup_config",
+        _body_request(
+            "SOC confirmed the exploit attempt against /wp-admin/setup-config.php.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_attack_tooling_xmlrpc",
+        _body_request(
+            "Automated attack tooling scanned for /xmlrpc.php on every subdomain.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_scanner_git_config",
+        _body_request(
+            "The scanner also hit /.git/config while enumerating the site.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_hostile_probe_install_php",
+        _body_request(
+            "We saw a hostile probe against /wp-admin/install.php at 3am.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_malicious_crawler_phpinfo_wp_login",
+        _body_request(
+            "Malicious crawler attempted /phpinfo.php then moved to /wp-login.php.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_intrusion_var_www_env",
+        _body_request(
+            "The intrusion attempt against /var/www/.env was blocked by the WAF.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_exploit_kit_setup_config",
+        _body_request(
+            "An exploit kit tried to reach /wp-admin/setup-config.php twice.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_attack_traffic_install_php",
+        _body_request(
+            "Attack traffic hit /wp-admin/install.php from a known bad IP range.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_scanner_htpasswd_credentials",
+        _body_request(
+            "The scanner probed /.htpasswd looking for exposed credentials.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_bruteforce_bot_wp_login",
+        _body_request(
+            "A brute-force bot hit /wp-login.php more than 500 times overnight.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_recon_activity_xmlrpc",
+        _body_request(
+            "Recon activity included a hit on /xmlrpc.php before the real attack.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_spoofed_referer_install_php",
+        _body_request(
+            "The malicious request targeted /wp-admin/install.php via a "
+            "spoofed referer.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "embedded_probe_prose_ids_flagged_setup_config",
+        _body_request(
+            "Our IDS flagged an exploitation attempt against "
+            "/wp-admin/setup-config.php.",
+            "text/plain",
+        ),
+        False,
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
 ]
 
@@ -165,20 +451,9 @@ def _fraction(numerator: int, denominator: int) -> str:
     return f"{numerator}/{denominator} ({percentage:.1f}%)"
 
 
-_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
-    "sensitive_file_json_payload_ending_source_path": (
-        "raw_body with no content-type and a JSON-shaped payload is "
-        "auto-sniffed and scanned field by field; the isolated 'path' field "
-        "value '/opt/app/worker.py' fully matches the whole-string-anchored "
-        "source-extension pattern that only ever sees the value, never the "
-        "surrounding JSON key. Pre-existing in the unmodified code "
-        "(reproduced against HEAD before this change); unrelated to defects "
-        "1-3 and 5, so left as a documented gap rather than reworking the "
-        "shared sensitive_file pattern under this change"
-    ),
-}
+_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {}
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 157
+BASELINE_MALICIOUS_DETECTED_TOTAL = 163
 
 
 @pytest.mark.asyncio

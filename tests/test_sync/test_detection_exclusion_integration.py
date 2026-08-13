@@ -104,7 +104,10 @@ def test_excluded_param_suppresses_match() -> None:
 
 def test_excluded_body_field_suppresses_match() -> None:
     config = SecurityConfig(excluded_detection_body_fields={"notes"})
-    request = _FakeRequest(body_bytes=b'{"notes": "<script>alert(1)</script>"}')
+    request = _FakeRequest(
+        body_bytes=b'{"notes": "<script>alert(1)</script>"}',
+        headers={"content-type": "application/json"},
+    )
     _result = detect_penetration_attempt(request, config)
     detected = _result.is_threat
     assert detected is False
@@ -370,6 +373,28 @@ def test_request_body_invalid_json_with_excluded_body_fields() -> None:
     assert detected is True
 
 
+def test_request_body_declared_json_but_malformed_falls_back_to_full_scan() -> None:
+    config = SecurityConfig(excluded_detection_body_fields={"notes"})
+    request = _FakeRequest(
+        body_bytes=b"not valid json <script>alert(1)</script>",
+        headers={"content-type": "application/json"},
+    )
+    _result = detect_penetration_attempt(request, config)
+    detected = _result.is_threat
+    assert detected is True
+
+
+def test_request_body_declared_json_scalar_falls_back_to_full_scan() -> None:
+    config = SecurityConfig(excluded_detection_body_fields={"notes"})
+    request = _FakeRequest(
+        body_bytes=b'"<script>alert(1)</script>"',
+        headers={"content-type": "application/json"},
+    )
+    _result = detect_penetration_attempt(request, config)
+    detected = _result.is_threat
+    assert detected is True
+
+
 def test_request_body_decode_failure_returns_false() -> None:
     class BadBodyRequest(_FakeRequest):
         def body(self) -> bytes:
@@ -385,7 +410,10 @@ def test_request_body_decode_failure_returns_false() -> None:
 
 def test_request_body_field_threat_returns_field_message() -> None:
     config = SecurityConfig(excluded_detection_body_fields={"safe"})
-    request = _FakeRequest(body_bytes=b'{"q": "<script>alert(1)</script>"}')
+    request = _FakeRequest(
+        body_bytes=b'{"q": "<script>alert(1)</script>"}',
+        headers={"content-type": "application/json"},
+    )
     _result = detect_penetration_attempt(request, config)
     detected = _result.is_threat
     trigger = _result.trigger_info
@@ -430,7 +458,9 @@ def test_unknown_client_host_is_handled() -> None:
 def test_body_loop_iterates_past_safe_field_to_detect_threat() -> None:
     config = SecurityConfig(excluded_detection_body_fields={"placeholder"})
     body = b'{"safe": "harmless", "evil": "<script>alert(1)</script>"}'
-    request = _FakeRequest(body_bytes=body)
+    request = _FakeRequest(
+        body_bytes=body, headers={"content-type": "application/json"}
+    )
     _result = detect_penetration_attempt(request, config)
     detected = _result.is_threat
     trigger = _result.trigger_info
@@ -443,7 +473,9 @@ def test_excluded_body_field_with_other_threat_field_still_detects() -> None:
     body = (
         b'{"notes": "<script>alert(1)</script>", "other": "<script>alert(2)</script>"}'
     )
-    request = _FakeRequest(body_bytes=body)
+    request = _FakeRequest(
+        body_bytes=body, headers={"content-type": "application/json"}
+    )
     _result = detect_penetration_attempt(request, config)
     detected = _result.is_threat
     trigger = _result.trigger_info
