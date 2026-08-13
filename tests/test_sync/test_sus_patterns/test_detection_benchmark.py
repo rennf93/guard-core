@@ -560,6 +560,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("recon_actuator_env_probe", "recon", "/actuator/env"),
     MaliciousCase("recon_config_dump_top_level", "recon", "/config_dump"),
+    MaliciousCase("recon_bare_version_top_level", "recon", "/version"),
+    MaliciousCase("recon_bare_system_top_level", "recon", "/system"),
     MaliciousCase(
         "proto_pollution_isadmin_key",
         "proto_pollution",
@@ -1707,7 +1709,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
-    "recon": 20,
+    "recon": 22,
     "sensitive_file": 8,
     "sqli": 19,
     "ssrf": 24,
@@ -1715,7 +1717,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 177
+BASELINE_MALICIOUS_DETECTED_TOTAL = 179
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0
