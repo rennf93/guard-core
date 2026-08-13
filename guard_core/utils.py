@@ -1053,11 +1053,6 @@ async def _scan_request_body(
 ) -> tuple[bool, str, list[dict]]:
     import json
 
-    if not excluded_body_fields:
-        return await _scan_blob_body(
-            raw_body, enabled_categories, client_ip, correlation_id, log_level
-        )
-
     lowered = content_type.lower()
     if "application/x-www-form-urlencoded" in lowered:
         return await _scan_form_body(
