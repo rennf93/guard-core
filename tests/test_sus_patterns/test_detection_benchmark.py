@@ -51,6 +51,24 @@ _TRUNCATION_FILLER = (
     "and highlights the onboarding funnel improvements shipped last sprint. "
 ) * 90
 
+_EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON = (
+    "a bare probe path embedded in a full prose sentence cannot be told apart "
+    "from a benign prose sentence mentioning the same shape of path using "
+    "structural pattern matching alone: word-bounding the path as an isolated "
+    "token reproduces the false-positive shape defect 1 removed (34/41 benign "
+    "prose-with-path strings false-positived when measured against this exact "
+    "corpus), and gating on nearby attack-implying keywords instead is not a "
+    "reliable discriminator (it misses the literal motivating case 'the "
+    "scanner hit /wp-admin/install.php' because 'Note:' collides with the "
+    "same vocabulary legitimate incident reports use, and a real attacker can "
+    "phrase the identical probe without any alarming word). Measured against "
+    "a 32-malicious/41-benign corpus built for this defect: 0/32 recall and "
+    "0/41 FP unmodified; bare-token matching reaches 31/32 recall but 34/41 "
+    "FP; keyword co-occurrence reaches 0/41 FP but only 28/32 recall and "
+    "misses the headline example. Neither candidate clears both gates, so "
+    "this stays a documented, measured gap"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -584,6 +602,232 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "code_injection_assembly_load",
         "code_injection",
         "Assembly.Load(maliciousBytes)",
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_scanner_hit_install_php",
+        "cms_probing",
+        "Note: the scanner hit /wp-admin/install.php on our staging host.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_bot_probed_install_php",
+        "cms_probing",
+        "Intrusion alert: a bot probed /wp-admin/install.php from 203.0.113.9.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_waf_blocked_setup_config",
+        "cms_probing",
+        "Our WAF blocked a request targeting /wp-admin/setup-config.php just now.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_exploit_xmlrpc",
+        "cms_probing",
+        "Someone attempted to exploit /xmlrpc.php on the checkout server overnight.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_attacker_payload_wp_login",
+        "cms_probing",
+        "The attacker's payload tried to reach /wp-login.php with brute-force "
+        "credentials.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_malicious_probe_phpinfo",
+        "cms_probing",
+        "Security team confirmed a malicious probe against /phpinfo.php last night.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_exploitation_attempts_install_php",
+        "cms_probing",
+        "Logs show repeated exploitation attempts on /wp-admin/install.php this "
+        "morning.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_botnet_scanning_setup_config",
+        "cms_probing",
+        "A known botnet is scanning for /wp-admin/setup-config.php across our fleet.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "sensitive_file_embedded_prose_attacker_git_config",
+        "sensitive_file",
+        "We detected an attacker trying to access /.git/config on the public endpoint.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "sensitive_file_embedded_prose_threat_feed_var_www_env",
+        "sensitive_file",
+        "Threat feed flagged traffic hitting /var/www/.env from a Tor exit node.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "dir_traversal_embedded_prose_honeypot_etc_passwd",
+        "dir_traversal",
+        "The honeypot recorded a request to /etc/passwd from an unknown scanner.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_scanner_hit_htpasswd",
+        "cms_probing",
+        "Vulnerability scanner attempted a hit on /.htpasswd during the pentest.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_blocked_probe_install_php",
+        "cms_probing",
+        "Blocked malicious traffic: a probe against /wp-admin/install.php was denied.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_repeated_attacks_xmlrpc",
+        "cms_probing",
+        "Suspicious activity: repeated attacks on /xmlrpc.php from a botnet.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_pentest_exploitation_setup_config",
+        "cms_probing",
+        "The pentest log shows exploitation of /wp-admin/setup-config.php succeeded.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_intrusion_detection_phpinfo",
+        "cms_probing",
+        "Intrusion detection triggered on a request for /phpinfo.php from a scanner.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_credential_stuffing_wp_login",
+        "cms_probing",
+        "A malicious actor tried /wp-login.php with a credential-stuffing list.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "sensitive_file_embedded_prose_bad_actor_dotenv",
+        "sensitive_file",
+        "We caught a bad actor probing /.env on the load balancer.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_attacker_pivot_install_php",
+        "cms_probing",
+        "The attacker pivoted and hit /wp-admin/install.php right after recon.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_soc_exploit_setup_config",
+        "cms_probing",
+        "SOC confirmed the exploit attempt against /wp-admin/setup-config.php.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_attack_tooling_xmlrpc",
+        "cms_probing",
+        "Automated attack tooling scanned for /xmlrpc.php on every subdomain.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "sensitive_file_embedded_prose_scanner_git_config",
+        "sensitive_file",
+        "The scanner also hit /.git/config while enumerating the site.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_hostile_probe_install_php",
+        "cms_probing",
+        "We saw a hostile probe against /wp-admin/install.php at 3am.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_malicious_crawler_phpinfo_wp_login",
+        "cms_probing",
+        "Malicious crawler attempted /phpinfo.php then moved to /wp-login.php.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "sensitive_file_embedded_prose_intrusion_var_www_env",
+        "sensitive_file",
+        "The intrusion attempt against /var/www/.env was blocked by the WAF.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_exploit_kit_setup_config",
+        "cms_probing",
+        "An exploit kit tried to reach /wp-admin/setup-config.php twice.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_attack_traffic_install_php",
+        "cms_probing",
+        "Attack traffic hit /wp-admin/install.php from a known bad IP range.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_scanner_htpasswd_credentials",
+        "cms_probing",
+        "The scanner probed /.htpasswd looking for exposed credentials.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_bruteforce_bot_wp_login",
+        "cms_probing",
+        "A brute-force bot hit /wp-login.php more than 500 times overnight.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_recon_activity_xmlrpc",
+        "cms_probing",
+        "Recon activity included a hit on /xmlrpc.php before the real attack.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_spoofed_referer_install_php",
+        "cms_probing",
+        "The malicious request targeted /wp-admin/install.php via a spoofed referer.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cms_probing_embedded_prose_ids_flagged_setup_config",
+        "cms_probing",
+        "Our IDS flagged an exploitation attempt against /wp-admin/setup-config.php.",
+        "production",
+        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
 ]
 
@@ -1308,6 +1552,148 @@ BENIGN_CORPUS: list[BenignCase] = [
         "recon_git_troubleshooting_note_multiline",
         "Git repo troubleshooting notes:\nCorruption found in:\n"
         ".git/objects\n.git/refs\nRan git fsck to repair.",
+    ),
+    BenignCase(
+        "cms_probing_prose_support_ticket_plugins_reference",
+        "Customer support referenced the plugins page at /wp-admin/plugins.php "
+        "in their ticket.",
+    ),
+    BenignCase(
+        "cms_probing_prose_onboarding_notes_wp_login_reference",
+        "The onboarding notes mention /wp-login.php as the old staging login page.",
+    ),
+    BenignCase(
+        "cms_probing_prose_legacy_docs_xmlrpc_reference",
+        "Please review /xmlrpc.php in the legacy docs before removing it.",
+    ),
+    BenignCase(
+        "cms_probing_prose_archive_backup_phpinfo_reference",
+        "Our archive still has a backup copy of /phpinfo.php from 2019.",
+    ),
+    BenignCase(
+        "cms_probing_prose_changelog_install_php_removal",
+        "The changelog mentions removing /wp-admin/install.php from the demo site.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_audit_report_git_config_mirror",
+        "See the audit report about /.git/config for the deprecated mirror repo.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_deployment_notes_dotenv_copy",
+        "Deployment notes: copy /var/www/.env to the new host before cutover.",
+    ),
+    BenignCase(
+        "dir_traversal_prose_runbook_etc_passwd_review",
+        "The runbook says to check /etc/passwd for stale local accounts.",
+    ),
+    BenignCase(
+        "cms_probing_prose_qa_htpasswd_403_confirmation",
+        "QA confirmed /.htpasswd returns 403 after the hardening fix shipped.",
+    ),
+    BenignCase(
+        "cms_probing_prose_wiki_setup_config_removal_note",
+        "Please remove the old /wp-admin/setup-config.php reference from the wiki.",
+    ),
+    BenignCase(
+        "cms_probing_prose_customer_screenshot_install_php",
+        "The customer's screenshot shows /wp-admin/install.php in their browser "
+        "history.",
+    ),
+    BenignCase(
+        "cms_probing_prose_support_macro_wp_login_reset",
+        "Our support macro links to /wp-login.php for password reset instructions.",
+    ),
+    BenignCase(
+        "cms_probing_prose_migration_guide_xmlrpc_deprecated",
+        "The migration guide references /xmlrpc.php as a deprecated endpoint.",
+    ),
+    BenignCase(
+        "cms_probing_prose_internal_docs_phpinfo_deletion_list",
+        "Internal docs list /phpinfo.php among files scheduled for deletion.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_infra_backup_dotenv_rotation",
+        "The infra team backed up /var/www/.env before rotating credentials.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_git_config_purge_confirmation",
+        "Please confirm /.git/config was purged from the old snapshot.",
+    ),
+    BenignCase(
+        "cms_probing_prose_vendor_setup_wizard_reference",
+        "The vendor's setup wizard used to live at /wp-admin/setup-config.php.",
+    ),
+    BenignCase(
+        "cms_probing_prose_style_guide_plugins_example_url",
+        "Our style guide references /wp-admin/plugins.php as an example URL.",
+    ),
+    BenignCase(
+        "dir_traversal_prose_ops_notes_etc_passwd_audit",
+        "Ops notes: /etc/passwd was reviewed during the compliance audit.",
+    ),
+    BenignCase(
+        "cms_probing_prose_training_video_wp_login_demo",
+        "The training video walks through /wp-login.php on the demo instance.",
+    ),
+    BenignCase(
+        "cms_probing_prose_decommissioned_server_install_php_archive",
+        "Please archive /wp-admin/install.php from the decommissioned server.",
+    ),
+    BenignCase(
+        "cms_probing_prose_knowledge_base_xmlrpc_explainer",
+        "The knowledge base article explains what /xmlrpc.php used to do.",
+    ),
+    BenignCase(
+        "cms_probing_prose_legacy_monitoring_phpinfo_sandbox",
+        "Legacy monitoring still polls /phpinfo.php on the sandbox environment.",
+    ),
+    BenignCase(
+        "cms_probing_prose_support_ticket_htpasswd_auth_setup",
+        "Support ticket #4821 mentions /.htpasswd as part of the old auth setup.",
+    ),
+    BenignCase(
+        "cms_probing_prose_release_notes_setup_config_removed",
+        "The release notes say /wp-admin/setup-config.php was removed in 3.9.",
+    ),
+    BenignCase(
+        "cms_probing_prose_customer_sitemap_install_php_question",
+        "Customer asked why /wp-admin/install.php still shows up in their sitemap.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_onboarding_wiki_dotenv_example",
+        "The wiki page for onboarding references /var/www/.env as an example path.",
+    ),
+    BenignCase(
+        "dir_traversal_prose_postmortem_etc_passwd_glossary",
+        "Our postmortem doc mentions /etc/passwd only as a glossary term.",
+    ),
+    BenignCase(
+        "cms_probing_prose_vendor_docs_xmlrpc_sample_requests",
+        "The vendor documentation still shows /xmlrpc.php in its sample requests.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_public_bucket_git_config_exclusion",
+        "Please double check /.git/config was excluded from the public bucket.",
+    ),
+    BenignCase(
+        "cms_probing_prose_design_review_wp_login_mockup",
+        "The design review referenced /wp-login.php as a UI mockup source.",
+    ),
+    BenignCase(
+        "cms_probing_prose_historical_changelog_phpinfo_retirement",
+        "Historical changelog: /phpinfo.php was retired from the staging tier.",
+    ),
+    BenignCase(
+        "cms_probing_prose_teardown_script_install_php_fixtures",
+        "The teardown script deletes /wp-admin/install.php from test fixtures.",
+    ),
+    BenignCase(
+        "cms_probing_prose_customer_faq_plugins_not_public",
+        "Customer FAQ explains that /wp-admin/plugins.php is no longer public.",
+    ),
+    BenignCase(
+        "sensitive_file_prose_compliance_checklist_dotenv_audit_trail",
+        "The compliance checklist references /var/www/.env for the audit trail.",
     ),
 ]
 

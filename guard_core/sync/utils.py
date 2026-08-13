@@ -706,10 +706,11 @@ def _check_value_enhanced(
 ) -> tuple[bool, str, list[dict]]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
-    json_result = _try_check_json_value(value, context, client_ip, correlation_id)
-    if json_result is not None:
-        detected, trigger = json_result
-        return detected, trigger, []
+    if context != "request_body":
+        json_result = _try_check_json_value(value, context, client_ip, correlation_id)
+        if json_result is not None:
+            detected, trigger = json_result
+            return detected, trigger, []
 
     try:
         result = sus_patterns_handler.detect(
@@ -1072,20 +1073,21 @@ def _scan_request_body(
             log_level,
         )
 
-    try:
-        parsed_body = json.loads(raw_body)
-    except Exception:
-        parsed_body = None
-    if isinstance(parsed_body, dict | list):
-        return _scan_json_value(
-            parsed_body,
-            "",
-            excluded_body_fields,
-            enabled_categories,
-            client_ip,
-            correlation_id,
-            log_level,
-        )
+    if "json" in lowered:
+        try:
+            parsed_body = json.loads(raw_body)
+        except Exception:
+            parsed_body = None
+        if isinstance(parsed_body, dict | list):
+            return _scan_json_value(
+                parsed_body,
+                "",
+                excluded_body_fields,
+                enabled_categories,
+                client_ip,
+                correlation_id,
+                log_level,
+            )
     return _scan_blob_body(
         raw_body, enabled_categories, client_ip, correlation_id, log_level
     )
