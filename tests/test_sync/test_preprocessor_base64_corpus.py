@@ -334,3 +334,21 @@ def test_base64_wrapped_attack_payload_is_decoded_and_recoverable(
     token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
     result = pp._decode_base64_candidates(token)
     assert plaintext in result
+
+
+def test_base64_payload_with_two_trailing_invalid_utf8_bytes_is_still_decoded(
+    pp: ContentPreprocessor,
+) -> None:
+    plaintext = "<img src=x onerror=alert(1)>"
+    token = base64.b64encode(plaintext.encode("utf-8") + b"\xff\xff").decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert plaintext in result
+
+
+def test_base64_payload_with_one_trailing_invalid_utf8_byte_is_still_decoded(
+    pp: ContentPreprocessor,
+) -> None:
+    plaintext = "<img src=x onerror=alert(1)>"
+    token = base64.b64encode(plaintext.encode("utf-8") + b"\xff").decode("ascii")
+    result = pp._decode_base64_candidates(token)
+    assert plaintext in result

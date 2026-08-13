@@ -121,6 +121,19 @@ _PATH_ONLY_PREFIX_RE = (
 )
 _PATH_ONLY_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}*)*(?:\?\S*)?\s*\Z"
 
+_SCHEME_EMBEDDED_PATH_PREFIX_RE = (
+    r"(?:\A|(?<=\s))[A-Za-z][A-Za-z0-9+.\-]*://[^\s/]*"
+    + rf"{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+)
+_SCHEME_EMBEDDED_PATH_SUFFIX_RE = rf"(?!{_PATH_ONLY_CHAR_RE})"
+
+_NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
+    rf"\A{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+)
+
+_TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
+_TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
+
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
 
@@ -165,7 +178,7 @@ def _is_bare_decimal_legacy_ipv4_part(part: str) -> bool:
 
 
 def _is_ambiguous_bare_decimal_port(parts: list[str], decoded: list[int]) -> bool:
-    if len(decoded) != 1:
+    if len(decoded) != 1 or decoded[0] == 0:
         return False
     is_small_value = decoded[0] < _MIN_BARE_DECIMAL_LEGACY_IPV4
     is_bare_decimal = _is_bare_decimal_legacy_ipv4_part(parts[0])
@@ -354,8 +367,13 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
-        (r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)", _CTX_SQLI, "sqli"),
-        (r"'\s*[\);]*\s*(?:--|#\s*\Z)", _CTX_SQLI, "sqli"),
+        (
+            r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
+            r"|(?<=[=?&])ORDER\s+BY\s+\d+\s*\n",
+            _CTX_SQLI,
+            "sqli",
+        ),
+        (r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)", _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             _SINGLE_LINE_PREFIX_RE
@@ -411,6 +429,11 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
+            r"\n\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
             r"\b(?:eval|system|exec|shell_exec|passthru|popen|proc_open)\s*\(",
             _CTX_CMD_INJECTION,
             "cmd_injection",
@@ -440,6 +463,7 @@ class SusPatternsManager:
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
+        (r"\*\)\(\s*[a-zA-Z][\w-]*\s*=", _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
@@ -542,8 +566,11 @@ class SusPatternsManager:
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:wp-(?:admin|login|content|includes|config)"
-            r"|administrator|xmlrpc)\.?(?:php)?" + _PATH_ONLY_SUFFIX_RE,
+            rf"(?:{_PATH_ONLY_PREFIX_RE}(?:wp-(?:admin|login|content|includes|config)"
+            rf"|administrator|xmlrpc)\.?(?:php)?{_PATH_ONLY_SUFFIX_RE})"
+            rf"|(?:{_SCHEME_EMBEDDED_PATH_PREFIX_RE}"
+            rf"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
+            rf"\.?(?:php)?{_SCHEME_EMBEDDED_PATH_SUFFIX_RE})",
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
@@ -575,7 +602,7 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
+            _NESTED_TOP_LEVEL_PATH_PREFIX_RE
             + r"(?:management|system|version|config_dump|credentials)"
             + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
@@ -644,10 +671,10 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
+            _TOP_LEVEL_PATH_PREFIX_RE
             + r"(?:default|inicio|indice|localstart)"
             + rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?"
-            + _PATH_ONLY_SUFFIX_RE,
+            + _TERMINAL_PATH_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
