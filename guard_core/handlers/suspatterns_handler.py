@@ -614,6 +614,11 @@ class SusPatternsManager:
             "recon",
         ),
         (
+            rf"\A{_PATH_ONLY_SEP_RE}(?:system|version)" + _PATH_ONLY_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
             _PATH_ONLY_PREFIX_RE
             + r"(?:actuator|server-status|telescope)"
             + _PATH_ONLY_SUFFIX_RE,
