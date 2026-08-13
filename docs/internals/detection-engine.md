@@ -138,7 +138,7 @@ The `preprocess()` method runs five stages in order:
 
 When content exceeds `max_content_length` and `preserve_attack_patterns` is `True`:
 
-1. `extract_attack_regions()` scans for 21 attack indicator patterns (e.g., `<script`, `SELECT ... FROM`, `eval(`, `../`).
+1. `extract_attack_regions()` scans for 25 attack indicator patterns (e.g., `<script`, `SELECT ... FROM`, `eval(`, `../`, plus the shell metacharacters `` ` ``/`$(`/`[;&|]` and a bare dotted-quad IPv4 indicator).
 2. Regions around matches (100 characters of context on each side) are extracted.
 3. Overlapping regions are merged.
 4. Attack regions are included first, then non-attack content fills remaining space.
