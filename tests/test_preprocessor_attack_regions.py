@@ -84,6 +84,28 @@ def test_truncate_safely_preserves_command_injection_payload_past_cutoff() -> No
     assert len(out) <= 200
 
 
+def test_extract_attack_regions_detects_bare_metadata_ip_literal(
+    pp: ContentPreprocessor,
+) -> None:
+    payload = "http://169.254.169.254/latest/meta-data/"
+    content = "filler " * 40 + payload
+    payload_start = content.index(payload)
+    regions = pp.extract_attack_regions(content)
+    assert any(start <= payload_start < end for start, end in regions)
+
+
+def test_truncate_safely_preserves_bare_metadata_ip_payload_past_cutoff() -> None:
+    pp = ContentPreprocessor(max_content_length=200, preserve_attack_patterns=True)
+    filler = "lorem ipsum dolor sit amet consectetur adipiscing elit " * 10
+    payload = "http://169.254.169.254/latest/meta-data/"
+    content = filler + payload
+
+    out = pp.truncate_safely(content)
+
+    assert payload in out
+    assert len(out) <= 200
+
+
 def test_gap_truncation_does_not_fuse_filler_into_preserved_cmd_injection_keyword() -> (
     None
 ):

@@ -42,6 +42,7 @@ class ContentPreprocessor:
             r"`",
             r"\$\(",
             r"[;&|]",
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
         ]
 
         self.compiled_indicators = [
@@ -250,6 +251,7 @@ class ContentPreprocessor:
         return content.translate(translator)
 
     _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.5
+    _MAX_REPLACEMENT_CHAR_RATIO = 0.2
 
     def _is_hex_literal(self, token: str) -> bool:
         return bool(self._HEX_LITERAL_RE.fullmatch(token))
@@ -259,6 +261,11 @@ class ContentPreprocessor:
             return 0.0
         printable_count = sum(1 for char in text if 0x20 <= ord(char) <= 0x7E)
         return printable_count / len(text)
+
+    def _replacement_char_ratio(self, text: str) -> float:
+        if not text:
+            return 0.0
+        return text.count("�") / len(text)
 
     def _decode_base64_candidates(self, content: str) -> str:
         import base64
@@ -276,10 +283,12 @@ class ContentPreprocessor:
             try:
                 decoded = raw.decode("utf-8")
             except UnicodeDecodeError:
-                lossy = raw.decode("utf-8", errors="replace")
-                if lossy.count("\ufffd") > 1:
+                decoded = raw.decode("utf-8", errors="replace")
+                if (
+                    self._replacement_char_ratio(decoded)
+                    > self._MAX_REPLACEMENT_CHAR_RATIO
+                ):
                     return token
-                decoded = lossy
             if (
                 self._printable_ascii_ratio(decoded)
                 >= self._PRINTABLE_ASCII_RATIO_THRESHOLD

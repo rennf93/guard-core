@@ -124,6 +124,20 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("sqli_order_by_string_end_no_comment", "sqli", "1' ORDER BY 3"),
     MaliciousCase("sqli_hash_comment_string_end", "sqli", "admin'#"),
     MaliciousCase(
+        "sqli_embedded_trailing_hash_comment",
+        "sqli",
+        "comment='malicious'#\nrest of json continues after",
+    ),
+    MaliciousCase(
+        "sqli_standalone_hash_comment_control", "sqli", "comment='malicious'#"
+    ),
+    MaliciousCase(
+        "sqli_embedded_order_by_with_trailing_header",
+        "sqli",
+        "sort=ORDER BY 1\nX-Extra-Header: value",
+    ),
+    MaliciousCase("sqli_standalone_order_by_control", "sqli", "ORDER BY 1"),
+    MaliciousCase(
         "dir_traversal_double_dotdot_slash", "dir_traversal", "../../../../etc/passwd"
     ),
     MaliciousCase(
@@ -144,6 +158,14 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "dir_traversal_proc_self_environ",
         "dir_traversal",
         "logs/../../proc/self/environ",
+    ),
+    MaliciousCase(
+        "dir_traversal_regression7_etc_passwd_bare", "dir_traversal", "/etc/passwd"
+    ),
+    MaliciousCase(
+        "dir_traversal_regression7_relative_etc_shadow",
+        "dir_traversal",
+        "../../etc/shadow",
     ),
     MaliciousCase(
         "path_traversal_encoded_dotdot", "path_traversal", "%2e%2e/%2e%2e/etc/passwd"
@@ -245,6 +267,22 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("cmd_shell_dash_c_at_string_start", "cmd_injection", "sh -c id"),
     MaliciousCase(
+        "cmd_injection_embedded_in_description_field",
+        "cmd_injection",
+        "some description field\nbash -c 'rm -rf /'",
+    ),
+    MaliciousCase(
+        "cmd_injection_standalone_bash_rm_rf_control",
+        "cmd_injection",
+        "bash -c 'rm -rf /'",
+    ),
+    MaliciousCase(
+        "cmd_injection_base64_hex_safe_evasion_netcat",
+        "cmd_injection",
+        "aCA5aCA0fE5De0A0aCA6",
+        "encoding_aware",
+    ),
+    MaliciousCase(
         "file_inclusion_php_wrapper",
         "file_inclusion",
         "php://filter/convert.base64-encode/resource=index.php",
@@ -281,24 +319,10 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "src=//evil.io/malicious.js",
     ),
     MaliciousCase("ldap_wildcard_or_filter", "ldap", "(|(uid=*)(cn=*))"),
-    MaliciousCase(
-        "ldap_wildcard_equals",
-        "ldap",
-        "cn=*)(uid=*",
-        "production",
-        "no ldap pattern matches a wildcard fragment that lacks a leading "
-        "(& or (| conjunction paren",
-    ),
+    MaliciousCase("ldap_wildcard_equals", "ldap", "cn=*)(uid=*"),
     MaliciousCase("ldap_and_filter_injection", "ldap", "(&(objectClass=user)(uid=*))"),
     MaliciousCase("ldap_bare_or_paren", "ldap", "admin)(|(password=*"),
-    MaliciousCase(
-        "ldap_wildcard_password_bypass",
-        "ldap",
-        "*)(password=*)",
-        "production",
-        "no ldap pattern matches a wildcard fragment that lacks a leading "
-        "(& or (| conjunction paren",
-    ),
+    MaliciousCase("ldap_wildcard_password_bypass", "ldap", "*)(password=*)"),
     MaliciousCase("ldap_nested_filter_bypass", "ldap", "(|(&"),
     MaliciousCase(
         "xml_external_entity_file",
@@ -341,6 +365,20 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("ssrf_unspecified_with_port", "ssrf", "reset via 0.0.0.0:9999 first"),
     MaliciousCase(
+        "ssrf_regression2_bare_aws_metadata", "ssrf", "http://169.254.169.254/"
+    ),
+    MaliciousCase("ssrf_regression2_bare_loopback", "ssrf", "http://127.0.0.1/"),
+    MaliciousCase(
+        "ssrf_regression2_bare_localhost_port", "ssrf", "http://localhost:8080/"
+    ),
+    MaliciousCase("ssrf_regression2_bare_private_class_a", "ssrf", "http://10.0.0.5/"),
+    MaliciousCase(
+        "ssrf_regression2_bare_private_class_c", "ssrf", "http://192.168.1.1/"
+    ),
+    MaliciousCase("ssrf_regression2_bare_ipv6_loopback", "ssrf", "http://[::1]/"),
+    MaliciousCase("ssrf_regression9_bare_zero_host", "ssrf", "http://0/"),
+    MaliciousCase("ssrf_regression9_zero_host_with_port", "ssrf", "http://0:8080/"),
+    MaliciousCase(
         "ssrf_base64_wrapped_metadata_url",
         "ssrf",
         "aHR0cDovLzE2OS4yNTQuMTY5LjI1NC9sYXRlc3QvbWV0YS1kYXRhLw==",
@@ -351,10 +389,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "ssrf",
         _TRUNCATION_FILLER + "http://169.254.169.254/latest/meta-data/",
         "encoding_aware",
-        "extract_attack_regions has no indicator for bare private or "
-        "metadata IP literals, so a plain SSRF URL with no other indicator "
-        "character produces zero preserved regions and falls back to naive "
-        "prefix truncation, dropping a payload placed past the cutoff",
     ),
     MaliciousCase("nosql_gt_operator_quoted", "nosql", '{"$gt":""}'),
     MaliciousCase("nosql_ne_operator_quoted", "nosql", '{"$ne":null}'),
@@ -434,6 +468,16 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("sensitive_file_python_source", "sensitive_file", "/app/settings.py"),
     MaliciousCase("sensitive_file_git_dir", "sensitive_file", "/.git/config"),
+    MaliciousCase(
+        "sensitive_file_regression7_var_www_dotenv",
+        "sensitive_file",
+        "/var/www/.env",
+    ),
+    MaliciousCase(
+        "sensitive_file_regression7_app_git_config_standalone",
+        "sensitive_file",
+        "/app/.git/config",
+    ),
     MaliciousCase("cms_probing_wp_admin", "cms_probing", "/wp-admin/"),
     MaliciousCase("cms_probing_wp_login", "cms_probing", "/wp-login.php"),
     MaliciousCase("cms_probing_xmlrpc", "cms_probing", "/xmlrpc.php"),
@@ -446,6 +490,16 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "/blog/wp-admin/setup.php",
     ),
     MaliciousCase("cms_probing_phpinfo_with_query", "cms_probing", "/info.php?x=1"),
+    MaliciousCase(
+        "cms_probing_embedded_wp_admin_setup_config_in_sentence",
+        "cms_probing",
+        "Redirecting to http://example.com/wp-admin/setup-config.php now",
+    ),
+    MaliciousCase(
+        "cms_probing_standalone_wp_admin_setup_config_control",
+        "cms_probing",
+        "/wp-admin/setup-config.php",
+    ),
     MaliciousCase("recon_actuator_probe", "recon", "/actuator/health"),
     MaliciousCase("recon_server_status", "recon", "/server-status"),
     MaliciousCase("recon_cgi_bin_probe", "recon", "/cgi-bin/test.cgi"),
@@ -466,6 +520,20 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "/infra/docker-compose.yml?raw=1",
     ),
     MaliciousCase("recon_secrets_nested_path", "recon", "/config/app-secrets.yml"),
+    MaliciousCase("recon_management_top_level_control", "recon", "/management"),
+    MaliciousCase(
+        "recon_management_nested_under_app", "recon", "/app/management/health"
+    ),
+    MaliciousCase(
+        "recon_system_and_version_both_nested", "recon", "/v2/system/version"
+    ),
+    MaliciousCase("recon_management_nested_under_api", "recon", "/api/management"),
+    MaliciousCase(
+        "recon_credentials_nested_under_service", "recon", "/service/credentials"
+    ),
+    MaliciousCase(
+        "recon_config_dump_nested_under_backend", "recon", "/backend/config_dump"
+    ),
     MaliciousCase(
         "proto_pollution_isadmin_key",
         "proto_pollution",
@@ -687,6 +755,11 @@ BENIGN_CORPUS: list[BenignCase] = [
         "ldap_prose_filter_syntax_explainer",
         "Filter syntax in LDAP uses parentheses to group conditions.",
     ),
+    BenignCase("ldap_lookalike_maths_expression", "total = a*)(b+c)"),
+    BenignCase(
+        "ldap_lookalike_footnote_reference",
+        "See appendix A*)(footnote 3) for details",
+    ),
     BenignCase(
         "xml_ordinary_declaration_no_entity",
         '<?xml version="1.0" encoding="UTF-8"?><note><body>Hello</body></note>',
@@ -731,6 +804,38 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "ssrf_scheme_port_tcp_prose",
         "connect via tcp://8080 for the health probe",
+    ),
+    BenignCase(
+        "rest_path_gcp_computeMetadata_no_default_segment",
+        "computeMetadata/v1/instance/hostname",
+    ),
+    BenignCase(
+        "rest_path_aws_creds_prose_mention",
+        "Loaded credentials from ~/.aws/credentials",
+    ),
+    BenignCase(
+        "rest_path_s3_key_realistic",
+        "s3://my-bucket/uploads/2024/01/15/report-final-v2-reviewed.pdf",
+    ),
+    BenignCase(
+        "rest_path_git_sha_full_hex",
+        "a618a05f4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e",
+    ),
+    BenignCase(
+        "rest_path_opaque_session_token_non_jwt",
+        "sess_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a",
+    ),
+    BenignCase(
+        "rest_path_regression10_gcp_computeMetadata_default_segment",
+        "computeMetadata/v1/instance/service-accounts/default/token",
+    ),
+    BenignCase(
+        "rest_path_regression10_aws_creds_bare_path",
+        "~/.aws/credentials",
+    ),
+    BenignCase(
+        "rest_path_k8s_default_namespace_pods",
+        "/api/v1/namespaces/default/pods",
     ),
     BenignCase("nosql_benign_dollar_value_price", '{"price":"$25","name":"coffee"}'),
     BenignCase(
@@ -832,12 +937,24 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cms_probing_prose_wordpress_mention",
         "We migrated our blog off WordPress last year.",
     ),
+    BenignCase(
+        "cms_probing_prose_htaccess_backup_reminder",
+        "Please back up /var/www/html/.htaccess before deploying the release.",
+    ),
+    BenignCase(
+        "cms_probing_prose_wp_admin_config_mirror_mention",
+        "Check the config under /opt/app/wp-admin/ for the legacy mirror.",
+    ),
     BenignCase("recon_robots_txt", "/robots.txt"),
     BenignCase("recon_sitemap_xml", "/sitemap.xml"),
     BenignCase("recon_security_txt", "/security.txt"),
     BenignCase(
         "recon_prose_actuator_explainer",
         "Spring Boot actuator endpoints expose health and metrics data.",
+    ),
+    BenignCase(
+        "recon_prose_prometheus_actuator_scrape_mention",
+        "Prometheus scrapes /metrics/actuator/health every 30 seconds.",
     ),
     BenignCase("recon_normal_api_route", "/api/v1/users/42"),
     BenignCase(
@@ -1065,6 +1182,14 @@ BENIGN_CORPUS: list[BenignCase] = [
         "Contact support for role changes.",
     ),
     BenignCase(
+        "cms_probing_bullet_list_wp_admin_alone_on_line",
+        "Available admin paths historically used:\nwp-admin\nRemove legacy references.",
+    ),
+    BenignCase(
+        "cms_probing_bullet_list_htaccess_alone_on_line",
+        "Files reviewed during the audit:\n.htaccess\nNo secrets found.",
+    ),
+    BenignCase(
         "cms_probing_deprecated_scripts_list_multiline",
         "Deprecated scripts:\ntest.php\ninfo.php\nRemove these before production.",
     ),
@@ -1155,26 +1280,26 @@ BENIGN_CORPUS: list[BenignCase] = [
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 19,
-    "cms_probing": 8,
+    "cmd_injection": 22,
+    "cms_probing": 10,
     "code_injection": 3,
-    "dir_traversal": 6,
+    "dir_traversal": 8,
     "file_inclusion": 8,
     "file_upload": 6,
     "http_split": 4,
-    "ldap": 4,
+    "ldap": 6,
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
-    "recon": 12,
-    "sensitive_file": 6,
-    "sqli": 15,
-    "ssrf": 15,
+    "recon": 18,
+    "sensitive_file": 8,
+    "sqli": 19,
+    "ssrf": 24,
     "template": 6,
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 146
+BASELINE_MALICIOUS_DETECTED_TOTAL = 176
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0

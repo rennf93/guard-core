@@ -207,6 +207,16 @@ def test_printable_ascii_ratio_counts_only_ascii_printable_range(
     assert pp._printable_ascii_ratio("ab\x01\x02") == 0.5
 
 
+def test_replacement_char_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
+    assert pp._replacement_char_ratio("") == 0.0
+
+
+def test_replacement_char_ratio_counts_only_replacement_characters(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._replacement_char_ratio("ab��") == 0.5
+
+
 def test_decode_base64_candidates_keeps_token_when_decoded_bytes_are_not_utf8(
     pp: ContentPreprocessor,
 ) -> None:
