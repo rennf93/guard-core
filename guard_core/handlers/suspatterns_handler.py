@@ -121,18 +121,15 @@ _PATH_ONLY_PREFIX_RE = (
 )
 _PATH_ONLY_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}*)*(?:\?\S*)?\s*\Z"
 
-_SCHEME_EMBEDDED_PATH_PREFIX_RE = (
-    r"(?:\A|(?<=\s))[A-Za-z][A-Za-z0-9+.\-]*://[^\s/]*"
-    + rf"{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
-)
-_SCHEME_EMBEDDED_PATH_SUFFIX_RE = rf"(?!{_PATH_ONLY_CHAR_RE})"
-
 _NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
     rf"\A{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
 )
 
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
+
+_LDAP_WILDCARD_CHAIN_RE = r"\*\)\(\s*[a-zA-Z][\w-]*\s*="
+_LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
@@ -219,6 +216,11 @@ def _legacy_ipv4_match_is_blocked(match: re.Match) -> bool:
     return ip_int is not None and _is_blocked_legacy_ipv4(ip_int)
 
 
+def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
+    prefix = match.string[: match.start()]
+    return _LDAP_ATTR_BEFORE_WILDCARD_RE.search(prefix) is None
+
+
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
     category: 1.0 for category in ALL_DETECTION_CATEGORIES
 }
@@ -245,6 +247,11 @@ def _build_regex_threat(
 ) -> dict[str, Any] | None:
     if pattern.pattern == _LEGACY_IPV4_HOST_RE and not _legacy_ipv4_match_is_blocked(
         match
+    ):
+        return None
+    if (
+        pattern.pattern == _LDAP_WILDCARD_CHAIN_RE
+        and not _ldap_wildcard_chain_is_injection(match)
     ):
         return None
     return {
@@ -463,7 +470,7 @@ class SusPatternsManager:
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
-        (r"\*\)\(\s*[a-zA-Z][\w-]*\s*=", _CTX_LDAP, "ldap"),
+        (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
@@ -566,11 +573,9 @@ class SusPatternsManager:
             "sensitive_file",
         ),
         (
-            rf"(?:{_PATH_ONLY_PREFIX_RE}(?:wp-(?:admin|login|content|includes|config)"
-            rf"|administrator|xmlrpc)\.?(?:php)?{_PATH_ONLY_SUFFIX_RE})"
-            rf"|(?:{_SCHEME_EMBEDDED_PATH_PREFIX_RE}"
-            rf"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
-            rf"\.?(?:php)?{_SCHEME_EMBEDDED_PATH_SUFFIX_RE})",
+            _PATH_ONLY_PREFIX_RE
+            + r"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
+            r"\.?(?:php)?" + _PATH_ONLY_SUFFIX_RE,
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
@@ -603,8 +608,8 @@ class SusPatternsManager:
         ),
         (
             _NESTED_TOP_LEVEL_PATH_PREFIX_RE
-            + r"(?:management|system|version|config_dump|credentials)"
-            + _PATH_ONLY_SUFFIX_RE,
+            + rf"(?:management|config_dump|credentials|system{_PATH_ONLY_SEP_RE}version"
+            rf"|version{_PATH_ONLY_SEP_RE}system)" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),

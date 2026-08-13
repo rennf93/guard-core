@@ -494,6 +494,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cms_probing_embedded_wp_admin_setup_config_in_sentence",
         "cms_probing",
         "Redirecting to http://example.com/wp-admin/setup-config.php now",
+        "production",
+        "a scheme-embedded URL inside prose is structurally identical to a "
+        "support ticket or changelog quoting the same URL (2 of 2 measured "
+        "benign quoting cases false-positived when this alternative existed), "
+        "so the scheme-embedded alternative was removed from the cms_probing "
+        "pattern; only a standalone path still matches",
     ),
     MaliciousCase(
         "cms_probing_standalone_wp_admin_setup_config_control",
@@ -534,6 +540,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase(
         "recon_config_dump_nested_under_backend", "recon", "/backend/config_dump"
     ),
+    MaliciousCase("recon_actuator_env_probe", "recon", "/actuator/env"),
+    MaliciousCase("recon_config_dump_top_level", "recon", "/config_dump"),
     MaliciousCase(
         "proto_pollution_isadmin_key",
         "proto_pollution",
@@ -761,6 +769,15 @@ BENIGN_CORPUS: list[BenignCase] = [
         "See appendix A*)(footnote 3) for details",
     ),
     BenignCase(
+        "ldap_ops_log_chained_filter_objectclass_department",
+        "Our nightly sync uses filter: (objectClass=*)(department=Sales) and it "
+        "worked fine.",
+    ),
+    BenignCase(
+        "ldap_ops_log_chained_filter_uid_status",
+        "search_filter: (uid=*)(status=active)",
+    ),
+    BenignCase(
         "xml_ordinary_declaration_no_entity",
         '<?xml version="1.0" encoding="UTF-8"?><note><body>Hello</body></note>',
     ),
@@ -945,6 +962,16 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cms_probing_prose_wp_admin_config_mirror_mention",
         "Check the config under /opt/app/wp-admin/ for the legacy mirror.",
     ),
+    BenignCase(
+        "cms_probing_prose_support_ticket_wp_admin_link",
+        "Customer sent us this link: https://shop.example.com/wp-admin/plugins.php "
+        "please advise.",
+    ),
+    BenignCase(
+        "cms_probing_prose_docs_wp_admin_link",
+        "See notes at https://docs.example.com/wp-admin/setup-config.php for "
+        "migration steps.",
+    ),
     BenignCase("recon_robots_txt", "/robots.txt"),
     BenignCase("recon_sitemap_xml", "/sitemap.xml"),
     BenignCase("recon_security_txt", "/security.txt"),
@@ -957,6 +984,9 @@ BENIGN_CORPUS: list[BenignCase] = [
         "Prometheus scrapes /metrics/actuator/health every 30 seconds.",
     ),
     BenignCase("recon_normal_api_route", "/api/v1/users/42"),
+    BenignCase("recon_rest_route_api_version", "/api/version"),
+    BenignCase("recon_rest_route_nested_system_health", "/app/system/health"),
+    BenignCase("recon_rest_route_versioned_system_status", "/api/v2/system/status"),
     BenignCase(
         "proto_pollution_benign_prototype_docs",
         "JavaScript objects inherit from `Object.prototype` by default.",
@@ -1281,7 +1311,7 @@ BENIGN_CORPUS: list[BenignCase] = [
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 22,
-    "cms_probing": 10,
+    "cms_probing": 9,
     "code_injection": 3,
     "dir_traversal": 8,
     "file_inclusion": 8,
@@ -1291,7 +1321,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
-    "recon": 18,
+    "recon": 20,
     "sensitive_file": 8,
     "sqli": 19,
     "ssrf": 24,
@@ -1299,7 +1329,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 176
+BASELINE_MALICIOUS_DETECTED_TOTAL = 177
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0

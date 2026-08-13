@@ -43,11 +43,6 @@ def _detected_categories(content: str) -> set[str]:
             "sort=ORDER BY 1\nX-Extra-Header: value",
         ),
         (
-            "cms_probing_embedded_in_redirect_sentence",
-            "cms_probing",
-            "Redirecting to http://example.com/wp-admin/setup-config.php now",
-        ),
-        (
             "cms_probing_standalone_control",
             "cms_probing",
             "/wp-admin/setup-config.php",
@@ -58,6 +53,31 @@ def test_attack_embedded_in_larger_body_is_detected(
     case_id: str, category: str, payload: str
 ) -> None:
     assert category in _detected_categories(payload), case_id
+
+
+@pytest.mark.parametrize(
+    ("case_id", "payload"),
+    [
+        (
+            "cms_probing_scheme_embedded_url_in_redirect_sentence",
+            "Redirecting to http://example.com/wp-admin/setup-config.php now",
+        ),
+        (
+            "cms_probing_scheme_embedded_url_in_support_ticket",
+            "Customer sent us this link: "
+            "https://shop.example.com/wp-admin/plugins.php please advise.",
+        ),
+        (
+            "cms_probing_scheme_embedded_url_in_docs_note",
+            "See notes at https://docs.example.com/wp-admin/setup-config.php "
+            "for migration steps.",
+        ),
+    ],
+)
+def test_cms_probing_scheme_embedded_url_in_prose_stays_unflagged(
+    case_id: str, payload: str
+) -> None:
+    assert "cms_probing" not in _detected_categories(payload), case_id
 
 
 @pytest.mark.parametrize(
@@ -120,9 +140,7 @@ def test_recon_path_segment_amid_unrelated_path_stays_unflagged(
         "/inicio.html",
         "/localstart.asp",
         "/management",
-        "/version",
         "/credentials",
-        "/system",
         "/config_dump",
     ],
 )
@@ -130,6 +148,24 @@ def test_recon_legacy_default_and_management_probes_still_detected(
     payload: str,
 ) -> None:
     assert "recon" in _detected_categories(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "/api/version",
+        "/app/system/health",
+        "/api/v2/system/status",
+    ],
+)
+def test_recon_bare_rest_convention_routes_stay_unflagged(
+    payload: str,
+) -> None:
+    assert "recon" not in _detected_categories(payload)
+
+
+def test_recon_system_and_version_paired_probe_still_detected() -> None:
+    assert "recon" in _detected_categories("/v2/system/version")
 
 
 @pytest.mark.parametrize(
