@@ -61,6 +61,7 @@ class _RealHttpServer:
     def stop(self) -> None:
         self.server.shutdown()
         self.thread.join(timeout=5)
+        self.server.server_close()
 
     @property
     def origin(self) -> str:
