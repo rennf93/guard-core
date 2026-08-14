@@ -433,6 +433,56 @@ _TARGETED_CASES: list[TargetedCase] = [
         False,
         _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
+    TargetedCase(
+        "cmd_absolute_path_shell_dash_c_query_param",
+        _query_param_request("/bin/sh -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_env_prefixed_shell_dash_c_query_param",
+        _query_param_request("env bash -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_env_abs_path_shell_dash_c_query_param",
+        _query_param_request("/usr/bin/env bash -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_separator_env_abs_path_shell_query_param",
+        _query_param_request("; /usr/bin/env sh -c id"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_double_paren_wildcard_breakout_query_param",
+        _query_param_request("*)((objectClass=*"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_truncation_breakout_query_param",
+        _query_param_request("*))%00"),
+        True,
+    ),
+    TargetedCase(
+        "cms_probing_wp_content_themes_default_url_path",
+        _url_path_request("/wp-content/themes/default"),
+        True,
+    ),
+    TargetedCase(
+        "recon_nested_inicio_html_url_path",
+        _url_path_request("/en/inicio.html"),
+        True,
+    ),
+    TargetedCase(
+        "rest_path_k8s_namespace_pods_url_path_benign",
+        _url_path_request("/api/v1/namespaces/default/pods"),
+        False,
+    ),
+    TargetedCase(
+        "rest_path_k8s_default_namespace_url_path_benign",
+        _url_path_request("/api/v1/namespaces/default"),
+        False,
+    ),
 ]
 
 
@@ -534,7 +584,7 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
             f"total fp rate: "
             f"{_fraction(benign_flagged, len(_PRODUCTION_BENIGN_CASES))}",
             "",
-            "targeted embedded-probe cases (defect 5):",
+            "targeted entry-level cases:",
         ]
     )
     for targeted in _TARGETED_CASES:

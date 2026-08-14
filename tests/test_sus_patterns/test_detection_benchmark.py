@@ -835,6 +835,20 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "production",
         _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
+    MaliciousCase(
+        "cmd_env_abs_path_shell_dash_c", "cmd_injection", "/usr/bin/env bash -c id"
+    ),
+    MaliciousCase(
+        "cmd_separator_env_abs_path_shell",
+        "cmd_injection",
+        "; /usr/bin/env sh -c id",
+    ),
+    MaliciousCase(
+        "cms_probing_wp_content_themes_default",
+        "cms_probing",
+        "/wp-content/themes/default",
+    ),
+    MaliciousCase("recon_nested_inicio_html", "recon", "/en/inicio.html"),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -1709,11 +1723,27 @@ BENIGN_CORPUS: list[BenignCase] = [
         "sensitive_file_prose_compliance_checklist_dotenv_audit_trail",
         "The compliance checklist references /var/www/.env for the audit trail.",
     ),
+    BenignCase(
+        "cmd_injection_semicolon_prefixed_deploy_script_flag",
+        "; ./deploy.sh -f",
+    ),
+    BenignCase(
+        "cmd_injection_bare_run_script_flag",
+        "scripts/run.sh -v",
+    ),
+    BenignCase(
+        "cmd_injection_prose_lint_script_flag_reminder",
+        "Run ./scripts/lint.sh -v before pushing.",
+    ),
+    BenignCase(
+        "rest_path_k8s_default_namespace_bare",
+        "/api/v1/namespaces/default",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 24,
-    "cms_probing": 9,
+    "cmd_injection": 26,
+    "cms_probing": 10,
     "code_injection": 3,
     "dir_traversal": 8,
     "file_inclusion": 8,
@@ -1723,7 +1753,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
-    "recon": 22,
+    "recon": 23,
     "sensitive_file": 8,
     "sqli": 19,
     "ssrf": 24,
@@ -1731,7 +1761,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 183
+BASELINE_MALICIOUS_DETECTED_TOTAL = 187
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0

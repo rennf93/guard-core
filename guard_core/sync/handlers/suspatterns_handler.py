@@ -430,13 +430,13 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:\A|;)\s*(?:env\s+)?/?(?:[\w.-]+/)*"
+            r"(?:\A|;)\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
             r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
         (
-            r"\n\s*(?:env\s+)?/?(?:[\w.-]+/)*"
+            r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
             r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b",
             _CTX_CMD_INJECTION,
             "cmd_injection",
@@ -687,6 +687,11 @@ class SusPatternsManager:
             + r"(?:default|inicio|indice|localstart)"
             + rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?"
             + _TERMINAL_PATH_SUFFIX_RE,
+            _CTX_RECON,
+            "recon",
+        ),
+        (
+            _PATH_ONLY_PREFIX_RE + r"inicio\.html?" + _PATH_ONLY_SUFFIX_RE,
             _CTX_RECON,
             "recon",
         ),
