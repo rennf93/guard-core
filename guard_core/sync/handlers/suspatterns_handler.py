@@ -127,7 +127,7 @@ _NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 
-_LDAP_WILDCARD_CHAIN_RE = r"\*\)\(\s*[a-zA-Z][\w-]*\s*="
+_LDAP_WILDCARD_CHAIN_RE = r"\*\)\(+\s*[a-zA-Z][\w-]*\s*="
 _LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
@@ -430,12 +430,14 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:\A|;)\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
+            r"(?:\A|;)\s*(?:env\s+)?/?(?:[\w.-]+/)*"
+            r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
         (
-            r"\n\s*(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b",
+            r"\n\s*(?:env\s+)?/?(?:[\w.-]+/)*"
+            r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b",
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -470,6 +472,7 @@ class SusPatternsManager:
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
+        (r"\*\)+%00", _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),

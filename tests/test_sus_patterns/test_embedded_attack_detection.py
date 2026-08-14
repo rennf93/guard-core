@@ -182,6 +182,8 @@ async def test_recon_system_and_version_paired_probe_still_detected() -> None:
     [
         "cn=*)(uid=*",
         "*)(password=*)",
+        "*)((objectClass=*",
+        "*))%00",
     ],
 )
 async def test_ldap_wildcard_bypass_without_leading_conjunction_is_detected(
@@ -193,3 +195,22 @@ async def test_ldap_wildcard_bypass_without_leading_conjunction_is_detected(
 async def test_ldap_wildcard_and_parens_in_benign_prose_stays_unflagged() -> None:
     payload = "glob pattern *.log matches all logs (see docs)"
     assert "ldap" not in await _detected_categories(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "/bin/sh -c id",
+        "env bash -c id",
+    ],
+)
+async def test_cmd_injection_absolute_path_or_env_prefixed_shell_is_detected(
+    payload: str,
+) -> None:
+    assert "cmd_injection" in await _detected_categories(payload)
+
+
+async def test_cmd_injection_shell_path_mention_without_flag_stays_unflagged() -> None:
+    payload = "The path /bin/sh is the default shell on many systems."
+    assert "cmd_injection" not in await _detected_categories(payload)

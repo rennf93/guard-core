@@ -294,6 +294,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_injection",
         "bash -c 'rm -rf /'",
     ),
+    MaliciousCase("cmd_absolute_path_shell_dash_c", "cmd_injection", "/bin/sh -c id"),
+    MaliciousCase("cmd_env_prefixed_shell_dash_c", "cmd_injection", "env bash -c id"),
     MaliciousCase(
         "cmd_injection_base64_hex_safe_evasion_netcat",
         "cmd_injection",
@@ -342,6 +344,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("ldap_bare_or_paren", "ldap", "admin)(|(password=*"),
     MaliciousCase("ldap_wildcard_password_bypass", "ldap", "*)(password=*)"),
     MaliciousCase("ldap_nested_filter_bypass", "ldap", "(|(&"),
+    MaliciousCase("ldap_double_paren_wildcard_breakout", "ldap", "*)((objectClass=*"),
+    MaliciousCase("ldap_null_byte_truncation_breakout", "ldap", "*))%00"),
     MaliciousCase(
         "xml_external_entity_file",
         "xml",
@@ -957,6 +961,14 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cmd_injection_backtick_wrapped_dollar_paren", "see the `$(id)` example"
     ),
     BenignCase("cmd_injection_shell_docs_var_expansion", "export PATH=${HOME}/bin"),
+    BenignCase(
+        "cmd_injection_shell_path_mention_without_flag",
+        "The path /bin/sh is the default shell on many systems.",
+    ),
+    BenignCase(
+        "cmd_injection_env_command_mention_without_shell",
+        "Check your `env` for the missing `PATH` entry.",
+    ),
     BenignCase(
         "cmd_injection_changelog_reboot_mention",
         "The `reboot` command now requires confirmation.",
@@ -1698,14 +1710,14 @@ BENIGN_CORPUS: list[BenignCase] = [
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 22,
+    "cmd_injection": 24,
     "cms_probing": 9,
     "code_injection": 3,
     "dir_traversal": 8,
     "file_inclusion": 8,
     "file_upload": 6,
     "http_split": 4,
-    "ldap": 6,
+    "ldap": 8,
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
@@ -1717,7 +1729,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 179
+BASELINE_MALICIOUS_DETECTED_TOTAL = 183
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0
