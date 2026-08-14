@@ -441,7 +441,7 @@ class SecurityConfig(BaseModel):
             "Cloud providers to block: AWS, GCP, Azure, DigitalOcean, Linode, "
             "Vultr. A bare provider ('GCP') blocks the whole provider; a region "
             "carve-out ('GCP:!us-central1') blocks the provider except that "
-            "region. Region metadata exists for AWS, GCP and Azure; the other "
+            "region. Region metadata exists for AWS and GCP only; the other "
             "providers publish no region data, so a carve-out on them exempts "
             "nothing and the whole provider stays blocked. An unrecognized "
             "provider name raises ValueError rather than being silently dropped."

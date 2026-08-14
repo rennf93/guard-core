@@ -242,3 +242,18 @@ async def test_redis_refresh_with_carveout_selector_populates_bare_provider(
     manager.ip_ranges = saved_ranges
     manager.network_regions = saved_regions
     await redis_handler.close()
+
+
+def test_azure_carveout_exempts_nothing_without_region_metadata() -> None:
+    manager = CloudManager()
+    saved_ranges = dict(manager.ip_ranges)
+    saved_regions = dict(manager.network_regions)
+    net = ipaddress.ip_network("20.0.0.0/24")
+    manager.ip_ranges["Azure"] = {net}
+    manager.network_regions["Azure"] = {}
+
+    assert manager.is_cloud_ip("20.0.0.5", {"Azure:!westus"}) is True
+    assert manager.is_cloud_ip("20.0.0.5", {"Azure"}) is True
+
+    manager.ip_ranges = saved_ranges
+    manager.network_regions = saved_regions
