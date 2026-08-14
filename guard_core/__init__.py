@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         GuardResponse,
         GuardResponseFactory,
     )
+    from guard_core.utils import check_ip_access, is_ip_allowed
 
 __all__ = [
     "SecurityConfig",
@@ -59,6 +60,8 @@ __all__ = [
     "GuardRequest",
     "GuardResponse",
     "GuardResponseFactory",
+    "is_ip_allowed",
+    "check_ip_access",
 ]
 
 _MODULE_BY_NAME: dict[str, str] = {
@@ -86,6 +89,8 @@ _MODULE_BY_NAME: dict[str, str] = {
     "GuardResponse": "guard_core.protocols.response_protocol",
     "GuardResponseFactory": "guard_core.protocols.response_protocol",
     "BoundedResponseBodyReader": "guard_core.protocols.response_protocol",
+    "is_ip_allowed": "guard_core.utils",
+    "check_ip_access": "guard_core.utils",
     "_mute_pydantic_plugin_instrumentation": "guard_core._pydantic_plugin_mute",
 }
 

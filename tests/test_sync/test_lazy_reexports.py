@@ -11,6 +11,7 @@ import guard_core
 import guard_core.handlers
 import guard_core.sync
 import guard_core.sync.handlers
+import guard_core.utils
 
 _HANDLERS_SUBMODULES = (
     "behavior_handler",
@@ -234,6 +235,24 @@ def _public_callables(obj: object) -> list[tuple[str, object]]:
         )
         if not member_name.startswith("_")
     ]
+
+
+def test_is_ip_allowed_and_check_ip_access_import_from_top_level() -> None:
+    from guard_core import check_ip_access, is_ip_allowed
+
+    assert is_ip_allowed is guard_core.utils.is_ip_allowed
+    assert check_ip_access is guard_core.utils.check_ip_access
+
+
+def test_is_ip_allowed_and_check_ip_access_listed_in_guard_core_all() -> None:
+    assert "is_ip_allowed" in guard_core.__all__
+    assert "check_ip_access" in guard_core.__all__
+
+
+def test_is_ip_allowed_and_check_ip_access_appear_in_dir_guard_core() -> None:
+    listed = dir(guard_core)
+    assert "is_ip_allowed" in listed
+    assert "check_ip_access" in listed
 
 
 def test_guard_core_sync_exports_have_no_coroutine_function_callables() -> None:
