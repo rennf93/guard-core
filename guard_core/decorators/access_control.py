@@ -48,7 +48,7 @@ class AccessControlMixin(BaseSecurityMixin):
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             if providers is None:
-                route_config.block_cloud_providers = {"AWS", "GCP", "Azure"}
+                route_config.block_cloud_providers = set(VALID_CLOUD_PROVIDERS)
             else:
                 valid = {
                     p
