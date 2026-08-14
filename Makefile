@@ -49,9 +49,9 @@ restart: stop
 
 .PHONY: lint
 lint:
-	@echo 'Formatting w/ Ruff...'
+	@echo 'Checking formatting w/ Ruff...'
 	@echo ''
-	@uv run ruff format .
+	@uv run ruff format --check .
 	@echo ''
 	@echo ''
 	@echo 'Linting w/ Ruff...'

@@ -1,0 +1,87 @@
+name: Detection Gate
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'guard_core/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - '.github/workflows/detection-gate.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'guard_core/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - '.github/workflows/detection-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  detection-gate:
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Install dependencies (same extras as the Dockerfile)
+        run: |
+          uv sync --extra dev --extra otel --extra logfire
+
+      - name: Fail on generated sync-tree drift
+        run: |
+          uv run python scripts/unasync.py --check
+
+      - name: Run the two-sided detection benchmarks
+        shell: bash
+        run: |
+          uv run pytest \
+            tests/test_sus_patterns/test_detection_benchmark.py \
+            tests/test_sus_patterns/test_detect_penetration_attempt_benchmark.py \
+            -s -v --no-cov 2>&1 | tee detection-report.txt
+
+      - name: Build the PR comment body
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          touch detection-report.txt
+          {
+            echo '## Detection gate report'
+            echo
+            echo 'Per-category recall and false-positive movement for this PR.'
+            echo 'A red gate means a category regressed against its committed baseline'
+            echo 'or a benign string is newly flagged; the numbers below name it.'
+            echo 'Long documented-gap annotations are elided here; the job log has them.'
+            echo
+            echo '```'
+            awk 'length($0) <= 160' detection-report.txt | tail -n 150 | head -c 55000
+            echo '```'
+          } > detection-comment.md
+
+      - name: Post the report on the PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file detection-comment.md

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 
 ___
 
+Unreleased
+----------
+
+### Added
+
+- A dedicated `Detection Gate` CI workflow (`.github/workflows/detection-gate.yml`) runs on every pull request and master push: it installs with the same optional extras as the Dockerfile (`--frozen` is deliberately omitted because `uv.lock` is gitignored in this repository, so a fresh checkout has no lockfile), fails on generated sync-tree drift (`scripts/unasync.py --check`), and runs both two-sided detection benchmarks (pattern layer and the `detect_penetration_attempt` entry point) as a named, isolated job whose failure message names the regressed category. A best-effort step posts the report as a PR comment, on failures too, with the long documented-gap annotations elided and the body capped under GitHub's comment size limit; the step is `continue-on-error` so a fork PR's read-only token can never redden the gate for a reason unrelated to detection. The gate was proven able to fail before being trusted, locally in the session that authored it: reintroducing the historical `file_inclusion` lookbehind bug drove the benchmark to `file_inclusion false-positive attribution rose: baseline=0 actual=27`, and the revert was verified byte-identical; the same red-then-green proof is intended to be repeated on the gate's own first PR.
+
+### Changed
+
+- The CI test matrix now enforces what was previously only measured: `--cov-fail-under=100` (branch coverage was already measured via the pyproject `addopts`, but nothing failed the build when it dropped) and `-W error`, so a new warning fails the build instead of accumulating. Both flags were validated against the full local suite before landing (7336 passed, 100 percent line and branch, zero warnings surviving `-W error`). A `quality` job runs `make quality` on Python 3.10.
+- `make lint` now runs `ruff format --check .` instead of rewriting files in place. The write-mode step could never fail, so formatting drift passed `make lint` locally while `pre-commit` caught it in CI; check mode makes the target an actual gate. Use `make fix` to apply formatting.
+
+___
+
 v3.12.0 (2026-08-12)
 -------------------
 
