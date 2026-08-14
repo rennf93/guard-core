@@ -461,7 +461,7 @@ class SusPatternsManager:
             "file_inclusion",
         ),
         (
-            r"(?:\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
+            r"(?:(?<!:)\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
             r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)",
             _CTX_FILE_INCLUSION,
             "file_inclusion",
