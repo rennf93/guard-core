@@ -298,10 +298,10 @@ Cloud Provider Blocking
 
 | Field                      | Type             | Default | Description                              |
 |----------------------------|------------------|---------|------------------------------------------|
-| `block_cloud_providers`    | `frozenset[str] \| None` | `None`  | Providers to block. A bare name (`"AWS"`, `"GCP"`, `"Azure"`) blocks the whole provider; a region carve-out (`"GCP:!us-central1"`) blocks the provider except that region. Region scoping is supported for GCP and AWS. An unrecognized provider name raises `ValueError`. |
+| `block_cloud_providers`    | `frozenset[str] \| None` | `None`  | Providers to block: `"AWS"`, `"GCP"`, `"Azure"`, `"DigitalOcean"`, `"Linode"`, `"Vultr"`. A bare name blocks the whole provider; a region carve-out (`"GCP:!us-central1"`) blocks the provider except that region. Region metadata exists for AWS and GCP only, so a carve-out on the other four exempts nothing and the whole provider stays blocked. An unrecognized provider name raises `ValueError`. |
 | `cloud_ip_refresh_interval`| `int`            | `3600`  | Seconds between IP range refreshes (60-86400). |
 
-**Validator**: each entry is kept only if the part before an optional `:!region` suffix is one of `{"AWS", "GCP", "Azure"}`; an entry that fails this check is dropped, not the whole set.
+**Validator**: each entry is valid when the part before an optional `:!region` suffix is one of the six provider names; any invalid entry raises `ValueError` naming it (nothing is silently dropped).
 
 ___
 

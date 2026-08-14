@@ -225,7 +225,7 @@ These fields tune how guard-core bootstraps geo-IP and cloud-IP data. They are i
 
 | Symbol                  | Type                       | Description                                                                 |
 |-------------------------|----------------------------|-----------------------------------------------------------------------------|
-| `CloudProvider`         | `Literal["AWS", "GCP", "Azure"]` | Type alias naming the three user-blockable providers. `block_cloud_providers` itself is typed `frozenset[str] \| None` (not `frozenset[CloudProvider]`), since a validated entry can carry a `:!region` carve-out suffix that isn't a bare `CloudProvider` value. |
+| `CloudProvider`         | `Literal["AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"]` | Type alias naming the six user-blockable providers. `block_cloud_providers` itself is typed `frozenset[str] \| None` (not `frozenset[CloudProvider]`), since a validated entry can carry a `:!region` carve-out suffix that isn't a bare `CloudProvider` value. |
 | `VALID_CLOUD_PROVIDERS` | `frozenset[str]`           | Runtime guard set derived from `typing.get_args(CloudProvider)`. Used by `validate_cloud_providers`, `DynamicRules.blocked_cloud_providers` filtering, and the `@block_clouds` decorator. |
 
 Adding a new provider is a one-line edit to the `CloudProvider` Literal — every consumer picks up the change automatically.
