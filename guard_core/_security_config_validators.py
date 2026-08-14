@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from guard_core.models import SecurityConfig
 
 
-CloudProvider = Literal["AWS", "GCP", "Azure"]
+CloudProvider = Literal["AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
 
 

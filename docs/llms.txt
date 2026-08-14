@@ -48,7 +48,7 @@ Guard Core is the framework-agnostic security engine that powers the Guard ecosy
   - Docs: https://rennf93.github.io/guard-core/latest/internals/rate-limiting/
 - **Detection Engine**: PatternCompiler, ContentPreprocessor, SemanticAnalyzer, PerformanceMonitor
   - Docs: https://rennf93.github.io/guard-core/latest/internals/detection-engine/
-- **Cloud Providers**: AWS/GCP/Azure IP range fetching, caching, refresh intervals
+- **Cloud Providers**: AWS/GCP/Azure/DigitalOcean/Linode/Vultr IP range fetching, caching, refresh intervals
   - Docs: https://rennf93.github.io/guard-core/latest/internals/cloud-providers/
 - **Security Headers**: CSP, HSTS, CORS, default headers, nonce generation
   - Docs: https://rennf93.github.io/guard-core/latest/internals/security-headers/
