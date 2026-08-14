@@ -15,6 +15,10 @@ from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 from tests.test_sus_patterns.test_detection_benchmark import (
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
     BENIGN_CORPUS,
     MALICIOUS_CORPUS,
 )
@@ -501,7 +505,29 @@ def _fraction(numerator: int, denominator: int) -> str:
     return f"{numerator}/{denominator} ({percentage:.1f}%)"
 
 
-_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {}
+_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_prose_semicolon_bare_shell_control": (
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_value_absolute_bash_login_flag": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+    ),
+    "cmd_injection_value_env_prefixed_bash_c_echo": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+    ),
+    "cmd_injection_value_bare_shell_control": (
+        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+    ),
+}
 
 BASELINE_MALICIOUS_DETECTED_TOTAL = 163
 

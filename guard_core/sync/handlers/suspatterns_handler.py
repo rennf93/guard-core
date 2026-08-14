@@ -472,7 +472,7 @@ class SusPatternsManager:
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
-        (r"\*\)+%00", _CTX_LDAP, "ldap"),
+        (r"\*\)\)+%00", _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),

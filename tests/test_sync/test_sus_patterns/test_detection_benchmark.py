@@ -67,6 +67,37 @@ _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON = (
     "this stays a documented, measured gap"
 )
 
+_SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON = (
+    "a quoted absolute-path or env-prefixed shell invocation after a "
+    "semicolon is character-identical to the attack shape the widened "
+    "cmd_injection shell pattern must catch; the surface is symmetric with "
+    "the bare-shell form that fired in every released version, and "
+    "separating a quoted invocation from a real one requires contextual "
+    "evaluation, not regex shape"
+)
+
+_SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
+    "the bare-shell form of this prose shape fired in every released "
+    "version before the absolute-path and env-prefixed widening; pinned as "
+    "the control case the new pins are symmetric with"
+)
+
+_WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON = (
+    "a field whose entire value is an absolute-path or env-prefixed shell "
+    "invocation spec, the Docker/K8s command or entrypoint override shape, "
+    "is character-identical to the attack shape the widened cmd_injection "
+    "shell pattern must catch; the surface is symmetric with the bare-shell "
+    "form that fired in every released version, and an API that "
+    "legitimately carries command specs needs route-level configuration, "
+    "not a narrower pattern"
+)
+
+_WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
+    "the bare-shell form of this whole-value shape fired in every released "
+    "version before the absolute-path and env-prefixed widening; pinned as "
+    "the control case the new pins are symmetric with"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -1737,6 +1768,65 @@ BENIGN_CORPUS: list[BenignCase] = [
         "rest_path_k8s_default_namespace_bare",
         "/api/v1/namespaces/default",
     ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_ls",
+        "First run setup; /bin/sh -c 'ls' to verify.",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami",
+        "ticket note: reproduced by running commands; /bin/sh -c whoami showed root",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_env_prefixed_shell",
+        "runbook step 3: restart the shell; /usr/bin/env bash -c "
+        "'systemctl restart app'",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag",
+        "changelog: fixed default login; /bin/sh -x debug.sh now traces correctly",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_bare_shell_control",
+        "First run setup; sh -c 'ls' to verify.",
+        "production",
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_absolute_shell_c_npm_start",
+        "/bin/sh -c 'npm start'",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_absolute_bash_login_flag",
+        "/bin/bash -l",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_env_prefixed_bash_c_echo",
+        "/usr/bin/env bash -c 'echo hi'",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_bare_shell_control",
+        "sh -c 'npm start'",
+        "production",
+        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "ldap_glob_paren_null_mention",
+        "glob pattern: *)%00 in filenames",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -1761,8 +1851,8 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
 }
 BASELINE_MALICIOUS_DETECTED_TOTAL = 187
 
-BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0
+BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9
 
 
 def _malicious_case_detected_categories(case: MaliciousCase) -> set[str]:
