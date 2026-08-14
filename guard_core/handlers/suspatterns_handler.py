@@ -751,7 +751,7 @@ class SusPatternsManager:
             cls._instance = super().__new__(cls)
             cls._instance.custom_patterns = set()
             cls._instance.compiled_patterns = [
-                (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+                (re.compile(pattern, re.IGNORECASE), contexts, category)
                 for pattern, contexts, category in cls._pattern_definitions
             ]
             cls._instance.compiled_custom_patterns = set()
