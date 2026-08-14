@@ -880,6 +880,14 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "/wp-content/themes/default",
     ),
     MaliciousCase("recon_nested_inicio_html", "recon", "/en/inicio.html"),
+    MaliciousCase("ldap_null_byte_single_paren_attr_uid", "ldap", "uid=*)%00"),
+    MaliciousCase("ldap_null_byte_single_paren_filter_uid", "ldap", "(uid=*)%00"),
+    MaliciousCase("ldap_null_byte_single_paren_attr_mail", "ldap", "mail=*)%00"),
+    MaliciousCase(
+        "ldap_null_byte_single_paren_attr_objectclass",
+        "ldap",
+        "objectClass=*)%00",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -1839,7 +1847,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "file_inclusion": 8,
     "file_upload": 6,
     "http_split": 4,
-    "ldap": 8,
+    "ldap": 12,
     "nosql": 6,
     "path_traversal": 5,
     "proto_pollution": 5,
@@ -1851,7 +1859,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 187
+BASELINE_MALICIOUS_DETECTED_TOTAL = 191
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9

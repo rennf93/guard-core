@@ -468,6 +468,31 @@ _TARGETED_CASES: list[TargetedCase] = [
         True,
     ),
     TargetedCase(
+        "ldap_null_byte_single_paren_attr_uid_query_param",
+        _query_param_request("uid=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_filter_uid_query_param",
+        _query_param_request("(uid=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_attr_mail_query_param",
+        _query_param_request("mail=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_attr_objectclass_query_param",
+        _query_param_request("objectClass=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_glob_paren_null_mention_query_param",
+        _query_param_request("glob pattern: *)%00 in filenames"),
+        False,
+    ),
+    TargetedCase(
         "cms_probing_wp_content_themes_default_url_path",
         _url_path_request("/wp-content/themes/default"),
         True,
@@ -518,7 +543,13 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     "cmd_injection_prose_semicolon_bare_shell_control": (
         _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON
     ),
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+    ),
     "cmd_injection_value_absolute_bash_login_flag": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+    ),
+    "cmd_injection_value_absolute_shell_c_npm_start": (
         _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
     ),
     "cmd_injection_value_env_prefixed_bash_c_echo": (
