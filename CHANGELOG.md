@@ -17,6 +17,10 @@ Unreleased
 - The CI test matrix now enforces what was previously only measured: `--cov-fail-under=100` (branch coverage was already measured via the pyproject `addopts`, but nothing failed the build when it dropped) and `-W error`, so a new warning fails the build instead of accumulating. Both flags were validated against the full local suite before landing (7336 passed, 100 percent line and branch, zero warnings surviving `-W error`). A `quality` job runs `make quality` on Python 3.10.
 - `make lint` now runs `ruff format --check .` instead of rewriting files in place. The write-mode step could never fail, so formatting drift passed `make lint` locally while `pre-commit` caught it in CI; check mode makes the target an actual gate. Use `make fix` to apply formatting.
 
+### Fixed
+
+- **The `:!region` carve-out for `block_cloud_providers` has never worked in any release that shipped it (3.2.0 through 3.12.0).** The syntax and the refresh code arrived together in 3.2.0: every refresh path (`_refresh_providers`, `refresh_async`, `_refresh_providers_via_redis_handler`) looked the range fetcher up by the literal selector string, the resulting `KeyError` was swallowed by the per-provider error handling, and the provider's IP ranges stayed empty forever, so a selector-configured provider blocked nothing, silently, since the feature's first release. `is_cloud_ip`'s own selector parsing was always correct; it just evaluated against ranges that refresh never filled. `get_cloud_provider_details` had the same literal-key lookup (never a user-visible symptom on its own, since the block that would trigger it never fired, but fixed with the same change). All four lookup sites now normalize selectors to bare provider names before lookup; the carve-out decision itself stays where it always was, in `is_cloud_ip`. Found by an executed cross-session repro; the new regression tests exercise ALL THREE refresh paths with a selector, the exact complement the 100-percent-covered suite was missing.
+
 ___
 
 v3.12.0 (2026-08-12)

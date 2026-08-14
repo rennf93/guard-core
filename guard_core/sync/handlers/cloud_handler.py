@@ -349,6 +349,10 @@ def _parse_cloud_selectors(
     return blocked, carveouts
 
 
+def _bare_provider_names(providers: Collection[str]) -> set[str]:
+    return {provider.partition(":!")[0] for provider in providers}
+
+
 def _fetch_provider_ranges(
     provider: str,
 ) -> tuple[set[ipaddress.IPv4Network | ipaddress.IPv6Network], dict[str, str]]:
@@ -495,7 +499,7 @@ class CloudManager:
         )
 
     def _refresh_providers(self, providers: Collection[str] = _ALL_PROVIDERS) -> None:
-        for provider in providers:
+        for provider in _bare_provider_names(providers):
             try:
                 ranges, regions = _fetch_provider_ranges(provider)
                 if ranges:
@@ -537,7 +541,7 @@ class CloudManager:
             self._refresh_providers_via_redis_handler(providers, ttl=ttl)
             return
 
-        for provider in providers:
+        for provider in _bare_provider_names(providers):
             try:
                 cached = self._store.get(provider)
                 if cached is not None:
@@ -570,7 +574,7 @@ class CloudManager:
             self._refresh_providers(providers)
             return
 
-        for provider in providers:
+        for provider in _bare_provider_names(providers):
             try:
                 cached = self.redis_handler.get_key("cloud_ranges_v2", provider)
                 if cached:
@@ -652,7 +656,7 @@ class CloudManager:
     ) -> tuple[str, str] | None:
         try:
             ip_obj = ipaddress.ip_address(ip)
-            for provider in providers:
+            for provider in _bare_provider_names(providers):
                 if provider in self.ip_ranges:
                     for network in self.ip_ranges[provider]:
                         if ip_obj in network:
