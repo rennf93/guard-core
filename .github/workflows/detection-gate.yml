@@ -27,6 +27,17 @@ jobs:
   detection-gate:
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     permissions:
       pull-requests: write
 
@@ -54,6 +65,7 @@ jobs:
       - name: Run the two-sided detection benchmarks
         shell: bash
         run: |
+          REDIS_URL='redis://localhost:6379' REDIS_PREFIX='test:guard_core:' \
           uv run pytest \
             tests/test_sus_patterns/test_detection_benchmark.py \
             tests/test_sus_patterns/test_detect_penetration_attempt_benchmark.py \
