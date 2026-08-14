@@ -247,7 +247,7 @@ def reset_state() -> Generator[None, None]:
     _suspatterns_module.sus_patterns_handler = sus_patterns_handler
     sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
     sus_patterns_handler.compiled_patterns = [
-        (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+        (re.compile(pattern, re.IGNORECASE), contexts, category)
         for pattern, contexts, category in spm._pattern_definitions
     ]
     sus_patterns_handler.custom_patterns = set()

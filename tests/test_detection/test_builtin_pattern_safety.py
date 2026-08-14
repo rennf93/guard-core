@@ -267,3 +267,24 @@ async def test_match_path_caps_input_length_in_legacy_mode() -> None:
     cap = getattr(mgr._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH)
     assert len(capped) == min(len(big), cap)
     assert len(capped) < len(big)
+
+
+def test_builtin_patterns_compile_without_multiline() -> None:
+    manager = SusPatternsManager()
+    for compiled, _contexts, _category in manager.compiled_patterns:
+        assert not compiled.flags & re.MULTILINE, compiled.pattern[:60]
+
+
+async def test_custom_patterns_keep_multiline_for_compatibility() -> None:
+    manager = SusPatternsManager()
+    await manager.add_pattern(r"line-anchored-custom-token$", custom=True)
+    try:
+        custom_compiled = [
+            compiled
+            for compiled, _contexts, category in manager.compiled_custom_patterns
+            if category == "custom"
+        ]
+        assert custom_compiled
+        assert all(c.flags & re.MULTILINE for c in custom_compiled)
+    finally:
+        await manager.remove_pattern(r"line-anchored-custom-token$", custom=True)
