@@ -822,6 +822,12 @@ class SusPatternsManager:
             "nosql",
         ),
         (
+            r"\[\$(?:where|gt|gte|lt|lte|ne|eq|regex|in|nin|nor|and|or|not|all|"
+            r"size|exists|type|mod|options|expr|function|elemMatch)\]",
+            _CTX_NOSQL,
+            "nosql",
+        ),
+        (
             r"(?i)filename=[\"'].*?\.(?:php\d*|phar|phtml|exe|jsp|asp|aspx|sh|"
             r"bash|rb|py|pl|cgi|com|bat|cmd|vbs|vbe|js|ws|wsf|msi|hta)[\"\']",
             _CTX_FILE_UPLOAD,

@@ -539,6 +539,10 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "nosql_in_operator_array", "nosql", '{"role": {"$in": ["admin","root"]}}'
     ),
     MaliciousCase("nosql_exists_operator", "nosql", '{"$exists": true}'),
+    MaliciousCase("nosql_ne_operator_bracket_key", "nosql", "username[$ne]=admin"),
+    MaliciousCase("nosql_gt_operator_bracket_key", "nosql", "filter[$gt]=100"),
+    MaliciousCase("nosql_regex_operator_bracket_key", "nosql", "search[$regex]=.*"),
+    MaliciousCase("nosql_where_operator_bracket_key", "nosql", "x[$where]=sleep(1)"),
     MaliciousCase("file_upload_php_extension", "file_upload", 'filename="shell.php"'),
     MaliciousCase(
         "file_upload_phtml_extension", "file_upload", 'filename="shell.phtml"'
@@ -1463,6 +1467,11 @@ BENIGN_CORPUS: list[BenignCase] = [
         "nosql_prose_aggregation_pipeline",
         "MongoDB aggregation pipelines chain multiple stage operators together.",
     ),
+    BenignCase("nosql_benign_bare_bracket_empty_array", "arr[]=1"),
+    BenignCase("nosql_benign_bare_bracket_object_key", "obj[key]=val"),
+    BenignCase("nosql_benign_bare_bracket_numeric_index", "order[0]=asc"),
+    BenignCase("nosql_benign_bare_bracket_status_key", "filter[status]=active"),
+    BenignCase("nosql_benign_bare_bracket_nested_index", "items[2][name]=x"),
     BenignCase("file_upload_benign_png_filename", 'filename="avatar.png"'),
     BenignCase("file_upload_benign_pdf_filename", 'filename="invoice.pdf"'),
     BenignCase("file_upload_benign_docx_filename", "filename='report.docx'"),
@@ -2270,7 +2279,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "file_upload": 6,
     "http_split": 4,
     "ldap": 12,
-    "nosql": 6,
+    "nosql": 10,
     "path_traversal": 5,
     "proto_pollution": 5,
     "recon": 23,
@@ -2281,7 +2290,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 237
+BASELINE_MALICIOUS_DETECTED_TOTAL = 241
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,
