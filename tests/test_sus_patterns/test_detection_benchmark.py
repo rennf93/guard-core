@@ -1068,18 +1068,14 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "template",
         '{{"5"+"5"}}',
     ),
-    MaliciousCase(
-        "template_ssti_curly_brace_call", "template", "{{config.items()}}"
-    ),
+    MaliciousCase("template_ssti_curly_brace_call", "template", "{{config.items()}}"),
     MaliciousCase("template_ssti_hash_brace_arith", "template", "#{7*7}"),
     MaliciousCase(
         "template_ssti_hash_brace_java_runtime_exec",
         "template",
         "#{T(java.lang.Runtime).exec('id')}",
     ),
-    MaliciousCase(
-        "ssrf_double_at_parser_confusion", "ssrf", "http://a@b@evil.com"
-    ),
+    MaliciousCase("ssrf_double_at_parser_confusion", "ssrf", "http://a@b@evil.com"),
     MaliciousCase(
         "ssrf_double_at_metadata_ip_masked",
         "ssrf",
@@ -1095,9 +1091,7 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "sensitive_file",
         "config.php~",
     ),
-    MaliciousCase(
-        "sensitive_file_trailing_tilde_env", "sensitive_file", "/.env~"
-    ),
+    MaliciousCase("sensitive_file_trailing_tilde_env", "sensitive_file", "/.env~"),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2241,9 +2235,7 @@ BENIGN_CORPUS: list[BenignCase] = [
         "production",
         _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     ),
-    BenignCase(
-        "ssrf_benign_single_at_token_userinfo", "https://token@api.example.com"
-    ),
+    BenignCase("ssrf_benign_single_at_token_userinfo", "https://token@api.example.com"),
     BenignCase("ssrf_benign_single_at_userpass", "http://user:pass@host.com"),
     BenignCase("ssrf_benign_email_param", "email=a@b.com"),
     BenignCase("sensitive_file_benign_leading_tilde_home", "~/home"),
