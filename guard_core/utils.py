@@ -740,6 +740,21 @@ async def _check_value_enhanced(
         return detected, trigger, []
 
 
+def _log_detected_component(
+    value: str, component_name: str, client_ip: str, log_level: str | None
+) -> None:
+    if log_level is None:
+        return
+    message = "Potential attack detected from"
+    details = (
+        f"{client_ip}: {value[:100]}..."
+        if len(value) > 100
+        else f"{client_ip}: {value}"
+    )
+    reason_message = f"Suspicious pattern in {component_name}"
+    _log_at_level(logger, log_level, f"{message} {details} - {reason_message}")
+
+
 async def _check_request_component(
     value: str,
     context: str,
@@ -752,16 +767,26 @@ async def _check_request_component(
     detected, trigger, threats = await _check_value_enhanced(
         value, context, client_ip, correlation_id, enabled_categories
     )
-    if detected and log_level is not None:
-        message = "Potential attack detected from"
-        details = (
-            f"{client_ip}: {value[:100]}..."
-            if len(value) > 100
-            else f"{client_ip}: {value}"
-        )
-        reason_message = f"Suspicious pattern in {component_name}"
-        _log_at_level(logger, log_level, f"{message} {details} - {reason_message}")
+    if detected:
+        _log_detected_component(value, component_name, client_ip, log_level)
     return detected, trigger, threats
+
+
+def _check_always_scan_header(value: str) -> tuple[bool, str, list[dict]]:
+    from guard_core.handlers.suspatterns_handler import ALWAYS_SCAN_HEADER_PATTERNS
+
+    for pattern in ALWAYS_SCAN_HEADER_PATTERNS:
+        match = pattern.search(value)
+        if match:
+            threat = {
+                "type": "regex",
+                "pattern": pattern.pattern,
+                "match": match.group(),
+                "position": match.start(),
+                "category": "cmd_injection",
+            }
+            return True, f"Value matched pattern '{pattern.pattern}'", [threat]
+    return False, "", []
 
 
 def _resolve_excluded_params(
@@ -875,6 +900,15 @@ async def _scan_headers(
 ) -> tuple[bool, str, list[dict]]:
     for key, value in request.headers.items():
         if key.lower() in excluded_headers:
+            if (
+                enabled_categories is not None
+                and "cmd_injection" not in enabled_categories
+            ):
+                continue
+            detected, trigger, threats = _check_always_scan_header(value)
+            if detected:
+                _log_detected_component(value, f"header '{key}'", client_ip, log_level)
+                return True, f"Header '{key}': {trigger}", threats
             continue
         detected, trigger, threats = await _check_request_component(
             value,

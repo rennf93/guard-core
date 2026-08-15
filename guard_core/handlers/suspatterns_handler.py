@@ -373,6 +373,10 @@ _LOG4SHELL_JNDI_LOOKUP_RE = (
     r"|::-j\}ndi)"
 )
 
+ALWAYS_SCAN_HEADER_PATTERNS: frozenset[re.Pattern] = frozenset(
+    {re.compile(_LOG4SHELL_JNDI_LOOKUP_RE)}
+)
+
 
 _LEGACY_IPV4_PART_RE = r"(?:0[xX][0-9a-fA-F]+|0[0-7]+|[1-9]\d*|0)"
 _LEGACY_IPV4_HOST_RE = (
