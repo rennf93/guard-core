@@ -15,6 +15,7 @@ from guard_core.sync.utils import detect_penetration_attempt
 from tests.test_sus_patterns.test_detection_benchmark import (
     _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
@@ -785,6 +786,14 @@ _SHELL_INVOCATION_FP_MECHANISMS = (
     "query_param",
 )
 _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS = ("query_param", "url_path")
+_FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS = (
+    "raw_body",
+    "form_body",
+    "json_body_nested",
+    "multipart_body",
+    "query_param",
+    "url_path",
+)
 
 _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
@@ -850,6 +859,30 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cmd_injection_jquery_selector_hash_id_call": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
         _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_readme_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_docs_readme_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_terms_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_installer_sh_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_docker_installer_sh_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "file_inclusion_benign_cgi_search_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
     ),
 }
 

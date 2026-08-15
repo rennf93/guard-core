@@ -765,6 +765,12 @@ class SusPatternsManager:
             _CTX_FILE_INCLUSION,
             "file_inclusion",
         ),
+        (
+            r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*\.(?:phtml|php[3-5]?|"
+            r"phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])",
+            _CTX_FILE_INCLUSION,
+            "file_inclusion",
+        ),
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),

