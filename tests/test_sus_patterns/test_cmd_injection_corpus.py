@@ -858,6 +858,34 @@ async def test_unambiguous_dollar_substitution_or_denylist_detected_in_body(
     )
 
 
+BARE_SHELL_COMMAND_DOLLAR_SUBSTITUTION_PROBES = [
+    pytest.param("$(id)", id="dollar_paren_bare_id"),
+    pytest.param("$(pwd)", id="dollar_paren_bare_pwd"),
+    pytest.param("$(whoami)", id="dollar_paren_bare_whoami"),
+    pytest.param("$(uptime)", id="dollar_paren_bare_uptime"),
+    pytest.param("$(w)", id="dollar_paren_bare_w"),
+    pytest.param("$(who)", id="dollar_paren_bare_who"),
+    pytest.param("$(groups)", id="dollar_paren_bare_groups"),
+    pytest.param("$(set)", id="dollar_paren_bare_set"),
+    pytest.param("${IFS}", id="dollar_brace_bare_ifs"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", BARE_SHELL_COMMAND_DOLLAR_SUBSTITUTION_PROBES)
+@pytest.mark.parametrize("context", ["query_param", "url_path"])
+async def test_bare_shell_command_dollar_substitution_detected(
+    payload: str, context: str
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context=context
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
 AMBIGUOUS_DOLLAR_SUBSTITUTION_NEVER_FLAGGED_PAYLOADS = [
     pytest.param("$(id)", id="dollar_paren_bare_id"),
     pytest.param("${name}", id="dollar_brace_bare_name"),
