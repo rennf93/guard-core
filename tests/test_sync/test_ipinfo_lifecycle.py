@@ -105,7 +105,6 @@ def test_ipinfo_refresh_logs_and_returns_when_download_fails(
 
 
 def test_ipinfo_download_database_uses_configured_ttl(tmp_path: Path) -> None:
-
     mgr = IPInfoManager(token="tok", db_path=tmp_path / "db.mmdb", max_age=7200)
     mgr.redis_handler = MagicMock()
     mgr.redis_handler.set_key = MagicMock()

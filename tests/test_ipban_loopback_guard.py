@@ -183,3 +183,28 @@ async def test_ban_public_cidr_with_config_still_succeeds() -> None:
     await manager.ban_ip("8.8.8.0/24", duration=300, reason="threshold_exceeded")
 
     assert await manager.is_ip_banned("8.8.8.5") is True
+
+
+@pytest.mark.asyncio
+async def test_ban_loopback_over_cap_duration_is_refused_not_clamped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = IPBanManager()
+    manager.redis_handler = None
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip(
+        "127.0.0.1",
+        duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 3600,
+        reason="threshold_exceeded",
+    )
+
+    assert "127.0.0.1" not in manager.banned_ips
+    assert await manager.is_ip_banned("127.0.0.1") is False
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "loopback" in message
+    assert "clamped" not in message
+    assert "shortened" not in message

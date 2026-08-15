@@ -77,12 +77,17 @@ class IPBanManager:
         if duration <= 0:
             raise ValueError(f"ban duration must be positive, got {duration}")
 
-    def _assert_local_cap(self, duration: int) -> None:
-        if duration > self.LOCAL_CACHE_TTL_CAP_SECONDS:
-            raise ValueError(
-                f"ban duration {duration}s exceeds local cache capacity "
-                f"{self.LOCAL_CACHE_TTL_CAP_SECONDS}s and Redis is unavailable"
-            )
+    def _clamp_to_local_cap(self, duration: int, cause: str) -> int:
+        if duration <= self.LOCAL_CACHE_TTL_CAP_SECONDS:
+            return duration
+        self.logger.warning(
+            "Redis unavailable (%s): ban shortened from %ds to %ds so "
+            "protection still applies",
+            cause,
+            duration,
+            self.LOCAL_CACHE_TTL_CAP_SECONDS,
+        )
+        return self.LOCAL_CACHE_TTL_CAP_SECONDS
 
     async def _ban_cidr(self, ip: str, duration: int) -> None:
         try:
@@ -91,7 +96,7 @@ class IPBanManager:
             raise ValueError(f"Invalid CIDR network {ip!r}: {e}") from e
 
         if self.redis_handler is None:
-            self._assert_local_cap(duration)
+            duration = self._clamp_to_local_cap(duration, "not configured")
             self.banned_networks.append((network, time.time() + duration))
             return
 
@@ -103,8 +108,7 @@ class IPBanManager:
                 ttl=duration,
             )
         except Exception:
-            if duration > self.LOCAL_CACHE_TTL_CAP_SECONDS:
-                raise
+            duration = self._clamp_to_local_cap(duration, "request failed")
             self.banned_networks.append((network, time.time() + duration))
 
     async def _ban_exact_ip(self, ip: str, duration: int, reason: str) -> None:
@@ -114,7 +118,7 @@ class IPBanManager:
             raise ValueError(f"Invalid IP address {ip!r}: {e}") from e
 
         if self.redis_handler is None:
-            self._assert_local_cap(duration)
+            duration = self._clamp_to_local_cap(duration, "not configured")
 
         expiry = time.time() + duration
         self.banned_ips[ip] = expiry
