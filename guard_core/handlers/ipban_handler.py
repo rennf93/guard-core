@@ -9,6 +9,11 @@ from cachetools import TTLCache
 
 _Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
+_LOOPBACK_NETWORKS: tuple[_Network, ...] = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+)
+
 
 class _ObservableTTLCache(TTLCache):
     def __init__(
@@ -122,10 +127,58 @@ class IPBanManager:
         if self.agent_handler:
             await self._send_ban_event(ip, duration, reason)
 
+    def _target_network(self, ip: str) -> _Network | None:
+        try:
+            if "/" in ip:
+                return ipaddress.ip_network(ip, strict=False)
+            return ipaddress.ip_network(ipaddress.ip_address(ip))
+        except ValueError:
+            return None
+
+    def _trusted_proxy_networks(self) -> list[_Network]:
+        trusted_proxies = getattr(self.config, "trusted_proxies", None) or ()
+        networks = []
+        for entry in trusted_proxies:
+            try:
+                networks.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                continue
+        return networks
+
+    def _self_dos_refusal_reason(self, ip: str) -> str | None:
+        target = self._target_network(ip)
+        if target is None:
+            return None
+        if any(
+            target.version == network.version and target.overlaps(network)
+            for network in _LOOPBACK_NETWORKS
+        ):
+            return "loopback"
+        if any(
+            target.version == network.version and target.overlaps(network)
+            for network in self._trusted_proxy_networks()
+        ):
+            return "trusted_proxy"
+        return None
+
+    def _log_refused_ban(self, ip: str, reason: str) -> None:
+        space = "loopback" if reason == "loopback" else "a configured trusted proxy"
+        self.logger.warning(
+            "Refused to ban %s: overlaps %s space and would self-DoS this "
+            "deployment. If unexpected, trusted_proxies is likely unset "
+            "behind a reverse proxy; see docs/configuration/security-config.md",
+            ip,
+            space,
+        )
+
     async def ban_ip(
         self, ip: str, duration: int, reason: str = "threshold_exceeded"
     ) -> None:
         self._assert_positive_duration(duration)
+        refusal = self._self_dos_refusal_reason(ip)
+        if refusal is not None:
+            self._log_refused_ban(ip, refusal)
+            return
         if "/" in ip:
             await self._ban_cidr(ip, duration)
         else:
