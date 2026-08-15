@@ -703,7 +703,7 @@ class SusPatternsManager:
         ),
         (
             _GLUED_BACKTICK_CANDIDATE_RE,
-            _CTX_CMD_INJECTION,
+            _CTX_CMD_INJECTION_WITH_URL_PATH,
             "cmd_injection",
         ),
         (

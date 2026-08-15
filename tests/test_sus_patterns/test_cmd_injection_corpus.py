@@ -738,6 +738,20 @@ async def test_glued_ambiguous_token_backtick_payload_is_detected_in_query_param
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS)
+async def test_glued_ambiguous_token_backtick_payload_is_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
 AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY = [
     pytest.param("search`id`", id="glued_prefix_word_id"),
     pytest.param("`id`suffix", id="glued_suffix_word_suffix_id"),
