@@ -1085,6 +1085,19 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "ssrf",
         "http://169.254.169.254@trusted@evil.com",
     ),
+    MaliciousCase(
+        "sensitive_file_trailing_tilde_wp_config",
+        "sensitive_file",
+        "/wp-config.php~",
+    ),
+    MaliciousCase(
+        "sensitive_file_trailing_tilde_bare_config",
+        "sensitive_file",
+        "config.php~",
+    ),
+    MaliciousCase(
+        "sensitive_file_trailing_tilde_env", "sensitive_file", "/.env~"
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2233,6 +2246,12 @@ BENIGN_CORPUS: list[BenignCase] = [
     ),
     BenignCase("ssrf_benign_single_at_userpass", "http://user:pass@host.com"),
     BenignCase("ssrf_benign_email_param", "email=a@b.com"),
+    BenignCase("sensitive_file_benign_leading_tilde_home", "~/home"),
+    BenignCase("sensitive_file_benign_bare_tilde_user", "~user"),
+    BenignCase(
+        "sensitive_file_benign_midstring_tilde_report",
+        "/files/report~draft.txt",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2248,14 +2267,14 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "path_traversal": 5,
     "proto_pollution": 5,
     "recon": 23,
-    "sensitive_file": 8,
+    "sensitive_file": 11,
     "sqli": 19,
     "ssrf": 28,
     "template": 13,
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 226
+BASELINE_MALICIOUS_DETECTED_TOTAL = 229
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

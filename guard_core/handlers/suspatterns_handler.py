@@ -884,6 +884,11 @@ class SusPatternsManager:
             "sensitive_file",
         ),
         (
+            _PATH_ONLY_PREFIX_RE + rf"{_PATH_ONLY_CHAR_RE}*\.\w+~(?:\?\S*)?\s*\Z",
+            _CTX_SENSITIVE_FILE,
+            "sensitive_file",
+        ),
+        (
             _PATH_ONLY_PREFIX_RE
             + r"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
             r"\.?(?:php)?" + _PATH_ONLY_SUFFIX_RE,
