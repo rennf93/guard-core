@@ -132,6 +132,45 @@ def test_negative_content_length_still_scans_body_via_prefix_reader() -> None:
     assert result.is_threat is True
 
 
+def test_short_single_base64_blind_marker_is_detected() -> None:
+    single_b64 = base64.b64encode(_BLIND_MARKER.encode()).decode()
+
+    assert _is_threat(single_b64) is True
+
+
+def test_short_double_base64_blind_marker_is_detected() -> None:
+    double_b64 = base64.b64encode(base64.b64encode(_BLIND_MARKER.encode())).decode()
+
+    assert _is_threat(double_b64) is True
+
+
+_REPRESENTATIVE_SHORT_BENIGN_TOKENS = [
+    ("uuid_dashed", "550e8400-e29b-41d4-a716-446655440000"),
+    ("uuid_nodash", "550e8400e29b41d4a716446655440000"),
+    ("git_sha_short7", "a1b2c3d"),
+    ("git_sha_full40", "a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d3c5b7a9f1"),
+    ("md5_hash", "5d41402abc4b2a76b9719d911017c592"),
+    ("session_token", "sess_9f8a7b6c5d4e3f2a"),
+    ("product_key", "XK7M2-9PQRT-4WZLB-8NCFY-3HJDV"),
+    ("jwt_header_fragment", "eyJhbGciOiJIUzI1"),
+    ("png_fragment", "iVBORw0KGgoAAAA"),
+    ("api_key", "sk_live_4eC39HqLyjW"),
+    ("etag_weak", "W/a1b2c3d4e5f6"),
+    ("csp_nonce", "R2V0R2V0R2V0R2V0"),
+    ("numeric_id", "9876543210123456"),
+    ("slug_fragment", "quarterlyreport2024"),
+]
+
+
+@pytest.mark.parametrize(
+    ("label", "token"),
+    _REPRESENTATIVE_SHORT_BENIGN_TOKENS,
+    ids=[label for label, _ in _REPRESENTATIVE_SHORT_BENIGN_TOKENS],
+)
+def test_representative_short_benign_tokens_stay_clean(label: str, token: str) -> None:
+    assert _is_threat(token) is False
+
+
 def test_oversized_valid_content_length_still_skips_body_scan() -> None:
     class _BoundedBodyReaderRequest(SyncMockGuardRequest):
         def read_body_prefix(self, max_bytes: int) -> bytes:

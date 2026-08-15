@@ -504,6 +504,26 @@ def test_decode_base64_candidates_returns_token_when_decoded_is_non_printable() 
     assert result == content
 
 
+def test_decode_base64_candidates_twelve_char_run_is_a_decode_candidate() -> None:
+    preprocessor = ContentPreprocessor()
+
+    content = "bmluZS1ieXRl"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == "nine-byte"
+
+
+def test_decode_base64_candidates_eleven_char_run_is_not_a_decode_candidate() -> None:
+    preprocessor = ContentPreprocessor()
+
+    content = "prefix bmluZS1ieXR suffix"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
 def test_decode_hex_escapes_replaces_two_digit_escape() -> None:
     preprocessor = ContentPreprocessor()
 

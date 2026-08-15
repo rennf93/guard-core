@@ -50,7 +50,7 @@ class ContentPreprocessor:
         ]
 
     _BASE64_RE = re.compile(
-        r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){20,}={0,2}(?![A-Za-z0-9+/=])"
+        r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){12,}={0,2}(?![A-Za-z0-9+/=])"
     )
     _BASE64_WHITESPACE_RE = re.compile(r"[\r\n]+")
     _GZIP_MAGIC = b"\x1f\x8b"
