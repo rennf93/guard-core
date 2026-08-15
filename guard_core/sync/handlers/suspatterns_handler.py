@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import re
 import time
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Any, NamedTuple
 
@@ -182,6 +183,123 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
     }
 )
 
+_GLUED_BACKTICK_CANDIDATE_RE = r"(?<!`)`(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*`"
+_GLUED_BACKTICK_ASCII_WORD_RE = re.compile(r"[A-Za-z0-9_]")
+
+_STRONG_SQL_IDENTIFIER_KEYWORD_RE = re.compile(
+    r"(?i)\b(?:SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|VALUES|ORDER\s+BY|"
+    r"GROUP\s+BY)\b"
+)
+_BACKTICK_CONTEXT_WINDOW_CHARS = 40
+
+_IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE = re.compile(r"[\s/.;|&$()]")
+_AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS = frozenset({"query_param", "url_path"})
+
+_STRONG_SHELL_COMMAND_DENYLIST = frozenset(
+    {
+        "whoami",
+        "uname",
+        "hostname",
+        "ifconfig",
+        "ipconfig",
+        "netstat",
+        "ss",
+        "ps",
+        "pwd",
+        "ls",
+        "dir",
+        "cat",
+        "head",
+        "tail",
+        "curl",
+        "wget",
+        "fetch",
+        "nc",
+        "ncat",
+        "netcat",
+        "telnet",
+        "bash",
+        "sh",
+        "ksh",
+        "zsh",
+        "csh",
+        "ash",
+        "ping",
+        "dig",
+        "nslookup",
+        "chmod",
+        "chown",
+        "rm",
+        "mv",
+        "cp",
+        "kill",
+        "sudo",
+        "su",
+        "env",
+        "export",
+        "eval",
+        "exec",
+        "python",
+        "perl",
+        "ruby",
+        "php",
+        "node",
+        "base64",
+        "xxd",
+        "printf",
+        "id_rsa",
+    }
+)
+_STRONG_SHELL_COMMAND_ALTERNATION = "|".join(
+    re.escape(command)
+    for command in sorted(_STRONG_SHELL_COMMAND_DENYLIST, key=len, reverse=True)
+)
+_BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE = re.compile(
+    rf"(?i)(?:;|\|\||\||&&)\s*(?:{_STRONG_SHELL_COMMAND_ALTERNATION})\b"
+)
+_SHELL_METACHARACTER_WINDOW_RE = re.compile(r";|\|\||\||&&|\$\(|\$\{")
+
+
+def _backtick_pair_glued(content: str, start: int, end: int) -> bool:
+    prefix_glued = start > 0 and bool(
+        _GLUED_BACKTICK_ASCII_WORD_RE.match(content[start - 1])
+    )
+    suffix_glued = end < len(content) and bool(
+        _GLUED_BACKTICK_ASCII_WORD_RE.match(content[end])
+    )
+    return prefix_glued or suffix_glued
+
+
+def _backtick_pair_context_window(content: str, start: int, end: int) -> str:
+    window_start = max(0, start - _BACKTICK_CONTEXT_WINDOW_CHARS)
+    window_end = min(len(content), end + _BACKTICK_CONTEXT_WINDOW_CHARS)
+    return content[window_start:window_end]
+
+
+def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
+    if _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE.search(token):
+        return True
+    return token.strip().lower() in _STRONG_SHELL_COMMAND_DENYLIST
+
+
+def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
+    content = match.string
+    start, end = match.start(), match.end()
+    token = content[start + 1 : end - 1]
+    if _BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE.search(token):
+        return True
+    if not _backtick_pair_glued(content, start, end):
+        return False
+    if _backtick_token_is_implausible_sql_identifier(token):
+        return True
+    window = _backtick_pair_context_window(content, start, end)
+    if _SHELL_METACHARACTER_WINDOW_RE.search(window):
+        return True
+    if _STRONG_SQL_IDENTIFIER_KEYWORD_RE.search(window):
+        return False
+    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
 _LEGACY_IPV4_PART_RE = r"(?:0[xX][0-9a-fA-F]+|0[0-7]+|[1-9]\d*|0)"
 _LEGACY_IPV4_HOST_RE = (
     r"://(?:[^/@\s]*@)?("
@@ -321,7 +439,11 @@ def _pattern_should_be_skipped(
 
 
 def _build_regex_threat(
-    pattern: re.Pattern, match: re.Match, category: str, pattern_start: float
+    pattern: re.Pattern,
+    match: re.Match,
+    category: str,
+    pattern_start: float,
+    context: str = "unknown",
 ) -> dict[str, Any] | None:
     if pattern.pattern == _LEGACY_IPV4_HOST_RE and not _legacy_ipv4_match_is_blocked(
         match
@@ -330,6 +452,11 @@ def _build_regex_threat(
     if (
         pattern.pattern == _LDAP_WILDCARD_CHAIN_RE
         and not _ldap_wildcard_chain_is_injection(match)
+    ):
+        return None
+    if (
+        pattern.pattern == _GLUED_BACKTICK_CANDIDATE_RE
+        and not _glued_backtick_pair_is_injection(match, context)
     ):
         return None
     return {
@@ -341,6 +468,20 @@ def _build_regex_threat(
         "category": category,
         "weight": _resolve_pattern_weight(pattern.pattern, category),
     }
+
+
+def _first_accepted_regex_threat(
+    matches: Iterator[re.Match],
+    pattern: re.Pattern,
+    category: str,
+    pattern_start: float,
+    context: str = "unknown",
+) -> dict[str, Any] | None:
+    for match in matches:
+        threat = _build_regex_threat(pattern, match, category, pattern_start, context)
+        if threat:
+            return threat
+    return None
 
 
 class _DetectionState(NamedTuple):
@@ -480,6 +621,11 @@ class SusPatternsManager:
             r"(?:[^`\\\n]|\\.)*\s*`"
             r"(?:\s*[;&|]\s*`\s*(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*\s*`)*"
             r"\s*(?:[;&|]\s*)*\Z",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _GLUED_BACKTICK_CANDIDATE_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -958,6 +1104,7 @@ class SusPatternsManager:
         category: str,
         *,
         state: _DetectionState | None = None,
+        context: str = "unknown",
     ) -> tuple[dict | None, bool]:
         state = self._resolve_state(state)
         timeout_occurred = False
@@ -974,31 +1121,72 @@ class SusPatternsManager:
                 ):
                     timeout_occurred = True
                     logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
-            else:
-                match = pattern.search(content)
 
-            if match:
-                threat = _build_regex_threat(pattern, match, category, pattern_start)
+                if match:
+                    threat = _build_regex_threat(
+                        pattern, match, category, pattern_start, context
+                    )
+                    if threat:
+                        return threat, timeout_occurred
+            else:
+                threat = _first_accepted_regex_threat(
+                    pattern.finditer(content), pattern, category, pattern_start, context
+                )
                 if threat:
                     return threat, timeout_occurred
         else:
-            match, timeout_occurred = self._check_pattern_with_timeout(
-                pattern, content, ip_address, pattern_start
+            threat, timeout_occurred = self._check_regex_pattern_with_retry(
+                pattern, content, ip_address, pattern_start, category, context
             )
-            if match:
-                threat = _build_regex_threat(pattern, match, category, pattern_start)
-                if threat:
-                    return threat, timeout_occurred
+            if threat:
+                return threat, timeout_occurred
+
+        return None, timeout_occurred
+
+    def _check_regex_pattern_with_retry(
+        self,
+        pattern: re.Pattern,
+        content: str,
+        ip_address: str,
+        pattern_start: float,
+        category: str,
+        context: str = "unknown",
+    ) -> tuple[dict | None, bool]:
+        search_from = 0
+        timeout_occurred = False
+
+        while True:
+            match, occurred = self._check_pattern_with_timeout(
+                pattern, content, ip_address, pattern_start, search_from
+            )
+            timeout_occurred = timeout_occurred or occurred
+            if match is None or occurred:
+                break
+
+            threat = _build_regex_threat(
+                pattern, match, category, pattern_start, context
+            )
+            if threat:
+                return threat, timeout_occurred
+
+            search_from = (
+                match.end() + 1 if match.end() == match.start() else match.end()
+            )
 
         return None, timeout_occurred
 
     def _check_pattern_with_timeout(
-        self, pattern: re.Pattern, content: str, ip_address: str, pattern_start: float
+        self,
+        pattern: re.Pattern,
+        content: str,
+        ip_address: str,
+        pattern_start: float,
+        search_from: int = 0,
     ) -> tuple[re.Match | None, bool]:
         timeout = getattr(
             self._config, "detection_compiler_timeout", _DEFAULT_COMPILER_TIMEOUT
         )
-        future = shared_regex_executor().submit(pattern.search, content)
+        future = shared_regex_executor().submit(pattern.search, content, search_from)
         try:
             match = future.result(timeout=timeout)
             report_scan_success()
@@ -1065,7 +1253,13 @@ class SusPatternsManager:
             pattern_start = time.monotonic()
 
             threat, timeout_occurred = self._check_regex_pattern(
-                pattern, content, ip_address, pattern_start, category, state=state
+                pattern,
+                content,
+                ip_address,
+                pattern_start,
+                category,
+                state=state,
+                context=normalized,
             )
 
             if timeout_occurred:

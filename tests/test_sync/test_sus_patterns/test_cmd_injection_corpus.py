@@ -660,35 +660,131 @@ def test_sentence_boundary_backtick_mention_not_flagged_as_command_injection(
     assert result["is_threat"] is False
 
 
-GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED = [
-    pytest.param("x`id`", id="glued_prefix_single_char_id"),
+GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS = [
     pytest.param("a`whoami`", id="glued_prefix_single_char_whoami"),
-    pytest.param("1`id`", id="glued_prefix_digit_id"),
-    pytest.param("search`id`", id="glued_prefix_word_id"),
-    pytest.param("user`id`123", id="glued_prefix_and_suffix_id"),
-    pytest.param("file`id`.txt", id="glued_prefix_and_dotted_suffix_id"),
-    pytest.param("`id`x", id="glued_suffix_single_char_id"),
-    pytest.param("name=`id`&x=1", id="glued_query_string_context_id"),
     pytest.param("q`whoami`q", id="glued_prefix_and_suffix_whoami"),
-    pytest.param("term`id`", id="glued_prefix_word_id_variant"),
-    pytest.param("value`reboot`value", id="glued_prefix_and_suffix_reboot"),
     pytest.param("abc`cat /etc/passwd`", id="glued_prefix_cat_passwd"),
     pytest.param("img`whoami`.png", id="glued_prefix_and_dotted_suffix_whoami"),
     pytest.param("1;`id`x", id="glued_separator_prefix_and_suffix_id"),
-    pytest.param("foo`id`", id="glued_prefix_foo_id"),
-    pytest.param("`id`bar", id="glued_suffix_bar_id"),
     pytest.param("search=test`whoami`", id="glued_query_value_prefix_whoami"),
     pytest.param("note`rm -rf /`note", id="glued_prefix_and_suffix_rm"),
 ]
 
 
-@pytest.mark.parametrize(
-    "payload", GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED
-)
-def test_glued_prefix_or_suffix_backtick_payload_is_a_documented_known_gap(
+@pytest.mark.parametrize("payload", GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS)
+def test_glued_shell_command_backtick_payload_is_detected_in_request_body(
     payload: str,
 ) -> None:
     result = sus_patterns_handler.detect(
         content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS)
+def test_glued_shell_command_backtick_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS = [
+    pytest.param("x`id`", id="glued_prefix_single_char_id"),
+    pytest.param("1`id`", id="glued_prefix_digit_id"),
+    pytest.param("search`id`", id="glued_prefix_word_id"),
+    pytest.param("user`id`123", id="glued_prefix_and_suffix_id"),
+    pytest.param("file`id`.txt", id="glued_prefix_and_dotted_suffix_id"),
+    pytest.param("`id`x", id="glued_suffix_single_char_id"),
+    pytest.param("`id`suffix", id="glued_suffix_word_suffix_id"),
+    pytest.param("term`id`", id="glued_prefix_word_id_variant"),
+    pytest.param("value`reboot`value", id="glued_prefix_and_suffix_reboot"),
+    pytest.param("foo`id`", id="glued_prefix_foo_id"),
+    pytest.param("`id`bar", id="glued_suffix_bar_id"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS)
+def test_glued_ambiguous_token_backtick_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY = [
+    pytest.param("search`id`", id="glued_prefix_word_id"),
+    pytest.param("`id`suffix", id="glued_suffix_word_suffix_id"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY
+)
+def test_glued_ambiguous_token_backtick_payload_not_flagged_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+KEBAB_IDENTIFIER_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY = [
+    pytest.param("header`x-forwarded-for`value", id="kebab_header_x_forwarded_for"),
+    pytest.param("config`well-known`here", id="kebab_config_well_known"),
+    pytest.param("ref`user`list", id="plausible_ref_user_list"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", KEBAB_IDENTIFIER_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY
+)
+def test_glued_kebab_identifier_backtick_payload_not_flagged_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+def test_glued_kebab_identifier_backtick_payload_flagged_in_query_param() -> None:
+    result = sus_patterns_handler.detect(
+        content="header`x-forwarded-for`value",
+        ip_address="203.0.113.9",
+        context="query_param",
+    )
+    assert result["is_threat"] is True
+
+
+PUNCTUATION_GLUED_QUERY_STRING_BACKTICK_NOT_FLAGGED = [
+    pytest.param("name=`id`&x=1", id="query_string_equals_ampersand_glued_id"),
+    pytest.param(
+        "sort=`created_at`&order=asc", id="query_string_equals_ampersand_glued_sort"
+    ),
+    pytest.param("a=1&`b`=2", id="query_string_ampersand_equals_glued_b"),
+]
+
+
+@pytest.mark.parametrize("payload", PUNCTUATION_GLUED_QUERY_STRING_BACKTICK_NOT_FLAGGED)
+def test_punctuation_glued_query_string_backtick_not_flagged(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
     )
     assert result["is_threat"] is False

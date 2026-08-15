@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import re
+import time
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -1025,3 +1026,21 @@ def test_reset_noop_when_instance_is_none() -> None:
     SusPatternsManager._instance = None
     SusPatternsManager.reset()
     SusPatternsManager._instance = original
+
+
+def test_custom_pattern_match_rejected_by_validator_falls_through(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    from guard_core.sync.handlers.suspatterns_handler import (
+        _GLUED_BACKTICK_CANDIDATE_RE,
+    )
+
+    manager = sus_patterns_manager_with_detection
+    pattern = re.compile(_GLUED_BACKTICK_CANDIDATE_RE, re.IGNORECASE)
+
+    threat, timed_out = manager._check_regex_pattern(
+        pattern, "`whoami`", "1.2.3.4", time.monotonic(), "custom"
+    )
+
+    assert threat is None
+    assert timed_out is False
