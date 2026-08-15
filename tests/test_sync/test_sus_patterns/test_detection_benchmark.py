@@ -1152,6 +1152,40 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "deserialization",
         "cos\nsystem\n(S'id'\ntR.",
     ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_arbitrary_module",
+        "deserialization",
+        "cshutil\nrmtree\n(S'/tmp/x'\ntR.",
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_array_top_level_b64",
+        "deserialization",
+        "BAhbBmkGaQc=",
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_hash_top_level_b64",
+        "deserialization",
+        "BAh7BkkiCGNtZAY6BkVUSSIGaWQGOwBU",
+    ),
+    MaliciousCase(
+        "deserialization_php_serializable_object_injection",
+        "deserialization",
+        'C:11:"ArrayObject":32:{x:i:0;a:0:{};m:a:0:{};}',
+    ),
+    MaliciousCase(
+        "deserialization_php_enum_serialization",
+        "deserialization",
+        'E:11:"Suit:Hearts";',
+    ),
+    MaliciousCase(
+        "deserialization_dotnet_objectdataprovider_xaml_gadget",
+        "deserialization",
+        '<ObjectDataProvider MethodName="Start" xmlns="http://schemas.microsoft.com/'
+        'winfx/2006/xaml/presentation"><ObjectDataProvider.MethodParameters>'
+        '<System:String xmlns:System="clr-namespace:System;assembly=mscorlib">'
+        "cmd /c calc</System:String></ObjectDataProvider.MethodParameters>"
+        "</ObjectDataProvider>",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2325,7 +2359,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 45,
     "cms_probing": 10,
     "code_injection": 3,
-    "deserialization": 6,
+    "deserialization": 12,
     "dir_traversal": 8,
     "file_inclusion": 8,
     "file_upload": 6,
@@ -2342,7 +2376,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 250
+BASELINE_MALICIOUS_DETECTED_TOTAL = 256
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

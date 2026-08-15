@@ -176,8 +176,13 @@ _SSTI_HASH_BRACE_SHAPE_RE = (
 _DESERIALIZATION_JAVA_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:rO0AB)"
 _DESERIALIZATION_DOTNET_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:AAEAAAD)"
 _DESERIALIZATION_PICKLE_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:gA[SW]V)"
-_DESERIALIZATION_RUBY_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:BAh[Jv])"
+_DESERIALIZATION_RUBY_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:BAh[Jv7bV])"
 _DESERIALIZATION_PICKLE_OS_GLOBAL_RE = r"cos\n"
+_PICKLE_IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
+_PICKLE_DOTTED_MODULE_RE = rf"{_PICKLE_IDENT_RE}(?:\.{_PICKLE_IDENT_RE})*"
+_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE = (
+    rf"(?:^|\n)c{_PICKLE_DOTTED_MODULE_RE}\n{_PICKLE_IDENT_RE}\n[^ \t]{{0,100}}?[Rb]\."
+)
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
     {
@@ -198,6 +203,7 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DESERIALIZATION_PICKLE_B64_RE,
         _DESERIALIZATION_RUBY_B64_RE,
         _DESERIALIZATION_PICKLE_OS_GLOBAL_RE,
+        _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
     }
 )
 
@@ -1097,7 +1103,15 @@ class SusPatternsManager:
         (r"c__builtin__", _CTX_DESERIALIZATION, "deserialization"),
         (r"csubprocess", _CTX_DESERIALIZATION, "deserialization"),
         (r"cposix", _CTX_DESERIALIZATION, "deserialization"),
+        (
+            _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
+            _CTX_DESERIALIZATION,
+            "deserialization",
+        ),
         (r'O:\d+:"', _CTX_DESERIALIZATION, "deserialization"),
+        (r'C:\d+:"', _CTX_DESERIALIZATION, "deserialization"),
+        (r'E:\d+:"', _CTX_DESERIALIZATION, "deserialization"),
+        (r"<ObjectDataProvider\b", _CTX_DESERIALIZATION, "deserialization"),
     ]
 
     patterns: list[str] = [p[0] for p in _pattern_definitions]
