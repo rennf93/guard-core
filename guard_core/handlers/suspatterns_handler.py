@@ -356,18 +356,14 @@ def _dollar_substitution_pair_backtick_quoted(
     return prefix_quoted or suffix_quoted
 
 
-def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> bool:
+def _dollar_substitution_pair_is_injection(match: re.Match, _context: str) -> bool:
     content = match.string
     start, end = match.start(), match.end()
     if _dollar_substitution_pair_backtick_quoted(content, start, end):
         return False
     delimiter = content[start + 1]
     token = content[start + 2 : end - 1]
-    if _dollar_substitution_token_is_implausible(token, delimiter):
-        return True
-    if _strong_sql_keyword_glued_to_pair(content, start, end):
-        return False
-    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+    return _dollar_substitution_token_is_implausible(token, delimiter)
 
 
 _LOG4SHELL_JNDI_LOOKUP_RE = (

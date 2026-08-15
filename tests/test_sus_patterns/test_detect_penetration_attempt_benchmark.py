@@ -14,7 +14,6 @@ from guard_core.models import SecurityConfig
 from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 from tests.test_sus_patterns.test_detection_benchmark import (
-    _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
@@ -571,14 +570,14 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
         True,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_bare_query_param",
+        "round6_dollar_paren_ambiguous_bare_query_param_never_flagged",
         _query_param_request("$(id)"),
-        True,
+        False,
     ),
     TargetedCase(
-        "round6_dollar_paren_ambiguous_bare_url_path",
+        "round6_dollar_paren_ambiguous_bare_url_path_never_flagged",
         _url_path_request("$(id)"),
-        True,
+        False,
     ),
     TargetedCase(
         "round6_dollar_paren_ambiguous_bare_raw_body_benign",
@@ -586,12 +585,12 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
         False,
     ),
     TargetedCase(
-        "round6_sql_keyword_not_glued_no_longer_exempts_dollar_query_param",
+        "round6_dollar_paren_ambiguous_keyword_nearby_never_flagged_query_param",
         _query_param_request("x$(id) JOIN accounts"),
-        True,
+        False,
     ),
     TargetedCase(
-        "round6_sql_keyword_glued_no_space_still_exempts_dollar_query_param",
+        "round6_dollar_paren_ambiguous_keyword_glued_never_flagged_query_param",
         _query_param_request("SELECT$(id)FROM users"),
         False,
     ),
@@ -645,27 +644,6 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
     "cmd_injection_value_bare_shell_control": (
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON
-    ),
-    "cmd_injection_jquery_selector_bare_id_call": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "cmd_injection_jquery_selector_hash_id_call": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "cmd_injection_js_template_dotted_prop": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "cmd_injection_js_template_bare_var_brace": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "cmd_injection_shell_docs_var_expansion": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "template_benign_dollar_brace_var": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
-    ),
-    "template_benign_makefile_variable": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
     ),
 }
 

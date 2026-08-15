@@ -106,16 +106,6 @@ _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
     "the control case the new pins are symmetric with"
 )
 
-_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON = (
-    "a bare single-token $(...)/${...} substitution is deliberately "
-    "context-gated to query_param/url_path so it stays detected there "
-    "(the jQuery $(id) selector and JS ${var} template shapes are legitimate "
-    "in a request body but not as a raw query-string or path segment value); "
-    "the round-robin delivery mechanism in this benchmark can assign either "
-    "of those contexts to a jQuery/JS-template benign case, which is expected "
-    "given that design and not a regression"
-)
-
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
