@@ -64,6 +64,7 @@ _CTX_CMS_PROBING = frozenset({"url_path", "request_body", "unknown"})
 _CTX_RECON = frozenset({"url_path", "unknown"})
 _CTX_PROTO_POLLUTION = frozenset({"query_param", "request_body", "unknown"})
 _CTX_CODE_INJECTION = frozenset({"query_param", "request_body", "unknown"})
+_CTX_DESERIALIZATION = frozenset({"query_param", "request_body", "unknown"})
 _CTX_ALL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
 
 
@@ -87,6 +88,7 @@ ALL_DETECTION_CATEGORIES: frozenset[str] = frozenset(
         "recon",
         "proto_pollution",
         "code_injection",
+        "deserialization",
     }
 )
 
@@ -109,6 +111,7 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
     "recon": _CTX_RECON,
     "proto_pollution": _CTX_PROTO_POLLUTION,
     "code_injection": _CTX_CODE_INJECTION,
+    "deserialization": _CTX_DESERIALIZATION,
 }
 
 _SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
@@ -171,6 +174,11 @@ _SSTI_HASH_BRACE_SHAPE_RE = (
     r"#\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
     r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}"
 )
+_DESERIALIZATION_JAVA_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:rO0AB)"
+_DESERIALIZATION_DOTNET_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:AAEAAAD)"
+_DESERIALIZATION_PICKLE_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:gA[SW]V)"
+_DESERIALIZATION_RUBY_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:BAh[Jv])"
+_DESERIALIZATION_PICKLE_OS_GLOBAL_RE = r"cos\n"
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
     {
@@ -186,6 +194,11 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DIR_TRAVERSAL_PROC_ENVIRON_RE,
         _DIR_TRAVERSAL_VAR_LOG_RE,
         _SSTI_HASH_BRACE_SHAPE_RE,
+        _DESERIALIZATION_JAVA_B64_RE,
+        _DESERIALIZATION_DOTNET_B64_RE,
+        _DESERIALIZATION_PICKLE_B64_RE,
+        _DESERIALIZATION_RUBY_B64_RE,
+        _DESERIALIZATION_PICKLE_OS_GLOBAL_RE,
     }
 )
 
@@ -1073,6 +1086,19 @@ class SusPatternsManager:
             _CTX_CODE_INJECTION,
             "code_injection",
         ),
+        (_DESERIALIZATION_JAVA_B64_RE, _CTX_DESERIALIZATION, "deserialization"),
+        (_DESERIALIZATION_DOTNET_B64_RE, _CTX_DESERIALIZATION, "deserialization"),
+        (_DESERIALIZATION_PICKLE_B64_RE, _CTX_DESERIALIZATION, "deserialization"),
+        (_DESERIALIZATION_RUBY_B64_RE, _CTX_DESERIALIZATION, "deserialization"),
+        (
+            _DESERIALIZATION_PICKLE_OS_GLOBAL_RE,
+            _CTX_DESERIALIZATION,
+            "deserialization",
+        ),
+        (r"c__builtin__", _CTX_DESERIALIZATION, "deserialization"),
+        (r"csubprocess", _CTX_DESERIALIZATION, "deserialization"),
+        (r"cposix", _CTX_DESERIALIZATION, "deserialization"),
+        (r'O:\d+:"', _CTX_DESERIALIZATION, "deserialization"),
     ]
 
     patterns: list[str] = [p[0] for p in _pattern_definitions]

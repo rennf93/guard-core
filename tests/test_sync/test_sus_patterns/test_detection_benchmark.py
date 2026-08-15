@@ -1119,6 +1119,39 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "config.php~",
     ),
     MaliciousCase("sensitive_file_trailing_tilde_env", "sensitive_file", "/.env~"),
+    MaliciousCase(
+        "deserialization_java_serialized_object_b64",
+        "deserialization",
+        "rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkA"
+        "CXRocmVzaG9sZHhwP0AAAAAAAAx3CAAAABAAAAABdAADZm9veA==",
+    ),
+    MaliciousCase(
+        "deserialization_dotnet_binaryformatter_b64",
+        "deserialization",
+        "AAEAAAD/////AQAAAAAAAABTeXN0ZW0uV2luZG93cy5EYXRhLk9iamVjdERhdGFQcm92"
+        "aWRlciwgUHJlc2VudGF0aW9uRnJhbWV3b3JrLCBWZXJzaW9uPTQuMC4wLjAsIEN1bHR1"
+        "cmU9bmV1dHJhbCwgUHVibGljS2V5VG9rZW49MzFiZjM4NTZhZDM2NGUzNQ==",
+    ),
+    MaliciousCase(
+        "deserialization_python_pickle_proto4_b64",
+        "deserialization",
+        "gASVIwAAAAAAAAB9lCiMBHVzZXKUjAVhbGljZZSMBHJvbGWUjAVhZG1pbpR1Lg==",
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_gem_requirement_b64",
+        "deserialization",
+        "BAhvOhVHZW06OlJlcXVpcmVtZW50BjoSQHJlcXVpcmVtZW50c1sG",
+    ),
+    MaliciousCase(
+        "deserialization_php_object_injection_stdclass",
+        "deserialization",
+        'O:8:"stdClass":1:{s:4:"prop";s:9:"pwnedval1";}',
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_os_system",
+        "deserialization",
+        "cos\nsystem\n(S'id'\ntR.",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2292,6 +2325,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 45,
     "cms_probing": 10,
     "code_injection": 3,
+    "deserialization": 6,
     "dir_traversal": 8,
     "file_inclusion": 8,
     "file_upload": 6,
@@ -2308,7 +2342,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 244
+BASELINE_MALICIOUS_DETECTED_TOTAL = 250
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,
