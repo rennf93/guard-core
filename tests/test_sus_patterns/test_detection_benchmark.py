@@ -439,6 +439,16 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "encoding_aware",
     ),
     MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_localhost",
+        "ssrf",
+        "http://x@localhost/",
+    ),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_gcp_metadata",
+        "ssrf",
+        "http://attacker@metadata.google.internal/",
+    ),
+    MaliciousCase(
         "ssrf_past_truncation_cutoff_metadata",
         "ssrf",
         _TRUNCATION_FILLER + "http://169.254.169.254/latest/meta-data/",
@@ -1206,6 +1216,11 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("ssrf_public_dns_google", "http://8.8.8.8/"),
     BenignCase("ssrf_localhost_lookalike_domain", "localhost.example.com/callback"),
     BenignCase("ssrf_notlocalhost_domain", "https://notlocalhost.io/status"),
+    BenignCase(
+        "ssrf_email_userinfo_localhost_domain_no_scheme",
+        "System alerts are emailed to root@localhost by the nightly cron job.",
+    ),
+    BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
     BenignCase("ssrf_private_ip_lookalike_domain", "https://192-168-1-1.nip.io/"),
     BenignCase(
         "ssrf_aws_apigateway_url",
