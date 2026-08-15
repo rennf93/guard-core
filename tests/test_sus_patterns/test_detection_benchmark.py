@@ -710,6 +710,21 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "encoding_aware",
     ),
     MaliciousCase(
+        "proto_pollution_bracket_arbitrary_key",
+        "proto_pollution",
+        "__proto__[isAdmin]=true",
+    ),
+    MaliciousCase(
+        "proto_pollution_constructor_bracket_prototype_unquoted",
+        "proto_pollution",
+        "constructor[prototype][isAdmin]=true",
+    ),
+    MaliciousCase(
+        "proto_pollution_dot_arbitrary_key",
+        "proto_pollution",
+        "__proto__.polluted=1",
+    ),
+    MaliciousCase(
         "code_injection_process_start",
         "code_injection",
         'System.Diagnostics.Process.Start("cmd.exe","/c whoami")',
@@ -1606,6 +1621,9 @@ BENIGN_CORPUS: list[BenignCase] = [
         "proto_pollution_benign_constructor_value",
         '{"user": {"name": "alice", "constructor": "Employee"}}',
     ),
+    BenignCase("proto_pollution_benign_constructor_name_access", "a.constructor.name"),
+    BenignCase("proto_pollution_benign_bare_constructor_param", "constructor"),
+    BenignCase("proto_pollution_benign_bare_prototype_param", "prototype"),
     BenignCase(
         "code_injection_prose_reflection_explainer",
         "Reflection lets a program inspect its own types at runtime.",
@@ -2281,7 +2299,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "ldap": 12,
     "nosql": 10,
     "path_traversal": 5,
-    "proto_pollution": 5,
+    "proto_pollution": 8,
     "recon": 23,
     "sensitive_file": 11,
     "sqli": 27,
@@ -2290,7 +2308,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 241
+BASELINE_MALICIOUS_DETECTED_TOTAL = 244
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

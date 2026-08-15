@@ -1062,6 +1062,13 @@ class SusPatternsManager:
             "proto_pollution",
         ),
         (
+            r"__proto__\s*(?:\[|\.)|\[\s*[\"']?__proto__[\"']?\s*\]|"
+            r"constructor\s*\[\s*[\"']?prototype[\"']?\s*\]|"
+            r"\[\s*[\"']?constructor[\"']?\s*\]\s*\[\s*[\"']?prototype[\"']?\s*\]",
+            _CTX_PROTO_POLLUTION,
+            "proto_pollution",
+        ),
+        (
             r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(",
             _CTX_CODE_INJECTION,
             "code_injection",
