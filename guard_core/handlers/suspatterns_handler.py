@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import fnmatch
 import ipaddress
 import logging
 import re
@@ -303,8 +304,39 @@ _STRONG_SHELL_COMMAND_DENYLIST = frozenset(
 )
 _STRONG_SHELL_COMMAND_ALTERNATION = "|".join(
     re.escape(command)
-    for command in sorted(_STRONG_SHELL_COMMAND_DENYLIST, key=len, reverse=True)
+    for command in sorted(_STRONG_SHELL_COMMAND_DENYLIST, key=lambda c: (-len(c), c))
 )
+
+_BRACE_GLOB_COMMAND_DENYLIST = _STRONG_SHELL_COMMAND_DENYLIST | frozenset(
+    {"id", "touch"}
+)
+_BRACE_GLOB_COMMAND_ALTERNATION = "|".join(
+    re.escape(command)
+    for command in sorted(_BRACE_GLOB_COMMAND_DENYLIST, key=lambda c: (-len(c), c))
+)
+
+_BRACE_EXPANSION_ITEM_RE = r"[^{}\s,][^{},]*"
+_BRACE_EXPANSION_COMMAND_RE = (
+    r"\{(?-i:" + _BRACE_GLOB_COMMAND_ALTERNATION + r")\b"
+    r"(?:,(?:" + _BRACE_EXPANSION_ITEM_RE + r")?)+\}"
+)
+
+_QUOTE_SPLICE_CANDIDATE_RE = r"\w{1,12}(?:['\"]+\w{1,12}){1,10}"
+
+_GLOB_WILDCARD_TOKEN_RE = r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}"
+
+_PY_DANGEROUS_MODULE_RE = (
+    r"__import__\(\s*['\"](?:os|subprocess|builtins|importlib)['\"]\s*\)"
+    r"|\b(?:os|subprocess|builtins|importlib)\b"
+)
+_PY_DANGEROUS_METHOD_RE = (
+    r"system|popen|exec|eval|call|run|Popen|check_output|check_call"
+)
+_PY_GETATTR_INDIRECTION_RE = (
+    r"(?-i:\bgetattr\(\s*(?:" + _PY_DANGEROUS_MODULE_RE + r")\s*,\s*"
+    r"['\"](?:" + _PY_DANGEROUS_METHOD_RE + r")['\"]\s*\)\s*\()"
+)
+
 _BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE = re.compile(
     rf"(?i)(?:;|\|\||\||&&)\s*(?:{_STRONG_SHELL_COMMAND_ALTERNATION})\b"
 )
@@ -395,6 +427,24 @@ def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> boo
     if _strong_sql_keyword_glued_to_pair(content, start, end):
         return False
     return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
+def _quote_splice_token_is_dangerous_command(match: re.Match) -> bool:
+    stripped = re.sub(r"['\"]+", "", match.group()).lower()
+    return stripped in _STRONG_SHELL_COMMAND_DENYLIST
+
+
+def _glob_wildcard_token_is_dangerous_command(match: re.Match) -> bool:
+    basename = match.group().rsplit("/", 1)[-1]
+    literal_chars = basename.replace("?", "").replace("*", "")
+    if not literal_chars:
+        return False
+    if "*" in basename and len(literal_chars) < 2:
+        return False
+    return any(
+        fnmatch.fnmatchcase(command, basename)
+        for command in _BRACE_GLOB_COMMAND_DENYLIST
+    )
 
 
 _LOG4SHELL_JNDI_LOOKUP_RE = (
@@ -570,6 +620,16 @@ def _build_regex_threat(
     if (
         pattern.pattern == _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE
         and not _dollar_substitution_pair_is_injection(match, context)
+    ):
+        return None
+    if (
+        pattern.pattern == _QUOTE_SPLICE_CANDIDATE_RE
+        and not _quote_splice_token_is_dangerous_command(match)
+    ):
+        return None
+    if (
+        pattern.pattern == _GLOB_WILDCARD_TOKEN_RE
+        and not _glob_wildcard_token_is_dangerous_command(match)
     ):
         return None
     return {
@@ -781,6 +841,21 @@ class SusPatternsManager:
         ),
         (
             r"(?i)\b(?:nc|netcat|ncat)\s+-[a-z]*e\b|/dev/tcp/\d",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _BRACE_EXPANSION_COMMAND_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _QUOTE_SPLICE_CANDIDATE_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _GLOB_WILDCARD_TOKEN_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -1089,6 +1164,11 @@ class SusPatternsManager:
         ),
         (
             r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(",
+            _CTX_CODE_INJECTION,
+            "code_injection",
+        ),
+        (
+            _PY_GETATTR_INDIRECTION_RE,
             _CTX_CODE_INJECTION,
             "code_injection",
         ),
