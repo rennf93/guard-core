@@ -765,14 +765,16 @@ def _fraction(numerator: int, denominator: int) -> str:
 
 _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
     "a kebab-style identifier glued to a backtick (`header`x-forwarded-for`value`, "
-    "`config`well-known`here`) is Phase 0's own accepted ambiguous-gate tradeoff "
-    "for the backtick discriminator, already pinned in query_param by "
+    "`config`well-known`here`) is benign by design and is Phase 0's own accepted "
+    "ambiguous-gate tradeoff for the backtick discriminator, already pinned in "
+    "query_param by "
     "test_glued_kebab_identifier_backtick_payload_flagged_in_query_param and "
     "measured, not assumed, to also fire in url_path once ruling item 2 made "
-    "that branch reachable there (58a9e860); the round-robin index for these "
-    "two corpus entries now lands on query_param/url_path respectively after "
-    "later corpus growth, surfacing the same pre-existing, already-documented "
-    "tradeoff here rather than a new one"
+    "that branch reachable there (58a9e860); both mechanisms are pinned explicitly "
+    "by case_id[mechanism] under that same kebab-identifier precision/recall "
+    "tradeoff, so the pin holds here regardless of corpus growth or enumeration "
+    "order, and the identifiers stay correctly benign in request_body, where the "
+    "branch never fires"
 )
 
 _SHELL_INVOCATION_FP_MECHANISMS = (
