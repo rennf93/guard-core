@@ -674,9 +674,7 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
-_DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[
-    TargetedCase
-] = [
+_DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "disclosed_fp_shell_docs_var_expansion_query_param",
         _query_param_request("export PATH=${HOME}/bin"),
@@ -886,9 +884,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
             round6_targeted_failures.append(targeted.case_id)
 
     dollar_fp_and_log4shell_bonus_failures: list[str] = []
-    for (
-        targeted
-    ) in _DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+    for targeted in _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
         result = detect_penetration_attempt(targeted.request, _CONFIG)
         if result.is_threat != targeted.expect_detected:
             dollar_fp_and_log4shell_bonus_failures.append(targeted.case_id)
@@ -952,9 +948,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         "targeted dollar-substitution disclosed-FP and log4shell "
         "url_path bonus cases (ruling items 1-2):"
     )
-    for (
-        targeted
-    ) in _DOLLAR_SUBSTITUTION_DISCLOSED_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+    for targeted in _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
         report_lines.append(
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
