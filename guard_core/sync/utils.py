@@ -1039,6 +1039,12 @@ def _scan_blob_body(
     return False, "", []
 
 
+_MONGO_OPERATOR_KEY_RE = re.compile(
+    r"^\$(?:ne|gt|gte|lt|lte|eq|in|nin|nor|and|or|not|all|size|exists|type|"
+    r"mod|options|where|regex|expr|function|elemMatch)$"
+)
+
+
 def _scan_json_value(
     value: Any,
     key_label: str,
@@ -1053,6 +1059,20 @@ def _scan_json_value(
             key_str = str(key)
             if key_str.lower() in excluded_body_fields:
                 continue
+            if _MONGO_OPERATOR_KEY_RE.match(key_str):
+                threat = {
+                    "type": "regex",
+                    "pattern": _MONGO_OPERATOR_KEY_RE.pattern,
+                    "match": key_str,
+                    "position": 0,
+                    "category": "nosql",
+                }
+                return (
+                    True,
+                    f"JSON operator key '{key_str}': matched pattern "
+                    f"'{_MONGO_OPERATOR_KEY_RE.pattern}'",
+                    [threat],
+                )
             name_hit = _scan_component_name(
                 key_str,
                 "request_body",
