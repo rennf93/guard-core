@@ -204,6 +204,14 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("sqli_or_tautology", "sqli", "1' OR '1'='1"),
     MaliciousCase("sqli_trailing_comment_dashdash", "sqli", "admin'--"),
     MaliciousCase("sqli_stacked_drop_table", "sqli", "1'; DROP TABLE users;--"),
+    MaliciousCase("sqli_stacked_create_table", "sqli", "1; CREATE TABLE evil (a int)"),
+    MaliciousCase("sqli_stacked_insert_into", "sqli", "1; INSERT INTO logs VALUES(1)"),
+    MaliciousCase("sqli_stacked_update_set", "sqli", "1; UPDATE users SET admin=1"),
+    MaliciousCase("sqli_stacked_delete_from", "sqli", "1; DELETE FROM sessions"),
+    MaliciousCase("sqli_stacked_select_from", "sqli", "1; SELECT name FROM users"),
+    MaliciousCase("sqli_stacked_replace_into", "sqli", "1; REPLACE INTO t VALUES(1)"),
+    MaliciousCase("sqli_exec_xp_cmdshell", "sqli", "1; EXEC xp_cmdshell('whoami')"),
+    MaliciousCase("sqli_exec_sp_configure", "sqli", "1; EXECUTE sp_configure"),
     MaliciousCase("sqli_time_based_sleep", "sqli", "id=5 AND SLEEP(5)"),
     MaliciousCase(
         "sqli_benchmark_blind", "sqli", "id=1 AND BENCHMARK(5000000,MD5('A'))"
@@ -2244,6 +2252,13 @@ BENIGN_CORPUS: list[BenignCase] = [
         "sensitive_file_benign_midstring_tilde_report",
         "/files/report~draft.txt",
     ),
+    BenignCase("sqli_benign_multi_value_semicolon_pair", "a=1;b=2"),
+    BenignCase("sqli_benign_sort_order_semicolon_pair", "sort=name;order=asc"),
+    BenignCase("sqli_benign_semicolon_select_no_from", "; select all options"),
+    BenignCase("sqli_benign_semicolon_update_no_set", "note; update your profile"),
+    BenignCase("sqli_benign_semicolon_execute_no_proc", "; execute the plan"),
+    BenignCase("sqli_benign_exec_bareword_call_shape", "execute report()"),
+    BenignCase("sqli_benign_exec_qualified_proc_name", "EXEC dbo.Proc()"),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2260,13 +2275,13 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "proto_pollution": 5,
     "recon": 23,
     "sensitive_file": 11,
-    "sqli": 19,
+    "sqli": 27,
     "ssrf": 28,
     "template": 13,
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 229
+BASELINE_MALICIOUS_DETECTED_TOTAL = 237
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

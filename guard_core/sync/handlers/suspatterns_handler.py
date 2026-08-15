@@ -677,12 +677,18 @@ class SusPatternsManager:
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
         (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
         (
-            r"(?i);\s*(?:DROP|TRUNCATE|ALTER)\s+(?:TABLE|DATABASE|SCHEMA)\b",
+            r"(?i);\s*(?:DROP|TRUNCATE|ALTER|CREATE)\s+(?:TABLE|DATABASE|SCHEMA)\b",
             _CTX_SQLI,
             "sqli",
         ),
         (
-            r"(?i);\s*(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b",
+            r"(?i);\s*(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|"
+            r"SELECT\b[^;]*?\bFROM\b|REPLACE\s+INTO)\b",
+            _CTX_SQLI,
+            "sqli",
+        ),
+        (
+            r"(?i)\bEXEC(?:UTE)?\s+(?:xp_\w+|sp_\w+)",
             _CTX_SQLI,
             "sqli",
         ),
