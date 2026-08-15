@@ -919,7 +919,7 @@ def test_cloud_ip_redis_error_handling(
         redis_handler.delete("cloud_ip_v2", "AWS")
 
         mock_aws.side_effect = Exception("API Error")
-        cloud_handler.initialize_redis(redis_handler)
+        cloud_handler.initialize_redis(redis_handler, {"AWS"})
 
         cloud_handler.ip_ranges.pop("AWS", None)
         cloud_handler.refresh_async({"AWS"})

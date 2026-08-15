@@ -1037,7 +1037,7 @@ async def test_cloud_ip_redis_error_handling(
         await redis_handler.delete("cloud_ip_v2", "AWS")
 
         mock_aws.side_effect = Exception("API Error")
-        await cloud_handler.initialize_redis(redis_handler)
+        await cloud_handler.initialize_redis(redis_handler, {"AWS"})
 
         cloud_handler.ip_ranges.pop("AWS", None)
         await cloud_handler.refresh_async({"AWS"})
