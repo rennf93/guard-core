@@ -866,13 +866,41 @@ def test_bare_shell_command_dollar_substitution_detected(
     )
 
 
-AMBIGUOUS_DOLLAR_SUBSTITUTION_NEVER_FLAGGED_PAYLOADS = [
+GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS = [
     pytest.param("$(id)", id="dollar_paren_bare_id"),
     pytest.param("${name}", id="dollar_brace_bare_name"),
     pytest.param("search$(id)", id="dollar_paren_glued_prefix_search_id"),
     pytest.param("${count}", id="dollar_brace_bare_count"),
-    pytest.param("SELECT$(id)FROM users", id="dollar_paren_keyword_glued_no_space"),
-    pytest.param("x$(id) JOIN accounts", id="dollar_paren_keyword_not_glued"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
+def test_ambiguous_dollar_substitution_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
+def test_ambiguous_dollar_substitution_payload_is_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+JQUERY_AND_JS_TEMPLATE_DOLLAR_SUBSTITUTION_BENIGN_IN_REQUEST_BODY = [
     pytest.param("$(id).addClass('active');", id="jquery_selector_bare_id_call"),
     pytest.param(
         "$('#submit-button').on('click', handleSubmit);",
@@ -888,14 +916,13 @@ AMBIGUOUS_DOLLAR_SUBSTITUTION_NEVER_FLAGGED_PAYLOADS = [
 
 
 @pytest.mark.parametrize(
-    "payload", AMBIGUOUS_DOLLAR_SUBSTITUTION_NEVER_FLAGGED_PAYLOADS
+    "payload", JQUERY_AND_JS_TEMPLATE_DOLLAR_SUBSTITUTION_BENIGN_IN_REQUEST_BODY
 )
-@pytest.mark.parametrize("context", ["request_body", "query_param", "url_path"])
-def test_ambiguous_dollar_substitution_never_flagged(
-    payload: str, context: str
+def test_jquery_and_js_template_dollar_substitution_not_flagged_in_request_body(
+    payload: str,
 ) -> None:
     result = sus_patterns_handler.detect(
-        content=payload, ip_address="198.51.100.4", context=context
+        content=payload, ip_address="198.51.100.4", context="request_body"
     )
     assert result["is_threat"] is False
 
@@ -961,6 +988,7 @@ def test_log4shell_jndi_payload_is_detected_in_header(
 
 SQL_KEYWORD_GLUED_EXEMPTION_BYPASS_CASES = [
     pytest.param("x`id` JOIN accounts", id="backtick_ambiguous_keyword_not_glued"),
+    pytest.param("x$(id) JOIN accounts", id="dollar_paren_ambiguous_keyword_not_glued"),
 ]
 
 
@@ -979,6 +1007,7 @@ def test_sql_keyword_not_glued_no_longer_exempts_ambiguous_token_in_query_param(
 
 SQL_KEYWORD_GLUED_EXEMPTION_STILL_APPLIES_CASES = [
     pytest.param("SELECT`id`FROM users", id="backtick_keyword_glued_no_space"),
+    pytest.param("SELECT$(id)FROM users", id="dollar_paren_keyword_glued_no_space"),
 ]
 
 
