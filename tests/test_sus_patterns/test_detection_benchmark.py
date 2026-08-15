@@ -1077,6 +1077,14 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "template",
         "#{T(java.lang.Runtime).exec('id')}",
     ),
+    MaliciousCase(
+        "ssrf_double_at_parser_confusion", "ssrf", "http://a@b@evil.com"
+    ),
+    MaliciousCase(
+        "ssrf_double_at_metadata_ip_masked",
+        "ssrf",
+        "http://169.254.169.254@trusted@evil.com",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2220,6 +2228,11 @@ BENIGN_CORPUS: list[BenignCase] = [
         "production",
         _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     ),
+    BenignCase(
+        "ssrf_benign_single_at_token_userinfo", "https://token@api.example.com"
+    ),
+    BenignCase("ssrf_benign_single_at_userpass", "http://user:pass@host.com"),
+    BenignCase("ssrf_benign_email_param", "email=a@b.com"),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2237,12 +2250,12 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "recon": 23,
     "sensitive_file": 8,
     "sqli": 19,
-    "ssrf": 26,
+    "ssrf": 28,
     "template": 13,
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 224
+BASELINE_MALICIOUS_DETECTED_TOTAL = 226
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

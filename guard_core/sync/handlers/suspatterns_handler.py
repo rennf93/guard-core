@@ -796,6 +796,7 @@ class SusPatternsManager:
         ),
         (_LEGACY_IPV4_HOST_RE, _CTX_SSRF, "ssrf"),
         (r"(?:file|dict|gopher|jar|tftp)://[^\s]+", _CTX_SSRF, "ssrf"),
+        (r"://[^/\s@]*@[^/\s@]*@", _CTX_SSRF, "ssrf"),
         (
             r"\{\s*\$(?:where|gt|lt|ne|eq|regex|in|nin|all|size|exists|type|mod|"
             r"options):",
