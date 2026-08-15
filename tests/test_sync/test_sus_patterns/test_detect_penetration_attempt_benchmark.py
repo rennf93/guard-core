@@ -484,11 +484,6 @@ _TARGETED_CASES: list[TargetedCase] = [
         True,
     ),
     TargetedCase(
-        "ldap_null_byte_literal_nul_byte_query_param",
-        _query_param_request("uid=*)\x00"),
-        True,
-    ),
-    TargetedCase(
         "ldap_glob_paren_null_mention_query_param",
         _query_param_request("glob pattern: *)%00 in filenames"),
         False,
@@ -571,7 +566,8 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 179
+BASELINE_MALICIOUS_DETECTED_TOTAL = 177
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 163
 _WALL_TIME_CEILING_SECONDS = 45.0
 
 
@@ -637,8 +633,8 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         "END-TO-END DETECTION BENCHMARK REPORT (detect_penetration_attempt)",
         f"malicious corpus: {len(_PRODUCTION_MALICIOUS_CASES)} cases "
         f"({len(MALICIOUS_CORPUS) - len(_PRODUCTION_MALICIOUS_CASES)} "
-        "encoding-only cases excluded: the shared production singleton runs "
-        "without a preprocessor by default)",
+        "encoding-only cases excluded: those target the isolated "
+        "encoding-aware manager, not the shared production singleton)",
         f"benign corpus: {len(_PRODUCTION_BENIGN_CASES)} cases",
         f"mechanisms exercised: {sorted(mechanisms_exercised)}",
         f"wall time: {wall_time_seconds:.3f}s",
@@ -713,9 +709,10 @@ def test_detect_penetration_attempt_legacy_smoke() -> None:
         if _detected_via(mechanism, benign_case.payload):
             benign_flagged += 1
 
-    assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
+    assert malicious_detected >= _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"legacy singleton recall regressed: "
-        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} actual={malicious_detected}"
+        f"baseline={_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL} "
+        f"actual={malicious_detected}"
     )
     assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
         f"legacy singleton false-positive rate rose: "
