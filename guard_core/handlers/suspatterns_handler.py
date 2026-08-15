@@ -185,16 +185,29 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
 )
 
 _GLUED_BACKTICK_CANDIDATE_RE = r"(?<!`)`(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*`"
+_GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE = (
+    r"\$\((?:[^()\\\n]|\\.)*\)|\$\{(?:[^{}\\\n]|\\.)*\}"
+)
 _GLUED_BACKTICK_ASCII_WORD_RE = re.compile(r"[A-Za-z0-9_]")
 
-_STRONG_SQL_IDENTIFIER_KEYWORD_RE = re.compile(
+_STRONG_SQL_KEYWORD_GLUED_PREFIX_RE = re.compile(
     r"(?i)\b(?:SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|VALUES|ORDER\s+BY|"
+    r"GROUP\s+BY)\Z"
+)
+_STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE = re.compile(
+    r"(?i)\A(?:SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|VALUES|ORDER\s+BY|"
     r"GROUP\s+BY)\b"
 )
 _BACKTICK_CONTEXT_WINDOW_CHARS = 40
 
 _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE = re.compile(r"[\s/.;|&$()]")
+_IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE = re.compile(r"[/.;|&$()]")
+_IMPLAUSIBLE_DOLLAR_BRACE_TOKEN_CHARS_RE = re.compile(r"[/;|&$(){}]")
+_SHELL_SPECIAL_PARAMETER_NAMES = frozenset({"ifs"})
 _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS = frozenset({"query_param", "url_path"})
+_CTX_CMD_INJECTION_WITH_URL_PATH = frozenset(
+    {"query_param", "url_path", "request_body", "unknown"}
+)
 
 _STRONG_SHELL_COMMAND_DENYLIST = frozenset(
     {
@@ -249,6 +262,16 @@ _STRONG_SHELL_COMMAND_DENYLIST = frozenset(
         "xxd",
         "printf",
         "id_rsa",
+        "nmap",
+        "socat",
+        "msfconsole",
+        "msfvenom",
+        "certutil",
+        "bitsadmin",
+        "powershell",
+        "pwsh",
+        "mkfifo",
+        "aria2c",
     }
 )
 _STRONG_SHELL_COMMAND_ALTERNATION = "|".join(
@@ -283,6 +306,16 @@ def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
     return token.strip().lower() in _STRONG_SHELL_COMMAND_DENYLIST
 
 
+def _strong_sql_keyword_glued_to_pair(content: str, start: int, end: int) -> bool:
+    window_start = max(0, start - _BACKTICK_CONTEXT_WINDOW_CHARS)
+    window_end = min(len(content), end + _BACKTICK_CONTEXT_WINDOW_CHARS)
+    prefix = content[window_start:start]
+    suffix = content[end:window_end]
+    if _STRONG_SQL_KEYWORD_GLUED_PREFIX_RE.search(prefix):
+        return True
+    return bool(_STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE.match(suffix))
+
+
 def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
     content = match.string
     start, end = match.start(), match.end()
@@ -296,9 +329,52 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
     window = _backtick_pair_context_window(content, start, end)
     if _SHELL_METACHARACTER_WINDOW_RE.search(window):
         return True
-    if _STRONG_SQL_IDENTIFIER_KEYWORD_RE.search(window):
+    if _strong_sql_keyword_glued_to_pair(content, start, end):
         return False
     return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
+def _dollar_substitution_token_is_implausible(token: str, delimiter: str) -> bool:
+    stripped = token.strip().lower()
+    if stripped in _STRONG_SHELL_COMMAND_DENYLIST:
+        return True
+    if stripped in _SHELL_SPECIAL_PARAMETER_NAMES:
+        return True
+    chars_re = (
+        _IMPLAUSIBLE_DOLLAR_BRACE_TOKEN_CHARS_RE
+        if delimiter == "{"
+        else _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE
+    )
+    return bool(chars_re.search(token))
+
+
+def _dollar_substitution_pair_backtick_quoted(
+    content: str, start: int, end: int
+) -> bool:
+    prefix_quoted = start > 0 and content[start - 1] == "`"
+    suffix_quoted = end < len(content) and content[end] == "`"
+    return prefix_quoted or suffix_quoted
+
+
+def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> bool:
+    content = match.string
+    start, end = match.start(), match.end()
+    if _dollar_substitution_pair_backtick_quoted(content, start, end):
+        return False
+    delimiter = content[start + 1]
+    token = content[start + 2 : end - 1]
+    if _dollar_substitution_token_is_implausible(token, delimiter):
+        return True
+    if _strong_sql_keyword_glued_to_pair(content, start, end):
+        return False
+    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
+_LOG4SHELL_JNDI_LOOKUP_RE = (
+    r"(?i)\$\{(?:jndi:(?:ldap|rmi|dns)://"
+    r"|\$?\{?(?:lower|upper):j\}ndi"
+    r"|::-j\}ndi)"
+)
 
 
 _LEGACY_IPV4_PART_RE = r"(?:0[xX][0-9a-fA-F]+|0[0-7]+|[1-9]\d*|0)"
@@ -458,6 +534,11 @@ def _build_regex_threat(
     if (
         pattern.pattern == _GLUED_BACKTICK_CANDIDATE_RE
         and not _glued_backtick_pair_is_injection(match, context)
+    ):
+        return None
+    if (
+        pattern.pattern == _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE
+        and not _dollar_substitution_pair_is_injection(match, context)
     ):
         return None
     return {
@@ -627,6 +708,16 @@ class SusPatternsManager:
         ),
         (
             _GLUED_BACKTICK_CANDIDATE_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE,
+            _CTX_CMD_INJECTION_WITH_URL_PATH,
+            "cmd_injection",
+        ),
+        (
+            _LOG4SHELL_JNDI_LOOKUP_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),

