@@ -970,6 +970,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "ssrf",
         "http://attacker@metadata.google.internal/",
     ),
+    MaliciousCase("xss_svg_onload_slash_sep", "xss", "<svg/onload=alert(1)>"),
+    MaliciousCase("xss_img_onerror_slash_sep", "xss", "<img/onerror=alert(1)>"),
+    MaliciousCase("xss_svg_onbegin_slash_sep", "xss", "<svg/onbegin=alert(1)>"),
+    MaliciousCase(
+        "xss_details_ontoggle_slash_sep", "xss", "<details/ontoggle=alert(1)>"
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -2005,6 +2011,18 @@ BENIGN_CORPUS: list[BenignCase] = [
         "System alerts are emailed to root@localhost by the nightly cron job.",
     ),
     BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
+    BenignCase(
+        "xss_href_quoted_onboarding_path_slash_sep",
+        '<a href="/onboarding">Get started</a>',
+    ),
+    BenignCase(
+        "xss_src_quoted_only_prefixed_path_slash_sep",
+        '<img src="/only-in-stock.png" alt="badge">',
+    ),
+    BenignCase(
+        "xss_href_quoted_once_prefixed_path_slash_sep",
+        '<link rel="stylesheet" href="/once-cache.css">',
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
