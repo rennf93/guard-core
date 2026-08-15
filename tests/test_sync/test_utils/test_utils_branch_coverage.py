@@ -129,7 +129,9 @@ def test_check_json_fields_ignores_non_string_entries() -> None:
         )
     assert detected is False
     assert trigger == ""
-    mock_detect.assert_not_called()
+    assert mock_detect.call_count == 3
+    scanned_contents = {call.kwargs["content"] for call in mock_detect.call_args_list}
+    assert scanned_contents == {"k1", "k2", "k3"}
 
 
 def test_detect_penetration_attempt_no_client_host() -> None:

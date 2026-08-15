@@ -869,10 +869,12 @@ def test_detect_penetration_empty_threat_fallback() -> None:
     )
 
     def mock_detect(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "is_threat": True,
-            "threats": [],
-        }
+        if kwargs.get("content") == "suspicious_value":
+            return {
+                "is_threat": True,
+                "threats": [],
+            }
+        return {"is_threat": False, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
         _dpa = detect_penetration_attempt(request)
@@ -895,11 +897,13 @@ def test_detect_penetration_unknown_threat_type() -> None:
         body_content=b"",
     )
 
-    def mock_detect(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "is_threat": True,
-            "threats": [{"type": "unknown_type", "data": "some_data"}],
-        }
+    def mock_detect(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("content") == "test_value":
+            return {
+                "is_threat": True,
+                "threats": [{"type": "unknown_type", "data": "some_data"}],
+            }
+        return {"is_threat": False, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
         _dpa = detect_penetration_attempt(request)

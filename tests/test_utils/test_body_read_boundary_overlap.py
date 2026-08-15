@@ -37,6 +37,7 @@ async def _fake_component_check(
     client_ip: str,
     correlation_id: str,
     enabled_categories: set[str] | None = None,
+    scan_embedded_json: bool = True,
 ) -> tuple[bool, str, list[dict]]:
     if _MAGIC in value:
         return (

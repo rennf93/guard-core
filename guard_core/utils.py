@@ -638,10 +638,22 @@ async def _check_json_fields(
     context: str,
     client_ip: str,
     correlation_id: str,
+    enabled_categories: set[str] | None = None,
 ) -> tuple[bool, str]:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     for k, v in data.items():
+        name_detected, name_trigger, _name_threats = await _scan_component_name(
+            k,
+            f"{context}.{k}",
+            f"JSON field name '{k}'",
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            None,
+        )
+        if name_detected:
+            return True, f"JSON field name '{k}': {name_trigger}"
         if isinstance(v, str):
             result = await sus_patterns_handler.detect(
                 content=v,
@@ -663,14 +675,20 @@ async def _check_json_fields(
 
 
 async def _try_check_json_value(
-    value: str, context: str, client_ip: str, correlation_id: str
+    value: str,
+    context: str,
+    client_ip: str,
+    correlation_id: str,
+    enabled_categories: set[str] | None = None,
 ) -> tuple[bool, str] | None:
     try:
         import json
 
         data = json.loads(value)
         if isinstance(data, dict):
-            return await _check_json_fields(data, context, client_ip, correlation_id)
+            return await _check_json_fields(
+                data, context, client_ip, correlation_id, enabled_categories
+            )
     except json.JSONDecodeError:
         pass
     return None
@@ -705,12 +723,13 @@ async def _check_value_enhanced(
     client_ip: str,
     correlation_id: str,
     enabled_categories: set[str] | None = None,
+    scan_embedded_json: bool = True,
 ) -> tuple[bool, str, list[dict]]:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
-    if context != "request_body":
+    if scan_embedded_json and context != "request_body":
         json_result = await _try_check_json_value(
-            value, context, client_ip, correlation_id
+            value, context, client_ip, correlation_id, enabled_categories
         )
         if json_result is not None:
             detected, trigger = json_result
@@ -763,13 +782,40 @@ async def _check_request_component(
     correlation_id: str,
     enabled_categories: set[str] | None,
     log_level: str | None,
+    scan_embedded_json: bool = True,
 ) -> tuple[bool, str, list[dict]]:
     detected, trigger, threats = await _check_value_enhanced(
-        value, context, client_ip, correlation_id, enabled_categories
+        value,
+        context,
+        client_ip,
+        correlation_id,
+        enabled_categories,
+        scan_embedded_json,
     )
     if detected:
         _log_detected_component(value, component_name, client_ip, log_level)
     return detected, trigger, threats
+
+
+async def _scan_component_name(
+    name: str,
+    context: str,
+    label: str,
+    enabled_categories: set[str] | None,
+    client_ip: str,
+    correlation_id: str,
+    log_level: str | None,
+) -> tuple[bool, str, list[dict]]:
+    return await _check_request_component(
+        name,
+        context,
+        label,
+        client_ip,
+        correlation_id,
+        enabled_categories,
+        log_level,
+        scan_embedded_json=False,
+    )
 
 
 def _check_always_scan_header(value: str) -> tuple[bool, str, list[dict]]:
@@ -876,6 +922,17 @@ async def _scan_query_params(
     for key, value in request.query_params.items():
         if key.lower() in excluded_params:
             continue
+        detected, trigger, threats = await _scan_component_name(
+            key,
+            f"query_param:{key}",
+            f"query param name '{key}'",
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )
+        if detected:
+            return True, f"Query param name '{key}': {trigger}", threats
         detected, trigger, threats = await _check_request_component(
             value,
             f"query_param:{key}",
@@ -905,11 +962,28 @@ async def _scan_headers(
                 and "cmd_injection" not in enabled_categories
             ):
                 continue
+            detected, trigger, threats = _check_always_scan_header(key)
+            if detected:
+                _log_detected_component(
+                    key, f"header name '{key}'", client_ip, log_level
+                )
+                return True, f"Header name '{key}': {trigger}", threats
             detected, trigger, threats = _check_always_scan_header(value)
             if detected:
                 _log_detected_component(value, f"header '{key}'", client_ip, log_level)
                 return True, f"Header '{key}': {trigger}", threats
             continue
+        detected, trigger, threats = await _scan_component_name(
+            key,
+            f"header:{key}",
+            f"header name '{key}'",
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )
+        if detected:
+            return True, f"Header name '{key}': {trigger}", threats
         detected, trigger, threats = await _check_request_component(
             value,
             f"header:{key}",
@@ -978,11 +1052,23 @@ async def _scan_json_value(
 ) -> tuple[bool, str, list[dict]]:
     if isinstance(value, dict):
         for key, item in value.items():
-            if str(key).lower() in excluded_body_fields:
+            key_str = str(key)
+            if key_str.lower() in excluded_body_fields:
                 continue
+            name_hit = await _scan_component_name(
+                key_str,
+                "request_body",
+                f"JSON key '{key_str}'",
+                enabled_categories,
+                client_ip,
+                correlation_id,
+                log_level,
+            )
+            if name_hit[0]:
+                return True, f"JSON key '{key_str}': {name_hit[1]}", name_hit[2]
             hit = await _scan_json_value(
                 item,
-                str(key),
+                key_str,
                 excluded_body_fields,
                 enabled_categories,
                 client_ip,
@@ -1024,6 +1110,17 @@ async def _scan_form_body(
     for name, value in parse_qsl(raw_body, keep_blank_values=True):
         if name.lower() in excluded_body_fields:
             continue
+        name_hit = await _scan_component_name(
+            name,
+            "request_body",
+            f"form field name '{name}'",
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )
+        if name_hit[0]:
+            return True, f"Form field name '{name}': {name_hit[1]}", name_hit[2]
         hit = await _scan_body_field(
             value, name, enabled_categories, client_ip, correlation_id, log_level
         )
@@ -1071,6 +1168,17 @@ async def _scan_multipart_body(
     for name, value in parts:
         if name.lower() in excluded_body_fields:
             continue
+        name_hit = await _scan_component_name(
+            name,
+            "request_body",
+            f"multipart field name '{name}'",
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )
+        if name_hit[0]:
+            return True, f"Multipart field name '{name}': {name_hit[1]}", name_hit[2]
         hit = await _scan_body_field(
             value, name, enabled_categories, client_ip, correlation_id, log_level
         )
