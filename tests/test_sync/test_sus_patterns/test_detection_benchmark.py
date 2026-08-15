@@ -154,6 +154,11 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "PHNjcmlwdD5hbGVydChkb2N1bWVudC5jb29raWUpPC9zY3JpcHQ+gA==",
         "encoding_aware",
     ),
+    MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
+    MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
+    MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
+    MaliciousCase("xss_onmousedown_body", "xss", "<body onmousedown=alert(1)>"),
+    MaliciousCase("xss_onwheel_div", "xss", "<div onwheel=alert(1)>"),
     MaliciousCase(
         "sqli_select_where_password", "sqli", "SELECT password FROM users WHERE id=1"
     ),
@@ -987,6 +992,10 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "xss_docs_onerror_callback_explainer",
         "The onError callback receives the exception object as its only argument.",
+    ),
+    BenignCase(
+        "xss_prose_bare_on_word_assignment_no_tag",
+        "changelog: onboarding=complete and onward=next for the release",
     ),
     BenignCase(
         "sqli_prose_select_few_items",

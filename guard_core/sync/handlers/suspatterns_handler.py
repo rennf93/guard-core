@@ -617,8 +617,7 @@ class SusPatternsManager:
         (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS, "xss"),
         (r"javascript:\s*[^\s]+", _CTX_XSS, "xss"),
         (
-            r"(?:on(?:error|load|click|mouseover|submit|mouse|unload|change|focus|"
-            r"blur|drag))=(?:[\"'][^\"']*[\"']|[^\s>]+)",
+            r"(?:<[^<>]*\s+on\w+\s*=(?:[\"'][^\"']*[\"']|[^\s>]+))",
             _CTX_XSS,
             "xss",
         ),
