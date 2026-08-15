@@ -156,11 +156,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "PHNjcmlwdD5hbGVydChkb2N1bWVudC5jb29raWUpPC9zY3JpcHQ+gA==",
         "encoding_aware",
     ),
-    MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
-    MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
-    MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
-    MaliciousCase("xss_onmousedown_body", "xss", "<body onmousedown=alert(1)>"),
-    MaliciousCase("xss_onwheel_div", "xss", "<div onwheel=alert(1)>"),
     MaliciousCase(
         "sqli_select_where_password", "sqli", "SELECT password FROM users WHERE id=1"
     ),
@@ -435,16 +430,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "ssrf",
         "aHR0cDovLzE2OS4yNTQuMTY5LjI1NC9sYXRlc3QvbWV0YS1kYXRhLw==",
         "encoding_aware",
-    ),
-    MaliciousCase(
-        "ssrf_userinfo_prefixed_named_host_localhost",
-        "ssrf",
-        "http://x@localhost/",
-    ),
-    MaliciousCase(
-        "ssrf_userinfo_prefixed_named_host_gcp_metadata",
-        "ssrf",
-        "http://attacker@metadata.google.internal/",
     ),
     MaliciousCase(
         "ssrf_past_truncation_cutoff_metadata",
@@ -970,6 +955,21 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("cmd_denylist_glued_nmap", "cmd_injection", "x`nmap`"),
     MaliciousCase("cmd_denylist_glued_powershell", "cmd_injection", "x`powershell`"),
+    MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
+    MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
+    MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
+    MaliciousCase("xss_onmousedown_body", "xss", "<body onmousedown=alert(1)>"),
+    MaliciousCase("xss_onwheel_div", "xss", "<div onwheel=alert(1)>"),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_localhost",
+        "ssrf",
+        "http://x@localhost/",
+    ),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_gcp_metadata",
+        "ssrf",
+        "http://attacker@metadata.google.internal/",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -1004,10 +1004,6 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "xss_docs_onerror_callback_explainer",
         "The onError callback receives the exception object as its only argument.",
-    ),
-    BenignCase(
-        "xss_prose_bare_on_word_assignment_no_tag",
-        "changelog: onboarding=complete and onward=next for the release",
     ),
     BenignCase(
         "sqli_prose_select_few_items",
@@ -1214,11 +1210,6 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("ssrf_public_dns_google", "http://8.8.8.8/"),
     BenignCase("ssrf_localhost_lookalike_domain", "localhost.example.com/callback"),
     BenignCase("ssrf_notlocalhost_domain", "https://notlocalhost.io/status"),
-    BenignCase(
-        "ssrf_email_userinfo_localhost_domain_no_scheme",
-        "System alerts are emailed to root@localhost by the nightly cron job.",
-    ),
-    BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
     BenignCase("ssrf_private_ip_lookalike_domain", "https://192-168-1-1.nip.io/"),
     BenignCase(
         "ssrf_aws_apigateway_url",
@@ -2005,6 +1996,15 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cmd_injection_js_template_bare_var_brace",
         "const path = `/users/${id}`;",
     ),
+    BenignCase(
+        "xss_prose_bare_on_word_assignment_no_tag",
+        "changelog: onboarding=complete and onward=next for the release",
+    ),
+    BenignCase(
+        "ssrf_email_userinfo_localhost_domain_no_scheme",
+        "System alerts are emailed to root@localhost by the nightly cron job.",
+    ),
+    BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
