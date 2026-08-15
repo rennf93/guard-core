@@ -13,6 +13,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
 )
 from guard_core.sync.utils import detect_penetration_attempt
 from tests.test_sus_patterns.test_detection_benchmark import (
+    _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
@@ -774,40 +775,86 @@ _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
     "tradeoff here rather than a new one"
 )
 
-_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
+_SHELL_INVOCATION_FP_MECHANISMS = (
+    "raw_body",
+    "form_body",
+    "json_body_nested",
+    "multipart_body",
+    "query_param",
+)
+_QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS = ("query_param", "url_path")
+
+_KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_prose_semicolon_bare_shell_control": (
-        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_value_absolute_bash_login_flag": (
-        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_value_absolute_shell_c_npm_start": (
-        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_value_env_prefixed_bash_c_echo": (
-        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_value_bare_shell_control": (
-        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON
+        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        _SHELL_INVOCATION_FP_MECHANISMS,
     ),
     "cmd_injection_glued_kebab_identifier_header_forward": (
-        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON
+        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
     ),
     "cmd_injection_glued_kebab_identifier_config_well_known": (
-        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON
+        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
     ),
+    "cmd_injection_shell_docs_var_expansion": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "template_benign_dollar_brace_var": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "template_benign_makefile_variable": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "cmd_injection_jquery_selector_bare_id_call": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "cmd_injection_jquery_selector_hash_id_call": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+}
+
+_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
+    f"{case_id}[{mechanism}]": reason
+    for case_id, (reason, mechanisms) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
+    for mechanism in mechanisms
 }
 
 BASELINE_MALICIOUS_DETECTED_TOTAL = 197
@@ -856,14 +903,11 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         mechanisms_exercised.add(mechanism)
         if _detected_via(mechanism, benign_case.payload):
             benign_flagged += 1
-            if benign_case.case_id in _KNOWN_E2E_FALSE_POSITIVES:
-                known_false_positive_case_ids.append(
-                    f"{benign_case.case_id}[{mechanism}]"
-                )
+            pin_key = f"{benign_case.case_id}[{mechanism}]"
+            if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
+                known_false_positive_case_ids.append(pin_key)
             else:
-                unexpected_false_positive_case_ids.append(
-                    f"{benign_case.case_id}[{mechanism}]"
-                )
+                unexpected_false_positive_case_ids.append(pin_key)
 
     targeted_failures: list[str] = []
     for targeted in _TARGETED_CASES:
@@ -954,8 +998,8 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         )
     report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
-    for case_id, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
-        report_lines.append(f"  {case_id}: {reason}")
+    for pin_key, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
+        report_lines.append(f"  {pin_key}: {reason}")
     report = "\n".join(report_lines)
     print(report)
 
