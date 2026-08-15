@@ -1414,11 +1414,12 @@ async def _read_capped_body(
 
     if content_length is not None:
         parsed = _parse_content_length(content_length)
-        if parsed is None or parsed > max_bytes:
+        if parsed is not None and parsed > max_bytes:
             return None
-        return await _read_and_cache_body(
-            request, max_bytes, timeout, request.body, "body", max_concurrent
-        )
+        if parsed is not None:
+            return await _read_and_cache_body(
+                request, max_bytes, timeout, request.body, "body", max_concurrent
+            )
 
     return await _read_capped_body_prefix(request, max_bytes, timeout, max_concurrent)
 

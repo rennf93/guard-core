@@ -486,7 +486,7 @@ async def test_decode_common_encodings_exits_after_max_iterations() -> None:
 
     pp = ContentPreprocessor()
     content = "<"
-    for _ in range(8):
+    for _ in range(17):
         content = urllib.parse.quote(content, safe="")
     out = await pp.decode_common_encodings(content)
     assert out != content
@@ -574,3 +574,98 @@ def test_build_result_with_attack_regions_appends_tail_within_budget() -> None:
     )
 
     assert result == content
+
+
+def test_sample_windows_pads_remainder_when_not_evenly_divisible() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=50)
+
+    content = "no indicator markers here " * 20
+    result = preprocessor.truncate_safely(content)
+
+    assert len(result) == 50
+
+
+def test_sample_windows_exact_division_needs_no_remainder_padding() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=11000)
+
+    content = "no indicator markers here " * 1000
+    result = preprocessor.truncate_safely(content)
+
+    assert len(result) == 11000
+
+
+def test_sample_windows_covers_front_middle_and_back_of_oversized_body() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=10000)
+    marker = "1' OR '1'='1"
+
+    front = marker + " " + "B" * 20000
+    back = "A" * 20000 + " " + marker
+    dead_center = "A" * 100000 + " " + marker + " " + "B" * 100000
+
+    assert marker in preprocessor.truncate_safely(front)
+    assert marker in preprocessor.truncate_safely(back)
+    assert marker in preprocessor.truncate_safely(dead_center)
+
+
+def test_bounded_gunzip_returns_none_for_non_gzip_bytes() -> None:
+    preprocessor = ContentPreprocessor()
+    assert preprocessor._bounded_gunzip(b"not gzip") is None
+
+
+def test_bounded_gunzip_returns_none_for_corrupt_gzip_stream() -> None:
+    preprocessor = ContentPreprocessor()
+    corrupt = preprocessor._GZIP_MAGIC + b"\x00" * 30
+    assert preprocessor._bounded_gunzip(corrupt) is None
+
+
+def test_decode_base64_candidates_gunzips_within_budget() -> None:
+    import base64
+    import gzip
+
+    preprocessor = ContentPreprocessor()
+    token = base64.b64encode(
+        gzip.compress(b"UNION SELECT password FROM users")
+    ).decode()
+
+    result = preprocessor._decode_base64_candidates(token, [1])
+
+    assert result == "UNION SELECT password FROM users"
+
+
+def test_decode_base64_candidates_falls_back_when_gunzip_fails() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    corrupt = preprocessor._GZIP_MAGIC + b"\x00" * 30
+    token = base64.b64encode(corrupt).decode()
+
+    result = preprocessor._decode_base64_candidates(token, [1])
+
+    assert result == token
+
+
+def test_decode_base64_candidates_skips_gunzip_when_budget_exhausted() -> None:
+    import base64
+    import gzip
+
+    preprocessor = ContentPreprocessor()
+    token = base64.b64encode(
+        gzip.compress(b"UNION SELECT password FROM users")
+    ).decode()
+
+    result = preprocessor._decode_base64_candidates(token, [0])
+
+    assert result == token
+
+
+async def test_decode_common_encodings_shares_gunzip_budget_across_iterations() -> None:
+    import base64
+    import gzip
+
+    preprocessor = ContentPreprocessor()
+    chunk = base64.b64encode(gzip.compress(b"x" * 900)).decode()
+    content = " ".join([chunk] * 20)
+
+    result = await preprocessor.decode_common_encodings(content)
+
+    assert result.count("x" * 900) <= preprocessor._MAX_GUNZIP_ATTEMPTS_PER_PASS

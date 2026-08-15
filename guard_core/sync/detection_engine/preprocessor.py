@@ -50,8 +50,12 @@ class ContentPreprocessor:
         ]
 
     _BASE64_RE = re.compile(
-        r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{20,}={0,2}(?![A-Za-z0-9+/=])"
+        r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){20,}={0,2}(?![A-Za-z0-9+/=])"
     )
+    _BASE64_WHITESPACE_RE = re.compile(r"[\r\n]+")
+    _GZIP_MAGIC = b"\x1f\x8b"
+    _MAX_GUNZIP_OUTPUT_BYTES = 8192
+    _MAX_GUNZIP_ATTEMPTS_PER_PASS = 8
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
     _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
@@ -222,6 +226,22 @@ class ContentPreprocessor:
 
         return "".join(result_parts)
 
+    _TRUNCATION_SAMPLE_WINDOWS = 11
+
+    def _sample_windows(self, content: str) -> str:
+        num_windows = self._TRUNCATION_SAMPLE_WINDOWS
+        window_size = max(1, self.max_content_length // num_windows)
+        last_start = len(content) - window_size
+        stride = last_start / (num_windows - 1)
+        result = "".join(
+            content[start : start + window_size]
+            for start in (round(stride * i) for i in range(num_windows))
+        )
+        remaining = self.max_content_length - len(result)
+        if remaining > 0:
+            result += content[-remaining:]
+        return result[: self.max_content_length]
+
     def truncate_safely(self, content: str) -> str:
         if len(content) <= self.max_content_length:
             return content
@@ -232,7 +252,7 @@ class ContentPreprocessor:
         attack_regions = self.extract_attack_regions(content)
 
         if not attack_regions:
-            return content[: self.max_content_length]
+            return self._sample_windows(content)
 
         attack_length = sum(end - start for start, end in attack_regions)
 
@@ -267,19 +287,41 @@ class ContentPreprocessor:
             return 0.0
         return text.count("�") / len(text)
 
-    def _decode_base64_candidates(self, content: str) -> str:
+    def _bounded_gunzip(self, raw: bytes) -> bytes | None:
+        if raw[:2] != self._GZIP_MAGIC:
+            return None
+        import zlib
+
+        try:
+            decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            return decompressor.decompress(raw, self._MAX_GUNZIP_OUTPUT_BYTES)
+        except (zlib.error, OSError):
+            return None
+
+    def _decode_base64_candidates(
+        self, content: str, gunzip_attempts_left: list[int] | None = None
+    ) -> str:
         import base64
+
+        if gunzip_attempts_left is None:
+            gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
 
         def _replace(match: re.Match[str]) -> str:
             token = match.group(0)
             if self._is_hex_literal(token):
                 return token
-            padding = (4 - len(token) % 4) % 4
-            padded = token + "=" * padding
+            cleaned = self._BASE64_WHITESPACE_RE.sub("", token)
+            padding = (4 - len(cleaned) % 4) % 4
+            padded = cleaned + "=" * padding
             try:
                 raw = base64.b64decode(padded, validate=True)
             except (ValueError, binascii.Error):
                 return token
+            if raw[:2] == self._GZIP_MAGIC and gunzip_attempts_left[0] > 0:
+                gunzip_attempts_left[0] -= 1
+                gunzipped = self._bounded_gunzip(raw)
+                if gunzipped is not None:
+                    raw = gunzipped
             try:
                 decoded = raw.decode("utf-8")
             except UnicodeDecodeError:
@@ -326,8 +368,9 @@ class ContentPreprocessor:
         return content
 
     def decode_common_encodings(self, content: str) -> str:
-        max_decode_iterations = 7
+        max_decode_iterations = 16
         iterations = 0
+        gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
 
         while iterations < max_decode_iterations:
             original = content
@@ -364,7 +407,7 @@ class ContentPreprocessor:
 
             content = self._decode_hex_escapes(content)
             content = self._decode_unicode_escapes(content)
-            content = self._decode_base64_candidates(content)
+            content = self._decode_base64_candidates(content, gunzip_attempts_left)
 
             if content == original:
                 break
