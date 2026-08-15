@@ -167,6 +167,10 @@ _DIR_TRAVERSAL_PROC_ENVIRON_RE = (
 _DIR_TRAVERSAL_VAR_LOG_RE = (
     _SINGLE_LINE_PREFIX_RE + r"var/log/[^\s/]+" + _SINGLE_LINE_SUFFIX_RE
 )
+_SSTI_HASH_BRACE_SHAPE_RE = (
+    r"#\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}"
+)
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
     {
@@ -181,6 +185,7 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DIR_TRAVERSAL_WINDOWS_INI_RE,
         _DIR_TRAVERSAL_PROC_ENVIRON_RE,
         _DIR_TRAVERSAL_VAR_LOG_RE,
+        _SSTI_HASH_BRACE_SHAPE_RE,
     }
 )
 
@@ -838,6 +843,13 @@ class SusPatternsManager:
             _CTX_TEMPLATE,
             "template",
         ),
+        (
+            r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
+            r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}",
+            _CTX_TEMPLATE,
+            "template",
+        ),
+        (_SSTI_HASH_BRACE_SHAPE_RE, _CTX_TEMPLATE, "template"),
         (_HTTP_SPLIT_CRLF_RE, _CTX_HTTP_SPLIT, "http_split"),
         (
             _PATH_ONLY_PREFIX_RE + r"\.env(?:\.\w+)?" + _PATH_ONLY_SUFFIX_RE,

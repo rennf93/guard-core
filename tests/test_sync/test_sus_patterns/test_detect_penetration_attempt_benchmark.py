@@ -18,6 +18,8 @@ from tests.test_sus_patterns.test_detection_benchmark import (
     _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
     _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
     BENIGN_CORPUS,
@@ -794,6 +796,13 @@ _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS = (
     "query_param",
     "url_path",
 )
+_TEMPLATE_ELIGIBLE_FP_MECHANISMS = (
+    "raw_body",
+    "form_body",
+    "json_body_nested",
+    "multipart_body",
+    "query_param",
+)
 
 _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
@@ -884,6 +893,30 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
         _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
     ),
+    "template_fp_date_curly_brace": (
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "template_fp_date_hash_brace": (
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "template_fp_call_branch_format_x": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "template_fp_call_branch_round_filter": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "template_fp_call_branch_helper_format": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
+    "template_fp_call_branch_map_arrow": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+    ),
 }
 
 _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
@@ -892,8 +925,8 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     for mechanism in mechanisms
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 197
-_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 197
+BASELINE_MALICIOUS_DETECTED_TOTAL = 204
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 204
 _WALL_TIME_CEILING_SECONDS = 45.0
 
 

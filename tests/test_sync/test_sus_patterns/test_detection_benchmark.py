@@ -122,6 +122,32 @@ _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
     "this pattern was built to catch"
 )
 
+_SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON = (
+    "the shape-gated {{ }}/#{ } template patterns flag any request-value "
+    "delivery of a double-curly or hash-brace expression containing a bare "
+    "function-call shape (a word immediately followed by parentheses); a "
+    "genuine template's own filter or method call syntax (format(x), a "
+    "Jinja round(2) filter, a Ruby helper.format(value) call, a JS-style "
+    ".map(item => ...) arrow callback) is character-identical to that "
+    "call-branch SSTI shape and cannot be told apart by structure alone; "
+    "an app that legitimately accepts raw template source as a request "
+    "value needs route-level allowlisting, not a narrower pattern that "
+    "would lose recall on the {{config.items()}}/#{T(...).exec(...)} "
+    "RCE shape this gate was built to catch"
+)
+
+_SSTI_DATE_IN_BRACES_KNOWN_FP_REASON = (
+    "the quote-tolerant arithmetic branch of the {{ }}/#{ } shape gate "
+    "matches any digit-operator-digit run, and a hyphen-delimited date "
+    "embedded in braces ({{ 2024-01-02 }}, #{2024-12-31}) parses as "
+    "digit-minus-digit subtraction; a genuine date-in-braces value is "
+    "character-identical to that arithmetic SSTI shape and cannot be told "
+    "apart by structure alone; an app that legitimately delivers dates "
+    "inside template-looking braces needs route-level allowlisting, not a "
+    "narrower pattern that would lose recall on the {{7*7}}/{{7*'7'}} "
+    "arithmetic-probe shape this branch was built to catch"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -1029,6 +1055,25 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_svg_onbegin_slash_sep", "xss", "<svg/onbegin=alert(1)>"),
     MaliciousCase(
         "xss_details_ontoggle_slash_sep", "xss", "<details/ontoggle=alert(1)>"
+    ),
+    MaliciousCase("template_ssti_curly_brace_arith_int", "template", "{{7*7}}"),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_quoted_right", "template", "{{7*'7'}}"
+    ),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_quoted_left", "template", "{{'7'*7}}"
+    ),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_double_quoted",
+        "template",
+        '{{"5"+"5"}}',
+    ),
+    MaliciousCase("template_ssti_curly_brace_call", "template", "{{config.items()}}"),
+    MaliciousCase("template_ssti_hash_brace_arith", "template", "#{7*7}"),
+    MaliciousCase(
+        "template_ssti_hash_brace_java_runtime_exec",
+        "template",
+        "#{T(java.lang.Runtime).exec('id')}",
     ),
 ]
 
@@ -2132,6 +2177,47 @@ BENIGN_CORPUS: list[BenignCase] = [
         "xss_href_quoted_once_prefixed_path_slash_sep",
         '<link rel="stylesheet" href="/once-cache.css">',
     ),
+    BenignCase("template_benign_curly_user_name", "{{ user.name }}"),
+    BenignCase("template_benign_curly_title", "{{ title }}"),
+    BenignCase("template_benign_curly_count", "{{ count }}"),
+    BenignCase("template_benign_hash_brand_color", "#{brandColor}"),
+    BenignCase("template_benign_hash_user_name", "#{user.name}"),
+    BenignCase(
+        "template_fp_date_curly_brace",
+        "{{ 2024-01-02 }}",
+        "production",
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_date_hash_brace",
+        "#{2024-12-31}",
+        "production",
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_format_x",
+        "{{ format(x) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_round_filter",
+        "{{ item.price | round(2) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_helper_format",
+        "#{ helper.format(value) }",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_map_arrow",
+        "{{ cart.items.map(item => item.price) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2150,17 +2236,18 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "sensitive_file": 8,
     "sqli": 19,
     "ssrf": 26,
-    "template": 6,
+    "template": 13,
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 217
+BASELINE_MALICIOUS_DETECTED_TOTAL = 224
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,
     "file_inclusion": 6,
+    "template": 6,
 }
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 15
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 21
 
 _WALL_TIME_CEILING_SECONDS = 30.0
 
