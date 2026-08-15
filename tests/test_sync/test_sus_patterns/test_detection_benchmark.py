@@ -435,6 +435,16 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "encoding_aware",
     ),
     MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_localhost",
+        "ssrf",
+        "http://x@localhost/",
+    ),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_gcp_metadata",
+        "ssrf",
+        "http://attacker@metadata.google.internal/",
+    ),
+    MaliciousCase(
         "ssrf_past_truncation_cutoff_metadata",
         "ssrf",
         _TRUNCATION_FILLER + "http://169.254.169.254/latest/meta-data/",
@@ -1202,6 +1212,11 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("ssrf_public_dns_google", "http://8.8.8.8/"),
     BenignCase("ssrf_localhost_lookalike_domain", "localhost.example.com/callback"),
     BenignCase("ssrf_notlocalhost_domain", "https://notlocalhost.io/status"),
+    BenignCase(
+        "ssrf_email_userinfo_localhost_domain_no_scheme",
+        "System alerts are emailed to root@localhost by the nightly cron job.",
+    ),
+    BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
     BenignCase("ssrf_private_ip_lookalike_domain", "https://192-168-1-1.nip.io/"),
     BenignCase(
         "ssrf_aws_apigateway_url",
@@ -2005,12 +2020,12 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "recon": 23,
     "sensitive_file": 8,
     "sqli": 19,
-    "ssrf": 24,
+    "ssrf": 26,
     "template": 6,
     "xml": 4,
-    "xss": 14,
+    "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 210
+BASELINE_MALICIOUS_DETECTED_TOTAL = 217
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9

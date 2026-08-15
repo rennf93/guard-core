@@ -158,9 +158,7 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
     MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
-    MaliciousCase(
-        "xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"
-    ),
+    MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
     MaliciousCase("xss_onmousedown_body", "xss", "<body onmousedown=alert(1)>"),
     MaliciousCase("xss_onwheel_div", "xss", "<div onwheel=alert(1)>"),
     MaliciousCase(
@@ -2024,12 +2022,12 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "recon": 23,
     "sensitive_file": 8,
     "sqli": 19,
-    "ssrf": 24,
+    "ssrf": 26,
     "template": 6,
     "xml": 4,
-    "xss": 14,
+    "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 210
+BASELINE_MALICIOUS_DETECTED_TOTAL = 217
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9
