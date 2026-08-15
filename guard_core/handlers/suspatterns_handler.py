@@ -134,6 +134,53 @@ _LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
 
+_LDAP_NULL_BYTE_ATTR_RE = r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+%00"
+_LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+%00"
+_HTTP_SPLIT_CRLF_RE = r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)"
+_SQLI_ORDER_BY_TERMINATOR_RE = (
+    r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
+    r"|(?<=[=?&])ORDER\s+BY\s+\d+\s*\n"
+)
+_SQLI_COMMENT_TERMINATOR_RE = r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)"
+_PATH_TRAVERSAL_ENCODED_DOT_RE = (
+    r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
+    r"%e0%80%ae|%25c0%25ae)/"
+)
+_CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
+    r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
+)
+_DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
+    _SINGLE_LINE_PREFIX_RE
+    + r"etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my\.cnf|ssh/ssh_config)"
+    + _SINGLE_LINE_SUFFIX_RE
+)
+_DIR_TRAVERSAL_WINDOWS_INI_RE = (
+    _SINGLE_LINE_PREFIX_RE
+    + r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)"
+    + _SINGLE_LINE_SUFFIX_RE
+)
+_DIR_TRAVERSAL_PROC_ENVIRON_RE = (
+    _SINGLE_LINE_PREFIX_RE + r"proc/self/environ" + _SINGLE_LINE_SUFFIX_RE
+)
+_DIR_TRAVERSAL_VAR_LOG_RE = (
+    _SINGLE_LINE_PREFIX_RE + r"var/log/[^\s/]+" + _SINGLE_LINE_SUFFIX_RE
+)
+
+DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
+    {
+        _LDAP_NULL_BYTE_ATTR_RE,
+        _LDAP_NULL_BYTE_BARE_RE,
+        _HTTP_SPLIT_CRLF_RE,
+        _SQLI_ORDER_BY_TERMINATOR_RE,
+        _SQLI_COMMENT_TERMINATOR_RE,
+        _DIR_TRAVERSAL_ETC_SENSITIVE_RE,
+        _DIR_TRAVERSAL_WINDOWS_INI_RE,
+        _DIR_TRAVERSAL_PROC_ENVIRON_RE,
+        _DIR_TRAVERSAL_VAR_LOG_RE,
+    }
+)
+
 _LEGACY_IPV4_PART_RE = r"(?:0[xX][0-9a-fA-F]+|0[0-7]+|[1-9]\d*|0)"
 _LEGACY_IPV4_HOST_RE = (
     r"://(?:[^/@\s]*@)?("
@@ -240,6 +287,36 @@ def _resolve_pattern_weight(pattern: str, category: str) -> float:
 
 def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
     return float(sum(t.get("weight", 1.0) for t in regex_threats))
+
+
+def _pattern_excluded_from_view(
+    pattern: re.Pattern, raw_view_only: bool | None
+) -> bool:
+    is_raw_view_pattern = pattern.pattern in DETECTION_RAW_VIEW_PATTERN_SOURCES
+    return (
+        raw_view_only is not is_raw_view_pattern if raw_view_only is not None else False
+    )
+
+
+def _pattern_should_be_skipped(
+    pattern: re.Pattern,
+    contexts: frozenset[str],
+    category: str,
+    *,
+    raw_view_only: bool | None,
+    skip_filter: bool,
+    normalized_context: str,
+    enabled_categories: set[str] | None,
+) -> bool:
+    if _pattern_excluded_from_view(pattern, raw_view_only):
+        return True
+    if not skip_filter and normalized_context not in contexts:
+        return True
+    return (
+        enabled_categories is not None
+        and category != "custom"
+        and category not in enabled_categories
+    )
 
 
 def _build_regex_threat(
@@ -374,38 +451,13 @@ class SusPatternsManager:
             _CTX_SQLI,
             "sqli",
         ),
-        (
-            r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
-            r"|(?<=[=?&])ORDER\s+BY\s+\d+\s*\n",
-            _CTX_SQLI,
-            "sqli",
-        ),
-        (r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)", _CTX_SQLI, "sqli"),
+        (_SQLI_ORDER_BY_TERMINATOR_RE, _CTX_SQLI, "sqli"),
+        (_SQLI_COMMENT_TERMINATOR_RE, _CTX_SQLI, "sqli"),
         (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
-        (
-            _SINGLE_LINE_PREFIX_RE
-            + r"etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my\.cnf|"
-            r"ssh/ssh_config)" + _SINGLE_LINE_SUFFIX_RE,
-            _CTX_DIR_TRAVERSAL,
-            "dir_traversal",
-        ),
-        (
-            _SINGLE_LINE_PREFIX_RE
-            + r"(?:boot\.ini|win\.ini|system\.ini|config\.sys)"
-            + _SINGLE_LINE_SUFFIX_RE,
-            _CTX_DIR_TRAVERSAL,
-            "dir_traversal",
-        ),
-        (
-            _SINGLE_LINE_PREFIX_RE + r"proc/self/environ" + _SINGLE_LINE_SUFFIX_RE,
-            _CTX_DIR_TRAVERSAL,
-            "dir_traversal",
-        ),
-        (
-            _SINGLE_LINE_PREFIX_RE + r"var/log/[^\s/]+" + _SINGLE_LINE_SUFFIX_RE,
-            _CTX_DIR_TRAVERSAL,
-            "dir_traversal",
-        ),
+        (_DIR_TRAVERSAL_ETC_SENSITIVE_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (_DIR_TRAVERSAL_WINDOWS_INI_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (_DIR_TRAVERSAL_PROC_ENVIRON_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (_DIR_TRAVERSAL_VAR_LOG_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r";\s*(?:ls|cat|rm|chmod|chown|wget|curl|nc|netcat|ping|telnet)\s+"
             r"-[a-zA-Z]+\s+",
@@ -437,8 +489,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
-            r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b",
+            _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -473,8 +524,8 @@ class SusPatternsManager:
         (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
         (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
-        (r"[a-zA-Z][\w-]*\s*=[\d\w\s]*\*\)+%00", _CTX_LDAP, "ldap"),
-        (r"\*\)\)+%00", _CTX_LDAP, "ldap"),
+        (_LDAP_NULL_BYTE_ATTR_RE, _CTX_LDAP, "ldap"),
+        (_LDAP_NULL_BYTE_BARE_RE, _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
@@ -513,12 +564,7 @@ class SusPatternsManager:
             _CTX_FILE_UPLOAD,
             "file_upload",
         ),
-        (
-            r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
-            r"%e0%80%ae|%25c0%25ae)/",
-            _CTX_PATH_TRAVERSAL,
-            "path_traversal",
-        ),
+        (_PATH_TRAVERSAL_ENCODED_DOT_RE, _CTX_PATH_TRAVERSAL, "path_traversal"),
         (
             r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}",
             _CTX_TEMPLATE,
@@ -540,11 +586,7 @@ class SusPatternsManager:
             _CTX_TEMPLATE,
             "template",
         ),
-        (
-            r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)",
-            _CTX_HTTP_SPLIT,
-            "http_split",
-        ),
+        (_HTTP_SPLIT_CRLF_RE, _CTX_HTTP_SPLIT, "http_split"),
         (
             _PATH_ONLY_PREFIX_RE + r"\.env(?:\.\w+)?" + _PATH_ONLY_SUFFIX_RE,
             _CTX_SENSITIVE_FILE,
@@ -995,6 +1037,7 @@ class SusPatternsManager:
         enabled_categories: set[str] | None = None,
         *,
         state: _DetectionState | None = None,
+        raw_view_only: bool | None = None,
     ) -> tuple[list[dict], list[str], list[str]]:
         state = self._resolve_state(state)
         threats = []
@@ -1007,12 +1050,14 @@ class SusPatternsManager:
         performance_monitor = state.performance_monitor
 
         for pattern, contexts, category in all_patterns:
-            if not skip_filter and normalized not in contexts:
-                continue
-            if (
-                enabled_categories is not None
-                and category != "custom"
-                and category not in enabled_categories
+            if _pattern_should_be_skipped(
+                pattern,
+                contexts,
+                category,
+                raw_view_only=raw_view_only,
+                skip_filter=skip_filter,
+                normalized_context=normalized,
+                enabled_categories=enabled_categories,
             ):
                 continue
 
@@ -1094,6 +1139,30 @@ class SusPatternsManager:
         semantic_max = max(semantic_scores) if semantic_scores else 0.0
         return min(max(anomaly, semantic_max), 1.0)
 
+    async def _check_raw_view_patterns(
+        self,
+        content: str,
+        ip_address: str,
+        context: str,
+        correlation_id: str | None,
+        enabled_categories: set[str] | None,
+        state: _DetectionState,
+    ) -> tuple[list[dict], list[str], list[str]]:
+        preprocessor = state.preprocessor
+        if not preprocessor:
+            return [], [], []
+
+        raw_view_content = preprocessor.preprocess_signal_preserving(content)
+        return await self._check_regex_patterns(
+            raw_view_content,
+            ip_address,
+            correlation_id,
+            context,
+            enabled_categories,
+            state=state,
+            raw_view_only=True,
+        )
+
     async def detect(
         self,
         content: str,
@@ -1117,7 +1186,15 @@ class SusPatternsManager:
             context,
             enabled_categories,
             state=state,
+            raw_view_only=False if state.preprocessor else None,
         )
+
+        raw_threats, raw_matched, raw_timeouts = await self._check_raw_view_patterns(
+            content, ip_address, context, correlation_id, enabled_categories, state
+        )
+        regex_threats = regex_threats + raw_threats
+        matched_patterns = matched_patterns + raw_matched
+        timeouts = timeouts + raw_timeouts
 
         semantic_threats, semantic_score = await self._check_semantic_threats(
             processed_content, state=state

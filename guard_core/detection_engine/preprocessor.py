@@ -386,5 +386,12 @@ class ContentPreprocessor:
 
         return content
 
+    def preprocess_signal_preserving(self, content: str) -> str:
+        if not content:
+            return ""
+
+        content = self.normalize_unicode(content)
+        return self.truncate_safely(content)
+
     async def preprocess_batch(self, contents: list[str]) -> list[str]:
         return [await self.preprocess(content) for content in contents]

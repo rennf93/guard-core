@@ -36,13 +36,21 @@ def _build_isolated_manager(config: SecurityConfig | None) -> SusPatternsManager
     return manager
 
 
-_PRODUCTION_MANAGER = _build_isolated_manager(None)
+_LEGACY_MANAGER = _build_isolated_manager(None)
+_PRODUCTION_MANAGER = _build_isolated_manager(SecurityConfig())
 
 _ENCODING_AWARE_MANAGER = _build_isolated_manager(SecurityConfig())
 _ENCODING_AWARE_MANAGER._semantic_analyzer = None
 
 _DETECTORS: dict[str, SusPatternsManager] = {
     "production": _PRODUCTION_MANAGER,
+    "legacy": _LEGACY_MANAGER,
+    "encoding_aware": _ENCODING_AWARE_MANAGER,
+}
+
+_LEGACY_SMOKE_DETECTORS: dict[str, SusPatternsManager] = {
+    "production": _LEGACY_MANAGER,
+    "legacy": _LEGACY_MANAGER,
     "encoding_aware": _ENCODING_AWARE_MANAGER,
 }
 
@@ -1864,9 +1872,13 @@ BASELINE_MALICIOUS_DETECTED_TOTAL = 191
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {"cmd_injection": 9}
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 9
 
+_WALL_TIME_CEILING_SECONDS = 30.0
 
-async def _malicious_case_detected_categories(case: MaliciousCase) -> set[str]:
-    detector = _DETECTORS[case.detector]
+
+async def _malicious_case_detected_categories(
+    case: MaliciousCase, detectors: dict[str, SusPatternsManager]
+) -> set[str]:
+    detector = detectors[case.detector]
     result = await detector.detect(
         content=case.payload, ip_address="203.0.113.9", context="request_body"
     )
@@ -1875,8 +1887,10 @@ async def _malicious_case_detected_categories(case: MaliciousCase) -> set[str]:
     return {threat.get("category") for threat in result["threats"]}
 
 
-async def _benign_case_flagged_categories(case: BenignCase) -> set[str]:
-    detector = _DETECTORS[case.detector]
+async def _benign_case_flagged_categories(
+    case: BenignCase, detectors: dict[str, SusPatternsManager]
+) -> set[str]:
+    detector = detectors[case.detector]
     result = await detector.detect(
         content=case.payload, ip_address="198.51.100.4", context="request_body"
     )
@@ -1971,7 +1985,9 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         malicious_total_by_category[malicious_case.category] = (
             malicious_total_by_category.get(malicious_case.category, 0) + 1
         )
-        hit_categories = await _malicious_case_detected_categories(malicious_case)
+        hit_categories = await _malicious_case_detected_categories(
+            malicious_case, _DETECTORS
+        )
         if malicious_case.category in hit_categories:
             malicious_detected_by_category[malicious_case.category] = (
                 malicious_detected_by_category.get(malicious_case.category, 0) + 1
@@ -1985,7 +2001,7 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
     benign_flagged_total = 0
     unexpected_false_positive_case_ids: list[str] = []
     for benign_case in BENIGN_CORPUS:
-        hit_categories = await _benign_case_flagged_categories(benign_case)
+        hit_categories = await _benign_case_flagged_categories(benign_case, _DETECTORS)
         if hit_categories:
             benign_flagged_total += 1
             if not benign_case.known_false_positive_reason:
@@ -2038,4 +2054,38 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} "
         f"actual={benign_flagged_total} "
         f"unexpected={unexpected_false_positive_case_ids}\n{report}"
+    )
+
+    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS, (
+        f"detection benchmark wall time regressed: "
+        f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
+    )
+
+
+@pytest.mark.asyncio
+async def test_detection_benchmark_legacy_smoke() -> None:
+    malicious_detected_total = 0
+    for malicious_case in MALICIOUS_CORPUS:
+        hit_categories = await _malicious_case_detected_categories(
+            malicious_case, _LEGACY_SMOKE_DETECTORS
+        )
+        if malicious_case.category in hit_categories:
+            malicious_detected_total += 1
+
+    benign_flagged_total = 0
+    for benign_case in BENIGN_CORPUS:
+        hit_categories = await _benign_case_flagged_categories(
+            benign_case, _LEGACY_SMOKE_DETECTORS
+        )
+        if hit_categories:
+            benign_flagged_total += 1
+
+    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
+        f"legacy singleton recall regressed: "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
+        f"actual={malicious_detected_total}"
+    )
+    assert benign_flagged_total <= BASELINE_BENIGN_FALSE_POSITIVE_TOTAL, (
+        f"legacy singleton false-positive rate rose: "
+        f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} actual={benign_flagged_total}"
     )

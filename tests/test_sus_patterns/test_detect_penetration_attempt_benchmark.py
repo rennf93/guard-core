@@ -27,12 +27,8 @@ _CONFIG = SecurityConfig()
 
 
 @pytest.fixture(autouse=True)
-def _force_legacy_detection_singleton() -> Iterator[None]:
-    sus_patterns_handler._compiler = None
-    sus_patterns_handler._preprocessor = None
-    sus_patterns_handler._semantic_analyzer = None
-    sus_patterns_handler._performance_monitor = None
-    sus_patterns_handler._threat_score_threshold = 1.0
+def _force_enhanced_detection_singleton() -> Iterator[None]:
+    sus_patterns_handler.configure(SecurityConfig())
     yield
 
 
@@ -488,9 +484,24 @@ _TARGETED_CASES: list[TargetedCase] = [
         True,
     ),
     TargetedCase(
+        "ldap_null_byte_literal_nul_byte_query_param",
+        _query_param_request("uid=*)\x00"),
+        True,
+    ),
+    TargetedCase(
         "ldap_glob_paren_null_mention_query_param",
         _query_param_request("glob pattern: *)%00 in filenames"),
         False,
+    ),
+    TargetedCase(
+        "http_split_crlf_set_cookie_header",
+        _header_request("x\r\nSet-Cookie: session=hijacked"),
+        True,
+    ),
+    TargetedCase(
+        "sqli_bare_comment_dashdash_query_param",
+        _query_param_request("admin'--"),
+        True,
     ),
     TargetedCase(
         "cms_probing_wp_content_themes_default_url_path",
@@ -560,7 +571,16 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     ),
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 163
+BASELINE_MALICIOUS_DETECTED_TOTAL = 179
+_WALL_TIME_CEILING_SECONDS = 45.0
+
+
+def _reset_singleton_to_legacy() -> None:
+    sus_patterns_handler._compiler = None
+    sus_patterns_handler._preprocessor = None
+    sus_patterns_handler._semantic_analyzer = None
+    sus_patterns_handler._performance_monitor = None
+    sus_patterns_handler._threat_score_threshold = 1.0
 
 
 @pytest.mark.asyncio
@@ -669,4 +689,37 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
         f"more benign cases flagged than documented known false positives: "
         f"actual={benign_flagged} known={known_false_positive_case_ids}\n{report}"
+    )
+
+    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS, (
+        f"end-to-end detection benchmark wall time regressed: "
+        f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
+    )
+
+
+@pytest.mark.asyncio
+async def test_detect_penetration_attempt_legacy_smoke() -> None:
+    _reset_singleton_to_legacy()
+
+    malicious_detected = 0
+    for index, case in enumerate(_PRODUCTION_MALICIOUS_CASES):
+        mechanism = await _mechanism_for_index(
+            _valid_mechanisms_for_category(case.category), index
+        )
+        if await _detected_via(mechanism, case.payload):
+            malicious_detected += 1
+
+    benign_flagged = 0
+    for index, benign_case in enumerate(_PRODUCTION_BENIGN_CASES):
+        mechanism = await _mechanism_for_index(_ALL_MECHANISMS, index)
+        if await _detected_via(mechanism, benign_case.payload):
+            benign_flagged += 1
+
+    assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
+        f"legacy singleton recall regressed: "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} actual={malicious_detected}"
+    )
+    assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
+        f"legacy singleton false-positive rate rose: "
+        f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
     )
