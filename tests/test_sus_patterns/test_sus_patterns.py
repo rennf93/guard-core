@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1070,3 +1070,89 @@ async def test_custom_pattern_match_rejected_by_validator_falls_through(
 
     assert threat is None
     assert timed_out is False
+
+
+@pytest.mark.asyncio
+async def test_configure_with_unsupported_config_is_a_noop() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    state_before = manager._detection_state
+
+    manager.configure(object())
+
+    assert manager._detection_state is state_before
+    SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_initialize_agent_sets_agent_handler() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    agent = object()
+
+    await manager.initialize_agent(agent)
+
+    assert manager.agent_handler is agent
+    SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_add_pattern_sends_event_when_agent_handler_set() -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    sus_patterns_handler.agent_handler = mock_agent
+    pattern = r"agent_event_add_pattern_xyz"
+
+    try:
+        await sus_patterns_handler.add_pattern(pattern, custom=True)
+
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+        await sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+
+@pytest.mark.asyncio
+async def test_remove_pattern_sends_event_when_agent_handler_set() -> None:
+    pattern = r"agent_event_remove_pattern_xyz"
+    await sus_patterns_handler.add_pattern(pattern, custom=True)
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    sus_patterns_handler.agent_handler = mock_agent
+
+    try:
+        result = await sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+        assert result is True
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+
+
+@pytest.mark.asyncio
+async def test_remove_default_pattern_returns_false_when_not_found() -> None:
+    result = await sus_patterns_handler.remove_pattern(
+        "nonexistent_default_pattern_xyz", custom=False
+    )
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_remove_default_pattern_returns_false_when_compiled_index_missing() -> (
+    None
+):
+    handler = sus_patterns_handler
+    original_patterns = handler.patterns.copy()
+    original_compiled = handler.compiled_patterns.copy()
+
+    try:
+        test_pattern = "test_pattern_compiled_index_missing_xyz"
+        handler.patterns.append(test_pattern)
+        handler.compiled_patterns = []
+
+        result = await handler._remove_default_pattern(test_pattern)
+
+        assert result is False
+    finally:
+        handler.patterns = original_patterns
+        handler.compiled_patterns = original_compiled
