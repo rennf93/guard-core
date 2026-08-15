@@ -1522,10 +1522,7 @@ def detect_penetration_attempt(
     if body_bytes is None:
         return _build_detection_miss()
 
-    try:
-        raw_body = body_bytes.decode()
-    except Exception:
-        return _build_detection_miss()
+    raw_body = body_bytes.decode("utf-8", errors="replace")
 
     content_type = request.headers.get("content-type") or ""
     detected, trigger, threats = _scan_request_body(

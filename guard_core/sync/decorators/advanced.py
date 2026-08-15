@@ -69,18 +69,17 @@ class AdvancedMixin(BaseSecurityMixin):
                     return any(field in data and data[field] for field in trap_fields)
 
                 def _validate_form_data(raw_body: bytes) -> GuardResponse | None:
-                    try:
-                        parsed = parse_qs(raw_body.decode())
-                        flat = {k: v[0] for k, v in parsed.items() if v}
-                        if _has_trap_field_filled(flat):
-                            return _SimpleResponse("Forbidden", 403)
-                    except Exception:
-                        pass
+                    parsed = parse_qs(raw_body.decode("utf-8", errors="replace"))
+                    flat = {k: v[0] for k, v in parsed.items() if v}
+                    if _has_trap_field_filled(flat):
+                        return _SimpleResponse("Forbidden", 403)
                     return None
 
                 def _validate_json_data(raw_body: bytes) -> GuardResponse | None:
                     try:
-                        json_data = json.loads(raw_body.decode())
+                        json_data = json.loads(
+                            raw_body.decode("utf-8", errors="replace")
+                        )
                         if _has_trap_field_filled(json_data):
                             return _SimpleResponse("Forbidden", 403)
                     except Exception:
