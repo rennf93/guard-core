@@ -3,6 +3,19 @@ import re
 from collections import Counter
 from typing import Any
 
+_BINARY_CONTENT_RATIO_THRESHOLD = 0.2
+
+
+def looks_like_binary_content(content: str) -> bool:
+    if not content:
+        return False
+    non_text_count = sum(
+        1
+        for ch in content
+        if ch not in "\t\r\n" and (not ch.isprintable() or ch == "�")
+    )
+    return non_text_count / len(content) >= _BINARY_CONTENT_RATIO_THRESHOLD
+
 
 class SemanticAnalyzer:
     def __init__(self) -> None:
@@ -198,6 +211,9 @@ class SemanticAnalyzer:
         return probabilities
 
     def detect_obfuscation(self, content: str) -> bool:
+        if looks_like_binary_content(content):
+            return False
+
         if self.calculate_entropy(content) > 4.5:
             return True
 

@@ -588,6 +588,22 @@ async def test_semantic_threat_suspicious_fallback(
 
 
 @pytest.mark.asyncio
+async def test_semantic_analysis_skipped_for_binary_content(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    manager = sus_patterns_manager_with_detection
+
+    with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
+        binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+
+        result = await manager.detect(binary_blob, "127.0.0.1", "test_binary")
+
+        mock_analyze.assert_not_called()
+        semantic_threats = [t for t in result["threats"] if t["type"] == "semantic"]
+        assert semantic_threats == []
+
+
+@pytest.mark.asyncio
 async def test_legacy_detect_semantic_threat(
     sus_patterns_manager_with_detection: SusPatternsManager,
 ) -> None:

@@ -558,6 +558,50 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "file_upload_exe_extension", "file_upload", 'filename="installer.exe"'
     ),
     MaliciousCase(
+        "file_upload_double_extension_php_jpg",
+        "file_upload",
+        'filename="shell.php.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_double_extension_asp_png",
+        "file_upload",
+        'filename="malware.asp.png"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_percent_encoded",
+        "file_upload",
+        'filename="shell.php%00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_raw_0x00",
+        "file_upload",
+        'filename="shell.php\x00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_short_escape",
+        "file_upload",
+        'filename="shell.php\\0.jpg"',
+    ),
+    MaliciousCase("file_upload_pht_extension", "file_upload", 'filename="shell.pht"'),
+    MaliciousCase(
+        "file_upload_double_extension_pht_jpg",
+        "file_upload",
+        'filename="shell.pht.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_jspx_extension", "file_upload", 'filename="webshell.jspx"'
+    ),
+    MaliciousCase(
+        "file_upload_shtml_extension", "file_upload", 'filename="shell.shtml"'
+    ),
+    MaliciousCase("file_upload_ashx_extension", "file_upload", 'filename="shell.ashx"'),
+    MaliciousCase("file_upload_asa_extension", "file_upload", 'filename="shell.asa"'),
+    MaliciousCase("file_upload_asax_extension", "file_upload", 'filename="shell.asax"'),
+    MaliciousCase("file_upload_ascx_extension", "file_upload", 'filename="shell.ascx"'),
+    MaliciousCase("file_upload_cfm_extension", "file_upload", 'filename="shell.cfm"'),
+    MaliciousCase("file_upload_cfc_extension", "file_upload", 'filename="shell.cfc"'),
+    MaliciousCase("file_upload_war_extension", "file_upload", 'filename="shell.war"'),
+    MaliciousCase(
         "template_double_curly_system",
         "template",
         "{{ config.__class__.__init__.__globals__.os.system }}",
@@ -2362,7 +2406,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "deserialization": 12,
     "dir_traversal": 8,
     "file_inclusion": 8,
-    "file_upload": 6,
+    "file_upload": 22,
     "http_split": 4,
     "ldap": 12,
     "nosql": 10,
@@ -2376,7 +2420,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 256
+BASELINE_MALICIOUS_DETECTED_TOTAL = 272
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

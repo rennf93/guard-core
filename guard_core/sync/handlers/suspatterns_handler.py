@@ -4,7 +4,7 @@ import ipaddress
 import logging
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from typing import Any, NamedTuple
 
@@ -13,6 +13,7 @@ from guard_core.sync.detection_engine import (
     PatternCompiler,
     PerformanceMonitor,
     SemanticAnalyzer,
+    looks_like_binary_content,
 )
 from guard_core.sync.detection_engine.compiler import (
     report_scan_success,
@@ -135,8 +136,26 @@ _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 _LDAP_WILDCARD_CHAIN_RE = r"\*\)\(+\s*[a-zA-Z][\w-]*\s*="
 _LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
 
+_LDAP_PAREN_CONJUNCTION_RE = r"\(\s*[&|]\s*"
+_LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE = re.compile(
+    r"\A\s*(?:[!(]|\*|[A-Za-z][\w-]*\s*[=~<>])"
+)
+_LDAP_PAREN_CONJUNCTION_LOOKAHEAD_CHARS = 40
+
+_LDAP_WILDCARD_ATTR_RE = r"[ \t0-9A-Za-z_]{1,32}"
+_LDAP_WILDCARD_EQUALS_RE = (
+    rf"\*(?:{_LDAP_WILDCARD_ATTR_RE}\s*=|=\s*{_LDAP_WILDCARD_ATTR_RE})"
+)
+
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
+
+_FILE_INCLUSION_HOST_LABEL_RE = r"[0-9a-zA-Z](?:[-\w]*[0-9a-zA-Z])?"
+_FILE_INCLUSION_BARE_HOST_RE = (
+    rf"(?:(?<!:)\/\/{_FILE_INCLUSION_HOST_LABEL_RE}"
+    rf"(?:\.{_FILE_INCLUSION_HOST_LABEL_RE})+(:[0-9]+)?(?:\/?)(?:"
+    r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)"
+)
 
 _LDAP_NULL_BYTE_ATTR_RE = r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+%00"
 _LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+%00"
@@ -183,6 +202,107 @@ _PICKLE_IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
 _PICKLE_DOTTED_MODULE_RE = rf"{_PICKLE_IDENT_RE}(?:\.{_PICKLE_IDENT_RE})*"
 _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE = (
     rf"(?:^|\n)c{_PICKLE_DOTTED_MODULE_RE}\n{_PICKLE_IDENT_RE}\n[^ \t]{{0,100}}?[Rb]\."
+)
+
+_FILE_UPLOAD_DANGEROUS_EXTENSIONS = frozenset(
+    {
+        "phar",
+        "phtml",
+        "pht",
+        "exe",
+        "jsp",
+        "jspx",
+        "aspx",
+        "asp",
+        "asa",
+        "asax",
+        "ascx",
+        "ashx",
+        "asmx",
+        "cer",
+        "phps",
+        "shtml",
+        "cfm",
+        "cfc",
+        "war",
+        "bash",
+        "sh",
+        "rb",
+        "py",
+        "pl",
+        "cgi",
+        "com",
+        "bat",
+        "cmd",
+        "vbs",
+        "vbe",
+        "js",
+        "ws",
+        "wsf",
+        "msi",
+        "hta",
+    }
+)
+_FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION = r"php\d*|" + "|".join(
+    re.escape(ext)
+    for ext in sorted(_FILE_UPLOAD_DANGEROUS_EXTENSIONS, key=lambda c: (-len(c), c))
+)
+_FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS = _FILE_UPLOAD_DANGEROUS_EXTENSIONS - frozenset(
+    {"com"}
+)
+_FILE_UPLOAD_DOUBLE_EXT_ALTERNATION = r"php\d*|" + "|".join(
+    re.escape(ext)
+    for ext in sorted(_FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS, key=lambda c: (-len(c), c))
+)
+_FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS = frozenset(
+    {
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "bmp",
+        "webp",
+        "svg",
+        "ico",
+        "tif",
+        "tiff",
+        "pdf",
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "ppt",
+        "pptx",
+        "odt",
+        "mp3",
+        "mp4",
+        "avi",
+        "mov",
+        "wav",
+        "webm",
+        "mkv",
+    }
+)
+_FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION = "|".join(
+    re.escape(ext)
+    for ext in sorted(
+        _FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS, key=lambda c: (-len(c), c)
+    )
+)
+_FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE = r"(?:%00|\\u0000|\\x00|\\0|\x00|[\s;])"
+_FILE_UPLOAD_DOUBLE_EXTENSION_RE = (
+    r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
+    + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
+    + r")(?![A-Za-z0-9])[^\"']{0,255}\.(?:"
+    + _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION
+    + r")[\"']"
+)
+_FILE_UPLOAD_TRUNCATION_RE = (
+    r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
+    + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
+    + r")(?![A-Za-z0-9])(?:"
+    + _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE
+    + r"[^\"']{0,255}|\.)[\"']"
 )
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
@@ -358,6 +478,9 @@ def _backtick_pair_context_window(content: str, start: int, end: int) -> str:
     return content[window_start:window_end]
 
 
+_SHELL_TEXT_PRINTABLE_ASCII_RE = re.compile(r"\A[\t\x20-\x7e]*\Z")
+
+
 def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
     if _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE.search(token):
         return True
@@ -378,6 +501,8 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
     content = match.string
     start, end = match.start(), match.end()
     token = content[start + 1 : end - 1]
+    if not _SHELL_TEXT_PRINTABLE_ASCII_RE.match(token):
+        return False
     if _BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE.search(token):
         return True
     if not _backtick_pair_glued(content, start, end):
@@ -544,6 +669,12 @@ def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
     return _LDAP_ATTR_BEFORE_WILDCARD_RE.search(prefix) is None
 
 
+def _ldap_paren_conjunction_is_injection(match: re.Match) -> bool:
+    lookahead_end = match.end() + _LDAP_PAREN_CONJUNCTION_LOOKAHEAD_CHARS
+    tail = match.string[match.end() : lookahead_end]
+    return bool(_LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE.match(tail))
+
+
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
     category: 1.0 for category in ALL_DETECTION_CATEGORIES
 }
@@ -595,6 +726,28 @@ def _pattern_should_be_skipped(
     )
 
 
+_CANDIDATE_REJECTION_VALIDATORS: tuple[
+    tuple[str, Callable[[re.Match, str], bool]], ...
+] = (
+    (_LEGACY_IPV4_HOST_RE, lambda m, _c: _legacy_ipv4_match_is_blocked(m)),
+    (_LDAP_WILDCARD_CHAIN_RE, lambda m, _c: _ldap_wildcard_chain_is_injection(m)),
+    (
+        _LDAP_PAREN_CONJUNCTION_RE,
+        lambda m, _c: _ldap_paren_conjunction_is_injection(m),
+    ),
+    (_GLUED_BACKTICK_CANDIDATE_RE, _glued_backtick_pair_is_injection),
+    (_GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE, _dollar_substitution_pair_is_injection),
+    (
+        _QUOTE_SPLICE_CANDIDATE_RE,
+        lambda m, _c: _quote_splice_token_is_dangerous_command(m),
+    ),
+    (
+        _GLOB_WILDCARD_TOKEN_RE,
+        lambda m, _c: _glob_wildcard_token_is_dangerous_command(m),
+    ),
+)
+
+
 def _build_regex_threat(
     pattern: re.Pattern,
     match: re.Match,
@@ -602,35 +755,9 @@ def _build_regex_threat(
     pattern_start: float,
     context: str = "unknown",
 ) -> dict[str, Any] | None:
-    if pattern.pattern == _LEGACY_IPV4_HOST_RE and not _legacy_ipv4_match_is_blocked(
-        match
-    ):
-        return None
-    if (
-        pattern.pattern == _LDAP_WILDCARD_CHAIN_RE
-        and not _ldap_wildcard_chain_is_injection(match)
-    ):
-        return None
-    if (
-        pattern.pattern == _GLUED_BACKTICK_CANDIDATE_RE
-        and not _glued_backtick_pair_is_injection(match, context)
-    ):
-        return None
-    if (
-        pattern.pattern == _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE
-        and not _dollar_substitution_pair_is_injection(match, context)
-    ):
-        return None
-    if (
-        pattern.pattern == _QUOTE_SPLICE_CANDIDATE_RE
-        and not _quote_splice_token_is_dangerous_command(match)
-    ):
-        return None
-    if (
-        pattern.pattern == _GLOB_WILDCARD_TOKEN_RE
-        and not _glob_wildcard_token_is_dangerous_command(match)
-    ):
-        return None
+    for candidate, is_valid_threat in _CANDIDATE_REJECTION_VALIDATORS:
+        if pattern.pattern == candidate and not is_valid_threat(match, context):
+            return None
     return {
         "type": "regex",
         "pattern": pattern.pattern,
@@ -865,8 +992,7 @@ class SusPatternsManager:
             "file_inclusion",
         ),
         (
-            r"(?:(?<!:)\/\/[0-9a-zA-Z]([-.\w]*[0-9a-zA-Z])*(:[0-9]+)?(?:\/?)(?:"
-            r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)",
+            _FILE_INCLUSION_BARE_HOST_RE,
             _CTX_FILE_INCLUSION,
             "file_inclusion",
         ),
@@ -877,8 +1003,8 @@ class SusPatternsManager:
             "file_inclusion",
         ),
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
-        (r"(?:\*(?:[\s\d\w]+\s*=|=\s*[\d\w\s]+))", _CTX_LDAP, "ldap"),
-        (r"(?:\(\s*[&|]\s*)", _CTX_LDAP, "ldap"),
+        (_LDAP_WILDCARD_EQUALS_RE, _CTX_LDAP, "ldap"),
+        (_LDAP_PAREN_CONJUNCTION_RE, _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_ATTR_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_BARE_RE, _CTX_LDAP, "ldap"),
@@ -922,8 +1048,19 @@ class SusPatternsManager:
             "nosql",
         ),
         (
-            r"(?i)filename=[\"'].*?\.(?:php\d*|phar|phtml|exe|jsp|asp|aspx|sh|"
-            r"bash|rb|py|pl|cgi|com|bat|cmd|vbs|vbe|js|ws|wsf|msi|hta)[\"\']",
+            r"(?i)filename=[\"'].*?\.(?:"
+            + _FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION
+            + r")[\"\']",
+            _CTX_FILE_UPLOAD,
+            "file_upload",
+        ),
+        (
+            _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+            _CTX_FILE_UPLOAD,
+            "file_upload",
+        ),
+        (
+            _FILE_UPLOAD_TRUNCATION_RE,
             _CTX_FILE_UPLOAD,
             "file_upload",
         ),
@@ -1544,11 +1681,20 @@ class SusPatternsManager:
         return threats, matched_patterns, timeouts
 
     def _check_semantic_threats(
-        self, content: str, *, state: _DetectionState | None = None
+        self,
+        content: str,
+        *,
+        state: _DetectionState | None = None,
+        raw_content: str | None = None,
     ) -> tuple[list[dict], float]:
         state = self._resolve_state(state)
         semantic_analyzer = state.semantic_analyzer
         if not semantic_analyzer:
+            return [], 0.0
+
+        if looks_like_binary_content(
+            raw_content if raw_content is not None else content
+        ):
             return [], 0.0
 
         semantic_threshold = state.semantic_threshold
@@ -1653,7 +1799,7 @@ class SusPatternsManager:
         timeouts = timeouts + raw_timeouts
 
         semantic_threats, semantic_score = self._check_semantic_threats(
-            processed_content, state=state
+            processed_content, state=state, raw_content=original_content
         )
 
         threats = regex_threats + semantic_threats

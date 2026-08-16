@@ -4,7 +4,31 @@ import re
 import string
 from unittest.mock import MagicMock, patch
 
-from guard_core.detection_engine.semantic import SemanticAnalyzer
+from guard_core.detection_engine.semantic import (
+    SemanticAnalyzer,
+    looks_like_binary_content,
+)
+
+
+def test_looks_like_binary_content_true_for_random_bytes() -> None:
+    binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+    assert looks_like_binary_content(binary_blob) is True
+
+
+def test_looks_like_binary_content_false_for_plain_text() -> None:
+    assert looks_like_binary_content("hello world, this is normal text") is False
+
+
+def test_looks_like_binary_content_false_for_empty_string() -> None:
+    assert looks_like_binary_content("") is False
+
+
+def test_detect_obfuscation_skips_high_entropy_check_for_binary_content() -> None:
+    analyzer = SemanticAnalyzer()
+    binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+
+    assert looks_like_binary_content(binary_blob) is True
+    assert analyzer.detect_obfuscation(binary_blob) is False
 
 
 def test_initialization() -> None:

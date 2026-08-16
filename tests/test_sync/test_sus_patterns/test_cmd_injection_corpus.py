@@ -806,6 +806,27 @@ def test_punctuation_glued_query_string_backtick_not_flagged(
     assert result["is_threat"] is False
 
 
+GLUED_BACKTICK_NON_ASCII_TOKEN_NOT_FLAGGED = [
+    pytest.param("x`café /etc/passwd`", id="glued_backtick_accented_word_and_path"),
+    pytest.param(
+        "x`file�name /etc/passwd`", id="glued_backtick_replacement_char_and_path"
+    ),
+    pytest.param("x`日本語 /etc/passwd`", id="glued_backtick_cjk_word_and_path"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_BACKTICK_NON_ASCII_TOKEN_NOT_FLAGGED)
+def test_glued_backtick_non_printable_ascii_token_not_flagged(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert not any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
 UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS = [
     pytest.param("$(whoami)", id="dollar_paren_bare_whoami"),
     pytest.param("$(cat /etc/passwd)", id="dollar_paren_bare_cat_passwd"),

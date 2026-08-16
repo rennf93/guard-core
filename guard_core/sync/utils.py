@@ -1149,7 +1149,7 @@ def _scan_form_body(
 
 def _multipart_text_parts(
     raw_body: str, content_type: str
-) -> list[tuple[str, str]] | None:
+) -> list[tuple[str | None, str, str]] | None:
     from email.parser import Parser
     from email.policy import compat32
 
@@ -1157,15 +1157,20 @@ def _multipart_text_parts(
     message = Parser(policy=compat32).parsestr(header + raw_body)
     if not message.is_multipart():
         return None
-    parts: list[tuple[str, str]] = []
+    parts: list[tuple[str | None, str, str]] = []
     for part in message.walk():
-        if part.is_multipart() or part.get_filename():
+        if part.is_multipart():
             continue
         name = part.get_param("name", header="content-disposition")
+        filename = part.get_filename()
+        exclusion_key = str(name) if name is not None else None
+        label = exclusion_key if exclusion_key is not None else "file"
+        if filename is not None:
+            sanitized_filename = filename.replace('"', "").replace("'", "")
+            parts.append((exclusion_key, label, f'filename="{sanitized_filename}"'))
         payload = part.get_payload(decode=False)
-        if name is None or not isinstance(payload, str):
-            continue
-        parts.append((str(name), payload))
+        if isinstance(payload, str):
+            parts.append((exclusion_key, label, payload))
     return parts
 
 
@@ -1183,22 +1188,22 @@ def _scan_multipart_body(
         return _scan_blob_body(
             raw_body, enabled_categories, client_ip, correlation_id, log_level
         )
-    for name, value in parts:
-        if name.lower() in excluded_body_fields:
+    for exclusion_key, label, value in parts:
+        if exclusion_key is not None and exclusion_key.lower() in excluded_body_fields:
             continue
         name_hit = _scan_component_name(
-            name,
+            label,
             "request_body",
-            f"multipart field name '{name}'",
+            f"multipart field name '{label}'",
             enabled_categories,
             client_ip,
             correlation_id,
             log_level,
         )
         if name_hit[0]:
-            return True, f"Multipart field name '{name}': {name_hit[1]}", name_hit[2]
+            return True, f"Multipart field name '{label}': {name_hit[1]}", name_hit[2]
         hit = _scan_body_field(
-            value, name, enabled_categories, client_ip, correlation_id, log_level
+            value, label, enabled_categories, client_ip, correlation_id, log_level
         )
         if hit[0]:
             return hit
