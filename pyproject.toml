@@ -172,10 +172,6 @@ module = "logfire"
 follow_imports = "skip"
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = "testcontainers.*"
-ignore_missing_imports = true
-
 [tool.pymarkdown.system]
 exclude_path = ".venv,.git,.github,data,tests,.claude,CLAUDE.md,.cursor,.kiro,ZZZ"
 
