@@ -317,6 +317,12 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _SQLI_COMMENT_TERMINATOR_RE,
         _PATH_TRAVERSAL_ENCODED_DOT_RE,
         _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
+        _SSTI_HASH_BRACE_SHAPE_RE,
+    }
+)
+
+DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
+    {
         _DIR_TRAVERSAL_ETC_SENSITIVE_RE,
         _DIR_TRAVERSAL_WINDOWS_INI_RE,
         _DIR_TRAVERSAL_PROC_ENVIRON_RE,
@@ -702,12 +708,21 @@ def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
 
 
 def _pattern_excluded_from_view(
-    pattern: re.Pattern, raw_view_only: bool | None
+    pattern: re.Pattern,
+    raw_view_only: bool | None,
+    url_decoded_view_only: bool | None = None,
 ) -> bool:
     is_raw_view_pattern = pattern.pattern in DETECTION_RAW_VIEW_PATTERN_SOURCES
-    return (
-        raw_view_only is not is_raw_view_pattern if raw_view_only is not None else False
+    is_url_decoded_view_pattern = (
+        pattern.pattern in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
     )
+    if raw_view_only is True:
+        return is_url_decoded_view_pattern or not is_raw_view_pattern
+    if url_decoded_view_only is True:
+        return is_raw_view_pattern or not is_url_decoded_view_pattern
+    if raw_view_only is False:
+        return is_raw_view_pattern or is_url_decoded_view_pattern
+    return False
 
 
 def _pattern_should_be_skipped(
@@ -719,8 +734,9 @@ def _pattern_should_be_skipped(
     skip_filter: bool,
     normalized_context: str,
     enabled_categories: set[str] | None,
+    url_decoded_view_only: bool | None = None,
 ) -> bool:
-    if _pattern_excluded_from_view(pattern, raw_view_only):
+    if _pattern_excluded_from_view(pattern, raw_view_only, url_decoded_view_only):
         return True
     if not skip_filter and normalized_context not in contexts:
         return True
@@ -1622,6 +1638,7 @@ class SusPatternsManager:
         *,
         state: _DetectionState | None = None,
         raw_view_only: bool | None = None,
+        url_decoded_view_only: bool | None = None,
     ) -> tuple[list[dict], list[str], list[str]]:
         state = self._resolve_state(state)
         threats = []
@@ -1642,6 +1659,7 @@ class SusPatternsManager:
                 skip_filter=skip_filter,
                 normalized_context=normalized,
                 enabled_categories=enabled_categories,
+                url_decoded_view_only=url_decoded_view_only,
             ):
                 continue
 
@@ -1803,6 +1821,32 @@ class SusPatternsManager:
             ),
         }
 
+    async def _check_url_decoded_view_patterns(
+        self,
+        content: str,
+        ip_address: str,
+        context: str,
+        correlation_id: str | None,
+        enabled_categories: set[str] | None,
+        state: _DetectionState,
+    ) -> tuple[list[dict], list[str], list[str]]:
+        preprocessor = state.preprocessor
+        if not preprocessor:
+            return [], [], []
+
+        url_decoded_view_content = (
+            await preprocessor.preprocess_url_decoded_newline_preserving(content)
+        )
+        return await self._check_regex_patterns(
+            url_decoded_view_content,
+            ip_address,
+            correlation_id,
+            context,
+            enabled_categories,
+            state=state,
+            url_decoded_view_only=True,
+        )
+
     async def detect(
         self,
         content: str,
@@ -1842,6 +1886,17 @@ class SusPatternsManager:
         if decoded_view_threat:
             regex_threats = regex_threats + [decoded_view_threat]
             matched_patterns = matched_patterns + [decoded_view_threat["pattern"]]
+
+        (
+            url_decoded_threats,
+            url_decoded_matched,
+            url_decoded_timeouts,
+        ) = await self._check_url_decoded_view_patterns(
+            content, ip_address, context, correlation_id, enabled_categories, state
+        )
+        regex_threats = regex_threats + url_decoded_threats
+        matched_patterns = matched_patterns + url_decoded_matched
+        timeouts = timeouts + url_decoded_timeouts
 
         semantic_threats, semantic_score = await self._check_semantic_threats(
             processed_content, state=state, raw_content=original_content

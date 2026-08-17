@@ -506,5 +506,13 @@ class ContentPreprocessor:
         content = self.normalize_unicode(content)
         return self.truncate_safely(content)
 
+    async def preprocess_url_decoded_newline_preserving(self, content: str) -> str:
+        if not content:
+            return ""
+
+        content = self.normalize_unicode(content)
+        content = await self.decode_common_encodings(content)
+        return self.truncate_safely(content)
+
     async def preprocess_batch(self, contents: list[str]) -> list[str]:
         return [await self.preprocess(content) for content in contents]
