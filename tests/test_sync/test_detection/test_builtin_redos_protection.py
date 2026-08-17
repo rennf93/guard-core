@@ -17,7 +17,7 @@ def _child_detect(
     manager = SusPatternsManager()
     manager.configure(config)
     t0 = time.monotonic()
-    result = asyncio.run(manager.detect(payload, "127.0.0.1", context="request_body"))
+    result = manager.detect(payload, "127.0.0.1", context="request_body")
     elapsed = time.monotonic() - t0
     q.put(
         {

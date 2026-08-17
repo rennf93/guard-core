@@ -120,7 +120,9 @@ async def test_builtin_category_uses_safe_finditer_matcher(
         calls.append(pattern)
         return real(pattern, timeout)
 
-    monkeypatch.setattr(fresh_manager._compiler, "create_safe_finditer_matcher", _tracking)
+    monkeypatch.setattr(
+        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+    )
     pattern = re.compile(r"<script", re.IGNORECASE)
 
     threat, timed_out = await fresh_manager._check_regex_pattern(
@@ -142,7 +144,9 @@ async def test_custom_category_uses_safe_finditer_matcher(
         calls.append(pattern)
         return real(pattern, timeout)
 
-    monkeypatch.setattr(fresh_manager._compiler, "create_safe_finditer_matcher", _tracking)
+    monkeypatch.setattr(
+        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+    )
     pattern = re.compile(r"evil")
 
     threat, _ = await fresh_manager._check_regex_pattern(

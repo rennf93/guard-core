@@ -1518,10 +1518,7 @@ class SusPatternsManager:
             safe_finder = compiler.create_safe_finditer_matcher(pattern)
             matches = safe_finder(content)
             timeout_threshold = 0.9 * compiler.default_timeout
-            if (
-                not matches
-                and time.monotonic() - pattern_start >= timeout_threshold
-            ):
+            if not matches and time.monotonic() - pattern_start >= timeout_threshold:
                 timeout_occurred = True
                 logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
 
