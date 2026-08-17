@@ -149,7 +149,7 @@ _LDAP_WILDCARD_EQUALS_RE = (
 )
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
-_SINGLE_LINE_SUFFIX_RE = r"\s*\Z"
+_SINGLE_LINE_SUFFIX_RE = r"(?:[&#;,\"'<>]|\s*\Z)"
 
 _FILE_INCLUSION_HOST_LABEL_RE = r"[0-9a-zA-Z](?:[-\w]*[0-9a-zA-Z])?"
 _FILE_INCLUSION_BARE_HOST_RE = (

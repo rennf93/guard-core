@@ -118,6 +118,42 @@ def test_benign_body_not_detected() -> None:
     _assert_body_does_not_fire("hello world")
 
 
+def test_etc_passwd_form_urlencoded_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal("p=/etc/passwd&bar=1")
+
+
+def test_etc_passwd_path_info_matrix_trailing_fires() -> None:
+    _assert_body_fires_dir_traversal("/etc/passwd;x=1")
+
+
+def test_etc_passwd_json_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal('{"p":"/etc/passwd&bar=1"}')
+
+
+def test_etc_passwd_xml_trailing_sibling_fires() -> None:
+    _assert_body_fires_dir_traversal("<doc><p>/etc/passwd</p><x>1</x></doc>")
+
+
+def test_etc_passwd_url_encoded_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal("%2fetc%2fpasswd&bar=1")
+
+
+def test_proc_environ_form_urlencoded_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal("p=/proc/self/environ&x=1")
+
+
+def test_windows_ini_form_urlencoded_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal("p=boot.ini&x=1")
+
+
+def test_var_log_form_urlencoded_trailing_field_fires() -> None:
+    _assert_body_fires_dir_traversal("p=var/log/auth.log&x=1")
+
+
+def test_etc_passwd_prose_with_trailing_words_not_detected() -> None:
+    _assert_body_does_not_fire("the file was /etc/passwd and more")
+
+
 def test_enhanced_mode_is_active_for_dir_traversal_bodies() -> None:
     result = sus_patterns_handler.detect(
         content="%2fetc%2fpasswd",
