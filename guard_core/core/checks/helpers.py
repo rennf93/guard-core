@@ -122,18 +122,18 @@ async def check_user_agent_allowed(
     return await global_user_agent_check(user_agent, config)
 
 
-def validate_auth_header(auth_header: str, auth_type: str) -> tuple[bool, str]:
+def extract_credential(auth_header: str, auth_type: str) -> tuple[str | None, str]:
     if auth_type == "bearer":
         if not auth_header.startswith("Bearer "):
-            return False, "Missing or invalid Bearer token"
-    elif auth_type == "basic":
+            return None, "Missing or invalid Bearer token"
+        return auth_header[len("Bearer ") :], ""
+    if auth_type == "basic":
         if not auth_header.startswith("Basic "):
-            return False, "Missing or invalid Basic authentication"
-    else:
-        if not auth_header:
-            return False, f"Missing {auth_type} authentication"
-
-    return True, ""
+            return None, "Missing or invalid Basic authentication"
+        return auth_header[len("Basic ") :], ""
+    if not auth_header:
+        return None, f"Missing {auth_type} authentication"
+    return auth_header, ""
 
 
 def is_referrer_domain_allowed(referrer: str, allowed_domains: list[str]) -> bool:
