@@ -170,7 +170,7 @@ _PATH_TRAVERSAL_ENCODED_DOT_RE = (
     r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
     r"%e0%80%ae|%25c0%25ae)/"
 )
-_PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[/\\]"
+_PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[^/\\]*[/\\]"
 _PATH_TRAVERSAL_DECODED_SHAPE_RE = re.compile(r"\.\.[\\/]")
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
     r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
@@ -328,6 +328,7 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DESERIALIZATION_RUBY_B64_RE,
         _DESERIALIZATION_PICKLE_OS_GLOBAL_RE,
         _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
+        _FILE_UPLOAD_TRUNCATION_RE,
     }
 )
 

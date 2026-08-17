@@ -9,6 +9,8 @@ from guard_core.handlers.suspatterns_handler import (
     SusPatternsManager,
 )
 from guard_core.models import SecurityConfig
+from guard_core.utils import detect_penetration_attempt
+from tests.conftest import MockGuardRequest
 
 _NEW_PATTERN_SOURCES = {
     _PATH_TRAVERSAL_DECODED_SHAPE_RE.pattern,
@@ -58,6 +60,9 @@ EVADING_SHAPES = [
     pytest.param(".%2e/", id="partial_encoded_dot_leading_literal"),
     pytest.param("%2e./", id="partial_encoded_dot_trailing_literal"),
     pytest.param("..;/", id="semicolon_path_parameter_bypass"),
+    pytest.param("..;foo/..;foo/config.yaml", id="named_matrix_semicolon_bypass"),
+    pytest.param("..;a=b/..;a=b/secret", id="named_matrix_assignment_semicolon_bypass"),
+    pytest.param("..;x/..;y/private/key", id="named_matrix_chained_semicolon_bypass"),
     pytest.param("..%c0%2f", id="overlong_utf8_lead_byte_plus_literal_encoded_slash"),
     pytest.param("..%25%32%66", id="fully_double_encoded_slash_per_hex_digit"),
     pytest.param("..%00/", id="null_byte_before_literal_slash"),
@@ -246,3 +251,45 @@ async def test_decoded_view_check_runs_when_category_explicitly_enabled(
         if threat["type"] == "regex" and threat["pattern"] in _NEW_PATTERN_SOURCES
     ]
     assert threats
+
+
+NAMED_MATRIX_SEMICOLON_PATHS = [
+    pytest.param("..;foo/..;foo/config.yaml", id="named_matrix_foo"),
+    pytest.param("..;a=b/..;a=b/secret", id="named_matrix_assignment"),
+    pytest.param("..;x/..;y/private/key", id="named_matrix_chained"),
+]
+
+
+@pytest.mark.parametrize("path", NAMED_MATRIX_SEMICOLON_PATHS)
+async def test_named_matrix_semicolon_evasion_fires_dir_traversal_through_entry_point(
+    path: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        request = MockGuardRequest(path=path, method="GET")
+        result = await detect_penetration_attempt(request, SecurityConfig())
+        assert result.is_threat is True
+        assert "dir_traversal" in result.threat_categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_empty_matrix_semicolon_evasion_still_fires_through_entry_point() -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        request = MockGuardRequest(path="..;/..;/etc/passwd", method="GET")
+        result = await detect_penetration_attempt(request, SecurityConfig())
+        assert result.is_threat is True
+        assert "dir_traversal" in result.threat_categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
