@@ -347,6 +347,63 @@ def test_create_safe_finditer_matcher_uses_default_timeout() -> None:
     assert len(matcher("hello there hello")) == 2
 
 
+def test_create_safe_matcher_inline_safe(compiler: PatternCompiler) -> None:
+    matcher = compiler.create_safe_matcher(r"hello", inline_safe=True)
+
+    match = matcher("hello world")
+    assert match is not None
+    assert match.group() == "hello"
+
+    assert matcher("goodbye") is None
+
+
+def test_create_safe_finditer_matcher_inline_safe(compiler: PatternCompiler) -> None:
+    matcher = compiler.create_safe_finditer_matcher(r"cat", inline_safe=True)
+
+    matches = matcher("cat cat cat")
+    assert len(matches) == 3
+    assert [m.group() for m in matches] == ["cat", "cat", "cat"]
+
+    assert matcher("nothing") == []
+
+
+def test_create_async_safe_finditer_matcher_inline_safe(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_async_safe_finditer_matcher(r"dog", inline_safe=True)
+
+    matches = matcher("dog dog")
+    assert len(matches) == 2
+    assert [m.group() for m in matches] == ["dog", "dog"]
+
+    assert matcher("nothing") == []
+
+
+def test_create_async_safe_finditer_matcher_pool_timeout(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_async_safe_finditer_matcher(r"(a+)+$", timeout=0.05)
+
+    with patch(
+        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+    ) as mock_executor:
+        mock_future = MagicMock()
+        mock_future.result.side_effect = concurrent.futures.TimeoutError()
+        mock_executor.return_value.submit.return_value = mock_future
+
+        assert matcher("a" * 24 + "b") == []
+
+
+def test_create_async_safe_finditer_matcher_pool_success(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_async_safe_finditer_matcher(r"hello")
+
+    matches = matcher("hello world hello")
+    assert len(matches) == 2
+    assert [m.group() for m in matches] == ["hello", "hello"]
+
+
 def test_batch_compile(compiler: PatternCompiler) -> None:
     patterns = [
         r"pattern1\d+",

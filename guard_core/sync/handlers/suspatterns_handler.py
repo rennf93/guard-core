@@ -1514,7 +1514,9 @@ class SusPatternsManager:
         compiler = state.compiler
 
         if compiler:
-            safe_finder = compiler.create_safe_finditer_matcher(pattern)
+            safe_finder = compiler.create_async_safe_finditer_matcher(
+                pattern, inline_safe=True
+            )
             matches = safe_finder(content)
             timeout_threshold = 0.9 * compiler.default_timeout
             if not matches and time.monotonic() - pattern_start >= timeout_threshold:

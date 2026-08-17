@@ -40,6 +40,7 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_detection" / "test_builtin_redos_protection.py",
     TEST_SYNC_DIR / "test_core" / "test_suspicious_counts_concurrency.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_azure_redirect_real_sockets.py",
+    TEST_SYNC_DIR / "test_sus_patterns" / "test_concurrent_redos_throughput.py",
     TEST_SYNC_DIR / "test_utils" / "test_bounded_thread_body_read.py",
 }
 

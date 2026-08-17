@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger("guard_core.detection_engine.compiler")
 
@@ -265,7 +265,10 @@ class PatternCompiler:
         return True, "Pattern appears safe"
 
     def create_safe_matcher(
-        self, pattern: str | re.Pattern, timeout: float | None = None
+        self,
+        pattern: str | re.Pattern,
+        timeout: float | None = None,
+        inline_safe: bool = False,
     ) -> Callable[[str], re.Match | None]:
         compiled = (
             pattern
@@ -273,6 +276,13 @@ class PatternCompiler:
             else self.compile_pattern_sync(pattern)
         )
         match_timeout = timeout or self.default_timeout
+
+        if inline_safe:
+
+            def inline_safe_match(text: str) -> re.Match | None:
+                return compiled.search(text)
+
+            return inline_safe_match
 
         def safe_match(text: str) -> re.Match | None:
             future = shared_regex_executor().submit(compiled.search, text)
@@ -290,7 +300,10 @@ class PatternCompiler:
         return safe_match
 
     def create_safe_finditer_matcher(
-        self, pattern: str | re.Pattern, timeout: float | None = None
+        self,
+        pattern: str | re.Pattern,
+        timeout: float | None = None,
+        inline_safe: bool = False,
     ) -> Callable[[str], list[re.Match]]:
         compiled = (
             pattern
@@ -298,6 +311,13 @@ class PatternCompiler:
             else self.compile_pattern_sync(pattern)
         )
         match_timeout = timeout or self.default_timeout
+
+        if inline_safe:
+
+            def inline_safe_finditer(text: str) -> list[re.Match]:
+                return list(compiled.finditer(text))
+
+            return inline_safe_finditer
 
         def safe_finditer(text: str) -> list[re.Match]:
             future = shared_regex_executor().submit(
@@ -315,6 +335,33 @@ class PatternCompiler:
                 return []
 
         return safe_finditer
+
+    def create_async_safe_finditer_matcher(
+        self,
+        pattern: str | re.Pattern,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> Callable[[str], Awaitable[list[re.Match]]]:
+        compiled = (
+            pattern
+            if isinstance(pattern, re.Pattern)
+            else self.compile_pattern_sync(pattern)
+        )
+        match_timeout = timeout or self.default_timeout
+
+        if inline_safe:
+
+            async def async_inline_finditer(text: str) -> list[re.Match]:
+                return list(compiled.finditer(text))
+
+            return async_inline_finditer
+
+        sync_finder = self.create_safe_finditer_matcher(pattern, timeout=match_timeout)
+
+        async def async_safe_finditer(text: str) -> list[re.Match]:
+            return await asyncio.to_thread(sync_finder, text)
+
+        return async_safe_finditer
 
     async def batch_compile(
         self, patterns: list[str], validate: bool = True

@@ -114,14 +114,20 @@ def test_builtin_category_uses_safe_finditer_matcher(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[Any] = []
-    real = fresh_manager._compiler.create_safe_finditer_matcher
+    real = fresh_manager._compiler.create_async_safe_finditer_matcher
 
-    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
+    def _tracking(
+        pattern: Any,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> Any:
         calls.append(pattern)
-        return real(pattern, timeout)
+        return real(pattern, timeout, inline_safe=inline_safe)
 
     monkeypatch.setattr(
-        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+        fresh_manager._compiler,
+        "create_async_safe_finditer_matcher",
+        _tracking,
     )
     pattern = re.compile(r"<script", re.IGNORECASE)
 
@@ -138,14 +144,20 @@ def test_custom_category_uses_safe_finditer_matcher(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[Any] = []
-    real = fresh_manager._compiler.create_safe_finditer_matcher
+    real = fresh_manager._compiler.create_async_safe_finditer_matcher
 
-    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
+    def _tracking(
+        pattern: Any,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> Any:
         calls.append(pattern)
-        return real(pattern, timeout)
+        return real(pattern, timeout, inline_safe=inline_safe)
 
     monkeypatch.setattr(
-        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+        fresh_manager._compiler,
+        "create_async_safe_finditer_matcher",
+        _tracking,
     )
     pattern = re.compile(r"evil")
 
