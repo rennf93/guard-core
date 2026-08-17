@@ -147,3 +147,77 @@ async def test_benign_photo_filename_in_body_not_flagged(
     manager: SusPatternsManager,
 ) -> None:
     assert await _body_is_threat('filename="vacation.jpg"') is False
+
+
+SPACE_IN_FILENAME_BODIES = [
+    pytest.param('filename="notes.php .txt"', id="notes_php_space_txt"),
+    pytest.param('filename="my report.php .txt"', id="my_report_php_space_txt"),
+]
+
+
+@pytest.mark.parametrize("body", SPACE_IN_FILENAME_BODIES)
+async def test_space_in_filename_is_not_a_truncation_vector(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat(body) is False
+        categories = await _body_categories(body)
+        assert "file_upload" not in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_space_separated_php_jpg_pending_double_extension_fix() -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat('filename="vacation photo.php .jpg"') is True
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+SEMICOLON_TRUNCATION_BODIES = [
+    pytest.param('filename="shell.php;x=1"', id="php_semicolon_path_info"),
+    pytest.param('filename="shell.asp;.jpg"', id="asp_semicolon_path_info"),
+]
+
+
+@pytest.mark.parametrize("body", SEMICOLON_TRUNCATION_BODIES)
+async def test_semicolon_truncation_vector_still_fires(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+        assert await _body_is_threat(body) is True
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_double_encoded_nul_truncation_pending_url_decoded_view() -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat('filename="shell.php%2500.txt"') is False
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config

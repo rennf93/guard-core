@@ -130,11 +130,11 @@ def test_trailing_dot_after_dangerous_extension_is_detected(
     assert threats
 
 
-def test_trailing_space_after_dangerous_extension_is_detected(
+def test_trailing_space_after_dangerous_extension_is_not_a_truncation_vector(
     manager: SusPatternsManager,
 ) -> None:
     threats = _bypass_pattern_threats(manager, 'filename="shell.php "')
-    assert threats
+    assert threats == []
 
 
 def test_semicolon_path_info_trick_is_detected(
