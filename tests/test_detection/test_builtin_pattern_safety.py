@@ -55,6 +55,9 @@ _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
     lambda n: "a" * n,
     lambda n: ("/x<. a" * (n // 6 + 1))[:n],
     lambda n: "SELECT " + " " * n,
+    lambda n: "{{" * (n // 2),
+    lambda n: "{%" * (n // 2),
+    lambda n: "<%" * (n // 2),
 ]
 
 
@@ -254,6 +257,28 @@ def test_every_builtin_passes_the_safety_validator() -> None:
             bad.append((cat, reason, pat))
     assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(
         f"  [{c}] {r} :: {p[:80]}" for c, r, p in bad
+    )
+
+
+def _file_inclusion_url_pattern() -> str:
+    for pat, _c, c in SusPatternsManager._pattern_definitions:
+        if c == "file_inclusion" and r"[-.\w]" in pat:
+            return pat
+    raise AssertionError("file_inclusion URL pattern not found")
+
+
+def test_hostname_fragment_not_catastrophic_with_failing_tail() -> None:
+    pat = _file_inclusion_url_pattern()
+    frag_match = re.search(r"\((?:\?:)?[^()]*[-.\\w][^()]*\)[*?]", pat)
+    assert frag_match is not None, "hostname group not found in URL pattern"
+    fragment = frag_match.group(0)
+    assert not fragment.endswith("*"), (
+        f"hostname group still has outer * (nested unbounded quantifier): {fragment}"
+    )
+    probe = fragment.rstrip("?") + r"$"
+    results = _timed_batch(probe, ["a" * 25 + "!"], timeout=1.0)
+    assert results is not None, (
+        f"hostname fragment timed out with failing tail: {probe}"
     )
 
 

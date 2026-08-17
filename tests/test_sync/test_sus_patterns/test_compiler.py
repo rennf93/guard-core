@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from guard_core.sync.detection_engine.compiler import PatternCompiler
+from guard_core.sync.detection_engine.compiler import (
+    PatternCompiler,
+    _detect_nested_unbounded_quantifier,
+    _strip_escapes_and_char_classes,
+)
 
 
 @pytest.fixture
@@ -152,6 +156,57 @@ def test_validate_pattern_safety_safe_pattern(compiler: PatternCompiler) -> None
         is_safe, reason = compiler.validate_pattern_safety(pattern)
         assert is_safe is True
         assert reason == "Pattern appears safe"
+
+
+def test_validate_pattern_safety_rejects_nested_unbounded_quantifier(
+    compiler: PatternCompiler,
+) -> None:
+    nested_patterns = [
+        r"(X*)*",
+        r"(X+)*",
+        r"(X*|Y)*",
+        r"(?:X*)*",
+        r"(?:X+)*",
+        r"(a{2,})*",
+        r"(a*){2,}",
+    ]
+    for pattern in nested_patterns:
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is False, f"{pattern} was not rejected"
+        assert "nested unbounded quantifier" in reason.lower()
+
+
+def test_validate_pattern_safety_accepts_separator_anchored_groups(
+    compiler: PatternCompiler,
+) -> None:
+    safe_patterns = [
+        r"(?:[/\\][\w.\-~%]*)*",
+        r"(?:[\w.\-~%]+[/\\])*",
+        r"(?:[\w.\-~%]+[/\\][\w.\-~%]*)*",
+        r"(a{2,4})*",
+    ]
+    for pattern in safe_patterns:
+        nested = _detect_nested_unbounded_quantifier(pattern)
+        assert nested is None, f"{pattern} falsely flagged: {nested}"
+
+
+def test_detect_nested_unbounded_quantifier_helper() -> None:
+    assert _detect_nested_unbounded_quantifier(r"(a*)*") is not None
+    assert _detect_nested_unbounded_quantifier(r"(?:X+)*") is not None
+    assert _detect_nested_unbounded_quantifier(r"(a{2,})*") is not None
+    assert _detect_nested_unbounded_quantifier(r"(a*){2,}") is not None
+    assert _detect_nested_unbounded_quantifier(r"(?P<n>a*)*") is None
+    assert _detect_nested_unbounded_quantifier(r"abc") is None
+    assert _detect_nested_unbounded_quantifier(r"(unclosed") is None
+    assert _detect_nested_unbounded_quantifier(r"(a*){2,4}") is None
+    assert _detect_nested_unbounded_quantifier(r"(a*){") is None
+
+
+def test_strip_escapes_and_char_classes_helper() -> None:
+    assert _strip_escapes_and_char_classes(r"a") == "a"
+    assert _strip_escapes_and_char_classes(r"\*") == "X"
+    assert _strip_escapes_and_char_classes(r"[*+]") == "X"
+    assert _strip_escapes_and_char_classes(r"[\[\]]") == "X"
 
 
 def test_validate_pattern_safety_timeout() -> None:

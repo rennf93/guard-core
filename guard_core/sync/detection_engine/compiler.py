@@ -72,6 +72,96 @@ def report_scan_timeout() -> None:
     )
 
 
+def _strip_escapes_and_char_classes(pattern: str) -> str:
+    result: list[str] = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\" and i + 1 < len(pattern):
+            result.append("X")
+            i += 2
+            continue
+        if c == "[":
+            i += 1
+            while i < len(pattern):
+                if pattern[i] == "\\" and i + 1 < len(pattern):
+                    i += 2
+                    continue
+                if pattern[i] == "]":
+                    i += 1
+                    break
+                i += 1
+            result.append("X")
+            continue
+        result.append(c)
+        i += 1
+    return "".join(result)
+
+
+def _branch_is_unbounded_single(branch: str) -> bool:
+    if re.fullmatch(r".[*+]", branch):
+        return True
+    if re.fullmatch(r".\{[0-9]+,\}", branch):
+        return True
+    return False
+
+
+def _find_group_end(stripped: str, start: int) -> int | None:
+    depth = 1
+    j = start + 1
+    while j < len(stripped) and depth > 0:
+        if stripped[j] == "(":
+            depth += 1
+        elif stripped[j] == ")":
+            depth -= 1
+        j += 1
+    if depth != 0:
+        return None
+    return j
+
+
+def _normalize_group_inner(inner: str) -> str | None:
+    if inner.startswith("?:"):
+        return inner[2:]
+    if inner.startswith("?P<") or inner.startswith("?P="):
+        return None
+    return inner
+
+
+def _outer_quantifier_len(stripped: str, k: int) -> int:
+    if k < len(stripped) and stripped[k] in "*+":
+        return 1
+    if k < len(stripped) and stripped[k] == "{":
+        end_brace = stripped.find("}", k)
+        if end_brace != -1:
+            brace_inner = stripped[k + 1 : end_brace]
+            if "," in brace_inner and brace_inner.split(",")[1] == "":
+                return end_brace - k + 1
+    return 0
+
+
+def _detect_nested_unbounded_quantifier(pattern: str) -> str | None:
+    stripped = _strip_escapes_and_char_classes(pattern)
+    i = 0
+    while i < len(stripped):
+        if stripped[i] != "(":
+            i += 1
+            continue
+        j = _find_group_end(stripped, i)
+        if j is None:
+            i += 1
+            continue
+        inner = _normalize_group_inner(stripped[i + 1 : j - 1])
+        if inner is None:
+            i = j
+            continue
+        qlen = _outer_quantifier_len(stripped, j)
+        if qlen > 0 and any(_branch_is_unbounded_single(b) for b in inner.split("|")):
+            return stripped[i : j + qlen]
+        i = j
+    return None
+
+
 class PatternCompiler:
     MAX_CACHE_SIZE = 1000
 
@@ -125,6 +215,10 @@ class PatternCompiler:
         for dangerous in dangerous_patterns:
             if re.search(dangerous, pattern):
                 return False, f"Pattern contains dangerous construct: {dangerous}"
+
+        nested = _detect_nested_unbounded_quantifier(pattern)
+        if nested is not None:
+            return False, f"Pattern contains nested unbounded quantifier: {nested}"
 
         if test_strings is None:
             test_strings = [
