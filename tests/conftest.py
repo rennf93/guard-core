@@ -419,6 +419,11 @@ def pytest_configure(config: pytest.Config) -> None:
     finder = _GuardAgentImportFinder()
     sys.meta_path.insert(0, finder)
     setattr(sys, _GUARD_AGENT_FINDER_ATTR, finder)
+    from guard_core._pydantic_plugin_mute import (
+        _mute_pydantic_plugin_instrumentation,
+    )
+
+    _mute_pydantic_plugin_instrumentation()
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
