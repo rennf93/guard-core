@@ -194,6 +194,33 @@ class PatternCompiler:
 
         return safe_match
 
+    def create_safe_finditer_matcher(
+        self, pattern: str | re.Pattern, timeout: float | None = None
+    ) -> Callable[[str], list[re.Match]]:
+        compiled = (
+            pattern
+            if isinstance(pattern, re.Pattern)
+            else self.compile_pattern_sync(pattern)
+        )
+        match_timeout = timeout or self.default_timeout
+
+        def safe_finditer(text: str) -> list[re.Match]:
+            future = shared_regex_executor().submit(
+                lambda: list(compiled.finditer(text))
+            )
+            try:
+                result = future.result(timeout=match_timeout)
+                report_scan_success()
+                return result
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                report_scan_timeout()
+                return []
+            except Exception:
+                return []
+
+        return safe_finditer
+
     def batch_compile(
         self, patterns: list[str], validate: bool = True
     ) -> dict[str, re.Pattern]:

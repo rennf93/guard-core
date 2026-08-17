@@ -228,6 +228,66 @@ def test_create_safe_matcher_with_exception(compiler: PatternCompiler) -> None:
         assert result is None
 
 
+def test_create_safe_finditer_matcher_returns_all_matches(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_safe_finditer_matcher(r"cat")
+
+    matches = matcher("cat cat cat")
+
+    assert len(matches) == 3
+    assert [m.group() for m in matches] == ["cat", "cat", "cat"]
+
+
+def test_create_safe_finditer_matcher_no_match_returns_empty(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_safe_finditer_matcher(r"zzz")
+
+    assert matcher("nothing here") == []
+
+
+def test_create_safe_finditer_matcher_accepts_compiled_pattern(
+    compiler: PatternCompiler,
+) -> None:
+    compiled = re.compile(r"hi", re.IGNORECASE)
+    matcher = compiler.create_safe_finditer_matcher(compiled)
+
+    matches = matcher("Hi hi HI")
+
+    assert len(matches) == 3
+
+
+def test_create_safe_finditer_matcher_timeout_returns_empty(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_safe_finditer_matcher(r"(a+)+$", timeout=0.05)
+
+    assert matcher("a" * 24 + "b") == []
+
+
+def test_create_safe_finditer_matcher_exception_returns_empty(
+    compiler: PatternCompiler,
+) -> None:
+    matcher = compiler.create_safe_finditer_matcher(r"test.*")
+
+    with patch(
+        "guard_core.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
+        mock_future = MagicMock()
+        mock_future.result.side_effect = Exception("Test error")
+        mock_shared_executor.return_value.submit.return_value = mock_future
+
+        assert matcher("test123") == []
+
+
+def test_create_safe_finditer_matcher_uses_default_timeout() -> None:
+    compiler = PatternCompiler(default_timeout=1.0)
+    matcher = compiler.create_safe_finditer_matcher(r"hello")
+
+    assert len(matcher("hello there hello")) == 2
+
+
 @pytest.mark.asyncio
 async def test_batch_compile(compiler: PatternCompiler) -> None:
     patterns = [

@@ -1,11 +1,9 @@
-import asyncio
 import multiprocessing as mp
 import time
 from typing import Any
 
-from guard_core.handlers.suspatterns_handler import SusPatternsManager
 from guard_core.models import SecurityConfig
-
+from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
 _REDOS_PAYLOAD = "{{" * 10000
 _DETECT_DEADLINE_SECONDS = 2.0
@@ -19,9 +17,7 @@ def _child_detect(
     manager = SusPatternsManager()
     manager.configure(config)
     t0 = time.monotonic()
-    result = asyncio.run(
-        manager.detect(payload, "127.0.0.1", context="request_body")
-    )
+    result = asyncio.run(manager.detect(payload, "127.0.0.1", context="request_body"))
     elapsed = time.monotonic() - t0
     q.put(
         {
@@ -37,7 +33,7 @@ def _run_detect_under_deadline(
     config: SecurityConfig, payload: str, deadline: float
 ) -> dict[str, Any] | None:
     ctx = mp.get_context("fork")
-    q: "mp.Queue[dict[str, Any]]" = ctx.Queue()
+    q: mp.Queue[dict[str, Any]] = ctx.Queue()
     proc = ctx.Process(target=_child_detect, args=(config, payload, q))
     proc.start()
     proc.join(deadline)

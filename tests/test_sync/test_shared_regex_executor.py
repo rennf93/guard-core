@@ -110,13 +110,19 @@ def fresh_manager() -> Any:
     SusPatternsManager._config = saved_config
 
 
-def test_builtin_category_skips_safe_matcher(
+def test_builtin_category_uses_safe_finditer_matcher(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _fail(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("safe matcher used for built-in pattern")
+    calls: list[Any] = []
+    real = fresh_manager._compiler.create_safe_finditer_matcher
 
-    monkeypatch.setattr(fresh_manager._compiler, "create_safe_matcher", _fail)
+    def _tracking(pattern: Any, timeout: float | None = None) -> Any:
+        calls.append(pattern)
+        return real(pattern, timeout)
+
+    monkeypatch.setattr(
+        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+    )
     pattern = re.compile(r"<script", re.IGNORECASE)
 
     threat, timed_out = fresh_manager._check_regex_pattern(
@@ -125,19 +131,22 @@ def test_builtin_category_skips_safe_matcher(
 
     assert threat is not None
     assert timed_out is False
+    assert calls == [pattern]
 
 
-def test_custom_category_keeps_timeout_wrapper(
+def test_custom_category_uses_safe_finditer_matcher(
     fresh_manager: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[Any] = []
-    real = fresh_manager._compiler.create_safe_matcher
+    real = fresh_manager._compiler.create_safe_finditer_matcher
 
     def _tracking(pattern: Any, timeout: float | None = None) -> Any:
         calls.append(pattern)
         return real(pattern, timeout)
 
-    monkeypatch.setattr(fresh_manager._compiler, "create_safe_matcher", _tracking)
+    monkeypatch.setattr(
+        fresh_manager._compiler, "create_safe_finditer_matcher", _tracking
+    )
     pattern = re.compile(r"evil")
 
     threat, _ = fresh_manager._check_regex_pattern(

@@ -1072,7 +1072,7 @@ class SusPatternsManager:
         ),
         (_PATH_TRAVERSAL_ENCODED_DOT_RE, _CTX_PATH_TRAVERSAL, "path_traversal"),
         (
-            r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}",
+            r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}",
             _CTX_TEMPLATE,
             "template",
         ),
@@ -1088,13 +1088,13 @@ class SusPatternsManager:
             "template",
         ),
         (
-            r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}",
+            r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}",
             _CTX_TEMPLATE,
             "template",
         ),
         (
-            r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
-            r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}",
+            r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\("
+            r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}",
             _CTX_TEMPLATE,
             "template",
         ),
@@ -1515,29 +1515,21 @@ class SusPatternsManager:
         compiler = state.compiler
 
         if compiler:
-            if category == "custom":
-                safe_matcher = compiler.create_safe_matcher(pattern)
-                match = safe_matcher(content)
-                timeout_threshold = 0.9 * compiler.default_timeout
-                if (
-                    match is None
-                    and time.monotonic() - pattern_start >= timeout_threshold
-                ):
-                    timeout_occurred = True
-                    logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+            safe_finder = compiler.create_safe_finditer_matcher(pattern)
+            matches = safe_finder(content)
+            timeout_threshold = 0.9 * compiler.default_timeout
+            if (
+                not matches
+                and time.monotonic() - pattern_start >= timeout_threshold
+            ):
+                timeout_occurred = True
+                logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
 
-                if match:
-                    threat = _build_regex_threat(
-                        pattern, match, category, pattern_start, context
-                    )
-                    if threat:
-                        return threat, timeout_occurred
-            else:
-                threat = _first_accepted_regex_threat(
-                    pattern.finditer(content), pattern, category, pattern_start, context
-                )
-                if threat:
-                    return threat, timeout_occurred
+            threat = _first_accepted_regex_threat(
+                iter(matches), pattern, category, pattern_start, context
+            )
+            if threat:
+                return threat, timeout_occurred
         else:
             threat, timeout_occurred = await self._check_regex_pattern_with_retry(
                 pattern, content, ip_address, pattern_start, category, context
