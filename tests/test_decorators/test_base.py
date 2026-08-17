@@ -41,6 +41,29 @@ async def test_route_config_initialization() -> None:
     assert config.api_key_required is False
 
 
+def test_route_config_auth_verifier_defaults() -> None:
+    config = RouteConfig()
+    assert config.auth_verifier is None
+    assert config.api_key_verifier is None
+    assert config.api_key_header is None
+    assert config.authorization_header_required is None
+
+
+def test_route_config_auth_verifier_settable() -> None:
+    def verifier(request: object, credential: str) -> object:
+        return credential
+
+    config = RouteConfig()
+    config.auth_verifier = verifier
+    config.api_key_verifier = verifier
+    config.api_key_header = "X-API-Key"
+    config.authorization_header_required = "bearer"
+    assert config.auth_verifier is verifier
+    assert config.api_key_verifier is verifier
+    assert config.api_key_header == "X-API-Key"
+    assert config.authorization_header_required == "bearer"
+
+
 async def test_base_security_mixin_not_implemented() -> None:
     mixin = BaseSecurityMixin()
 

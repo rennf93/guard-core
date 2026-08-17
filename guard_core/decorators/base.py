@@ -15,6 +15,9 @@ from guard_core.protocols.request_protocol import GuardRequest
 if TYPE_CHECKING:
     from guard_core.handlers.behavior_handler import BehaviorRule
 
+Principal = Any
+AuthVerifier = Callable[[GuardRequest, str], Any]
+
 
 @runtime_checkable
 class DecoratedFunction(Protocol):
@@ -274,6 +277,10 @@ class RouteConfig:
         self.enable_suspicious_detection: bool = True
         self.require_referrer: list[str] | None = None
         self.api_key_required: bool = False
+        self.auth_verifier: AuthVerifier | None = None
+        self.api_key_verifier: AuthVerifier | None = None
+        self.api_key_header: str | None = None
+        self.authorization_header_required: str | None = None
         self.geo_rate_limits: dict[str, tuple[int, int]] | None = None
         self.excluded_detection_headers: set[str] | None = None
         self.excluded_detection_params: set[str] | None = None

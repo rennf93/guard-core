@@ -401,6 +401,16 @@ class SecurityConfig(BaseModel):
         Callable[[GuardRequest], Awaitable[GuardResponse | None]] | None
     ) = Field(default=None, description="Perform additional checks on the request")
 
+    auth_verifier: Any = Field(
+        default=None,
+        description=(
+            "Default verifier callable for require_auth and api_key_auth: "
+            "verifier(request, credential) -> Principal | None. "
+            "Sync or async in async deployments; "
+            "sync-only in WSGI deployments."
+        ),
+    )
+
     custom_response_modifier: (
         Callable[[GuardResponse], Awaitable[GuardResponse]] | None
     ) = Field(
