@@ -1516,7 +1516,7 @@ class SusPatternsManager:
 
         if compiler:
             safe_finder = compiler.create_async_safe_finditer_matcher(
-                pattern, inline_safe=True
+                pattern, inline_safe=category != "custom"
             )
             matches = await safe_finder(content)
             timeout_threshold = 0.9 * compiler.default_timeout

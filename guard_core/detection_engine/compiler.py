@@ -73,6 +73,18 @@ def report_scan_timeout() -> None:
     )
 
 
+def _skip_char_class(text: str, i: int) -> int:
+    j = i + 1
+    while j < len(text) and text[j] != "]":
+        if text[j] == "\\" and j + 1 < len(text):
+            j += 2
+            continue
+        j += 1
+    if j < len(text):
+        j += 1
+    return j
+
+
 def _strip_escapes_and_char_classes(pattern: str) -> str:
     result: list[str] = []
     i = 0
@@ -83,15 +95,7 @@ def _strip_escapes_and_char_classes(pattern: str) -> str:
             i += 2
             continue
         if c == "[":
-            i += 1
-            while i < len(pattern):
-                if pattern[i] == "\\" and i + 1 < len(pattern):
-                    i += 2
-                    continue
-                if pattern[i] == "]":
-                    i += 1
-                    break
-                i += 1
+            i = _skip_char_class(pattern, i)
             result.append("X")
             continue
         result.append(c)
@@ -107,13 +111,20 @@ def _branch_is_unbounded_single(branch: str) -> bool:
     return False
 
 
-def _find_group_end(stripped: str, start: int) -> int | None:
+def _find_group_end(text: str, start: int) -> int | None:
     depth = 1
     j = start + 1
-    while j < len(stripped) and depth > 0:
-        if stripped[j] == "(":
+    while j < len(text) and depth > 0:
+        c = text[j]
+        if c == "\\" and j + 1 < len(text):
+            j += 2
+            continue
+        if c == "[":
+            j = _skip_char_class(text, j)
+            continue
+        if c == "(":
             depth += 1
-        elif stripped[j] == ")":
+        elif c == ")":
             depth -= 1
         j += 1
     if depth != 0:
@@ -129,38 +140,122 @@ def _normalize_group_inner(inner: str) -> str | None:
     return inner
 
 
-def _outer_quantifier_len(stripped: str, k: int) -> int:
-    if k < len(stripped) and stripped[k] in "*+":
+def _outer_quantifier_len(text: str, k: int) -> int:
+    if k < len(text) and text[k] in "*+":
         return 1
-    if k < len(stripped) and stripped[k] == "{":
-        end_brace = stripped.find("}", k)
+    if k < len(text) and text[k] == "{":
+        end_brace = text.find("}", k)
         if end_brace != -1:
-            brace_inner = stripped[k + 1 : end_brace]
+            brace_inner = text[k + 1 : end_brace]
             if "," in brace_inner and brace_inner.split(",")[1] == "":
                 return end_brace - k + 1
     return 0
 
 
+def _branches_overlap(branches: list[str]) -> bool:
+    n = len(branches)
+    for a in range(n):
+        for b in range(a + 1, n):
+            x = branches[a]
+            y = branches[b]
+            if x == y or x.startswith(y) or y.startswith(x):
+                return True
+    return False
+
+
+_META_BRANCH_CHARS = set("()[]{}.*+?^$|\\")
+
+
+def _is_pure_literal_branch(branch: str) -> bool:
+    return bool(branch) and all(c not in _META_BRANCH_CHARS for c in branch)
+
+
+def _split_top_level_alternations(inner: str) -> list[str]:
+    branches: list[str] = []
+    depth = 0
+    start = 0
+    k = 0
+    while k < len(inner):
+        c = inner[k]
+        if c == "\\" and k + 1 < len(inner):
+            k += 2
+            continue
+        if c == "[":
+            k = _skip_char_class(inner, k)
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            branches.append(inner[start:k])
+            start = k + 1
+        k += 1
+    branches.append(inner[start:])
+    return branches
+
+
+def _overlapping_literal_branches(inner: str) -> bool:
+    literal_branches = [
+        b for b in _split_top_level_alternations(inner) if _is_pure_literal_branch(b)
+    ]
+    return len(literal_branches) >= 2 and _branches_overlap(literal_branches)
+
+
 def _detect_nested_unbounded_quantifier(pattern: str) -> str | None:
-    stripped = _strip_escapes_and_char_classes(pattern)
     i = 0
-    while i < len(stripped):
-        if stripped[i] != "(":
+    while i < len(pattern):
+        if pattern[i] != "(":
             i += 1
             continue
-        j = _find_group_end(stripped, i)
+        j = _find_group_end(pattern, i)
         if j is None:
             i += 1
             continue
-        inner = _normalize_group_inner(stripped[i + 1 : j - 1])
+        inner = _normalize_group_inner(pattern[i + 1 : j - 1])
         if inner is None:
             i = j
             continue
-        qlen = _outer_quantifier_len(stripped, j)
-        if qlen > 0 and any(_branch_is_unbounded_single(b) for b in inner.split("|")):
-            return stripped[i : j + qlen]
+        qlen = _outer_quantifier_len(pattern, j)
+        if qlen > 0:
+            stripped_inner = _strip_escapes_and_char_classes(inner)
+            if any(_branch_is_unbounded_single(b) for b in stripped_inner.split("|")):
+                return pattern[i : j + qlen]
+            if _overlapping_literal_branches(inner):
+                return pattern[i : j + qlen]
         i = j
     return None
+
+
+def _extract_literal_chars(pattern: str) -> list[str]:
+    chars: list[str] = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "[":
+            i = _skip_char_class(pattern, i)
+            continue
+        if c.isalnum() or c in "_-./:@~ ":
+            chars.append(c)
+        i += 1
+    return chars
+
+
+def _pattern_derived_test_strings(pattern: str) -> list[str]:
+    strings: list[str] = []
+    seen: set[str] = set()
+    for ch in _extract_literal_chars(pattern):
+        if ch in seen or ch.isspace():
+            continue
+        seen.add(ch)
+        if len(seen) > 8:
+            break
+        for length in (10, 100, 2000):
+            strings.append(ch * length)
+    return strings
 
 
 class PatternCompiler:
@@ -234,6 +329,7 @@ class PatternCompiler:
                 "x" * 50 + "y" * 50,
                 "<div " + "a" * 2000 + ">",
             ]
+            test_strings.extend(_pattern_derived_test_strings(pattern))
 
         try:
             compiled = self.compile_pattern_sync(pattern)
