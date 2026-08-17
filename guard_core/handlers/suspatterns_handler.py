@@ -296,7 +296,7 @@ _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE = r"(?:%00|\\u0000|\\x00|\\0|\x00|;
 _FILE_UPLOAD_DOUBLE_EXTENSION_RE = (
     r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
     + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])[^\"']{0,255}\.(?:"
+    + r")(?![A-Za-z0-9])(?:[^ \"'][^\"']{0,254})?\.(?:"
     + _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION
     + r")[\"']"
 )
@@ -329,6 +329,7 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DESERIALIZATION_PICKLE_OS_GLOBAL_RE,
         _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
         _FILE_UPLOAD_TRUNCATION_RE,
+        _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
     }
 )
 

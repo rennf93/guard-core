@@ -171,14 +171,39 @@ def test_space_in_filename_is_not_a_truncation_vector(
         SusPatternsManager._config = original_config
 
 
-def test_space_separated_php_jpg_pending_double_extension_fix() -> None:
+def test_space_bridge_is_not_a_double_extension_vector() -> None:
     original_instance = SusPatternsManager._instance
     original_config = SusPatternsManager._config
     SusPatternsManager._instance = None
     SusPatternsManager._config = None
     SusPatternsManager(SecurityConfig())
     try:
-        assert _body_is_threat('filename="vacation photo.php .jpg"') is True
+        assert _body_is_threat('filename="vacation photo.php .jpg"') is False
+        categories = _body_categories('filename="vacation photo.php .jpg"')
+        assert "file_upload" not in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+CONTROL_CHAR_BRIDGE_DOUBLE_EXTENSION_BODIES = [
+    pytest.param('filename="shell.php\n.jpg"', id="newline_bridge"),
+    pytest.param('filename="shell.php\r.jpg"', id="carriage_return_bridge"),
+    pytest.param('filename="shell.php\t.jpg"', id="tab_bridge"),
+]
+
+
+@pytest.mark.parametrize("body", CONTROL_CHAR_BRIDGE_DOUBLE_EXTENSION_BODIES)
+def test_control_char_bridge_is_a_double_extension_vector(body: str) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert _body_is_threat(body) is True
+        categories = _body_categories(body)
+        assert "file_upload" in categories
     finally:
         SusPatternsManager._instance = original_instance
         SusPatternsManager._config = original_config

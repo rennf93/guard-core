@@ -7,6 +7,9 @@ from guard_core.handlers.suspatterns_handler import (
     _FILE_UPLOAD_TRUNCATION_RE,
     SusPatternsManager,
 )
+from guard_core.models import SecurityConfig
+from guard_core.utils import detect_penetration_attempt
+from tests.conftest import MockGuardRequest
 
 _BYPASS_PATTERN_SOURCES = {_FILE_UPLOAD_DOUBLE_EXTENSION_RE, _FILE_UPLOAD_TRUNCATION_RE}
 
@@ -363,3 +366,113 @@ async def test_cer_extension_is_detected(manager: SusPatternsManager) -> None:
 
 async def test_phps_extension_is_detected(manager: SusPatternsManager) -> None:
     assert await _file_upload_detected(manager, 'filename="shell.phps"')
+
+
+def _body_request(body: str) -> MockGuardRequest:
+    encoded = body.encode()
+    return MockGuardRequest(
+        path="/upload",
+        method="POST",
+        headers={"content-length": str(len(encoded))},
+        body_content=encoded,
+    )
+
+
+async def _body_is_threat(body: str) -> bool:
+    result = await detect_penetration_attempt(_body_request(body), SecurityConfig())
+    return bool(result.is_threat)
+
+
+async def _body_categories(body: str) -> list[str]:
+    result = await detect_penetration_attempt(_body_request(body), SecurityConfig())
+    return list(result.threat_categories)
+
+
+def _reset_manager() -> None:
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+
+
+SPACE_BRIDGE_DOUBLE_EXTENSION_BODIES = [
+    pytest.param('filename="vacation photo.php .jpg"', id="space_prefix_space_bridge"),
+    pytest.param('filename="photo.php .jpg"', id="space_bridge"),
+    pytest.param('filename="shell.php .jpg"', id="bare_space_bridge"),
+    pytest.param('filename="my report.php .jpg"', id="space_prefix_and_space_bridge"),
+]
+
+
+@pytest.mark.parametrize("body", SPACE_BRIDGE_DOUBLE_EXTENSION_BODIES)
+async def test_space_bridge_double_extension_is_not_a_threat(body: str) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    try:
+        _reset_manager()
+        assert await _body_is_threat(body) is False
+        categories = await _body_categories(body)
+        assert "file_upload" not in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+CONTROL_CHAR_BRIDGE_DOUBLE_EXTENSION_BODIES = [
+    pytest.param('filename="shell.php\n.jpg"', id="newline_bridge"),
+    pytest.param('filename="shell.php\r.jpg"', id="carriage_return_bridge"),
+    pytest.param('filename="shell.php\t.jpg"', id="tab_bridge"),
+]
+
+
+@pytest.mark.parametrize("body", CONTROL_CHAR_BRIDGE_DOUBLE_EXTENSION_BODIES)
+async def test_control_char_bridge_double_extension_is_a_threat(body: str) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    try:
+        _reset_manager()
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+REAL_DOUBLE_EXTENSION_BODIES = [
+    pytest.param('filename="shell.php.jpg"', id="direct_double_extension"),
+    pytest.param('filename="shell.php..jpg"', id="double_dot_bridge"),
+    pytest.param('filename="shell.php;.jpg"', id="semicolon_matrix_bridge"),
+    pytest.param('filename="shell.php;x=1.jpg"', id="semicolon_matrix_param_bridge"),
+    pytest.param('filename="shell.php;foo=bar.jpg"', id="semicolon_matrix_kv_bridge"),
+    pytest.param('filename="shell.php%00.jpg"', id="percent_nul_bridge"),
+    pytest.param('filename="shell.php\x00.jpg"', id="raw_nul_bridge"),
+    pytest.param(
+        'filename="vacation photo.php.jpg"',
+        id="space_in_prefix_direct_double_extension",
+    ),
+]
+
+
+@pytest.mark.parametrize("body", REAL_DOUBLE_EXTENSION_BODIES)
+async def test_real_double_extension_vectors_still_fire(body: str) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    try:
+        _reset_manager()
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_space_in_prefix_with_direct_double_extension_fires() -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    try:
+        _reset_manager()
+        assert await _body_is_threat('filename="vacation photo.php.jpg"') is True
+        assert await _body_is_threat('filename="vacation photo.php .jpg"') is False
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
