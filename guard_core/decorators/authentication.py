@@ -1,7 +1,11 @@
 from collections.abc import Callable
 from typing import Any
 
-from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
+from guard_core.decorators.base import (
+    AuthVerifier,
+    BaseSecurityMixin,
+    DecoratedFunction,
+)
 
 
 class AuthenticationMixin(BaseSecurityMixin):
@@ -14,22 +18,40 @@ class AuthenticationMixin(BaseSecurityMixin):
         return decorator
 
     def require_auth(
-        self, type: str = "bearer"
+        self,
+        type: str = "bearer",
+        verifier: AuthVerifier | None = None,
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.auth_required = type
+            route_config.auth_verifier = verifier
             return self._apply_route_config(func)
 
         return decorator
 
     def api_key_auth(
-        self, header_name: str = "X-API-Key"
+        self,
+        header_name: str = "X-API-Key",
+        verifier: AuthVerifier | None = None,
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.api_key_required = True
             route_config.required_headers[header_name] = "required"
+            route_config.api_key_header = header_name
+            route_config.api_key_verifier = verifier
+            return self._apply_route_config(func)
+
+        return decorator
+
+    def require_authorization_header(
+        self,
+        scheme: str = "bearer",
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
+            route_config = self._ensure_route_config(func)
+            route_config.authorization_header_required = scheme
             return self._apply_route_config(func)
 
         return decorator
