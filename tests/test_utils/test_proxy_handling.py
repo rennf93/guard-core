@@ -5,7 +5,7 @@ import pytest
 
 from guard_core import utils
 from guard_core.models import SecurityConfig
-from guard_core.utils import extract_client_ip
+from guard_core.utils import _extract_from_forwarded_header, extract_client_ip
 from tests.conftest import MockGuardRequest
 
 
@@ -256,3 +256,101 @@ async def test_preemption_warning_emitted_at_most_once(
             assert ip == "9.9.0.1"
 
     assert caplog.text.count(PREEMPTION_WARNING_TEXT) == 1
+
+
+GLOB_METACHARACTERS = ("*", "?", "[", "]", "\\")
+
+
+@pytest.mark.parametrize(
+    "forwarded_for, proxy_depth",
+    [
+        ("", 1),
+        ("*", 1),
+        ("?", 1),
+        ("[", 1),
+        ("*:*", 1),
+        ("*:*:*", 1),
+        ("evil*", 1),
+        ("*\n", 1),
+        ("*, 5.6.7.8", 2),
+        ("[evil, 5.6.7.8", 2),
+        ("not-an-ip", 1),
+        ("1.2.3.4", 3),
+    ],
+)
+async def test_extract_from_forwarded_header_rejects_non_ip_entries(
+    forwarded_for: str, proxy_depth: int
+) -> None:
+    assert _extract_from_forwarded_header(forwarded_for, proxy_depth) is None
+
+
+@pytest.mark.parametrize(
+    "forwarded_for, proxy_depth, expected",
+    [
+        ("5.6.7.8", 1, "5.6.7.8"),
+        ("5.6.7.8, 1.2.3.4", 2, "5.6.7.8"),
+        ("::1", 1, "::1"),
+        ("2001:db8::1", 1, "2001:db8::1"),
+        ("[::1]", 1, "::1"),
+        ("[2001:db8::1]", 1, "2001:db8::1"),
+        ("fe80::1%eth0", 1, "fe80::1%eth0"),
+    ],
+)
+async def test_extract_from_forwarded_header_returns_valid_ips(
+    forwarded_for: str, proxy_depth: int, expected: str
+) -> None:
+    assert _extract_from_forwarded_header(forwarded_for, proxy_depth) == expected
+
+
+@pytest.mark.parametrize(
+    "forwarded_for",
+    [
+        "fe80::1%*",
+        "fe80::1%[",
+        "fe80::1%]",
+        "fe80::1%?",
+        "fe80::1%\\",
+        "fe80::1%[a]b",
+    ],
+)
+async def test_extract_from_forwarded_header_rejects_glob_in_ipv6_zone_id(
+    forwarded_for: str,
+) -> None:
+    assert _extract_from_forwarded_header(forwarded_for, 1) is None
+
+
+@pytest.mark.parametrize(
+    "forwarded_for",
+    [
+        "*",
+        "?",
+        "[",
+        "evil*",
+        "*:*",
+        "*:*:*",
+        "*, 1.2.3.4",
+        "*\n, 1.2.3.4",
+        "fe80::1%*, 1.2.3.4",
+        "fe80::1%[, 1.2.3.4",
+        "fe80::1%], 1.2.3.4",
+        "fe80::1%?, 1.2.3.4",
+        "fe80::1%\\, 1.2.3.4",
+        "fe80::1%[a]b, 1.2.3.4",
+    ],
+)
+async def test_extract_client_ip_sanitizes_glob_metacharacters_from_xff(
+    forwarded_for: str,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=2)
+
+    request = MockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": forwarded_for},
+        client_host="127.0.0.1",
+    )
+
+    ip = await extract_client_ip(request, config)
+
+    assert ip == "127.0.0.1"
+    assert not any(char in ip for char in GLOB_METACHARACTERS)

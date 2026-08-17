@@ -175,10 +175,22 @@ def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str 
 
     ips = [ip.strip() for ip in forwarded_for.split(",")]
 
-    if len(ips) >= proxy_depth:
-        return ips[-proxy_depth]
+    if len(ips) < proxy_depth:
+        return None
 
-    return None
+    candidate = ips[-proxy_depth]
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+
+    try:
+        ip_address(candidate)
+    except ValueError:
+        return None
+
+    if any(metachar in candidate for metachar in ("*", "?", "[", "]", "\\")):
+        return None
+
+    return candidate
 
 
 def _is_private_or_loopback(ip: str) -> bool:
