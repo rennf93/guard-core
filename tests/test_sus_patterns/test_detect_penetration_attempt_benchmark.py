@@ -780,6 +780,30 @@ _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
     "branch never fires"
 )
 
+_GLUED_PLAUSIBLE_TOKEN_BACKTICK_KNOWN_FP_REASON = (
+    "a plain English/API-shaped token glued to a backtick on both sides "
+    "(ref`user`list) carries no shell metacharacter and is not on the "
+    "shell-command denylist, so it falls through to the same ambiguous-gate "
+    "tradeoff the kebab-identifier shapes above accept, context-gated to "
+    "query_param/url_path; it newly landed on url_path in the end-to-end "
+    "benchmark's round-robin delivery after later corpus growth shifted its "
+    "assigned index, and stays correctly benign in request_body, where the "
+    "branch never fires"
+)
+
+_JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
+    "a JSON body whose entire value for a field is itself a bare internal "
+    "source-file path (path: /opt/app/worker.py) is character-identical, "
+    "once the embedded-JSON field scanner isolates the field value and "
+    "re-scans it on its own under an unrestricted context, to the "
+    "sensitive_file bare-path shape that pattern exists to catch; an "
+    "ordinary file-watch or build-event payload cannot be told apart from a "
+    "sensitive-file probe by shape alone. It newly landed on url_path in the "
+    "end-to-end benchmark's round-robin delivery after later corpus growth "
+    "shifted its assigned index; the same JSON body stays correctly benign "
+    "when scanned as a whole string instead of field-by-field"
+)
+
 _SHELL_INVOCATION_FP_MECHANISMS = (
     "raw_body",
     "form_body",
@@ -848,6 +872,14 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "cmd_injection_glued_kebab_identifier_config_well_known": (
         _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
         _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+    ),
+    "cmd_injection_glued_plausible_token_ref_user_list": (
+        _GLUED_PLAUSIBLE_TOKEN_BACKTICK_KNOWN_FP_REASON,
+        ("url_path",),
+    ),
+    "sensitive_file_json_payload_ending_source_path": (
+        _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON,
+        ("url_path",),
     ),
     "cmd_injection_shell_docs_var_expansion": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,

@@ -59,6 +59,8 @@ class ContentPreprocessor:
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
     _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+    _PERCENT_U_ESCAPE_RE = re.compile(r"%u([0-9a-fA-F]{4})", re.IGNORECASE)
+    _PERCENT_BYTE_RUN_RE = re.compile(r"(?:%[0-9a-fA-F]{2})+")
     _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
         r"(?<!\w)/\*(?!!)(.*?)\*/|/\*(?!!)(.*?)\*/(?!\w)", re.DOTALL
     )
@@ -358,6 +360,70 @@ class ContentPreprocessor:
 
         return self._UNICODE_ESCAPE_RE.sub(_replace, content)
 
+    def _decode_percent_u_escapes(self, content: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
+
+        return self._PERCENT_U_ESCAPE_RE.sub(_replace, content)
+
+    _OVERLONG_LEAD_SPECS: dict[int, tuple[int, int, int, int]] = {
+        0xC0: (2, 0x1F, 0x80, 0xBF),
+        0xC1: (2, 0x1F, 0x80, 0xBF),
+        0xE0: (3, 0x0F, 0x80, 0x9F),
+        0xF0: (4, 0x07, 0x80, 0x8F),
+    }
+
+    def _decode_overlong_sequence_at(
+        self, raw: bytes, index: int
+    ) -> tuple[str, int] | None:
+        spec = self._OVERLONG_LEAD_SPECS.get(raw[index])
+        if spec is None or index + spec[0] > len(raw):
+            return None
+        sequence_length, lead_mask, first_continuation_min, first_continuation_max = (
+            spec
+        )
+        continuations = raw[index + 1 : index + sequence_length]
+        if not first_continuation_min <= continuations[0] <= first_continuation_max:
+            return None
+        if any(not 0x80 <= byte <= 0xBF for byte in continuations[1:]):
+            return None
+        codepoint = raw[index] & lead_mask
+        for byte in continuations:
+            codepoint = (codepoint << 6) | (byte & 0x3F)
+        return chr(codepoint), sequence_length
+
+    def _lenient_overlong_utf8_decode(self, raw: bytes) -> str:
+        chars: list[str] = []
+        index = 0
+        length = len(raw)
+        while index < length:
+            overlong = self._decode_overlong_sequence_at(raw, index)
+            if overlong is not None:
+                char, consumed = overlong
+                chars.append(char)
+                index += consumed
+            elif raw[index] < 0x80:
+                chars.append(chr(raw[index]))
+                index += 1
+            else:
+                index += 1
+        return "".join(chars)
+
+    def _decode_overlong_utf8_percent_runs(self, content: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            run = match.group()
+            raw = bytes(int(run[i + 1 : i + 3], 16) for i in range(0, len(run), 3))
+            try:
+                raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return self._lenient_overlong_utf8_decode(raw)
+            return run
+
+        return self._PERCENT_BYTE_RUN_RE.sub(_replace, content)
+
     def _strip_sql_comments(self, content: str) -> str:
         def _replace_block_comment(match: re.Match[str]) -> str:
             body = match.group(1) if match.group(1) is not None else match.group(2)
@@ -374,6 +440,8 @@ class ContentPreprocessor:
 
         while iterations < max_decode_iterations:
             original = content
+
+            content = self._decode_overlong_utf8_percent_runs(content)
 
             try:
                 import urllib.parse
@@ -405,8 +473,10 @@ class ContentPreprocessor:
                     error_type="html_decode",
                 )
 
+            content = self._decode_percent_u_escapes(content)
             content = self._decode_hex_escapes(content)
             content = self._decode_unicode_escapes(content)
+            content = self.normalize_unicode(content)
             content = self._decode_base64_candidates(content, gunzip_attempts_left)
 
             if content == original:

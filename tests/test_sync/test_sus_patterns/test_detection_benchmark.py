@@ -295,6 +295,51 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "path_traversal",
         "%25c0%25ae/etc/passwd",
     ),
+    MaliciousCase(
+        "path_traversal_single_segment_literal_dot_encoded_slash",
+        "path_traversal",
+        "..%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_overlong_utf8_slash",
+        "path_traversal",
+        "..%c0%afconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_iis_unicode_slash",
+        "path_traversal",
+        "..%u2215config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_encoded_dot_pair_encoded_slash",
+        "path_traversal",
+        "%2e%2e%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_partial_encoded_dot",
+        "path_traversal",
+        ".%2e/config.yaml",
+    ),
+    MaliciousCase(
+        "dir_traversal_semicolon_path_parameter_bypass",
+        "dir_traversal",
+        "..;/config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_overlong_lead_byte_literal_slash",
+        "path_traversal",
+        "..%c0%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_per_digit_double_encoded_slash",
+        "path_traversal",
+        "..%25%32%66config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_null_byte_before_literal_slash",
+        "path_traversal",
+        "..%00/config.yaml",
+    ),
     MaliciousCase("cmd_bare_backtick_whoami", "cmd_injection", "`whoami`"),
     MaliciousCase("cmd_bare_backtick_id", "cmd_injection", "`id`"),
     MaliciousCase(
@@ -1335,6 +1380,42 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "path_traversal_prose_percent20_percent2f",
         "URL-encoded spaces use %20 while encoded slashes use %2F.",
+    ),
+    BenignCase(
+        "path_traversal_benign_single_segment_relative_image",
+        "../assets/logo.png",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_slash_without_dotdot",
+        "assets%2Flogo.png",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_space_not_a_separator",
+        "..%20file",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_slash_redirect_param",
+        "redirect=%2fdashboard",
+    ),
+    BenignCase(
+        "dir_traversal_benign_nfkc_ellipsis_dot_truncation_shape",
+        "….//path",
+    ),
+    BenignCase(
+        "dir_traversal_benign_loading_dots_progress_indicator",
+        "Loading........//please wait",
+    ),
+    BenignCase(
+        "dir_traversal_benign_document_section_reference",
+        "Section 4....//5",
+    ),
+    BenignCase(
+        "dir_traversal_benign_version_string_with_slashes",
+        "v1.2.3....//legacy",
+    ),
+    BenignCase(
+        "dir_traversal_benign_glob_pattern_query_value",
+        "glob=**/....//node_modules",
     ),
     BenignCase(
         "cmd_injection_markdown_ls_mention", "Run `ls` to list files in the directory."
@@ -2404,13 +2485,13 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "cms_probing": 10,
     "code_injection": 3,
     "deserialization": 12,
-    "dir_traversal": 8,
+    "dir_traversal": 9,
     "file_inclusion": 8,
     "file_upload": 22,
     "http_split": 4,
     "ldap": 12,
     "nosql": 10,
-    "path_traversal": 5,
+    "path_traversal": 13,
     "proto_pollution": 8,
     "recon": 23,
     "sensitive_file": 11,
@@ -2420,7 +2501,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 19,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 272
+BASELINE_MALICIOUS_DETECTED_TOTAL = 281
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 9,

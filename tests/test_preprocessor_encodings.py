@@ -439,3 +439,109 @@ async def test_block_comment_in_prose_preserves_interior_words(
     result = await pp.preprocess("the file has a /* TODO */ marker inside it")
     for word in ("TODO", "marker", "inside"):
         assert word in result
+
+
+def test_decode_percent_u_escapes_directly(pp: ContentPreprocessor) -> None:
+    assert pp._decode_percent_u_escapes("%u002e%u002e") == ".."
+
+
+def test_decode_percent_u_escapes_value_error_path(pp: ContentPreprocessor) -> None:
+    from unittest.mock import patch
+
+    with patch("builtins.chr", side_effect=ValueError("invalid")):
+        result = pp._decode_percent_u_escapes("%u002e")
+    assert result == "%u002e"
+
+
+def test_lenient_overlong_utf8_decode_passes_through_ascii(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(b"A") == "A"
+
+
+def test_lenient_overlong_utf8_decode_two_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0, 0xAF])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_truncated_lead_byte_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0])) == ""
+
+
+def test_lenient_overlong_utf8_decode_bad_first_continuation_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0, 0x2F])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_three_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xE0, 0x80, 0xAF])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_bad_trailing_continuation_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xE0, 0x80, 0x2F])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_four_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xF0, 0x80, 0x80, 0xAF])) == "/"
+
+
+def test_decode_overlong_utf8_percent_runs_leaves_valid_utf8_untouched(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._decode_overlong_utf8_percent_runs("%c3%a9") == "%c3%a9"
+
+
+def test_decode_overlong_utf8_percent_runs_decodes_invalid_overlong_run(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._decode_overlong_utf8_percent_runs("%c0%af") == "/"
+
+
+@pytest.mark.asyncio
+async def test_percent_u_iis_unicode_dot_pair_decodes_to_literal_dots(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("%u002e%u002e%2f")
+    assert result == "../"
+
+
+@pytest.mark.asyncio
+async def test_percent_u_division_slash_renormalizes_to_ascii_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("%u002e%u002e%u2215")
+    assert result == "../"
+
+
+@pytest.mark.asyncio
+async def test_percent_u_fullwidth_solidus_renormalizes_to_ascii_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("..%uff0f")
+    assert result == "../"
+
+
+@pytest.mark.asyncio
+async def test_four_byte_overlong_utf8_slash_decodes_through_preprocess(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("..%f0%80%80%af")
+    assert result == "../"
+
+
+@pytest.mark.asyncio
+async def test_valid_multibyte_percent_encoded_utf8_is_unaffected(
+    pp: ContentPreprocessor,
+) -> None:
+    result = await pp.preprocess("caf%c3%a9")
+    assert result == "café"

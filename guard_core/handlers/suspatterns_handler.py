@@ -170,6 +170,8 @@ _PATH_TRAVERSAL_ENCODED_DOT_RE = (
     r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
     r"%e0%80%ae|%25c0%25ae)/"
 )
+_PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[/\\]"
+_PATH_TRAVERSAL_DECODED_SHAPE_RE = re.compile(r"\.\.[\\/]")
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
     r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
@@ -906,6 +908,7 @@ class SusPatternsManager:
         (_DIR_TRAVERSAL_WINDOWS_INI_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (_DIR_TRAVERSAL_PROC_ENVIRON_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (_DIR_TRAVERSAL_VAR_LOG_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
+        (_PATH_TRAVERSAL_SEMICOLON_SEP_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
         (
             r";\s*(?:ls|cat|rm|chmod|chown|wget|curl|nc|netcat|ping|telnet)\s+"
             r"-[a-zA-Z]+\s+",
@@ -1766,6 +1769,47 @@ class SusPatternsManager:
             raw_view_only=True,
         )
 
+    async def _check_decoded_view_path_traversal(
+        self,
+        processed_content: str,
+        content: str,
+        context: str,
+        enabled_categories: set[str] | None,
+        state: _DetectionState,
+    ) -> dict[str, Any] | None:
+        preprocessor = state.preprocessor
+        if not preprocessor:
+            return None
+        if self._normalize_context(context) not in _CTX_PATH_TRAVERSAL:
+            return None
+        if (
+            enabled_categories is not None
+            and "path_traversal" not in enabled_categories
+        ):
+            return None
+
+        pattern_start = time.monotonic()
+        raw_view_content = preprocessor.preprocess_signal_preserving(content)
+        decoded_matches = list(
+            _PATH_TRAVERSAL_DECODED_SHAPE_RE.finditer(processed_content)
+        )
+        raw_count = len(_PATH_TRAVERSAL_DECODED_SHAPE_RE.findall(raw_view_content))
+        if len(decoded_matches) <= raw_count:
+            return None
+
+        match = decoded_matches[0]
+        return {
+            "type": "regex",
+            "pattern": _PATH_TRAVERSAL_DECODED_SHAPE_RE.pattern,
+            "match": match.group(),
+            "position": match.start(),
+            "execution_time": time.monotonic() - pattern_start,
+            "category": "path_traversal",
+            "weight": _resolve_pattern_weight(
+                _PATH_TRAVERSAL_DECODED_SHAPE_RE.pattern, "path_traversal"
+            ),
+        }
+
     async def detect(
         self,
         content: str,
@@ -1798,6 +1842,13 @@ class SusPatternsManager:
         regex_threats = regex_threats + raw_threats
         matched_patterns = matched_patterns + raw_matched
         timeouts = timeouts + raw_timeouts
+
+        decoded_view_threat = await self._check_decoded_view_path_traversal(
+            processed_content, content, context, enabled_categories, state
+        )
+        if decoded_view_threat:
+            regex_threats = regex_threats + [decoded_view_threat]
+            matched_patterns = matched_patterns + [decoded_view_threat["pattern"]]
 
         semantic_threats, semantic_score = await self._check_semantic_threats(
             processed_content, state=state, raw_content=original_content
