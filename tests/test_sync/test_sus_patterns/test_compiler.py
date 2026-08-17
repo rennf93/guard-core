@@ -258,9 +258,16 @@ def test_create_safe_finditer_matcher_accepts_compiled_pattern(
 def test_create_safe_finditer_matcher_timeout_returns_empty(
     compiler: PatternCompiler,
 ) -> None:
-    matcher = compiler.create_safe_finditer_matcher(r"(a+)+$", timeout=0.05)
+    matcher = compiler.create_safe_finditer_matcher(r"(a+)+$")
 
-    assert matcher("a" * 24 + "b") == []
+    with patch(
+        "guard_core.sync.detection_engine.compiler.shared_regex_executor"
+    ) as mock_shared_executor:
+        mock_future = MagicMock()
+        mock_future.result.side_effect = concurrent.futures.TimeoutError()
+        mock_shared_executor.return_value.submit.return_value = mock_future
+
+        assert matcher("a" * 24 + "b") == []
 
 
 def test_create_safe_finditer_matcher_exception_returns_empty(
