@@ -3,12 +3,21 @@ from collections.abc import Generator
 import pytest
 
 from guard_core.handlers.suspatterns_handler import (
+    _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE,
     _FILE_UPLOAD_TRUNCATION_RE,
+    DETECTION_RAW_VIEW_PATTERN_SOURCES,
+    DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES,
     SusPatternsManager,
+    sus_patterns_handler,
 )
 from guard_core.models import SecurityConfig
 from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
+
+
+@pytest.fixture(autouse=True)
+def _force_enhanced_detection_singleton() -> None:
+    sus_patterns_handler.configure(SecurityConfig())
 
 
 @pytest.fixture
@@ -51,6 +60,18 @@ async def _manager_truncation_threats(
         threat
         for threat in result["threats"]
         if threat["type"] == "regex" and threat["pattern"] == _FILE_UPLOAD_TRUNCATION_RE
+    ]
+
+
+async def _manager_decoded_nul_threats(
+    manager: SusPatternsManager, body: str
+) -> list[dict]:
+    result = await manager.detect(body, "203.0.113.9", context="request_body")
+    return [
+        threat
+        for threat in result["threats"]
+        if threat["type"] == "regex"
+        and threat["pattern"] == _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
     ]
 
 
@@ -235,14 +256,84 @@ async def test_semicolon_truncation_vector_still_fires(
         SusPatternsManager._config = original_config
 
 
-async def test_double_encoded_nul_truncation_pending_url_decoded_view() -> None:
+async def test_double_encoded_nul_truncation_fires_in_url_decoded_view() -> None:
     original_instance = SusPatternsManager._instance
     original_config = SusPatternsManager._config
     SusPatternsManager._instance = None
     SusPatternsManager._config = None
     SusPatternsManager(SecurityConfig())
     try:
-        assert await _body_is_threat('filename="shell.php%2500.txt"') is False
+        body = 'filename="shell.php%2500.txt"'
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_decoded_nul_truncation_pattern_registered_in_url_decoded_view_only(
+    manager: SusPatternsManager,
+) -> None:
+    assert (
+        _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
+        in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
+    )
+    assert (
+        _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
+        not in DETECTION_RAW_VIEW_PATTERN_SOURCES
+    )
+    body = 'filename="shell.php%2500.txt"'
+    threats = await _manager_decoded_nul_threats(manager, body)
+    assert threats
+    assert threats[0]["category"] == "file_upload"
+    assert threats[0]["pattern"] == _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
+
+
+BENIGN_DECODED_NUL_FP_BODIES = [
+    pytest.param('filename="vacation.jpg"', id="benign_jpg"),
+    pytest.param('filename="shell.php.txt"', id="benign_php_txt"),
+    pytest.param('filename="notes.php .txt"', id="benign_php_space_txt"),
+    pytest.param('filename="report;final.pdf"', id="benign_semicolon_pdf"),
+]
+
+
+@pytest.mark.parametrize("body", BENIGN_DECODED_NUL_FP_BODIES)
+async def test_benign_filenames_without_raw_nul_do_not_fire_decoded_nul_pattern(
+    manager: SusPatternsManager, body: str
+) -> None:
+    threats = await _manager_decoded_nul_threats(manager, body)
+    assert not threats
+
+
+async def test_benign_base64_blob_in_filename_does_not_fire_decoded_nul_pattern(
+    manager: SusPatternsManager,
+) -> None:
+    blob = "aBcDeFgHiJkLmN" * 50
+    body = f'filename="{blob}"'
+    threats = await _manager_decoded_nul_threats(manager, body)
+    assert not threats
+
+
+DOUBLE_ENCODED_NUL_BODIES = [
+    pytest.param('filename="shell.php%2500.txt"', id="double_encoded_percent_nul"),
+    pytest.param('filename="shell.asp%2500.jpg"', id="double_encoded_asp_nul"),
+]
+
+
+@pytest.mark.parametrize("body", DOUBLE_ENCODED_NUL_BODIES)
+async def test_double_encoded_nul_fires_file_upload_in_url_decoded_view(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+        assert await _body_is_threat(body) is True
     finally:
         SusPatternsManager._instance = original_instance
         SusPatternsManager._config = original_config
