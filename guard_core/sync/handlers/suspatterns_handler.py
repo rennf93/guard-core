@@ -977,7 +977,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:\A|;)\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+            r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
             r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
             "cmd_injection",
