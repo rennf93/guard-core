@@ -162,11 +162,9 @@ _LDAP_NULL_BYTE_ATTR_RE = (
     r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
 )
 _LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
-_LDAP_NULL_BYTE_DECODED_ATTR_RE = (
-    r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+\x00"
-)
+_LDAP_NULL_BYTE_DECODED_ATTR_RE = r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+\x00"
 _LDAP_NULL_BYTE_DECODED_BARE_RE = r"\*\)\)+\x00"
-_HTTP_SPLIT_CRLF_RE = r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)"
+_HTTP_SPLIT_CRLF_RE = r"[\r\n][^\S\r\n]*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)"
 _SQLI_ORDER_BY_TERMINATOR_RE = (
     r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
     r"|(?<=[=?&])ORDER\s+BY\s+\d+\s*\n"
@@ -179,7 +177,7 @@ _PATH_TRAVERSAL_ENCODED_DOT_RE = (
 _PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[^/\\]*[/\\]"
 _PATH_TRAVERSAL_DECODED_SHAPE_RE = re.compile(r"\.\.[\\/]")
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
-    r"\n\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"\n[^\S\r\n]*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
 )
 _DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
@@ -981,6 +979,12 @@ class SusPatternsManager:
         ),
         (
             r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+            r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            r"(?:\A|[;|&])\s*[^=\s;|&]+=[^\s;|&]+\s+(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
             r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
             _CTX_CMD_INJECTION,
             "cmd_injection",

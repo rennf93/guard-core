@@ -58,6 +58,11 @@ _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
     lambda n: "{{" * (n // 2),
     lambda n: "{%" * (n // 2),
     lambda n: "<%" * (n // 2),
+    lambda n: ";" * n,
+    lambda n: "|" * n,
+    lambda n: "&" * n,
+    lambda n: "\n" * n,
+    lambda n: "\r" * n,
 ]
 
 

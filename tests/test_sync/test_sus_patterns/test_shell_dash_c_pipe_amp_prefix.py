@@ -38,6 +38,10 @@ SHELL_DASH_C_REGRESSION_BODIES = [
     pytest.param("/bin/sh -c id", id="start_bin_sh"),
     pytest.param("x" + chr(10) + "/bin/sh -c id", id="newline_bin_sh"),
     pytest.param("x | sh -c id", id="pipe_bare_sh"),
+    pytest.param("\n\n\nbash -c id", id="blankline_bash"),
+    pytest.param("\n\tbash -c id", id="newline_tab_bash"),
+    pytest.param("\nenv bash -c id", id="newline_env_bash"),
+    pytest.param("\n/bin/sh -c id", id="newline_bin_sh"),
 ]
 
 
