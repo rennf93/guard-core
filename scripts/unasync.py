@@ -44,6 +44,7 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_utils" / "test_bounded_thread_body_read.py",
     SYNC_DIR / "core" / "checks" / "_verifier.py",
     TEST_SYNC_DIR / "test_core" / "test_verifier_sync_rejection.py",
+    TEST_SYNC_DIR / "test_core" / "test_auth_verifier_sync_async_rejection.py",
 }
 
 _ASYNC_SAFE_READ_SRC = (

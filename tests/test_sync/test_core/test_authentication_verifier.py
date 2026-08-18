@@ -104,6 +104,22 @@ def test_verifier_denial_rejected() -> None:
     assert result.status_code == 401
 
 
+def test_verifier_raises_exception_fail_closed() -> None:
+    def verifier(_request: Any, _credential: str) -> Any:
+        raise RuntimeError("jwt decode failed")
+
+    mw = _deny_response_mw()
+    check = AuthenticationCheck(mw)
+    rc = RouteConfig()
+    rc.auth_required = "bearer"
+    rc.auth_verifier = verifier
+    req = _make_request_with_route_config(rc, headers={"authorization": "Bearer token"})
+    with patch(f"{_IMPL}.authentication.log_activity"):
+        result = check.check(req)
+    assert result is not None
+    assert result.status_code == 401
+
+
 def test_verifier_success_allows_and_stashes_principal() -> None:
     mw = _make_middleware()
     check = AuthenticationCheck(mw)

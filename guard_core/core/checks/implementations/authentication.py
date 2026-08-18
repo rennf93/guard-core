@@ -128,7 +128,12 @@ class AuthenticationCheck(SecurityCheck):
                 request, "No auth verifier configured", route_config
             )
 
-        result = await resolve_verifier_result(verifier(request, credential))
+        try:
+            result = await resolve_verifier_result(verifier(request, credential))
+        except Exception:
+            return await self._handle_auth_failure(
+                request, "Authentication error", route_config
+            )
         if not result:
             return await self._handle_auth_failure(
                 request, "Authentication failed", route_config
