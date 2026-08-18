@@ -81,7 +81,7 @@ def test_truncate_safely_preserves_command_injection_payload_past_cutoff() -> No
     out = pp.truncate_safely(content)
 
     assert payload in out
-    assert len(out) <= 200
+    assert out == content
 
 
 def test_extract_attack_regions_detects_bare_metadata_ip_literal(
@@ -103,12 +103,10 @@ def test_truncate_safely_preserves_bare_metadata_ip_payload_past_cutoff() -> Non
     out = pp.truncate_safely(content)
 
     assert payload in out
-    assert len(out) <= 200
+    assert out == content
 
 
-def test_gap_truncation_does_not_fuse_filler_into_preserved_cmd_injection_keyword() -> (
-    None
-):
+def test_full_scan_does_not_fuse_filler_into_preserved_cmd_injection_keyword() -> None:
     pp = ContentPreprocessor(max_content_length=150, preserve_attack_patterns=True)
     filler_word = "a" * 300
     boundary_space = " "
@@ -130,10 +128,10 @@ def test_gap_truncation_does_not_fuse_filler_into_preserved_cmd_injection_keywor
 
     out = pp.truncate_safely(content)
 
-    assert len(out) <= 150
+    assert out == content
     assert _cmd_injection_detected(content)
     assert _cmd_injection_detected(out), (
-        f"gap truncation fused filler into the preserved keyword: {out!r}"
+        f"full scan fused filler into the preserved keyword: {out!r}"
     )
 
 

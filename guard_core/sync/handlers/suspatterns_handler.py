@@ -1736,7 +1736,12 @@ class SusPatternsManager:
             return [], 0.0
 
         semantic_threshold = state.semantic_threshold
-        semantic_analysis = semantic_analyzer.analyze(content)
+        semantic_budget = (
+            state.preprocessor.max_content_length
+            if state.preprocessor
+            else len(content)
+        )
+        semantic_analysis = semantic_analyzer.analyze(content[:semantic_budget])
         semantic_score = semantic_analyzer.get_threat_score(semantic_analysis)
         threats = []
 

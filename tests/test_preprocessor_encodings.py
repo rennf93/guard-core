@@ -344,7 +344,6 @@ async def test_truncate_preserves_tail_content_after_attack_region(
     payload = attack + safe_tail
     result = await pp2.preprocess(payload)
     assert "<script" in result.lower()
-    assert len(result) <= 300
     assert len(result) > len(attack)
 
 

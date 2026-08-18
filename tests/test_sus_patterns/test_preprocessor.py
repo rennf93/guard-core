@@ -245,7 +245,7 @@ def test_truncate_safely_no_attack_patterns() -> None:
     content = "This is normal content without attacks " * 10
     result = preprocessor.truncate_safely(content)
 
-    assert len(result) == 50
+    assert result == content
 
 
 def test_truncate_safely_attack_regions_exceed_max() -> None:
@@ -255,7 +255,7 @@ def test_truncate_safely_attack_regions_exceed_max() -> None:
 
     result = preprocessor.truncate_safely(content)
 
-    assert len(result) <= 100
+    assert result == content
     assert "<script>" in result
 
 
@@ -268,18 +268,13 @@ def test_truncate_safely_with_non_attack_content() -> None:
         + "safe_suffix_content_after"
     )
 
-    with patch.object(preprocessor, "extract_attack_regions") as mock_extract:
-        script_start = content.find("<script>")
-        script_end = content.find("</script>") + 9
-        mock_extract.return_value = [(script_start, script_end)]
-
-        result = preprocessor.truncate_safely(content)
+    result = preprocessor.truncate_safely(content)
 
     assert "<script>alert(1)</script>" in result
 
     assert "safe_prefix" in result
 
-    assert len(result) <= 50
+    assert result == content
 
 
 @pytest.mark.asyncio
@@ -476,8 +471,8 @@ async def test_integration_padding_attack() -> None:
     attack = "a" * 50 + "<script>alert(1)</script>" + "b" * 2000
     result = await preprocessor.preprocess(attack)
 
-    assert len(result) <= 200
     assert "script" in result
+    assert "<script>alert(1)</script>" in result
 
 
 def test_extract_and_concatenate_regions_consumes_all_without_break() -> None:
@@ -620,25 +615,27 @@ def test_build_result_with_attack_regions_appends_tail_within_budget() -> None:
     assert result == content
 
 
-def test_sample_windows_pads_remainder_when_not_evenly_divisible() -> None:
+def test_full_scan_returns_whole_body_below_cap() -> None:
     preprocessor = ContentPreprocessor(max_content_length=50)
 
     content = "no indicator markers here " * 20
     result = preprocessor.truncate_safely(content)
 
-    assert len(result) == 50
+    assert result == content
+    assert len(result) == len(content)
 
 
-def test_sample_windows_exact_division_needs_no_remainder_padding() -> None:
+def test_full_scan_returns_whole_body_at_cap_boundary() -> None:
     preprocessor = ContentPreprocessor(max_content_length=11000)
 
     content = "no indicator markers here " * 1000
     result = preprocessor.truncate_safely(content)
 
-    assert len(result) == 11000
+    assert result == content
+    assert len(result) == len(content)
 
 
-def test_sample_windows_covers_front_middle_and_back_of_oversized_body() -> None:
+def test_full_scan_covers_front_middle_and_back_of_oversized_body() -> None:
     preprocessor = ContentPreprocessor(max_content_length=10000)
     marker = "1' OR '1'='1"
 

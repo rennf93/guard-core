@@ -29,7 +29,7 @@ async def test_content_preprocessor() -> None:
     attack = "<script>alert('xss')</script>" + "a" * 10000
     processed = await preprocessor.preprocess(attack)
     assert "<script>" in processed
-    assert len(processed) <= preprocessor.max_content_length
+    assert len(processed) == len(attack)
 
 
 async def test_semantic_analyzer() -> None:

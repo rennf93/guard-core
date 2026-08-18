@@ -185,10 +185,15 @@ class ContentPreprocessor:
         return []
 
     def _extract_and_concatenate_attack_regions(
-        self, content: str, attack_regions: list[tuple[int, int]]
+        self,
+        content: str,
+        attack_regions: list[tuple[int, int]],
+        budget: int | None = None,
     ) -> str:
+        if budget is None:
+            budget = self.max_content_length
         result = ""
-        remaining = self.max_content_length
+        remaining = budget
 
         for start, end in attack_regions:
             chunk_len = min(end - start, remaining)
@@ -200,10 +205,15 @@ class ContentPreprocessor:
         return result
 
     def _build_result_with_attack_regions_and_context(
-        self, content: str, attack_regions: list[tuple[int, int]]
+        self,
+        content: str,
+        attack_regions: list[tuple[int, int]],
+        budget: int | None = None,
     ) -> str:
+        if budget is None:
+            budget = self.max_content_length
         attack_length = sum(end - start for start, end in attack_regions)
-        gap_budget = self.max_content_length - attack_length
+        gap_budget = budget - attack_length
         result_parts: list[str] = []
         last_end = 0
 
@@ -228,21 +238,14 @@ class ContentPreprocessor:
 
         return "".join(result_parts)
 
-    _TRUNCATION_SAMPLE_WINDOWS = 11
+    _MAX_FULL_SCAN_BYTES = 262144
+    _FULL_SCAN_TAIL_BYTES = 4096
 
-    def _sample_windows(self, content: str) -> str:
-        num_windows = self._TRUNCATION_SAMPLE_WINDOWS
-        window_size = max(1, self.max_content_length // num_windows)
-        last_start = len(content) - window_size
-        stride = last_start / (num_windows - 1)
-        result = "".join(
-            content[start : start + window_size]
-            for start in (round(stride * i) for i in range(num_windows))
-        )
-        remaining = self.max_content_length - len(result)
-        if remaining > 0:
-            result += content[-remaining:]
-        return result[: self.max_content_length]
+    def _cap_with_tail(self, content: str) -> str:
+        cap = self._MAX_FULL_SCAN_BYTES
+        tail = self._FULL_SCAN_TAIL_BYTES
+        head_len = cap - tail
+        return content[:head_len] + content[-tail:]
 
     def truncate_safely(self, content: str) -> str:
         if len(content) <= self.max_content_length:
@@ -251,18 +254,23 @@ class ContentPreprocessor:
         if not self.preserve_attack_patterns:
             return content[: self.max_content_length]
 
+        if len(content) <= self._MAX_FULL_SCAN_BYTES:
+            return content
+
         attack_regions = self.extract_attack_regions(content)
 
         if not attack_regions:
-            return self._sample_windows(content)
+            return self._cap_with_tail(content)
 
         attack_length = sum(end - start for start, end in attack_regions)
 
-        if attack_length >= self.max_content_length:
-            return self._extract_and_concatenate_attack_regions(content, attack_regions)
+        if attack_length >= self._MAX_FULL_SCAN_BYTES:
+            return self._extract_and_concatenate_attack_regions(
+                content, attack_regions, budget=self._MAX_FULL_SCAN_BYTES
+            )
 
         return self._build_result_with_attack_regions_and_context(
-            content, attack_regions
+            content, attack_regions, budget=self._MAX_FULL_SCAN_BYTES
         )
 
     def remove_null_bytes(self, content: str) -> str:
