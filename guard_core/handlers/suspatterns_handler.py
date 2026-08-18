@@ -134,7 +134,7 @@ _NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 
-_LDAP_WILDCARD_CHAIN_RE = r"\*\)\(+\s*[a-zA-Z][\w-]*\s*="
+_LDAP_WILDCARD_CHAIN_RE = r"\*\)[|&]?\(+\s*[a-zA-Z][\w-]*\s*="
 _LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
 
 _LDAP_PAREN_CONJUNCTION_RE = r"\(\s*[&|]\s*"
