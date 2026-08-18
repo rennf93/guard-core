@@ -262,7 +262,7 @@ def test_every_builtin_passes_the_safety_validator() -> None:
 
 def _file_inclusion_url_pattern() -> str:
     for pat, _c, c in SusPatternsManager._pattern_definitions:
-        if c == "file_inclusion" and r"[-.\w]" in pat:
+        if c == "file_inclusion" and "(?<!:)" in pat:
             return pat
     raise AssertionError("file_inclusion URL pattern not found")
 
