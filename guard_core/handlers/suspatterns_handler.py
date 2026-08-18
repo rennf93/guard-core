@@ -158,8 +158,14 @@ _FILE_INCLUSION_BARE_HOST_RE = (
     r"[a-zA-Z0-9\-\.\?,'/\\\+&amp;%\$#_]*)?)"
 )
 
-_LDAP_NULL_BYTE_ATTR_RE = r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+%00"
-_LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+%00"
+_LDAP_NULL_BYTE_ATTR_RE = (
+    r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
+)
+_LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
+_LDAP_NULL_BYTE_DECODED_ATTR_RE = (
+    r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+\x00"
+)
+_LDAP_NULL_BYTE_DECODED_BARE_RE = r"\*\)\)+\x00"
 _HTTP_SPLIT_CRLF_RE = r"[\r\n]\s*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)"
 _SQLI_ORDER_BY_TERMINATOR_RE = (
     r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
@@ -341,6 +347,8 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DIR_TRAVERSAL_PROC_ENVIRON_RE,
         _DIR_TRAVERSAL_VAR_LOG_RE,
         _FILE_UPLOAD_DECODED_TRUNCATION_RE,
+        _LDAP_NULL_BYTE_DECODED_ATTR_RE,
+        _LDAP_NULL_BYTE_DECODED_BARE_RE,
     }
 )
 
@@ -1035,6 +1043,8 @@ class SusPatternsManager:
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_ATTR_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_BARE_RE, _CTX_LDAP, "ldap"),
+        (_LDAP_NULL_BYTE_DECODED_ATTR_RE, _CTX_LDAP, "ldap"),
+        (_LDAP_NULL_BYTE_DECODED_BARE_RE, _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
