@@ -124,9 +124,13 @@ class IPBanManager:
         self.banned_ips[ip] = expiry
 
         if self.redis_handler:
-            await self.redis_handler.set_key(
-                "banned_ips", ip, str(expiry), ttl=duration
-            )
+            try:
+                await self.redis_handler.set_key(
+                    "banned_ips", ip, str(expiry), ttl=duration
+                )
+            except Exception:
+                duration = self._clamp_to_local_cap(duration, "request failed")
+                self.banned_ips[ip] = time.time() + duration
 
         if self.agent_handler:
             await self._send_ban_event(ip, duration, reason)
