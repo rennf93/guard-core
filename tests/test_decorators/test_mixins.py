@@ -161,6 +161,34 @@ async def test_require_authorization_header() -> None:
     assert rc.auth_verifier is None
 
 
+async def test_require_auth_conflicts_with_authorization_header() -> None:
+    d = _decorator()
+    d.require_authorization_header(scheme="bearer")(_sample_func)
+    with pytest.raises(ValueError, match="require_authorization_header"):
+        d.require_auth(type="bearer")(_sample_func)
+
+
+async def test_api_key_auth_conflicts_with_authorization_header() -> None:
+    d = _decorator()
+    d.require_authorization_header(scheme="bearer")(_sample_func)
+    with pytest.raises(ValueError, match="require_authorization_header"):
+        d.api_key_auth(header_name="X-Key")(_sample_func)
+
+
+async def test_require_authorization_header_conflicts_with_auth_required() -> None:
+    d = _decorator()
+    d.require_auth(type="bearer")(_sample_func)
+    with pytest.raises(ValueError, match="require_authorization_header"):
+        d.require_authorization_header(scheme="bearer")(_sample_func)
+
+
+async def test_require_authorization_header_conflicts_with_api_key() -> None:
+    d = _decorator()
+    d.api_key_auth(header_name="X-Key")(_sample_func)
+    with pytest.raises(ValueError, match="require_authorization_header"):
+        d.require_authorization_header(scheme="bearer")(_sample_func)
+
+
 async def test_require_headers() -> None:
     d = _decorator()
     decorated = d.require_headers({"X-Custom": "required"})(_sample_func)
