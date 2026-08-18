@@ -1,6 +1,7 @@
 import time
 from typing import NamedTuple
 
+import coverage
 import pytest
 
 from guard_core.models import SecurityConfig
@@ -8,6 +9,10 @@ from guard_core.sync.handlers.suspatterns_handler import (
     ALL_DETECTION_CATEGORIES,
     SusPatternsManager,
 )
+
+
+def _cov_scale() -> float:
+    return 1.0 + 1.0 * (coverage.Coverage.current() is not None)
 
 
 class MaliciousCase(NamedTuple):
@@ -2691,7 +2696,7 @@ def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         f"unexpected={unexpected_false_positive_case_ids}\n{report}"
     )
 
-    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS, (
+    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS * _cov_scale(), (
         f"detection benchmark wall time regressed: "
         f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
     )
@@ -2727,7 +2732,7 @@ def test_glued_backtick_discriminator_perf_on_non_backtick_content() -> None:
         f"runs={[f'{d:.4f}' for d in durations]}"
     )
 
-    assert median_seconds < _BACKTICK_PERF_CEILING_SECONDS, (
+    assert median_seconds < _BACKTICK_PERF_CEILING_SECONDS * _cov_scale(), (
         f"non-backtick detection pass got {median_seconds:.4f}s, "
         f"more than {_BACKTICK_PERF_CEILING_SECONDS}s for "
         f"{len(_NON_BACKTICK_PERF_CORPUS)} payloads"
