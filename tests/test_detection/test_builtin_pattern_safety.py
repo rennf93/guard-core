@@ -25,7 +25,7 @@ def _child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
 
 
 def _timed_batch(pat: str, texts: list[str], timeout: float) -> list[float] | None:
-    ctx = mp.get_context("fork")
+    ctx = mp.get_context("forkserver")
     q: mp.Queue[list[float]] = ctx.Queue()
     p = ctx.Process(target=_child, args=(pat, texts, q))
     p.start()

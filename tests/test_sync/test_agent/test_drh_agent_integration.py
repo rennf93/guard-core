@@ -211,6 +211,19 @@ def test_interruptible_sleep_returns_immediately_when_stopped(
     assert elapsed < 1
 
 
+def test_rule_update_loop_exits_when_already_stopped(
+    config: SecurityConfig,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager._stop_event.set()
+
+    manager._rule_update_loop()
+
+    assert manager._stop_event.is_set()
+
+
 def test_update_rules_disabled(
     config: SecurityConfig, mock_agent_handler: MagicMock
 ) -> None:

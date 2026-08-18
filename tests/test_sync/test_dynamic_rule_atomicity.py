@@ -8,6 +8,7 @@ import pytest
 
 from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
+from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 
 
 def _rules(**kwargs: object) -> DynamicRules:
@@ -29,7 +30,8 @@ def reset_singleton() -> Generator[None, None, None]:
 
 def test_apply_rules_rolls_back_on_partial_failure() -> None:
     config = SecurityConfig(
-        geo_ip_handler=MagicMock(), blocked_countries=frozenset({"XX"})
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler),
+        blocked_countries=frozenset({"XX"}),
     )
     manager = DynamicRuleManager(config)
 
@@ -45,7 +47,7 @@ def test_apply_rules_rolls_back_on_partial_failure() -> None:
 
 
 def test_apply_rules_persists_on_success() -> None:
-    config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock(spec=SyncGeoIPHandler))
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"])
@@ -55,7 +57,7 @@ def test_apply_rules_persists_on_success() -> None:
 
 
 def test_concurrent_threads_serialize() -> None:
-    config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock(spec=SyncGeoIPHandler))
     manager = DynamicRuleManager(config)
     observed: list[list[str]] = []
 
@@ -90,7 +92,7 @@ def test_rollback_restores_all_snapshot_fields() -> None:
     config = SecurityConfig(
         rate_limit=100,
         enable_ip_banning=True,
-        geo_ip_handler=MagicMock(),
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler),
         blocked_countries=frozenset({"OLD"}),
     )
     manager = DynamicRuleManager(config)

@@ -138,7 +138,10 @@ def test_database_retry_success(tmp_path: Path) -> None:
 def test_db_age_check(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
 
-    with patch("pathlib.Path.stat") as mock_stat:
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.stat") as mock_stat,
+    ):
         mock_stat.return_value.st_mtime = time.time() - 86401
         assert db._is_db_outdated() is True
 

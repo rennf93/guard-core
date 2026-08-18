@@ -7,6 +7,7 @@ import pytest
 
 from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.models import DynamicRules, SecurityConfig
+from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 
 
 def _rules(**kwargs: object) -> DynamicRules:
@@ -29,7 +30,7 @@ def reset_singleton() -> Generator[None, None, None]:
 @pytest.mark.asyncio
 async def test_apply_rules_rolls_back_on_partial_failure() -> None:
     config = SecurityConfig(
-        geo_ip_handler=MagicMock(), blocked_countries=frozenset({"XX"})
+        geo_ip_handler=MagicMock(spec=GeoIPHandler), blocked_countries=frozenset({"XX"})
     )
 
     with pytest.warns(UserWarning, match="blocked_countries is ignored"):
@@ -52,7 +53,7 @@ async def test_apply_rules_rolls_back_on_partial_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_rules_persists_on_success() -> None:
-    config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock(spec=GeoIPHandler))
     manager = DynamicRuleManager(config)
 
     rules = _rules(blocked_countries=["NEW"])
@@ -63,7 +64,7 @@ async def test_apply_rules_persists_on_success() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_rule_application_serializes() -> None:
-    config = SecurityConfig(geo_ip_handler=MagicMock())
+    config = SecurityConfig(geo_ip_handler=MagicMock(spec=GeoIPHandler))
     manager = DynamicRuleManager(config)
     observed: list[list[str]] = []
 
@@ -94,7 +95,7 @@ async def test_rollback_restores_all_snapshot_fields() -> None:
         rate_limit=100,
         enable_ip_banning=True,
         emergency_mode=False,
-        geo_ip_handler=MagicMock(),
+        geo_ip_handler=MagicMock(spec=GeoIPHandler),
         blocked_countries=frozenset({"OLD_COUNTRY"}),
     )
     manager = DynamicRuleManager(config)

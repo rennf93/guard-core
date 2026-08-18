@@ -7,6 +7,7 @@ from pytest_mock import MockerFixture
 
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.models import SecurityConfig
+from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 from guard_core.utils import (
     check_ip_country,
     detect_penetration_attempt,
@@ -150,7 +151,9 @@ async def test_get_ip_country(mocker: MockerFixture) -> None:
     mock_db.get_country.return_value = "US"
     mock_db.reader = True
 
-    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
+    config = SecurityConfig(
+        blocked_countries=["CN"], geo_ip_handler=MagicMock(spec=GeoIPHandler)
+    )
 
     country = await check_ip_country("1.1.1.1", config, mock_db)
     assert not country
@@ -182,7 +185,7 @@ async def test_is_ip_allowed_cloud_providers(
 async def test_whitelisted_country(
     security_config: SecurityConfig, mocker: MockerFixture
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
     mock_ipinfo.reader = True
 
@@ -195,7 +198,7 @@ async def test_whitelisted_country(
 async def test_whitelist_countries_blocks_non_member(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "FR"
 
     config = SecurityConfig(
@@ -208,7 +211,7 @@ async def test_whitelist_countries_blocks_non_member(
 async def test_whitelist_countries_blocks_unknown_country(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = None
 
     config = SecurityConfig(
@@ -221,7 +224,7 @@ async def test_whitelist_countries_blocks_unknown_country(
 async def test_whitelist_countries_overrides_blocked_countries(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
 
     with pytest.warns(UserWarning, match="blocked_countries is ignored"):
@@ -237,7 +240,7 @@ async def test_whitelist_countries_overrides_blocked_countries(
 async def test_whitelist_countries_alone_blocks_non_member_via_is_ip_allowed(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "DE"
 
     config = SecurityConfig(
@@ -250,7 +253,7 @@ async def test_whitelist_countries_alone_blocks_non_member_via_is_ip_allowed(
 async def test_whitelist_countries_alone_allows_member_via_is_ip_allowed(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
 
     config = SecurityConfig(
@@ -319,7 +322,7 @@ async def test_check_ip_access_country_block_names_country(
 ) -> None:
     from guard_core.utils import check_ip_access
 
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "RU"
 
     config = SecurityConfig(blocked_countries=["RU"], geo_ip_handler=mock_ipinfo)
@@ -403,7 +406,7 @@ async def test_is_ip_allowed_regression_bool_outcomes_by_block_type(
     result = await is_ip_allowed("8.8.8.8", cloud_config)
     assert result is True
 
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.get_country.return_value = "RU"
     country_config = SecurityConfig(
         blocked_countries=["RU"], geo_ip_handler=mock_ipinfo
@@ -422,7 +425,7 @@ async def test_is_ip_allowed_regression_bool_outcomes_by_block_type(
 
 
 async def test_check_ip_country_not_initialized() -> None:
-    mock_ipinfo = Mock()
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
     mock_ipinfo.is_initialized = False
     mock_ipinfo.initialize = AsyncMock()
     mock_ipinfo.get_country.return_value = "US"
@@ -559,7 +562,9 @@ async def test_detect_penetration_attempt_body_error() -> None:
 
 
 async def test_is_ip_allowed_blocked_country(mocker: MockerFixture) -> None:
-    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
+    config = SecurityConfig(
+        blocked_countries=["CN"], geo_ip_handler=MagicMock(spec=GeoIPHandler)
+    )
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True

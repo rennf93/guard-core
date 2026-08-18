@@ -12,8 +12,15 @@ _MAX_CONTENT_LENGTH = 20000
 
 
 def _child_detect(
-    config: SecurityConfig, payload: str, q: "mp.Queue[dict[str, Any]]"
+    compiler_timeout: float,
+    max_content_length: int,
+    payload: str,
+    q: "mp.Queue[dict[str, Any]]",
 ) -> None:
+    config = SecurityConfig(
+        detection_compiler_timeout=compiler_timeout,
+        detection_max_content_length=max_content_length,
+    )
     manager = SusPatternsManager()
     manager.configure(config)
     t0 = time.monotonic()
@@ -32,9 +39,17 @@ def _child_detect(
 def _run_detect_under_deadline(
     config: SecurityConfig, payload: str, deadline: float
 ) -> dict[str, Any] | None:
-    ctx = mp.get_context("fork")
+    ctx = mp.get_context("forkserver")
     q: mp.Queue[dict[str, Any]] = ctx.Queue()
-    proc = ctx.Process(target=_child_detect, args=(config, payload, q))
+    proc = ctx.Process(
+        target=_child_detect,
+        args=(
+            config.detection_compiler_timeout,
+            config.detection_max_content_length,
+            payload,
+            q,
+        ),
+    )
     proc.start()
     proc.join(deadline)
     if proc.is_alive():
