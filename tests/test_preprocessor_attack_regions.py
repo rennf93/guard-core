@@ -106,9 +106,7 @@ def test_truncate_safely_preserves_bare_metadata_ip_payload_past_cutoff() -> Non
     assert out == content
 
 
-def test_full_scan_does_not_fuse_filler_into_preserved_cmd_injection_keyword() -> (
-    None
-):
+def test_full_scan_does_not_fuse_filler_into_preserved_cmd_injection_keyword() -> None:
     pp = ContentPreprocessor(max_content_length=150, preserve_attack_patterns=True)
     filler_word = "a" * 300
     boundary_space = " "
