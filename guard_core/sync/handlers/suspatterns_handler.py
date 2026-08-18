@@ -842,6 +842,7 @@ def _build_enhanced_detection_state(config: Any) -> _DetectionState:
         preprocessor=ContentPreprocessor(
             max_content_length=config.detection_max_content_length,
             preserve_attack_patterns=config.detection_preserve_attack_patterns,
+            max_full_scan_bytes=config.detection_max_body_inspect_bytes,
         ),
         semantic_analyzer=SemanticAnalyzer(),
         performance_monitor=PerformanceMonitor(
@@ -1535,6 +1536,7 @@ class SusPatternsManager:
             preserve_attack_patterns=preprocessor.preserve_attack_patterns,
             agent_handler=self.agent_handler,
             correlation_id=correlation_id,
+            max_full_scan_bytes=preprocessor._MAX_FULL_SCAN_BYTES,
         )
         return context_preprocessor.preprocess(content)
 

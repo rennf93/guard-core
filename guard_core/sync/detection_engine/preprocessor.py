@@ -5,17 +5,25 @@ from typing import Any
 
 
 class ContentPreprocessor:
+    _DEFAULT_MAX_FULL_SCAN_BYTES = 262144
+
     def __init__(
         self,
         max_content_length: int = 10000,
         preserve_attack_patterns: bool = True,
         agent_handler: Any = None,
         correlation_id: str | None = None,
+        max_full_scan_bytes: int | None = None,
     ):
         self.max_content_length = max_content_length
         self.preserve_attack_patterns = preserve_attack_patterns
         self.agent_handler = agent_handler
         self.correlation_id = correlation_id
+        self._MAX_FULL_SCAN_BYTES = (
+            max_full_scan_bytes
+            if max_full_scan_bytes is not None
+            else self._DEFAULT_MAX_FULL_SCAN_BYTES
+        )
 
         self.attack_indicators = [
             r"<script",
@@ -238,12 +246,11 @@ class ContentPreprocessor:
 
         return "".join(result_parts)
 
-    _MAX_FULL_SCAN_BYTES = 262144
     _FULL_SCAN_TAIL_BYTES = 4096
 
     def _cap_with_tail(self, content: str) -> str:
         cap = self._MAX_FULL_SCAN_BYTES
-        tail = self._FULL_SCAN_TAIL_BYTES
+        tail = min(self._FULL_SCAN_TAIL_BYTES, cap)
         head_len = cap - tail
         return content[:head_len] + content[-tail:]
 

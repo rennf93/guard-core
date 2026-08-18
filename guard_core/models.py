@@ -793,7 +793,9 @@ class SecurityConfig(BaseModel):
             "the boundary, is not detected. That tradeoff is inherent to "
             "bounded-memory scanning and cannot be closed without reading the "
             "whole body; raise the cap to shrink the blind spot, at the cost of "
-            "more memory held per inspected request. Distinct from "
+            "more memory held per inspected request and more CPU time spent "
+            "pattern-matching it, since the full-body scan window follows "
+            "this same cap. Distinct from "
             "detection_max_content_length (the regex scan window) and "
             "max_request_size (the 413 size gate)."
         ),
