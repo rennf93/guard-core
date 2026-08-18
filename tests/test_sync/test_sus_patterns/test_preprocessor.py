@@ -363,6 +363,28 @@ def test_preprocess_signal_preserving_keeps_raw_attack_markers() -> None:
     assert "/1" in result
 
 
+def test_preprocess_url_decoded_newline_preserving_empty_content() -> None:
+    preprocessor = ContentPreprocessor()
+
+    assert preprocessor.preprocess_url_decoded_newline_preserving("") == ""
+
+
+def test_preprocess_url_decoded_newline_preserving_decodes_content() -> None:
+    preprocessor = ContentPreprocessor(max_content_length=200)
+
+    fullwidth_slash = chr(0xFF0F)
+    content = f"admin%27--\r\nSet-Cookie: x{fullwidth_slash}1 uid=*)%00"
+
+    result = preprocessor.preprocess_url_decoded_newline_preserving(content)
+
+    assert isinstance(result, str)
+    assert "'" in result
+    assert "\r\n" in result
+    assert chr(0xFF0F) not in result
+    assert "/1" in result
+    assert len(result) <= 200
+
+
 def test_preprocess_full_flow() -> None:
     preprocessor = ContentPreprocessor(max_content_length=200)
 

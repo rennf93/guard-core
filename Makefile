@@ -20,7 +20,7 @@ install:
 
 .PHONY: install-dev
 install-dev:
-	@uv sync --extra dev
+	@uv sync --extra dev --extra otel --extra logfire
 	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
 
 
