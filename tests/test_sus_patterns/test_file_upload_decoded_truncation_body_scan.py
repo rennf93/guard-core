@@ -3,7 +3,7 @@ from collections.abc import Generator
 import pytest
 
 from guard_core.handlers.suspatterns_handler import (
-    _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE,
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE,
     _FILE_UPLOAD_TRUNCATION_RE,
     DETECTION_RAW_VIEW_PATTERN_SOURCES,
     DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES,
@@ -63,7 +63,7 @@ async def _manager_truncation_threats(
     ]
 
 
-async def _manager_decoded_nul_threats(
+async def _manager_decoded_truncation_threats(
     manager: SusPatternsManager, body: str
 ) -> list[dict]:
     result = await manager.detect(body, "203.0.113.9", context="request_body")
@@ -71,7 +71,7 @@ async def _manager_decoded_nul_threats(
         threat
         for threat in result["threats"]
         if threat["type"] == "regex"
-        and threat["pattern"] == _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
+        and threat["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
     ]
 
 
@@ -272,46 +272,66 @@ async def test_double_encoded_nul_truncation_fires_in_url_decoded_view() -> None
         SusPatternsManager._config = original_config
 
 
-async def test_decoded_nul_truncation_pattern_registered_in_url_decoded_view_only(
+async def test_decoded_truncation_pattern_registered_in_url_decoded_view_only(
     manager: SusPatternsManager,
 ) -> None:
     assert (
-        _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
-        in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
     )
     assert (
-        _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
-        not in DETECTION_RAW_VIEW_PATTERN_SOURCES
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
     )
     body = 'filename="shell.php%2500.txt"'
-    threats = await _manager_decoded_nul_threats(manager, body)
+    threats = await _manager_decoded_truncation_threats(manager, body)
     assert threats
     assert threats[0]["category"] == "file_upload"
-    assert threats[0]["pattern"] == _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE
+    assert threats[0]["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
 
 
-BENIGN_DECODED_NUL_FP_BODIES = [
+BENIGN_DECODED_TRUNCATION_FP_BODIES = [
     pytest.param('filename="vacation.jpg"', id="benign_jpg"),
     pytest.param('filename="shell.php.txt"', id="benign_php_txt"),
     pytest.param('filename="notes.php .txt"', id="benign_php_space_txt"),
     pytest.param('filename="report;final.pdf"', id="benign_semicolon_pdf"),
+    pytest.param('filename="invoice;final.pdf"', id="benign_invoice_semicolon_pdf"),
+    pytest.param('filename="notes.php .jpg"', id="benign_php_space_jpg"),
 ]
 
 
-@pytest.mark.parametrize("body", BENIGN_DECODED_NUL_FP_BODIES)
-async def test_benign_filenames_without_raw_nul_do_not_fire_decoded_nul_pattern(
+@pytest.mark.parametrize("body", BENIGN_DECODED_TRUNCATION_FP_BODIES)
+async def test_benign_filenames_do_not_fire_decoded_truncation_pattern(
     manager: SusPatternsManager, body: str
 ) -> None:
-    threats = await _manager_decoded_nul_threats(manager, body)
+    threats = await _manager_decoded_truncation_threats(manager, body)
     assert not threats
 
 
-async def test_benign_base64_blob_in_filename_does_not_fire_decoded_nul_pattern(
+async def test_benign_base64_blob_in_filename_does_not_fire_decoded_truncation_pattern(
     manager: SusPatternsManager,
 ) -> None:
     blob = "aBcDeFgHiJkLmN" * 50
     body = f'filename="{blob}"'
-    threats = await _manager_decoded_nul_threats(manager, body)
+    threats = await _manager_decoded_truncation_threats(manager, body)
+    assert not threats
+
+
+BENIGN_DECODED_BASE64_FP_BODIES = [
+    pytest.param(
+        'filename="cmVwb3J0O2ZpbmFsLnBkZg=="',
+        id="benign_base64_report_semicolon_pdf",
+    ),
+    pytest.param(
+        'filename="dmFjYXRpb24uanBn"',
+        id="benign_base64_vacation_jpg",
+    ),
+]
+
+
+@pytest.mark.parametrize("body", BENIGN_DECODED_BASE64_FP_BODIES)
+async def test_benign_base64_decoded_blobs_do_not_fire_decoded_truncation_pattern(
+    manager: SusPatternsManager, body: str
+) -> None:
+    threats = await _manager_decoded_truncation_threats(manager, body)
     assert not threats
 
 
@@ -337,3 +357,128 @@ async def test_double_encoded_nul_fires_file_upload_in_url_decoded_view(
     finally:
         SusPatternsManager._instance = original_instance
         SusPatternsManager._config = original_config
+
+
+DOUBLE_ENCODED_SEMICOLON_BODIES = [
+    pytest.param(
+        'filename="shell.asp%253B.jpg"',
+        id="asp_double_encoded_semicolon_path_info",
+    ),
+    pytest.param(
+        'filename="shell.php%253Bx=1"',
+        id="php_double_encoded_semicolon_path_info",
+    ),
+]
+
+
+@pytest.mark.parametrize("body", DOUBLE_ENCODED_SEMICOLON_BODIES)
+async def test_double_encoded_semicolon_fires_file_upload_in_url_decoded_view(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+SINGLE_ENCODED_SEMICOLON_BODIES = [
+    pytest.param(
+        'filename="shell.asp%3B.jpg"',
+        id="asp_single_encoded_semicolon_path_info",
+    ),
+]
+
+
+@pytest.mark.parametrize("body", SINGLE_ENCODED_SEMICOLON_BODIES)
+async def test_single_encoded_semicolon_fires_file_upload_in_url_decoded_view(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+ENCODED_TRAILING_DOT_BODIES = [
+    pytest.param(
+        'filename="shell.php%252E"',
+        id="php_double_encoded_trailing_dot",
+    ),
+    pytest.param(
+        'filename="shell.php%2E"',
+        id="php_single_encoded_trailing_dot",
+    ),
+]
+
+
+@pytest.mark.parametrize("body", ENCODED_TRAILING_DOT_BODIES)
+async def test_encoded_trailing_dot_fires_file_upload_in_url_decoded_view(
+    body: str,
+) -> None:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+    SusPatternsManager(SecurityConfig())
+    try:
+        assert await _body_is_threat(body) is True
+        categories = await _body_categories(body)
+        assert "file_upload" in categories
+    finally:
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+async def test_decoded_truncation_manager_detects_semicolon_and_dot_bodies(
+    manager: SusPatternsManager,
+) -> None:
+    assert (
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
+    )
+    assert (
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
+    )
+    semicolon_body = 'filename="shell.asp%253B.jpg"'
+    semicolon_result = await manager.detect(
+        semicolon_body, "203.0.113.9", context="request_body"
+    )
+    semicolon_threats = [
+        threat
+        for threat in semicolon_result["threats"]
+        if threat["type"] == "regex"
+        and threat["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
+    ]
+    assert semicolon_threats
+    assert semicolon_threats[0]["category"] == "file_upload"
+    assert (
+        semicolon_threats[0]["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
+    )
+    dot_body = 'filename="shell.php%252E"'
+    dot_result = await manager.detect(
+        dot_body, "203.0.113.9", context="request_body"
+    )
+    dot_threats = [
+        threat
+        for threat in dot_result["threats"]
+        if threat["type"] == "regex"
+        and threat["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
+    ]
+    assert dot_threats
+    assert dot_threats[0]["category"] == "file_upload"
+    assert dot_threats[0]["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE

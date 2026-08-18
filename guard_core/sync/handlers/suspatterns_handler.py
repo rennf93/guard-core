@@ -306,10 +306,10 @@ _FILE_UPLOAD_TRUNCATION_RE = (
     + _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE
     + r"[^\"']{0,255}|\.)[\"']"
 )
-_FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE = (
+_FILE_UPLOAD_DECODED_TRUNCATION_RE = (
     r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
     + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])\x00[^\"']{0,255}[\"']"
+    + r")(?![A-Za-z0-9])(?:(?:\x00|;)[^\"']{0,255}|\.)[\"']"
 )
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
@@ -339,7 +339,7 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DIR_TRAVERSAL_WINDOWS_INI_RE,
         _DIR_TRAVERSAL_PROC_ENVIRON_RE,
         _DIR_TRAVERSAL_VAR_LOG_RE,
-        _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE,
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE,
     }
 )
 
@@ -1091,7 +1091,7 @@ class SusPatternsManager:
             "file_upload",
         ),
         (
-            _FILE_UPLOAD_DECODED_NUL_TRUNCATION_RE,
+            _FILE_UPLOAD_DECODED_TRUNCATION_RE,
             _CTX_FILE_UPLOAD,
             "file_upload",
         ),
