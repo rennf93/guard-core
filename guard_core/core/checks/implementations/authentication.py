@@ -25,9 +25,11 @@ class AuthenticationCheck(SecurityCheck):
     ) -> bool:
         return route_config_applies(
             route_configs,
-            lambda rc: bool(rc.auth_required)
-            or bool(rc.api_key_required)
-            or bool(rc.authorization_header_required),
+            lambda rc: (
+                bool(rc.auth_required)
+                or bool(rc.api_key_required)
+                or bool(rc.authorization_header_required)
+            ),
         )
 
     async def _handle_auth_failure(

@@ -278,9 +278,7 @@ async def test_decoded_truncation_pattern_registered_in_url_decoded_view_only(
     assert (
         _FILE_UPLOAD_DECODED_TRUNCATION_RE in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
     )
-    assert (
-        _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
-    )
+    assert _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
     body = 'filename="shell.php%2500.txt"'
     threats = await _manager_decoded_truncation_threats(manager, body)
     assert threats
@@ -451,9 +449,7 @@ async def test_decoded_truncation_manager_detects_semicolon_and_dot_bodies(
     assert (
         _FILE_UPLOAD_DECODED_TRUNCATION_RE in DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES
     )
-    assert (
-        _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
-    )
+    assert _FILE_UPLOAD_DECODED_TRUNCATION_RE not in DETECTION_RAW_VIEW_PATTERN_SOURCES
     semicolon_body = 'filename="shell.asp%253B.jpg"'
     semicolon_result = await manager.detect(
         semicolon_body, "203.0.113.9", context="request_body"
@@ -466,13 +462,9 @@ async def test_decoded_truncation_manager_detects_semicolon_and_dot_bodies(
     ]
     assert semicolon_threats
     assert semicolon_threats[0]["category"] == "file_upload"
-    assert (
-        semicolon_threats[0]["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
-    )
+    assert semicolon_threats[0]["pattern"] == _FILE_UPLOAD_DECODED_TRUNCATION_RE
     dot_body = 'filename="shell.php%252E"'
-    dot_result = await manager.detect(
-        dot_body, "203.0.113.9", context="request_body"
-    )
+    dot_result = await manager.detect(dot_body, "203.0.113.9", context="request_body")
     dot_threats = [
         threat
         for threat in dot_result["threats"]
