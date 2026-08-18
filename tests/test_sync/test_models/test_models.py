@@ -151,3 +151,16 @@ def test_muted_event_types_validation_valid() -> None:
 def test_muted_metric_types_validation_valid() -> None:
     config = SecurityConfig(muted_metric_types={"response_time"})
     assert config.muted_metric_types == {"response_time"}
+
+
+def test_security_config_auth_verifier_defaults_none() -> None:
+    config = SecurityConfig()
+    assert config.auth_verifier is None
+
+
+def test_security_config_auth_verifier_accepts_callable() -> None:
+    def verifier(request: object, credential: str) -> object:
+        return credential
+
+    config = SecurityConfig(auth_verifier=verifier)
+    assert config.auth_verifier is verifier

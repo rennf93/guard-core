@@ -11,10 +11,10 @@ from guard_core.sync.core.checks.helpers import (
     check_route_ip_access,
     check_user_agent_allowed,
     detect_penetration_patterns,
+    extract_credential,
     is_ip_in_blacklist,
     is_ip_in_whitelist,
     is_referrer_domain_allowed,
-    validate_auth_header,
 )
 from guard_core.sync.decorators.base import RouteConfig
 
@@ -203,38 +203,41 @@ def test_check_user_agent_allowed_by_route() -> None:
     assert result is True
 
 
-def test_validate_auth_bearer_valid() -> None:
-    valid, msg = validate_auth_header("Bearer token123", "bearer")
-    assert valid is True
-    assert msg == ""
+def test_extract_credential_bearer() -> None:
+    assert extract_credential("Bearer token123", "bearer") == ("token123", "")
 
 
-def test_validate_auth_bearer_invalid() -> None:
-    valid, msg = validate_auth_header("Basic creds", "bearer")
-    assert valid is False
-    assert "Bearer" in msg
+def test_extract_credential_bearer_wrong_scheme() -> None:
+    assert extract_credential("Basic creds", "bearer") == (
+        None,
+        "Missing or invalid Bearer token",
+    )
 
 
-def test_validate_auth_basic_valid() -> None:
-    valid, msg = validate_auth_header("Basic dXNlcjpwYXNz", "basic")
-    assert valid is True
+def test_extract_credential_bearer_missing() -> None:
+    assert extract_credential("", "bearer") == (None, "Missing or invalid Bearer token")
 
 
-def test_validate_auth_basic_invalid() -> None:
-    valid, msg = validate_auth_header("Bearer token", "basic")
-    assert valid is False
-    assert "Basic" in msg
+def test_extract_credential_basic() -> None:
+    assert extract_credential("Basic dXNlcjpwYXNz", "basic") == ("dXNlcjpwYXNz", "")
 
 
-def test_validate_auth_custom_valid() -> None:
-    valid, msg = validate_auth_header("CustomScheme value", "custom")
-    assert valid is True
+def test_extract_credential_basic_wrong_scheme() -> None:
+    assert extract_credential("Bearer token", "basic") == (
+        None,
+        "Missing or invalid Basic authentication",
+    )
 
 
-def test_validate_auth_custom_empty() -> None:
-    valid, msg = validate_auth_header("", "custom")
-    assert valid is False
-    assert "custom" in msg
+def test_extract_credential_custom() -> None:
+    assert extract_credential("CustomScheme value", "custom") == (
+        "CustomScheme value",
+        "",
+    )
+
+
+def test_extract_credential_custom_missing() -> None:
+    assert extract_credential("", "custom") == (None, "Missing custom authentication")
 
 
 def test_referrer_domain_valid() -> None:
@@ -300,7 +303,7 @@ def test_detect_penetration_patterns_enabled() -> None:
         "guard_core.sync.core.checks.helpers.detect_penetration_attempt",
         return_value=DetectionResult(is_threat=False, trigger_info=""),
     ):
-        result = detect_penetration_patterns(req, None, config, lambda *a: False)
+        result = detect_penetration_patterns(req, None, config, lambda *_: False)
     assert result.is_threat is False
 
 
@@ -309,7 +312,7 @@ def test_detect_penetration_patterns_disabled() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result = detect_penetration_patterns(req, None, config, lambda *a: False)
+    result = detect_penetration_patterns(req, None, config, lambda *_: False)
     assert result.is_threat is False
     assert result.trigger_info == "not_enabled"
 
@@ -319,7 +322,7 @@ def test_detect_penetration_patterns_bypassed() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result = detect_penetration_patterns(req, None, config, lambda *a: True)
+    result = detect_penetration_patterns(req, None, config, lambda *_: True)
     assert result.is_threat is False
 
 

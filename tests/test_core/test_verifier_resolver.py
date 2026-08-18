@@ -7,7 +7,7 @@ async def test_resolve_verifier_result_returns_plain_value() -> None:
     assert await resolve_verifier_result("principal") == "principal"
 
 
-async def test_resolve_verifier_result_awaits_coroutine() -> None:
+async def test_resolve_verifier_result_awaits_coroutine() -> None:  # async-only
     async def verifier() -> str:
         return "principal"
 

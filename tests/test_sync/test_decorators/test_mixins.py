@@ -105,6 +105,19 @@ def test_require_auth_bearer() -> None:
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None
     assert rc.auth_required == "bearer"
+    assert rc.auth_verifier is None
+
+
+def test_require_auth_bearer_with_verifier() -> None:
+    def verifier(_request: object, credential: str) -> object:
+        return credential
+
+    d = _decorator()
+    decorated = d.require_auth(type="bearer", verifier=verifier)(_sample_func)
+    rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
+    assert rc.auth_required == "bearer"
+    assert rc.auth_verifier is verifier
 
 
 def test_require_auth_basic() -> None:
@@ -121,7 +134,31 @@ def test_api_key_auth() -> None:
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None
     assert rc.api_key_required is True
-    assert rc.required_headers.get("X-API-Key") == "required"
+    assert rc.required_headers["X-API-Key"] == "required"
+    assert rc.api_key_header == "X-API-Key"
+    assert rc.api_key_verifier is None
+
+
+def test_api_key_auth_with_verifier() -> None:
+    def verifier(_request: object, credential: str) -> object:
+        return credential
+
+    d = _decorator()
+    decorated = d.api_key_auth(header_name="X-Key", verifier=verifier)(_sample_func)
+    rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
+    assert rc.api_key_header == "X-Key"
+    assert rc.api_key_verifier is verifier
+
+
+def test_require_authorization_header() -> None:
+    d = _decorator()
+    decorated = d.require_authorization_header(scheme="bearer")(_sample_func)
+    rc = d.get_route_config(decorated._guard_route_id)
+    assert rc is not None
+    assert rc.authorization_header_required == "bearer"
+    assert rc.auth_required is None
+    assert rc.auth_verifier is None
 
 
 def test_require_headers() -> None:
@@ -293,7 +330,7 @@ def test_require_referrer() -> None:
 
 
 def test_custom_validation() -> None:
-    def my_validator(request: object) -> None:
+    def my_validator(_request: object) -> None:
         return None
 
     d = _decorator()
