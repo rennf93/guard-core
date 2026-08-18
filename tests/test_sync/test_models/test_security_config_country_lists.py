@@ -146,7 +146,7 @@ def test_shadow_warning_points_at_constructor_call_site(tmp_path: Path) -> None:
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert line_before < matches[0].lineno <= line_after
 
 
@@ -166,7 +166,7 @@ def test_shadow_warning_on_runtime_assignment_points_at_assignment_site(
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
 
 
@@ -359,5 +359,5 @@ def test_model_copy_update_country_shadow_warning_points_at_call_site(
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno

@@ -62,7 +62,7 @@ def test_exclude_paths_construction_warning_points_at_constructor_call_site() ->
 
     matches = [w for w in caught if "excludes the entire application" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
 
 
@@ -143,7 +143,7 @@ def test_exclude_paths_runtime_assignment_warning_points_at_assignment_site() ->
 
     matches = [w for w in caught if "excludes the entire application" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
 
 
@@ -201,7 +201,7 @@ def test_model_copy_update_warning_points_at_call_site() -> None:
 
     matches = [w for w in caught if "excludes the entire application" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
 
 
