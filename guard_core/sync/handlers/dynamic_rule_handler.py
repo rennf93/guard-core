@@ -38,6 +38,8 @@ class DynamicRuleManager:
         "emergency_mode",
         "emergency_whitelist",
         "auto_ban_threshold",
+        "auto_ban_duration",
+        "enable_rate_limit_auto_ban",
     )
 
     def __new__(
@@ -344,6 +346,24 @@ class DynamicRuleManager:
             self.config.enable_rate_limiting = rules.enable_rate_limiting
             self.logger.info(
                 f"Dynamic rule: Rate limiting {rules.enable_rate_limiting}"
+            )
+
+        if rules.enable_rate_limit_auto_ban is not None:
+            self.config.enable_rate_limit_auto_ban = rules.enable_rate_limit_auto_ban
+            self.logger.info(
+                f"Dynamic rule: Rate-limit auto-ban {rules.enable_rate_limit_auto_ban}"
+            )
+
+        if rules.auto_ban_threshold is not None:
+            self.config.auto_ban_threshold = rules.auto_ban_threshold
+            self.logger.info(
+                f"Dynamic rule: Auto-ban threshold {rules.auto_ban_threshold}"
+            )
+
+        if rules.auto_ban_duration is not None:
+            self.config.auto_ban_duration = rules.auto_ban_duration
+            self.logger.info(
+                f"Dynamic rule: Auto-ban duration {rules.auto_ban_duration}"
             )
 
     def _activate_emergency_mode(self, emergency_whitelist: list[str]) -> None:

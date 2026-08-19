@@ -118,3 +118,33 @@ async def test_rollback_restores_all_snapshot_fields() -> None:
     assert config.rate_limit == 100
     assert config.enable_ip_banning is True
     assert config.emergency_mode is False
+
+
+@pytest.mark.asyncio
+async def test_rollback_restores_auto_ban_overrides() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=GeoIPHandler),
+        auto_ban_threshold=5,
+        auto_ban_duration=3600,
+        enable_rate_limit_auto_ban=False,
+    )
+    manager = DynamicRuleManager(config)
+
+    rules = _rules(
+        auto_ban_threshold=7,
+        auto_ban_duration=1800,
+        enable_rate_limit_auto_ban=True,
+        emergency_mode=True,
+    )
+
+    with patch.object(
+        manager,
+        "_activate_emergency_mode",
+        AsyncMock(side_effect=RuntimeError("fail")),
+    ):
+        with pytest.raises(RuntimeError, match="fail"):
+            await manager._apply_rules(rules)
+
+    assert config.auto_ban_threshold == 5
+    assert config.auto_ban_duration == 3600
+    assert config.enable_rate_limit_auto_ban is False

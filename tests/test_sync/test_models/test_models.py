@@ -1,8 +1,9 @@
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
 
-from guard_core.models import SecurityConfig
+from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 
@@ -164,3 +165,23 @@ def test_security_config_auth_verifier_accepts_callable() -> None:
 
     config = SecurityConfig(auth_verifier=verifier)
     assert config.auth_verifier is verifier
+
+
+def test_dynamic_rules_rejects_non_positive_auto_ban_threshold() -> None:
+    with pytest.raises(ValueError):
+        DynamicRules(
+            rule_id="r1",
+            version=1,
+            timestamp=datetime.now(timezone.utc),
+            auto_ban_threshold=0,
+        )
+
+
+def test_dynamic_rules_rejects_non_positive_auto_ban_duration() -> None:
+    with pytest.raises(ValueError):
+        DynamicRules(
+            rule_id="r1",
+            version=1,
+            timestamp=datetime.now(timezone.utc),
+            auto_ban_duration=0,
+        )

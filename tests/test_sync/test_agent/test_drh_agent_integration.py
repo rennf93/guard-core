@@ -1146,6 +1146,139 @@ def test_apply_feature_toggles_none_values(
     assert "Dynamic rule: Rate limiting" not in caplog.text
 
 
+def test_apply_feature_toggles_auto_ban_overrides(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=7,
+        auto_ban_duration=1800,
+        enable_rate_limit_auto_ban=True,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.auto_ban_threshold == 7
+    assert manager.config.auto_ban_duration == 1800
+    assert manager.config.enable_rate_limit_auto_ban is True
+
+    assert "Dynamic rule: Auto-ban threshold 7" in caplog.text
+    assert "Dynamic rule: Auto-ban duration 1800" in caplog.text
+    assert "Dynamic rule: Rate-limit auto-ban True" in caplog.text
+
+
+def test_apply_feature_toggles_auto_ban_none_values(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    orig_threshold = config.auto_ban_threshold
+    orig_duration = config.auto_ban_duration
+    orig_rate_auto_ban = config.enable_rate_limit_auto_ban
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=None,
+        auto_ban_duration=None,
+        enable_rate_limit_auto_ban=None,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.auto_ban_threshold == orig_threshold
+    assert manager.config.auto_ban_duration == orig_duration
+    assert manager.config.enable_rate_limit_auto_ban == orig_rate_auto_ban
+
+    assert "Dynamic rule: Auto-ban threshold" not in caplog.text
+    assert "Dynamic rule: Auto-ban duration" not in caplog.text
+    assert "Dynamic rule: Rate-limit auto-ban" not in caplog.text
+
+
+def test_apply_feature_toggles_rate_limit_auto_ban_false_override(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    config.enable_rate_limit_auto_ban = True
+    manager = DynamicRuleManager(config)
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=None,
+        auto_ban_duration=None,
+        enable_rate_limit_auto_ban=False,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.enable_rate_limit_auto_ban is False
+
+    assert "Dynamic rule: Rate-limit auto-ban False" in caplog.text
+
+
 def test_activate_emergency_mode_with_agent(
     config: SecurityConfig,
     mock_agent_handler: MagicMock,
@@ -1214,6 +1347,26 @@ def test_activate_emergency_mode_minimum_threshold(
     assert manager.config.auto_ban_threshold == 1
 
     assert "[EMERGENCY MODE] Reduced auto-ban threshold from 1 to 1" in caplog.text
+
+
+def test_apply_rules_emergency_mode_halves_overridden_auto_ban_threshold(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.emergency_mode = True
+    sample_rules.emergency_whitelist = []
+
+    with patch.object(manager, "_send_emergency_event", MagicMock()):
+        manager._apply_rules(sample_rules)
+
+    assert manager.config.auto_ban_threshold == 3
 
 
 def test_send_rule_applied_event_success(
