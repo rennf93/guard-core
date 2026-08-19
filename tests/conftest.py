@@ -35,7 +35,7 @@ from guard_core.models import SecurityConfig
 
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
-REDIS_PREFIX = os.getenv("REDIS_PREFIX") or "test:guard_core:"
+REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
 
 @pytest.fixture(autouse=True)
