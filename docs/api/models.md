@@ -39,8 +39,8 @@ class SecurityConfig(BaseModel):
     blocked_countries: frozenset[str] = Field(default_factory=frozenset)
     blocked_user_agents: list[str] = Field(default_factory=list)
 
-    auto_ban_threshold: int = Field(default=10)
-    auto_ban_duration: int = Field(default=3600)
+    auto_ban_threshold: int = Field(default=10, ge=1)
+    auto_ban_duration: int = Field(default=3600, ge=1)
 
     threat_ban_config: MappingProxyType[str, ThreatBanConfig] = Field(
         default_factory=lambda: MappingProxyType({})

@@ -33,7 +33,7 @@ def test_security_config_none_whitelist() -> None:
 
 def test_none_cloud_providers() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == frozenset()
+    assert config.block_cloud_providers is None
 
 
 def test_missing_ipinfo_token() -> None:

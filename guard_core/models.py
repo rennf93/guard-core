@@ -30,6 +30,7 @@ from guard_core._security_config_validators import (
     _resolve_geo_ip_handler,
     _revalidate_copied_config,
     _validate_block_cloud_providers_value,
+    _validate_country_set_value,
     _validate_enabled_detection_categories_value,
     _validate_exclude_paths_value,
     _validate_global_behavior_rule_assignment,
@@ -228,11 +229,15 @@ class SecurityConfig(BaseModel):
     )
 
     auto_ban_threshold: int = Field(
-        default=10, description="Number of suspicious requests before auto-ban"
+        default=10,
+        ge=1,
+        description="Number of suspicious requests before auto-ban",
     )
 
     auto_ban_duration: int = Field(
-        default=3600, description="Duration of auto-ban in seconds (default: 1 hour)"
+        default=3600,
+        ge=1,
+        description="Duration of auto-ban in seconds (default: 1 hour)",
     )
 
     threat_ban_config: MappingProxyType[str, ThreatBanConfig] = Field(
@@ -1020,16 +1025,10 @@ class SecurityConfig(BaseModel):
 
     @field_validator("whitelist_countries", "blocked_countries", mode="before")
     def coerce_country_set(cls, v: Any) -> frozenset[str]:
-        if v is None:
-            return frozenset()
-        if isinstance(v, list | tuple | set | frozenset):
-            return frozenset(str(item).upper() for item in v)
-        raise ValueError(
-            "Country list must be list/tuple/set/frozenset of country codes"
-        )
+        return _validate_country_set_value(v)
 
     @field_validator("block_cloud_providers", mode="before")
-    def validate_cloud_providers(cls, v: Any) -> frozenset[str]:
+    def validate_cloud_providers(cls, v: Any) -> frozenset[str] | None:
         return _validate_block_cloud_providers_value(v)
 
     @model_validator(mode="after")

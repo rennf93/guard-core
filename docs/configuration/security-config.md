@@ -61,8 +61,8 @@ IP Management
 | `blocked_countries`  | `frozenset[str]`       | `frozenset()`              | Country codes always blocked.                  |
 | `blocked_user_agents`| `list[str]`       | `[]`              | Regex patterns for blocked user agents.        |
 | `enable_ip_banning`  | `bool`            | `True`            | Enable automatic IP banning.                   |
-| `auto_ban_threshold` | `int`             | `10`              | Suspicious requests before auto-ban.           |
-| `auto_ban_duration`  | `int`             | `3600`            | Ban duration in seconds.                       |
+| `auto_ban_threshold` | `int`             | `10`              | Suspicious requests before auto-ban (`>= 1`).  |
+| `auto_ban_duration`  | `int`             | `3600`            | Ban duration in seconds (`>= 1`).              |
 
 **Validators**:
 
