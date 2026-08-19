@@ -475,8 +475,6 @@ def test_is_ip_banned_not_in_memory_and_no_redis() -> None:
 
 
 def test_is_ip_banned_redis_miss_returns_false() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.ipban_handler import IPBanManager
 
     manager = IPBanManager()
@@ -489,7 +487,6 @@ def test_is_ip_banned_redis_miss_returns_false() -> None:
 
 def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
     import time
-    from unittest.mock import MagicMock
 
     from guard_core.sync.handlers.ipban_handler import IPBanManager
 
@@ -505,8 +502,6 @@ def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
 
 def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
     # Covers elif-False: loop continues over a prefix dict with neither key.
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.cloud_handler import fetch_gcp_ip_ranges
 
     class _FakeSession:

@@ -1384,7 +1384,6 @@ def test_stop_without_task(
 
 def test_apply_ip_rules_whitelist_only() -> None:
     from datetime import datetime, timezone
-    from unittest.mock import MagicMock, patch
 
     from guard_core.models import DynamicRules, SecurityConfig
     from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager

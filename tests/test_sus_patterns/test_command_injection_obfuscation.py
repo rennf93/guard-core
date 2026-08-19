@@ -4,7 +4,7 @@ from collections.abc import Generator
 import pytest
 
 from guard_core.handlers.suspatterns_handler import (
-    _GLOB_WILDCARD_TOKEN_RE,
+    _GLOB_WILDCARD_ATOM_RE,
     _QUOTE_SPLICE_CANDIDATE_RE,
     SusPatternsManager,
     _glob_wildcard_token_is_dangerous_command,
@@ -63,7 +63,7 @@ async def test_glob_wildcard_dangerous_command_is_detected(
     )
     assert result["is_threat"] is True
     matched_patterns = [t["pattern"] for t in result["threats"] if t["type"] == "regex"]
-    assert _GLOB_WILDCARD_TOKEN_RE in matched_patterns
+    assert _GLOB_WILDCARD_ATOM_RE in matched_patterns
 
 
 async def test_python_getattr_indirection_is_detected(
@@ -114,24 +114,24 @@ def test_quote_splice_validator_false_for_benign_token() -> None:
 
 
 def test_glob_wildcard_validator_true_for_denylisted_command() -> None:
-    match = re.search(_GLOB_WILDCARD_TOKEN_RE, "c?t")
+    match = re.search(_GLOB_WILDCARD_ATOM_RE, "c?t")
     assert match is not None
     assert _glob_wildcard_token_is_dangerous_command(match) is True
 
 
 def test_glob_wildcard_validator_false_for_benign_token() -> None:
-    match = re.search(_GLOB_WILDCARD_TOKEN_RE, "fo?bar")
+    match = re.search(_GLOB_WILDCARD_ATOM_RE, "fo?bar")
     assert match is not None
     assert _glob_wildcard_token_is_dangerous_command(match) is False
 
 
 def test_glob_wildcard_validator_false_for_all_wildcard_token() -> None:
-    match = re.search(_GLOB_WILDCARD_TOKEN_RE, "?*")
+    match = re.search(_GLOB_WILDCARD_ATOM_RE, "?*")
     assert match is not None
     assert _glob_wildcard_token_is_dangerous_command(match) is False
 
 
 def test_glob_wildcard_validator_false_for_short_literal_with_star() -> None:
-    match = re.search(_GLOB_WILDCARD_TOKEN_RE, "c*")
+    match = re.search(_GLOB_WILDCARD_ATOM_RE, "c*")
     assert match is not None
     assert _glob_wildcard_token_is_dangerous_command(match) is False

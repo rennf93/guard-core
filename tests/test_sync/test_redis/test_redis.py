@@ -232,8 +232,6 @@ def test_redis_keys_and_delete_pattern_with_redis_disabled() -> None:
 
 
 def test_initialize_logs_warning_when_redis_url_is_none() -> None:
-    from unittest.mock import patch
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.redis_handler import RedisManager
 
@@ -259,8 +257,6 @@ def test_close_noop_when_redis_not_connected() -> None:
 
 
 def test_initialize_when_from_url_returns_none_skips_ping() -> None:
-    from unittest.mock import patch
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.redis_handler import RedisManager
 

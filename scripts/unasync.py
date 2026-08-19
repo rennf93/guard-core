@@ -435,10 +435,33 @@ def _skip_async_only_tests(content: str) -> str:
     return "\n".join(result)
 
 
+def _dedupe_redundant_local_unittest_mock_imports(content: str) -> str:
+    module_import_match = re.search(
+        r"^from unittest\.mock import (.+)$", content, flags=re.MULTILINE
+    )
+    if module_import_match is None:
+        return content
+    module_names = {name.strip() for name in module_import_match.group(1).split(",")}
+
+    def _strip_if_redundant(match: re.Match[str]) -> str:
+        local_names = {name.strip() for name in match.group(1).split(",")}
+        if local_names <= module_names:
+            return ""
+        return match.group(0)
+
+    return re.sub(
+        r"^[ \t]+from unittest\.mock import ([^\n]+)\n\n?",
+        _strip_if_redundant,
+        content,
+        flags=re.MULTILINE,
+    )
+
+
 def transform_test(content: str) -> str:
     content = _skip_async_only_tests(content)
     content = apply_subs(content, SUBS)
     content = apply_subs(content, TEST_SUBS)
+    content = _dedupe_redundant_local_unittest_mock_imports(content)
     for pattern, replacement in POST_FIXUPS:
         content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
     return content

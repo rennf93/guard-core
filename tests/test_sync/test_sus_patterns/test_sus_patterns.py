@@ -926,8 +926,6 @@ def test_send_threat_event_with_no_patterns_uses_unknown_label() -> None:
 
 
 def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -941,8 +939,6 @@ def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
 
 
 def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -958,8 +954,6 @@ def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
 
 
 def test_initialize_redis_with_cached_patterns_empty() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -971,8 +965,6 @@ def test_initialize_redis_with_cached_patterns_empty() -> None:
 
 
 def test_initialize_redis_skips_patterns_already_in_custom() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -987,8 +979,6 @@ def test_initialize_redis_skips_patterns_already_in_custom() -> None:
 def test_initialize_redis_warns_on_rejected_persisted_pattern(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -1004,8 +994,6 @@ def test_initialize_redis_warns_on_rejected_persisted_pattern(
 
 
 def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -1019,8 +1007,6 @@ def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None
 
 
 def test_detect_pattern_match_empty_threats_list_returns_unknown() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None

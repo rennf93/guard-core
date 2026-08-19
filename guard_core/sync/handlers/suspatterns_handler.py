@@ -463,7 +463,7 @@ _BRACE_EXPANSION_COMMAND_RE = (
 
 _QUOTE_SPLICE_CANDIDATE_RE = r"\w{1,12}(?:['\"]+\w{1,12}){1,10}"
 
-_GLOB_WILDCARD_TOKEN_RE = r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}"
+_GLOB_WILDCARD_ATOM_RE = r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}"
 
 _PY_DANGEROUS_MODULE_RE = (
     r"__import__\(\s*['\"](?:os|subprocess|builtins|importlib)['\"]\s*\)"
@@ -773,7 +773,7 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
         lambda m, _c: _quote_splice_token_is_dangerous_command(m),
     ),
     (
-        _GLOB_WILDCARD_TOKEN_RE,
+        _GLOB_WILDCARD_ATOM_RE,
         lambda m, _c: _glob_wildcard_token_is_dangerous_command(m),
     ),
 )
@@ -1020,7 +1020,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            _GLOB_WILDCARD_TOKEN_RE,
+            _GLOB_WILDCARD_ATOM_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
