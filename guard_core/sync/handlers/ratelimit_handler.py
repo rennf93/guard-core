@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import threading
 import time
@@ -13,6 +14,168 @@ from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
+
+_by_ip_logger = logging.getLogger("guard_core.sync.handlers.ratelimit")
+_by_ip_request_timestamps: defaultdict[str, deque[float]] = defaultdict(deque)
+_by_ip_lock = threading.Lock()
+
+
+def _redis_request_count(
+    redis_handler: Any,
+    logger: logging.Logger,
+    client_ip: str,
+    current_time: float,
+    window_start: float,
+    rate_limit_window: int,
+    rate_limit: int,
+    rate_limit_script_sha: str | None,
+    on_script_reloaded: Callable[[], None] | None = None,
+    endpoint_path: str = "",
+) -> tuple[int | None, str | None]:
+    if not redis_handler:
+        return None, rate_limit_script_sha
+
+    rate_key = (
+        f"rate:{client_ip}:{endpoint_path}" if endpoint_path else f"rate:{client_ip}"
+    )
+    key_name = f"{redis_handler.config.redis_prefix}rate_limit:{rate_key}"
+
+    try:
+        if rate_limit_script_sha:
+            with redis_handler.get_connection() as conn:
+                try:
+                    count = conn.evalsha(
+                        rate_limit_script_sha,
+                        1,
+                        key_name,
+                        current_time,
+                        rate_limit_window,
+                        rate_limit,
+                    )
+                except NoScriptError:
+                    rate_limit_script_sha = conn.script_load(RATE_LIMIT_SCRIPT)
+                    logger.info("Rate limit Lua script reloaded after NOSCRIPT")
+                    if on_script_reloaded is not None:
+                        on_script_reloaded()
+                    count = conn.evalsha(
+                        rate_limit_script_sha,
+                        1,
+                        key_name,
+                        current_time,
+                        rate_limit_window,
+                        rate_limit,
+                    )
+            return int(count), rate_limit_script_sha
+        else:
+            with redis_handler.get_connection() as conn:
+                pipeline = conn.pipeline()
+                pipeline.zadd(key_name, {str(current_time): current_time})
+                pipeline.zremrangebyscore(key_name, 0, window_start)
+                pipeline.zcard(key_name)
+                pipeline.expire(key_name, rate_limit_window * 2)
+                results = pipeline.execute()
+                return int(results[2]), rate_limit_script_sha
+
+    except RedisError as e:
+        logger.error(f"Redis rate limiting error: {str(e)}")
+        logger.info("Falling back to in-memory rate limiting")
+    except Exception as e:
+        logger.error(f"Unexpected error in rate limiting: {str(e)}")
+
+    return None, rate_limit_script_sha
+
+
+def _in_memory_request_count(
+    request_timestamps: defaultdict[str, deque[float]],
+    lock: threading.Lock,
+    client_ip: str,
+    window_start: float,
+    current_time: float,
+    endpoint_path: str = "",
+) -> int:
+    key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
+
+    with lock:
+        while request_timestamps[key] and request_timestamps[key][0] <= window_start:
+            request_timestamps[key].popleft()
+
+        request_count = len(request_timestamps[key])
+        request_timestamps[key].append(current_time)
+
+    return request_count
+
+
+def check_rate_limit_by_ip(
+    ip: str,
+    config: SecurityConfig,
+    redis_handler: Any = None,
+    endpoint_path: str = "",
+) -> bool:
+    """Check and record a rate-limit hit for a raw IP, outside the HTTP pipeline.
+
+    Returns True when the call is allowed (under limit), False when rate-limited.
+    Every call records a hit in the sliding window, exactly like the pipeline path,
+    so calling this to "just check" also consumes one slot of the budget. Does not
+    construct or mutate the ``RateLimitManager`` singleton: it calls the same
+    module-level counting functions the pipeline uses, against a store dedicated
+    to this primitive. With ``endpoint_path=""`` (the default) the Redis key
+    collapses to ``{prefix}rate_limit:rate:{ip}``, the same bucket the HTTP
+    pipeline's global rate limit uses for that IP, so the two share one budget by
+    design. Pass a non-empty ``endpoint_path`` (e.g. "ws") for an isolated budget,
+    keyed apart from that default bucket: isolation is guaranteed by the input
+    validation below, since ``ip`` must parse as a canonical IP address and
+    ``endpoint_path`` can never itself contain a ``:``, the joined key can never
+    collide with a different endpoint_path's bucket. The in-memory fallback is
+    process-local and never shares counts with the pipeline singleton's own
+    in-memory store, Redis-backed deployments do.
+
+    Raises:
+        ValueError: if ``ip`` does not parse via ``ipaddress.ip_address``, or if
+            ``endpoint_path`` contains a ``:``. Validation runs before any
+            counting side effect and before the ``enable_rate_limiting`` early
+            return, so rejected input never records a hit.
+    """
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError as exc:
+        raise ValueError(f"check_rate_limit_by_ip: invalid ip {ip!r}") from exc
+    if ":" in endpoint_path:
+        raise ValueError(
+            f"check_rate_limit_by_ip: endpoint_path must not contain ':' "
+            f"(got {endpoint_path!r})"
+        )
+
+    if not config.enable_rate_limiting:
+        return True
+
+    current_time = time.time()
+    window_start = current_time - config.rate_limit_window
+
+    if config.enable_redis and redis_handler:
+        count, _ = _redis_request_count(
+            redis_handler,
+            _by_ip_logger,
+            ip,
+            current_time,
+            window_start,
+            config.rate_limit_window,
+            config.rate_limit,
+            None,
+            None,
+            endpoint_path,
+        )
+        if count is not None:
+            return count <= config.rate_limit
+
+    request_count = _in_memory_request_count(
+        _by_ip_request_timestamps,
+        _by_ip_lock,
+        ip,
+        window_start,
+        current_time,
+        endpoint_path=endpoint_path,
+    )
+    return request_count < config.rate_limit
 
 
 class RateLimitManager:
@@ -85,62 +248,19 @@ class RateLimitManager:
         rate_limit_window: int | None = None,
         rate_limit: int | None = None,
     ) -> int | None:
-        if not self.redis_handler:
-            return None
-
-        rate_key = (
-            f"rate:{client_ip}:{endpoint_path}"
-            if endpoint_path
-            else f"rate:{client_ip}"
+        count, self.rate_limit_script_sha = _redis_request_count(
+            self.redis_handler,
+            self.logger,
+            client_ip,
+            current_time,
+            window_start,
+            rate_limit_window or self.config.rate_limit_window,
+            rate_limit if rate_limit is not None else self.config.rate_limit,
+            self.rate_limit_script_sha,
+            self._emit_script_reloaded_event,
+            endpoint_path,
         )
-        key_name = f"{self.redis_handler.config.redis_prefix}rate_limit:{rate_key}"
-        window = rate_limit_window or self.config.rate_limit_window
-        limit = rate_limit if rate_limit is not None else self.config.rate_limit
-
-        try:
-            if self.rate_limit_script_sha:
-                with self.redis_handler.get_connection() as conn:
-                    try:
-                        count = conn.evalsha(
-                            self.rate_limit_script_sha,
-                            1,
-                            key_name,
-                            current_time,
-                            window,
-                            limit,
-                        )
-                    except NoScriptError:
-                        self.rate_limit_script_sha = conn.script_load(RATE_LIMIT_SCRIPT)
-                        self.logger.info(
-                            "Rate limit Lua script reloaded after NOSCRIPT"
-                        )
-                        self._emit_script_reloaded_event()
-                        count = conn.evalsha(
-                            self.rate_limit_script_sha,
-                            1,
-                            key_name,
-                            current_time,
-                            window,
-                            limit,
-                        )
-                return int(count)
-            else:
-                with self.redis_handler.get_connection() as conn:
-                    pipeline = conn.pipeline()
-                    pipeline.zadd(key_name, {str(current_time): current_time})
-                    pipeline.zremrangebyscore(key_name, 0, window_start)
-                    pipeline.zcard(key_name)
-                    pipeline.expire(key_name, window * 2)
-                    results = pipeline.execute()
-                    return int(results[2])
-
-        except RedisError as e:
-            self.logger.error(f"Redis rate limiting error: {str(e)}")
-            self.logger.info("Falling back to in-memory rate limiting")
-        except Exception as e:
-            self.logger.error(f"Unexpected error in rate limiting: {str(e)}")
-
-        return None
+        return count
 
     def _handle_rate_limit_exceeded(
         self,
@@ -177,19 +297,14 @@ class RateLimitManager:
         current_time: float,
         endpoint_path: str = "",
     ) -> int:
-        key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
-
-        with self._lock:
-            while (
-                self.request_timestamps[key]
-                and self.request_timestamps[key][0] <= window_start
-            ):
-                self.request_timestamps[key].popleft()
-
-            request_count = len(self.request_timestamps[key])
-            self.request_timestamps[key].append(current_time)
-
-        return request_count
+        return _in_memory_request_count(
+            self.request_timestamps,
+            self._lock,
+            client_ip,
+            window_start,
+            current_time,
+            endpoint_path=endpoint_path,
+        )
 
     def check_rate_limit(
         self,

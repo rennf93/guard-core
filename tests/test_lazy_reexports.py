@@ -9,8 +9,10 @@ import pytest
 
 import guard_core
 import guard_core.handlers
+import guard_core.handlers.ratelimit_handler
 import guard_core.sync
 import guard_core.sync.handlers
+import guard_core.sync.handlers.ratelimit_handler
 import guard_core.utils
 
 _HANDLERS_SUBMODULES = (
@@ -253,6 +255,42 @@ def test_is_ip_allowed_and_check_ip_access_appear_in_dir_guard_core() -> None:
     listed = dir(guard_core)
     assert "is_ip_allowed" in listed
     assert "check_ip_access" in listed
+
+
+def test_check_rate_limit_by_ip_imports_from_top_level() -> None:
+    from guard_core import check_rate_limit_by_ip
+
+    assert (
+        check_rate_limit_by_ip
+        is guard_core.handlers.ratelimit_handler.check_rate_limit_by_ip
+    )
+
+
+def test_check_rate_limit_by_ip_listed_in_guard_core_all() -> None:
+    assert "check_rate_limit_by_ip" in guard_core.__all__
+
+
+def test_check_rate_limit_by_ip_appears_in_dir_guard_core() -> None:
+    listed = dir(guard_core)
+    assert "check_rate_limit_by_ip" in listed
+
+
+def test_check_rate_limit_by_ip_imports_from_guard_core_sync_top_level() -> None:
+    from guard_core.sync import check_rate_limit_by_ip
+
+    assert (
+        check_rate_limit_by_ip
+        is guard_core.sync.handlers.ratelimit_handler.check_rate_limit_by_ip
+    )
+
+
+def test_check_rate_limit_by_ip_listed_in_guard_core_sync_all() -> None:
+    assert "check_rate_limit_by_ip" in guard_core.sync.__all__
+
+
+def test_check_rate_limit_by_ip_appears_in_dir_guard_core_sync() -> None:
+    listed = dir(guard_core.sync)
+    assert "check_rate_limit_by_ip" in listed
 
 
 def test_guard_core_sync_exports_have_no_coroutine_function_callables() -> None:
