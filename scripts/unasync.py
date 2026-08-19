@@ -33,6 +33,7 @@ TEMPLATE_FILES = {
 
 HAND_MAINTAINED = {
     SYNC_DIR / "handlers" / "ratelimit_handler.py",
+    TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_autoban.py",
     TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_nonblocking_refresh.py",

@@ -18,6 +18,8 @@ from guard_core.sync.utils import log_activity
 _by_ip_logger = logging.getLogger("guard_core.sync.handlers.ratelimit")
 _by_ip_request_timestamps: defaultdict[str, deque[float]] = defaultdict(deque)
 _by_ip_lock = threading.Lock()
+_by_ip_autoban_counts: defaultdict[str, int] = defaultdict(int)
+_by_ip_autoban_lock = threading.Lock()
 
 
 def _redis_request_count(
@@ -105,6 +107,54 @@ def _in_memory_request_count(
     return request_count
 
 
+def _feed_rate_limit_autoban(ip: str, config: SecurityConfig) -> None:
+    """Feed a rate-limited call into the shared auto-ban engine.
+
+    Increments a dedicated, per-process, in-memory violation counter keyed by
+    ``ip`` (``_by_ip_autoban_counts`` in this module), separate from and never
+    merged with ``middleware.suspicious_request_counts``: the primitive has no
+    middleware/request, so it cannot share that store. Guarded by
+    ``_by_ip_autoban_lock`` (same discipline as ``_by_ip_request_timestamps``'s
+    ``_by_ip_lock``) since this module is the hand-maintained sync mirror and can
+    run under real threads. No-ops unless both ``config.enable_rate_limit_auto_ban``
+    and ``config.enable_ip_banning`` are set, and unless ``config.passive_mode`` is
+    False. It also no-ops when ``ip`` is already banned, short-circuiting before
+    the counter increment, so a repeatedly rate-limited banned ip neither
+    refreshes the ban TTL nor grows the counter. Resolution and the actual
+    ``ban_ip`` call are delegated to the same pure helper the middleware auto-ban
+    path uses, so there is one threshold implementation, not two.
+    """
+    if not (config.enable_rate_limit_auto_ban and config.enable_ip_banning):
+        return
+    if config.passive_mode:
+        return
+
+    from guard_core.sync.core.checks.helpers import _resolve_and_apply_threshold_ban
+    from guard_core.sync.handlers.ipban_handler import IPBanManager
+
+    ip_ban_manager = IPBanManager()
+    if ip_ban_manager.is_ip_banned(ip):
+        return
+
+    with _by_ip_autoban_lock:
+        _by_ip_autoban_counts[ip] += 1
+        count = _by_ip_autoban_counts[ip]
+
+    ip_counts = {"rate_limit": count}
+    result = _resolve_and_apply_threshold_ban(
+        ip_counts,
+        config,
+        ip_ban_manager,
+        ip,
+        ("rate_limit",),
+        "rate_limit_exceeded",
+    )
+    if result is not None:
+        _by_ip_logger.warning(
+            "check_rate_limit_by_ip: auto-banned %s (rate_limit_exceeded)", ip
+        )
+
+
 def check_rate_limit_by_ip(
     ip: str,
     config: SecurityConfig,
@@ -129,11 +179,25 @@ def check_rate_limit_by_ip(
     process-local and never shares counts with the pipeline singleton's own
     in-memory store, Redis-backed deployments do.
 
+    When the call is rate-limited (returns False) and both
+    ``config.enable_rate_limit_auto_ban`` and ``config.enable_ip_banning`` are set,
+    the violation feeds the same auto-ban engine ``RateLimitCheck`` uses in the
+    HTTP pipeline (``threat_ban_config["rate_limit"]`` first, then the flat
+    ``auto_ban_threshold``/``auto_ban_duration``), reason ``"rate_limit_exceeded"``.
+    The violation count backing that decision is a dedicated, per-process,
+    in-memory counter private to this primitive: it is never merged with the
+    pipeline's ``middleware.suspicious_request_counts``, so auto-ban here and
+    auto-ban on the HTTP pipeline are counted independently even for the same IP.
+    ``config.passive_mode`` suppresses this counting entirely, matching the
+    pipeline's passive-mode behavior. Once the ip is already banned, further
+    over-limit calls neither count nor re-ban nor refresh the ban TTL: the first
+    threshold-crossing ban fires once and later violations short-circuit.
+
     Raises:
         ValueError: if ``ip`` does not parse via ``ipaddress.ip_address``, or if
             ``endpoint_path`` contains a ``:``. Validation runs before any
             counting side effect and before the ``enable_rate_limiting`` early
-            return, so rejected input never records a hit.
+            return, so rejected input never records a hit and never feeds auto-ban.
     """
     try:
         ipaddress.ip_address(ip)
@@ -151,6 +215,7 @@ def check_rate_limit_by_ip(
     current_time = time.time()
     window_start = current_time - config.rate_limit_window
 
+    allowed: bool | None = None
     if config.enable_redis and redis_handler:
         count, _ = _redis_request_count(
             redis_handler,
@@ -165,17 +230,23 @@ def check_rate_limit_by_ip(
             endpoint_path,
         )
         if count is not None:
-            return count <= config.rate_limit
+            allowed = count <= config.rate_limit
 
-    request_count = _in_memory_request_count(
-        _by_ip_request_timestamps,
-        _by_ip_lock,
-        ip,
-        window_start,
-        current_time,
-        endpoint_path=endpoint_path,
-    )
-    return request_count < config.rate_limit
+    if allowed is None:
+        request_count = _in_memory_request_count(
+            _by_ip_request_timestamps,
+            _by_ip_lock,
+            ip,
+            window_start,
+            current_time,
+            endpoint_path=endpoint_path,
+        )
+        allowed = request_count < config.rate_limit
+
+    if not allowed:
+        _feed_rate_limit_autoban(ip, config)
+
+    return allowed
 
 
 class RateLimitManager:
