@@ -1,10 +1,13 @@
 import json
+import re
+import subprocess
+import sys
 import time
+import zlib
 from collections.abc import Iterator
 from typing import NamedTuple
 from urllib.parse import urlencode
 
-import coverage
 import pytest
 
 from guard_core.handlers.suspatterns_handler import (
@@ -18,7 +21,6 @@ from tests.test_sus_patterns.test_detection_benchmark import (
     _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-    _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
@@ -27,11 +29,6 @@ from tests.test_sus_patterns.test_detection_benchmark import (
     BENIGN_CORPUS,
     MALICIOUS_CORPUS,
 )
-
-
-def _cov_scale() -> float:
-    return 1.0 + 1.0 * (coverage.Coverage.current() is not None)
-
 
 _CONFIG = SecurityConfig()
 
@@ -757,8 +754,8 @@ _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
-async def _mechanism_for_index(mechanisms: tuple[str, ...], index: int) -> str:
-    return mechanisms[index % len(mechanisms)]
+async def _mechanism_for_case_id(mechanisms: tuple[str, ...], case_id: str) -> str:
+    return mechanisms[zlib.crc32(case_id.encode()) % len(mechanisms)]
 
 
 async def _detected_via(mechanism: str, payload: str) -> bool:
@@ -773,28 +770,11 @@ def _fraction(numerator: int, denominator: int) -> str:
 
 
 _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
-    "a kebab-style identifier glued to a backtick (`header`x-forwarded-for`value`, "
-    "`config`well-known`here`) is benign by design and is Phase 0's own accepted "
-    "ambiguous-gate tradeoff for the backtick discriminator, already pinned in "
-    "query_param by "
-    "test_glued_kebab_identifier_backtick_payload_flagged_in_query_param and "
-    "measured, not assumed, to also fire in url_path once ruling item 2 made "
-    "that branch reachable there (58a9e860); both mechanisms are pinned explicitly "
-    "by case_id[mechanism] under that same kebab-identifier precision/recall "
-    "tradeoff, so the pin holds here regardless of corpus growth or enumeration "
-    "order, and the identifiers stay correctly benign in request_body, where the "
-    "branch never fires"
-)
-
-_GLUED_PLAUSIBLE_TOKEN_BACKTICK_KNOWN_FP_REASON = (
-    "a plain English/API-shaped token glued to a backtick on both sides "
-    "(ref`user`list) carries no shell metacharacter and is not on the "
-    "shell-command denylist, so it falls through to the same ambiguous-gate "
-    "tradeoff the kebab-identifier shapes above accept, context-gated to "
-    "query_param/url_path; it newly landed on url_path in the end-to-end "
-    "benchmark's round-robin delivery after later corpus growth shifted its "
-    "assigned index, and stays correctly benign in request_body, where the "
-    "branch never fires"
+    "a kebab-style identifier glued to a backtick (`config`well-known`here`) is "
+    "benign by design and is Phase 0's own accepted ambiguous-gate tradeoff for "
+    "the backtick discriminator, already pinned in query_param by "
+    "test_glued_kebab_identifier_backtick_payload_flagged_in_query_param, and "
+    "stays correctly benign in request_body, where the branch never fires"
 )
 
 _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
@@ -804,168 +784,107 @@ _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
     "re-scans it on its own under an unrestricted context, to the "
     "sensitive_file bare-path shape that pattern exists to catch; an "
     "ordinary file-watch or build-event payload cannot be told apart from a "
-    "sensitive-file probe by shape alone. It newly landed on url_path in the "
-    "end-to-end benchmark's round-robin delivery after later corpus growth "
-    "shifted its assigned index; the same JSON body stays correctly benign "
-    "when scanned as a whole string instead of field-by-field"
+    "sensitive-file probe by shape alone, and the same JSON body stays "
+    "correctly benign when scanned as a whole string instead of field-by-field"
 )
 
-_SHELL_INVOCATION_FP_MECHANISMS = (
-    "raw_body",
-    "form_body",
-    "json_body_nested",
-    "multipart_body",
-    "query_param",
-)
-_QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS = ("query_param", "url_path")
-_FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS = (
-    "raw_body",
-    "form_body",
-    "json_body_nested",
-    "multipart_body",
-    "query_param",
-    "url_path",
-)
-_TEMPLATE_ELIGIBLE_FP_MECHANISMS = (
-    "raw_body",
-    "form_body",
-    "json_body_nested",
-    "multipart_body",
-    "query_param",
-)
-
-_KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
+_KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
     "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
         _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "raw_body",
     ),
     "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami": (
         _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "multipart_body",
     ),
     "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
         _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
-    ),
-    "cmd_injection_prose_semicolon_bare_shell_control": (
-        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "query_param",
     ),
     "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag": (
         _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "query_param",
     ),
     "cmd_injection_value_absolute_bash_login_flag": (
         _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "multipart_body",
     ),
     "cmd_injection_value_absolute_shell_c_npm_start": (
         _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "multipart_body",
     ),
     "cmd_injection_value_env_prefixed_bash_c_echo": (
         _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
+        "json_body_nested",
     ),
     "cmd_injection_value_bare_shell_control": (
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
-        _SHELL_INVOCATION_FP_MECHANISMS,
-    ),
-    "cmd_injection_glued_kebab_identifier_header_forward": (
-        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+        "query_param",
     ),
     "cmd_injection_glued_kebab_identifier_config_well_known": (
         _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
-    ),
-    "cmd_injection_glued_plausible_token_ref_user_list": (
-        _GLUED_PLAUSIBLE_TOKEN_BACKTICK_KNOWN_FP_REASON,
-        ("url_path",),
+        "query_param",
     ),
     "sensitive_file_json_payload_ending_source_path": (
         _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON,
-        ("url_path",),
+        "url_path",
     ),
     "cmd_injection_shell_docs_var_expansion": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
-    ),
-    "template_benign_dollar_brace_var": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
-    ),
-    "template_benign_makefile_variable": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
-    ),
-    "cmd_injection_jquery_selector_bare_id_call": (
-        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+        "url_path",
     ),
     "cmd_injection_jquery_selector_hash_id_call": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-        _QUERY_PARAM_AND_URL_PATH_FP_MECHANISMS,
+        "query_param",
     ),
     "file_inclusion_benign_readme_txt_link": (
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+        "raw_body",
     ),
     "file_inclusion_benign_docs_readme_txt_link": (
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+        "url_path",
     ),
     "file_inclusion_benign_terms_txt_link": (
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
-    ),
-    "file_inclusion_benign_installer_sh_link": (
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+        "query_param",
     ),
     "file_inclusion_benign_docker_installer_sh_link": (
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+        "json_body_nested",
     ),
     "file_inclusion_benign_cgi_search_link": (
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        _FILE_INCLUSION_ELIGIBLE_FP_MECHANISMS,
+        "form_body",
     ),
     "template_fp_date_curly_brace": (
         _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
-    ),
-    "template_fp_date_hash_brace": (
-        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+        "raw_body",
     ),
     "template_fp_call_branch_format_x": (
         _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+        "json_body_nested",
     ),
     "template_fp_call_branch_round_filter": (
         _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+        "multipart_body",
     ),
     "template_fp_call_branch_helper_format": (
         _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
-    ),
-    "template_fp_call_branch_map_arrow": (
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        _TEMPLATE_ELIGIBLE_FP_MECHANISMS,
+        "query_param",
     ),
 }
 
 _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     f"{case_id}[{mechanism}]": reason
-    for case_id, (reason, mechanisms) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
-    for mechanism in mechanisms
+    for case_id, (reason, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
 }
 
 BASELINE_MALICIOUS_DETECTED_TOTAL = 209
 _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 209
-_WALL_TIME_CEILING_SECONDS = 70.0
+
+_UNCOVERED_WALL_TIME_CEILING_SECONDS = 60.0
+_WALL_TIME_REPORT_PATTERN = re.compile(r"wall time: ([\d.]+)s")
 
 
 def _reset_singleton_to_legacy() -> None:
@@ -988,9 +907,9 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     undetected_case_ids: list[str] = []
     detected_by_mechanism: dict[str, int] = {}
     total_by_mechanism: dict[str, int] = {}
-    for index, case in enumerate(_PRODUCTION_MALICIOUS_CASES):
-        mechanism = await _mechanism_for_index(
-            _valid_mechanisms_for_category(case.category), index
+    for case in _PRODUCTION_MALICIOUS_CASES:
+        mechanism = await _mechanism_for_case_id(
+            _valid_mechanisms_for_category(case.category), case.case_id
         )
         mechanisms_exercised.add(mechanism)
         total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
@@ -1005,8 +924,8 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     benign_flagged = 0
     known_false_positive_case_ids: list[str] = []
     unexpected_false_positive_case_ids: list[str] = []
-    for index, benign_case in enumerate(_PRODUCTION_BENIGN_CASES):
-        mechanism = await _mechanism_for_index(_ALL_MECHANISMS, index)
+    for benign_case in _PRODUCTION_BENIGN_CASES:
+        mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
         mechanisms_exercised.add(mechanism)
         if await _detected_via(mechanism, benign_case.payload):
             benign_flagged += 1
@@ -1130,9 +1049,50 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
         f"actual={benign_flagged} known={known_false_positive_case_ids}\n{report}"
     )
 
-    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS * _cov_scale(), (
-        f"end-to-end detection benchmark wall time regressed: "
-        f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
+
+def test_detect_penetration_attempt_wall_time_ceiling_uncovered() -> None:
+    """Assert the recall benchmark's uncovered wall time stays under its ceiling.
+
+    The ceiling asserts on UNCOVERED wall time, measured by running the
+    benchmark in a `--no-cov` subprocess so coverage instrumentation does
+    not skew the timing. Measured baseline across local runs is roughly
+    36.8s to 41.5s. The 60.0s ceiling is about 1.45x the observed ~41.5s
+    max, tight enough to catch an order-of-magnitude ReDoS regression
+    while absorbing machine variance.
+    """
+    node_id = (
+        f"{__file__}::test_detect_penetration_attempt_recall_and_false_positive_rate"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--no-cov",
+            "-q",
+            "-s",
+            "-W",
+            "error",
+            node_id,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, (
+        f"uncovered benchmark subprocess failed:\n{result.stdout}\n{result.stderr}"
+    )
+
+    match = _WALL_TIME_REPORT_PATTERN.search(result.stdout)
+    assert match, f"could not find wall time in subprocess output:\n{result.stdout}"
+    wall_time_seconds = float(match.group(1))
+
+    assert wall_time_seconds < _UNCOVERED_WALL_TIME_CEILING_SECONDS, (
+        "end-to-end detection benchmark uncovered wall time regressed: "
+        f"ceiling={_UNCOVERED_WALL_TIME_CEILING_SECONDS}s "
+        f"actual={wall_time_seconds:.3f}s"
     )
 
 
@@ -1141,16 +1101,16 @@ async def test_detect_penetration_attempt_legacy_smoke() -> None:
     _reset_singleton_to_legacy()
 
     malicious_detected = 0
-    for index, case in enumerate(_PRODUCTION_MALICIOUS_CASES):
-        mechanism = await _mechanism_for_index(
-            _valid_mechanisms_for_category(case.category), index
+    for case in _PRODUCTION_MALICIOUS_CASES:
+        mechanism = await _mechanism_for_case_id(
+            _valid_mechanisms_for_category(case.category), case.case_id
         )
         if await _detected_via(mechanism, case.payload):
             malicious_detected += 1
 
     benign_flagged = 0
-    for index, benign_case in enumerate(_PRODUCTION_BENIGN_CASES):
-        mechanism = await _mechanism_for_index(_ALL_MECHANISMS, index)
+    for benign_case in _PRODUCTION_BENIGN_CASES:
+        mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
         if await _detected_via(mechanism, benign_case.payload):
             benign_flagged += 1
 
@@ -1163,6 +1123,58 @@ async def test_detect_penetration_attempt_legacy_smoke() -> None:
         f"legacy singleton false-positive rate rose: "
         f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
     )
+
+
+@pytest.mark.asyncio
+async def test_mechanism_for_case_id_canary_sentinels_stay_fixed() -> None:
+    assert (
+        await _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_alpha")
+        == "multipart_body"
+    )
+    assert (
+        await _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_delta")
+        == "url_path"
+    )
+    assert (
+        await _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_epsilon")
+        == "json_body_nested"
+    )
+
+
+@pytest.mark.asyncio
+async def test_mechanism_assignment_unchanged_by_corpus_append() -> None:
+    case_ids = [case.case_id for case in _PRODUCTION_BENIGN_CASES[:10]]
+    before = {
+        case_id: await _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        for case_id in case_ids
+    }
+
+    grown_case_ids = [*case_ids, "newly_appended_dummy_corpus_case"]
+    after = {
+        case_id: await _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        for case_id in grown_case_ids
+        if case_id in before
+    }
+
+    assert before == after
+
+
+@pytest.mark.asyncio
+async def test_known_e2e_false_positive_pins_are_all_non_vacuous() -> None:
+    payload_by_case_id = {
+        case.case_id: case.payload for case in _PRODUCTION_BENIGN_CASES
+    }
+
+    for case_id, (_, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items():
+        derived_mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        assert derived_mechanism == mechanism, (
+            f"{case_id}: pinned mechanism {mechanism!r} no longer matches the "
+            f"case-id-derived mechanism {derived_mechanism!r}"
+        )
+        assert await _detected_via(mechanism, payload_by_case_id[case_id]), (
+            f"{case_id}[{mechanism}]: pin is vacuous, this mechanism does not "
+            "flag the payload"
+        )
 
 
 @pytest.mark.asyncio
