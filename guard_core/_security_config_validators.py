@@ -178,6 +178,11 @@ class ThreatBanConfig(BaseModel):
     duration: int = Field(ge=1, description="Ban duration in seconds.")
 
 
+THREAT_BAN_CONFIG_CATEGORIES: frozenset[str] = ALL_DETECTION_CATEGORIES | frozenset(
+    {"rate_limit"}
+)
+
+
 class BehaviorRuleConfig(BaseModel):
     rule_type: Literal["usage", "return_pattern", "frequency"]
     threshold: int = Field(ge=1)
@@ -273,11 +278,11 @@ def _validate_threat_ban_config_value(v: Any) -> MappingProxyType[str, Any]:
         key: value if isinstance(value, ThreatBanConfig) else ThreatBanConfig(**value)
         for key, value in dict(v).items()
     }
-    unknown = set(mapping.keys()) - ALL_DETECTION_CATEGORIES
+    unknown = set(mapping.keys()) - THREAT_BAN_CONFIG_CATEGORIES
     if unknown:
         raise ValueError(
             f"Unknown threat categories in threat_ban_config: {sorted(unknown)}. "
-            f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+            f"Valid: {sorted(THREAT_BAN_CONFIG_CATEGORIES)}"
         )
     return MappingProxyType(mapping)
 

@@ -238,8 +238,23 @@ class SecurityConfig(BaseModel):
     threat_ban_config: MappingProxyType[str, ThreatBanConfig] = Field(
         default_factory=lambda: MappingProxyType({}),
         description=(
-            "Per-category ban thresholds and durations. "
+            "Per-category ban thresholds and durations. Categories are the "
+            "penetration-detection categories plus the pseudo-category "
+            "'rate_limit' (used only when enable_rate_limit_auto_ban is on). "
             "Unlisted categories fall back to auto_ban_threshold / auto_ban_duration."
+        ),
+    )
+
+    enable_rate_limit_auto_ban: bool = Field(
+        default=False,
+        description=(
+            "Feed rate-limit violations into the same auto-ban engine used for "
+            "penetration detection: each active-mode (non-passive) violation "
+            "increments the 'rate_limit' category of the existing suspicious-count "
+            "structure and runs the same threshold logic (threat_ban_config"
+            "['rate_limit'] override first, then the flat auto_ban_threshold / "
+            "auto_ban_duration). Requires enable_ip_banning to actually ban. "
+            "Default off: zero behavior change unless enabled."
         ),
     )
 

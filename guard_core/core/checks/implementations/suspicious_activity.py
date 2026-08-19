@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.checks.helpers import (
     _increment_suspicious_counts,
+    _try_threshold_ban,
     get_cached_detection_result,
     route_config_applies,
 )
@@ -78,73 +79,6 @@ class SuspiciousActivityCheck(SecurityCheck):
             trigger_info=trigger_info,
         )
 
-    async def _try_per_category_ban(
-        self,
-        request: GuardRequest,
-        client_ip: str,
-        trigger_info: str,
-        threat_categories: list[str],
-    ) -> GuardResponse | None:
-        if not self.config.enable_ip_banning:
-            return None
-        ip_counts = self.middleware.suspicious_request_counts.get(client_ip, {})
-        sus_specs = f"{client_ip} - {trigger_info}"
-        for category in threat_categories:
-            entry = self.config.threat_ban_config.get(category)
-            if entry is None:
-                continue
-            if ip_counts.get(category, 0) >= entry.threshold:
-                await self.ip_ban_manager.ban_ip(
-                    client_ip,
-                    entry.duration,
-                    f"penetration_attempt:{category}",
-                )
-                await log_activity(
-                    request,
-                    self.logger,
-                    log_type="suspicious",
-                    reason=f"IP banned due to {category} threshold: {sus_specs}",
-                    level=self.config.log_suspicious_level,
-                    check_name=self.check_name,
-                    muted_check_logs=self.config.muted_check_logs,
-                )
-                return await self.middleware.create_error_response(
-                    status_code=403,
-                    default_message="IP has been banned",
-                )
-        return None
-
-    async def _try_flat_ban(
-        self,
-        request: GuardRequest,
-        client_ip: str,
-        trigger_info: str,
-    ) -> GuardResponse | None:
-        if not self.config.enable_ip_banning:
-            return None
-        total_count = self._total_count_for_ip(client_ip)
-        if total_count < self.config.auto_ban_threshold:
-            return None
-        await self.ip_ban_manager.ban_ip(
-            client_ip,
-            self.config.auto_ban_duration,
-            "penetration_attempt",
-        )
-        sus_specs = f"{client_ip} - {trigger_info}"
-        await log_activity(
-            request,
-            self.logger,
-            log_type="suspicious",
-            reason=f"IP banned due to suspicious activity: {sus_specs}",
-            level=self.config.log_suspicious_level,
-            check_name=self.check_name,
-            muted_check_logs=self.config.muted_check_logs,
-        )
-        return await self.middleware.create_error_response(
-            status_code=403,
-            default_message="IP has been banned",
-        )
-
     async def _handle_suspicious_active_mode(
         self,
         request: GuardRequest,
@@ -152,15 +86,23 @@ class SuspiciousActivityCheck(SecurityCheck):
         trigger_info: str,
         threat_categories: list[str],
     ) -> GuardResponse:
-        per_category_response = await self._try_per_category_ban(
-            request, client_ip, trigger_info, threat_categories
+        banned = await _try_threshold_ban(
+            request,
+            self.config,
+            self.ip_ban_manager,
+            self.middleware,
+            client_ip,
+            trigger_info,
+            self.logger,
+            self.check_name,
+            self.config.muted_check_logs,
+            threat_categories,
         )
-        if per_category_response is not None:
-            return per_category_response
-
-        flat_response = await self._try_flat_ban(request, client_ip, trigger_info)
-        if flat_response is not None:
-            return flat_response
+        if banned:
+            return await self.middleware.create_error_response(
+                status_code=403,
+                default_message="IP has been banned",
+            )
 
         sus_specs = f"{client_ip} - {trigger_info}"
         await log_activity(
