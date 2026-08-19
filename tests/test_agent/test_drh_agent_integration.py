@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -479,6 +479,190 @@ async def test_update_rules_different_rule_id(
 
         mock_apply_rules.assert_called_once_with(sample_rules)
         assert manager.current_rules == sample_rules
+
+
+@pytest.mark.asyncio
+async def test_update_rules_expiry_in_past_reverts_config(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    await manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == sample_rules
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    await manager.update_rules()
+
+    assert config.auto_ban_threshold == 5
+    assert manager.current_rules is None
+
+
+@pytest.mark.asyncio
+async def test_update_rules_expiry_in_future_persists_config(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    await manager.update_rules()
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    await manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == sample_rules
+
+
+@pytest.mark.asyncio
+async def test_update_rules_no_expiry_persists_config(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    assert sample_rules.expires_at is None
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    await manager.update_rules()
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    await manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == sample_rules
+
+
+@pytest.mark.asyncio
+async def test_update_rules_expiry_same_tick_ordering_new_rule_applies_after_revert(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 8
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    await manager.update_rules()
+    assert config.auto_ban_threshold == 8
+
+    next_rules = sample_rules.model_copy()
+    next_rules.rule_id = "next-rule"
+    next_rules.version = 1
+    next_rules.auto_ban_threshold = None
+    next_rules.expires_at = None
+    next_rules.emergency_mode = True
+    next_rules.emergency_whitelist = []
+
+    mock_agent_handler.get_dynamic_rules.return_value = next_rules
+    with patch.object(manager, "_send_emergency_event", AsyncMock()):
+        await manager.update_rules()
+
+    assert config.auto_ban_threshold == 2
+    assert manager.current_rules == next_rules
+
+
+@pytest.mark.asyncio
+async def test_update_rules_superseding_push_then_expiry_restores_pre_a_base(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    pre_a_threshold = config.auto_ban_threshold
+
+    rule_a = sample_rules.model_copy()
+    rule_a.rule_id = "rule-a"
+    rule_a.version = 1
+    rule_a.auto_ban_threshold = 7
+
+    mock_agent_handler.get_dynamic_rules.return_value = rule_a
+    await manager.update_rules()
+    assert config.auto_ban_threshold == 7
+    base_after_a = manager._active_base_snapshot
+
+    rule_b = sample_rules.model_copy()
+    rule_b.rule_id = "rule-b"
+    rule_b.version = 1
+    rule_b.auto_ban_threshold = 9
+    rule_b.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = rule_b
+    await manager.update_rules()
+    assert config.auto_ban_threshold == 9
+    assert manager._active_base_snapshot == base_after_a
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    await manager.update_rules()
+
+    assert config.auto_ban_threshold == pre_a_threshold
+    assert manager.current_rules is None
+    assert manager._active_base_snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_update_rules_expiry_undoes_emergency_halving(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    base_threshold = config.auto_ban_threshold
+    sample_rules.emergency_mode = True
+    sample_rules.emergency_whitelist = []
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    with patch.object(manager, "_send_emergency_event", AsyncMock()):
+        await manager.update_rules()
+
+    emergency_mode_after_apply: bool = config.emergency_mode
+    assert emergency_mode_after_apply is True
+    assert config.auto_ban_threshold == max(1, base_threshold // 2)
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    await manager.update_rules()
+
+    emergency_mode_after_expiry: bool = config.emergency_mode
+    assert emergency_mode_after_expiry is False
+    assert config.auto_ban_threshold == base_threshold
+    assert manager.current_rules is None
 
 
 @pytest.mark.asyncio

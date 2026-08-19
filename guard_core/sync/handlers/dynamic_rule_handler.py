@@ -23,6 +23,7 @@ class DynamicRuleManager:
     update_task: threading.Thread | None = None
     _lock: threading.Lock
     _stop_event: threading.Event
+    _active_base_snapshot: dict[str, object] | None = None
 
     _SNAPSHOT_FIELDS = (
         "blocked_countries",
@@ -56,6 +57,7 @@ class DynamicRuleManager:
             cls._instance.update_task = None
             cls._instance._lock = threading.Lock()
             cls._instance._stop_event = threading.Event()
+            cls._instance._active_base_snapshot = None
         return cls._instance
 
     def initialize_agent(self, agent_handler: Any) -> None:
@@ -158,11 +160,37 @@ class DynamicRuleManager:
         except Exception as e:
             self.logger.error(f"Failed to send rule updated event: {e}")
 
+    def _check_rule_expiry(self) -> None:
+        """Revert config when the active rule's expires_at has passed.
+
+        A naive expires_at (no tzinfo) is treated as UTC.
+        """
+        with self._lock:
+            rules = self.current_rules
+            if rules is None or rules.expires_at is None:
+                return
+            expires_at = rules.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) <= expires_at:
+                return
+
+            if self._active_base_snapshot is not None:
+                self._restore_config(self._active_base_snapshot)
+            self.current_rules = None
+            self._active_base_snapshot = None
+            self.logger.info(
+                f"Dynamic rule {rules.rule_id} v{rules.version} expired; "
+                "restored base config"
+            )
+
     def update_rules(self) -> None:
         if not self.config.enable_dynamic_rules or not self.agent_handler:
             return
 
         try:
+            self._check_rule_expiry()
+
             rules = self.agent_handler.get_dynamic_rules()
             if not rules:
                 return
@@ -218,6 +246,10 @@ class DynamicRuleManager:
         for field, value in snapshot.items():
             setattr(self.config, field, value)
 
+    def _capture_active_base_snapshot(self, snapshot: dict[str, object]) -> None:
+        if self.current_rules is None and self._active_base_snapshot is None:
+            self._active_base_snapshot = snapshot
+
     def _apply_rules(self, rules: DynamicRules) -> None:
         with self._lock:
             snapshot = self._snapshot_config()
@@ -238,6 +270,8 @@ class DynamicRuleManager:
                 self._restore_config(snapshot)
                 self.logger.error(f"Failed to apply dynamic rules: {e}")
                 raise
+
+            self._capture_active_base_snapshot(snapshot)
 
     def _apply_ip_bans(self, ip_list: list[str], duration: int) -> None:
         from guard_core.sync.handlers.ipban_handler import ip_ban_manager

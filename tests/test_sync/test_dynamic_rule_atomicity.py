@@ -1,7 +1,7 @@
 import threading
 import time
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -143,3 +143,149 @@ def test_rollback_restores_auto_ban_overrides() -> None:
     assert config.auto_ban_threshold == 5
     assert config.auto_ban_duration == 3600
     assert config.enable_rate_limit_auto_ban is False
+
+
+def test_apply_rules_captures_base_snapshot_on_first_activation() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    rules = _rules(auto_ban_threshold=7)
+    manager._apply_rules(rules)
+
+    assert manager._active_base_snapshot is not None
+    assert manager._active_base_snapshot["auto_ban_threshold"] == 5
+    assert config.auto_ban_threshold == 7
+
+
+def test_apply_rules_retains_base_snapshot_across_superseding_push() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    rule_a = _rules(rule_id="rule-a", auto_ban_threshold=7)
+    manager._apply_rules(rule_a)
+    manager.current_rules = rule_a
+    base_snapshot = manager._active_base_snapshot
+    assert base_snapshot is not None
+    assert base_snapshot["auto_ban_threshold"] == 5
+
+    rule_b = _rules(rule_id="rule-b", auto_ban_threshold=9)
+    manager._apply_rules(rule_b)
+
+    assert manager._active_base_snapshot is base_snapshot
+    assert manager._active_base_snapshot["auto_ban_threshold"] == 5
+    assert config.auto_ban_threshold == 9
+
+
+def test_check_rule_expiry_reverts_expired_rule_and_clears_state() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    rule = _rules(
+        auto_ban_threshold=7,
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    manager._apply_rules(rule)
+    active_rule: DynamicRules | None = rule
+    manager.current_rules = active_rule
+    assert config.auto_ban_threshold == 7
+
+    manager._check_rule_expiry()
+
+    assert config.auto_ban_threshold == 5
+    assert manager.current_rules is None
+    assert manager._active_base_snapshot is None
+
+
+def test_check_rule_expiry_noop_for_future_expiry() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    rule = _rules(
+        auto_ban_threshold=7,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    manager._apply_rules(rule)
+    manager.current_rules = rule
+
+    manager._check_rule_expiry()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == rule
+
+
+def test_check_rule_expiry_noop_when_no_active_rule() -> None:
+    config = SecurityConfig(geo_ip_handler=MagicMock(spec=SyncGeoIPHandler))
+    manager = DynamicRuleManager(config)
+
+    manager._check_rule_expiry()
+
+    assert manager.current_rules is None
+
+
+def test_check_rule_expiry_clears_expired_rule_without_snapshot() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+    manager.current_rules = _rules(
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1)
+    )
+
+    manager._check_rule_expiry()
+
+    assert config.auto_ban_threshold == 5
+    assert manager.current_rules is None
+
+
+def test_apply_rules_failed_first_apply_leaves_no_stale_base_snapshot() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    with patch.object(
+        manager,
+        "_apply_feature_toggles",
+        MagicMock(side_effect=RuntimeError("kaboom")),
+    ):
+        with pytest.raises(RuntimeError, match="kaboom"):
+            manager._apply_rules(_rules(auto_ban_threshold=7))
+
+    snapshot_after_failure = manager._active_base_snapshot
+    assert manager.current_rules is None
+    assert snapshot_after_failure is None
+
+    config.auto_ban_threshold = 6
+
+    manager._apply_rules(_rules(rule_id="rule-2", auto_ban_threshold=9))
+
+    base_snapshot = manager._active_base_snapshot
+    assert base_snapshot is not None
+    assert base_snapshot["auto_ban_threshold"] == 6
+    assert config.auto_ban_threshold == 9
+
+
+def test_check_rule_expiry_naive_past_expiry_reverts_without_typeerror() -> None:
+    config = SecurityConfig(
+        geo_ip_handler=MagicMock(spec=SyncGeoIPHandler), auto_ban_threshold=5
+    )
+    manager = DynamicRuleManager(config)
+
+    naive_past = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    rule = _rules(auto_ban_threshold=7, expires_at=naive_past)
+    manager._apply_rules(rule)
+    manager.current_rules = rule
+    assert config.auto_ban_threshold == 7
+
+    manager._check_rule_expiry()
+
+    assert config.auto_ban_threshold == 5
+    assert manager.current_rules is None
