@@ -63,6 +63,7 @@ _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
     lambda n: "&" * n,
     lambda n: "\n" * n,
     lambda n: "\r" * n,
+    lambda n: ("\nK=V " * (n // 5 + 1))[:n],
 ]
 
 

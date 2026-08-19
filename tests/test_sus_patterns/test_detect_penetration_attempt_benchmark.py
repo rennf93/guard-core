@@ -20,6 +20,7 @@ from tests.conftest import MockGuardRequest
 from tests.test_sus_patterns.test_detection_benchmark import (
     _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
     _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
@@ -819,6 +820,14 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
     ),
     "cmd_injection_value_bare_shell_control": (
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_ci_yaml_env_prefixed_run_step": (
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_makefile_env_prefixed_recipe": (
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
         "query_param",
     ),
     "cmd_injection_glued_kebab_identifier_config_well_known": (

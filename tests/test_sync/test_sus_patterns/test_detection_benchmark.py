@@ -113,6 +113,32 @@ _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
     "the control case the new pins are symmetric with"
 )
 
+_ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON = (
+    "the bounded {0,8} var=val-prefix widening of the newline-delivered "
+    "shell -c pattern accepts one or more VAR=val assignments, chained up "
+    "to 8 deep, immediately before an env/shell invocation; a CI YAML run "
+    "step, a crontab line, and a Makefile recipe that legitimately prefix "
+    "a shell -c call with inline environment assignments (FOO=bar BAZ=qux "
+    "bash -c '...', PATH=/usr/bin:/bin bash -c '...') are character-"
+    "identical to that attack shape and cannot be told apart by structure "
+    "alone; these are benign in CI/config contexts and are exactly the "
+    "kind of shape users allowlist. The widened FP surface is accepted "
+    "with honest disclosure rather than narrowing the {0,8} bound back "
+    "and losing recall on the chained assignment-prefixed shell "
+    "injection shape it was built to catch"
+)
+
+_CRONTAB_VAR_ASSIGNMENT_INCIDENTAL_LDAP_WILDCARD_KNOWN_FP_REASON = (
+    _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON + " "
+    "this exact crontab body also incidentally trips the pre-existing, "
+    "unrelated ldap wildcard-equals pattern: whitespace normalization "
+    "collapses the newline before PATH= into a space, so the schedule's "
+    "trailing '* root' run into 'PATH=' reads as '* root PATH=', "
+    "character-identical to the '*attr=' LDAP filter wildcard shape; a "
+    "genuine five-field crontab schedule cannot be told apart from that "
+    "shape by structure alone, independent of this widening"
+)
+
 _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
     "the dedicated RFI file_inclusion pattern flags any param-value "
     "delivery of an explicit http(s)/ftp URL whose final path segment ends "
@@ -2334,6 +2360,24 @@ BENIGN_CORPUS: list[BenignCase] = [
         _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     ),
     BenignCase(
+        "cmd_injection_ci_yaml_env_prefixed_run_step",
+        "steps:\n  - run: |\n      FOO=bar BAZ=qux bash -c 'echo hi'",
+        "production",
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_crontab_env_prefixed_backup_line",
+        "5 4 * * * root\nPATH=/usr/bin:/bin bash -c 'do_backup.sh'",
+        "production",
+        _CRONTAB_VAR_ASSIGNMENT_INCIDENTAL_LDAP_WILDCARD_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_makefile_env_prefixed_recipe",
+        "target:\n\tFOO=1 BAR=2 bash -c 'do_thing'",
+        "production",
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    ),
+    BenignCase(
         "ldap_glob_paren_null_mention",
         "glob pattern: *)%00 in filenames",
     ),
@@ -2509,11 +2553,12 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
 BASELINE_MALICIOUS_DETECTED_TOTAL = 281
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 9,
+    "cmd_injection": 12,
     "file_inclusion": 6,
+    "ldap": 1,
     "template": 6,
 }
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 21
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 24
 
 _WALL_TIME_CEILING_SECONDS = 30.0
 
@@ -2770,7 +2815,8 @@ def test_detection_benchmark_legacy_smoke() -> None:
 _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON = (
     "a bare single-token $(...)/${...} substitution is deliberately "
     "context-gated to query_param/url_path so it stays detected there "
-    "(Renzo's ruling, variant a): the jQuery $(id)/$('#x') selector, the "
+    "as a deliberate detection-with-disclosure choice: the jQuery "
+    "$(id)/$('#x') selector, the "
     "${HOME} shell-doc var expansion, the Makefile $(CC)/$(CFLAGS) mention, "
     "and the ${amount} template placeholder are character-identical to that "
     "attack shape as raw query-string or path-segment values, so they are "
@@ -2843,3 +2889,42 @@ def test_log4shell_obfuscated_payload_detected_in_url_path(
         content=payload, ip_address="203.0.113.9", context="url_path"
     )
     assert result["is_threat"] is True
+
+
+_VAR_ASSIGNMENT_PREFIXED_SHELL_DASH_C_DISCLOSED_FALSE_POSITIVES = [
+    pytest.param(
+        "cmd_injection_ci_yaml_env_prefixed_run_step",
+        "steps:\n  - run: |\n      FOO=bar BAZ=qux bash -c 'echo hi'",
+        id="ci_yaml_run_step",
+    ),
+    pytest.param(
+        "cmd_injection_crontab_env_prefixed_backup_line",
+        "5 4 * * * root\nPATH=/usr/bin:/bin bash -c 'do_backup.sh'",
+        id="crontab_backup_line",
+    ),
+    pytest.param(
+        "cmd_injection_makefile_env_prefixed_recipe",
+        "target:\n\tFOO=1 BAR=2 bash -c 'do_thing'",
+        id="makefile_recipe",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_id, payload",
+    _VAR_ASSIGNMENT_PREFIXED_SHELL_DASH_C_DISCLOSED_FALSE_POSITIVES,
+)
+def test_var_assignment_prefixed_shell_dash_c_disclosed_false_positive_detected(
+    case_id: str, payload: str
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is True, (
+        f"{case_id} expected to be a disclosed false positive: "
+        f"{_ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON}"
+    )
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "cmd_injection" in hit_categories, (
+        f"{case_id} expected to fire cmd_injection specifically, got {hit_categories}"
+    )

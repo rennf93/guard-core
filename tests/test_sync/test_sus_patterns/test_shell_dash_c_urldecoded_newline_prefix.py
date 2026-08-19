@@ -38,12 +38,6 @@ def _assert_body_fires_cmd_injection(body: str) -> None:
     assert "cmd_injection" in result.threat_categories
 
 
-def _assert_body_does_not_fire(body: str) -> None:
-    request = _text_body_request(body)
-    result = detect_penetration_attempt(request, _CONFIG)
-    assert result.is_threat is False
-
-
 def _assert_query_param_fires_cmd_injection(value: str) -> None:
     request = _query_param_request(value)
     result = detect_penetration_attempt(request, _CONFIG)
@@ -92,20 +86,6 @@ def test_literal_newline_shell_dash_c_still_fires_in_request_body(
     body: str,
 ) -> None:
     _assert_body_fires_cmd_injection(body)
-
-
-URL_ENCODED_VAR_ASSIGNMENT_NEWLINE_PREFIX_NOT_FIXED_BY_THIS_PATTERN = [
-    pytest.param("x%0AFOO=bar%20/bin/sh%20-c%20id", id="urlencoded_newline_var_assign"),
-]
-
-
-@pytest.mark.parametrize(
-    "body", URL_ENCODED_VAR_ASSIGNMENT_NEWLINE_PREFIX_NOT_FIXED_BY_THIS_PATTERN
-)
-def test_url_encoded_var_assignment_newline_prefix_remains_undetected(
-    body: str,
-) -> None:
-    _assert_body_does_not_fire(body)
 
 
 BARE_URL_ENCODED_SHELL_DASH_C_ALREADY_DETECTED_VIA_OTHER_PATTERNS = [

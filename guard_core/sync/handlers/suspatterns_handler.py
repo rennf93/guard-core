@@ -176,7 +176,7 @@ _PATH_TRAVERSAL_ENCODED_DOT_RE = (
 _PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[^/\\]*[/\\]"
 _PATH_TRAVERSAL_DECODED_SHAPE_RE = re.compile(r"\.\.[\\/]")
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
-    r"\n[^\S\r\n]*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"\n[^\S\r\n]*(?:[^=\s;|&]+=[^\s;|&]+\s+){0,8}(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
 )
 _DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
