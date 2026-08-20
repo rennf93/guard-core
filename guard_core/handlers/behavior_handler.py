@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import re
@@ -41,6 +42,10 @@ class BehaviorRule:
         self.correlate_with_detection = correlate_with_detection
 
 
+def _hash_identity_segment(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
 class BehaviorTracker:
     def __init__(self, config: SecurityConfig):
         self.config = config
@@ -81,23 +86,14 @@ class BehaviorTracker:
         window_start = current_time - rule.window
 
         if self.redis_handler:
-            key = f"behavior:usage:{endpoint_id}:{client_ip}"
-
-            await self.redis_handler.set_key(
-                "behavior_usage", f"{key}:{current_time}", "1", ttl=rule.window
+            key = (
+                f"behavior:usage:{_hash_identity_segment(endpoint_id)}:"
+                f"{_hash_identity_segment(client_ip)}"
             )
 
-            pattern = f"behavior_usage:{key}:*"
-            keys = await self.redis_handler.keys(pattern)
-
-            valid_count = 0
-            for key_name in keys:
-                try:
-                    timestamp = float(key_name.split(":")[-1])
-                    if timestamp >= window_start:
-                        valid_count += 1
-                except (ValueError, IndexError):
-                    continue
+            valid_count: int = await self.redis_handler.record_sliding_window_hit(
+                "behavior_usage", key, current_time, window_start, rule.window
+            )
 
             return valid_count > rule.threshold
 
@@ -132,23 +128,15 @@ class BehaviorTracker:
             return False
 
         if self.redis_handler:
-            key = f"behavior:return:{endpoint_id}:{client_ip}:{rule.pattern}"
-
-            await self.redis_handler.set_key(
-                "behavior_returns", f"{key}:{current_time}", "1", ttl=rule.window
+            key = (
+                f"behavior:return:{_hash_identity_segment(endpoint_id)}:"
+                f"{_hash_identity_segment(client_ip)}:"
+                f"{_hash_identity_segment(rule.pattern)}"
             )
 
-            pattern_key = f"behavior_returns:{key}:*"
-            keys = await self.redis_handler.keys(pattern_key)
-
-            valid_count = 0
-            for key_name in keys:
-                try:
-                    timestamp = float(key_name.split(":")[-1])
-                    if timestamp >= window_start:
-                        valid_count += 1
-                except (ValueError, IndexError):
-                    continue
+            valid_count: int = await self.redis_handler.record_sliding_window_hit(
+                "behavior_returns", key, current_time, window_start, rule.window
+            )
 
             return valid_count > threshold
 
