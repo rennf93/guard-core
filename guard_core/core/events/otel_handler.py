@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger("guard_core")
@@ -54,46 +55,89 @@ class OtelHandler:
         self._rt_histogram: Any = None
         self._request_counter: Any = None
         self._error_counter: Any = None
+        self._owned_tracer_provider: Any = None
+        self._owned_meter_provider: Any = None
+        self._lock = threading.Lock()
 
     async def start(self) -> None:
         if not _otel_available:
             logger.warning("opentelemetry-sdk not installed, OTEL handler disabled")
             return
-        attrs: dict[str, Any] = {"service.name": self._config.otel_service_name}
-        extra = getattr(self._config, "otel_resource_attributes", {}) or {}
-        attrs.update(extra)
-        resource = Resource.create(attrs)
-        endpoint = self._config.otel_exporter_endpoint
-        traces_endpoint = self._otlp_signal_endpoint(endpoint, "/v1/traces")
-        metrics_endpoint = self._otlp_signal_endpoint(endpoint, "/v1/metrics")
+        with self._lock:
+            if self._tracer is not None:
+                return
+            attrs: dict[str, Any] = {"service.name": self._config.otel_service_name}
+            extra = getattr(self._config, "otel_resource_attributes", {}) or {}
+            attrs.update(extra)
+            resource = Resource.create(attrs)
+            endpoint = self._config.otel_exporter_endpoint
+            traces_endpoint = self._otlp_signal_endpoint(endpoint, "/v1/traces")
+            metrics_endpoint = self._otlp_signal_endpoint(endpoint, "/v1/metrics")
+            self._owned_tracer_provider = self._claim_tracer_provider(
+                resource, traces_endpoint
+            )
+            self._tracer = trace.get_tracer("guard_core.otel")
+            self._owned_meter_provider = self._claim_meter_provider(
+                resource, metrics_endpoint
+            )
+            self._meter = metrics.get_meter("guard_core.otel")
+            self._rt_histogram = self._meter.create_histogram(
+                "guard.request.duration", unit="s"
+            )
+            self._request_counter = self._meter.create_counter("guard.request.count")
+            self._error_counter = self._meter.create_counter("guard.error.count")
+
+    @staticmethod
+    def _claim_tracer_provider(resource: Any, traces_endpoint: str | None) -> Any:
         tp = TracerProvider(resource=resource)
         tp.add_span_processor(
             BatchSpanProcessor(OTLPSpanExporter(endpoint=traces_endpoint))
         )
         trace.set_tracer_provider(tp)
-        self._tracer = trace.get_tracer("guard_core.otel")
+        if trace.get_tracer_provider() is tp:
+            return tp
+        tp.shutdown()
+        logger.warning(
+            "a tracer provider is already active for this process (installed "
+            "by a host application or an earlier guard_core instance); "
+            "guard_core will not export traces to %s",
+            traces_endpoint,
+        )
+        return None
+
+    @staticmethod
+    def _claim_meter_provider(resource: Any, metrics_endpoint: str | None) -> Any:
         reader = PeriodicExportingMetricReader(
             OTLPMetricExporter(endpoint=metrics_endpoint)
         )
         mp = MeterProvider(resource=resource, metric_readers=[reader])
         metrics.set_meter_provider(mp)
-        self._meter = metrics.get_meter("guard_core.otel")
-        self._rt_histogram = self._meter.create_histogram(
-            "guard.request.duration", unit="s"
+        if metrics.get_meter_provider() is mp:
+            return mp
+        mp.shutdown()
+        logger.warning(
+            "a meter provider is already active for this process (installed "
+            "by a host application or an earlier guard_core instance); "
+            "guard_core will not export metrics to %s",
+            metrics_endpoint,
         )
-        self._request_counter = self._meter.create_counter("guard.request.count")
-        self._error_counter = self._meter.create_counter("guard.error.count")
+        return None
 
     async def stop(self) -> None:
-        if self._tracer and _otel_available:
-            tracer_provider = trace.get_tracer_provider()
-            if hasattr(tracer_provider, "shutdown"):
-                tracer_provider.shutdown()
+        if not _otel_available:
+            return
+        with self._lock:
+            if self._owned_tracer_provider is not None and hasattr(
+                self._owned_tracer_provider, "shutdown"
+            ):
+                self._owned_tracer_provider.shutdown()
+            self._owned_tracer_provider = None
             self._tracer = None
-        if self._meter and _otel_available:
-            meter_provider = metrics.get_meter_provider()
-            if hasattr(meter_provider, "shutdown"):
-                meter_provider.shutdown()
+            if self._owned_meter_provider is not None and hasattr(
+                self._owned_meter_provider, "shutdown"
+            ):
+                self._owned_meter_provider.shutdown()
+            self._owned_meter_provider = None
             self._meter = None
 
     async def send_event(self, event: Any) -> None:
