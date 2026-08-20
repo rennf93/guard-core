@@ -1,6 +1,7 @@
 import importlib.util
 import warnings
 from collections.abc import Callable, Mapping
+from functools import partial
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from types import MappingProxyType
@@ -8,6 +9,13 @@ from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
+from guard_core._config_field_revalidators import (
+    _validate_bool_field_value,
+    _validate_endpoint_rate_limits_value,
+    _validate_int_field_value,
+    _validate_positive_int_field_value,
+    _validate_str_list_field_value,
+)
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 
 if TYPE_CHECKING:
@@ -359,103 +367,6 @@ def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
     return result
 
 
-def _validate_bool_field_value(v: Any, *, field_name: str) -> bool:
-    if not isinstance(v, bool):
-        raise ValueError(f"{field_name} must be a bool, got {type(v).__name__}")
-    return v
-
-
-def _validate_int_field_value(v: Any, *, field_name: str) -> int:
-    if isinstance(v, bool) or not isinstance(v, int):
-        raise ValueError(f"{field_name} must be an int, got {type(v).__name__}")
-    return v
-
-
-def _validate_positive_int_field_value(v: Any, *, field_name: str) -> int:
-    value = _validate_int_field_value(v, field_name=field_name)
-    if value < 1:
-        raise ValueError(f"{field_name} must be >= 1, got {value}")
-    return value
-
-
-def _validate_str_list_field_value(v: Any, *, field_name: str) -> list[str]:
-    if not isinstance(v, list) or not all(isinstance(item, str) for item in v):
-        raise ValueError(f"{field_name} must be a list of str")
-    return v
-
-
-def _validate_blocked_countries_value(v: Any) -> frozenset[str]:
-    return _validate_country_set_value(v)
-
-
-def _validate_whitelist_countries_value(v: Any) -> frozenset[str]:
-    return _validate_country_set_value(v)
-
-
-def _validate_rate_limit_value(v: Any) -> int:
-    return _validate_int_field_value(v, field_name="rate_limit")
-
-
-def _validate_rate_limit_window_value(v: Any) -> int:
-    return _validate_int_field_value(v, field_name="rate_limit_window")
-
-
-def _validate_endpoint_rate_limits_value(v: Any) -> dict[str, tuple[int, int]]:
-    if not isinstance(v, dict):
-        raise ValueError(f"endpoint_rate_limits must be a dict, got {type(v).__name__}")
-    for key, entry in v.items():
-        if not isinstance(key, str):
-            raise ValueError(
-                f"endpoint_rate_limits keys must be str, got {type(key).__name__}"
-            )
-        if (
-            not isinstance(entry, tuple)
-            or len(entry) != 2
-            or not all(isinstance(n, int) and not isinstance(n, bool) for n in entry)
-        ):
-            raise ValueError(
-                f"endpoint_rate_limits[{key!r}] must be a (int, int) tuple, "
-                f"got {entry!r}"
-            )
-    return v
-
-
-def _validate_blocked_user_agents_value(v: Any) -> list[str]:
-    return _validate_str_list_field_value(v, field_name="blocked_user_agents")
-
-
-def _validate_enable_penetration_detection_value(v: Any) -> bool:
-    return _validate_bool_field_value(v, field_name="enable_penetration_detection")
-
-
-def _validate_enable_ip_banning_value(v: Any) -> bool:
-    return _validate_bool_field_value(v, field_name="enable_ip_banning")
-
-
-def _validate_enable_rate_limiting_value(v: Any) -> bool:
-    return _validate_bool_field_value(v, field_name="enable_rate_limiting")
-
-
-def _validate_emergency_mode_value(v: Any) -> bool:
-    return _validate_bool_field_value(v, field_name="emergency_mode")
-
-
-def _validate_emergency_whitelist_value(v: Any) -> list[str]:
-    return _validate_str_list_field_value(v, field_name="emergency_whitelist")
-
-
-def _validate_auto_ban_threshold_value(v: Any) -> int:
-    return _validate_positive_int_field_value(v, field_name="auto_ban_threshold")
-
-
-def _validate_auto_ban_duration_value(v: Any) -> int:
-    return _validate_positive_int_field_value(v, field_name="auto_ban_duration")
-
-
-def _validate_enable_rate_limit_auto_ban_value(v: Any) -> bool:
-    return _validate_bool_field_value(v, field_name="enable_rate_limit_auto_ban")
-
-
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
@@ -466,20 +377,38 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "muted_metric_types": _validate_muted_metric_types_value,
     "muted_check_logs": _validate_muted_check_logs_value,
     "block_cloud_providers": _validate_block_cloud_providers_value,
-    "blocked_countries": _validate_blocked_countries_value,
-    "whitelist_countries": _validate_whitelist_countries_value,
-    "rate_limit": _validate_rate_limit_value,
-    "rate_limit_window": _validate_rate_limit_window_value,
+    "blocked_countries": _validate_country_set_value,
+    "whitelist_countries": _validate_country_set_value,
+    "rate_limit": partial(_validate_int_field_value, field_name="rate_limit"),
+    "rate_limit_window": partial(
+        _validate_int_field_value, field_name="rate_limit_window"
+    ),
     "endpoint_rate_limits": _validate_endpoint_rate_limits_value,
-    "blocked_user_agents": _validate_blocked_user_agents_value,
-    "enable_penetration_detection": _validate_enable_penetration_detection_value,
-    "enable_ip_banning": _validate_enable_ip_banning_value,
-    "enable_rate_limiting": _validate_enable_rate_limiting_value,
-    "emergency_mode": _validate_emergency_mode_value,
-    "emergency_whitelist": _validate_emergency_whitelist_value,
-    "auto_ban_threshold": _validate_auto_ban_threshold_value,
-    "auto_ban_duration": _validate_auto_ban_duration_value,
-    "enable_rate_limit_auto_ban": _validate_enable_rate_limit_auto_ban_value,
+    "blocked_user_agents": partial(
+        _validate_str_list_field_value, field_name="blocked_user_agents"
+    ),
+    "enable_penetration_detection": partial(
+        _validate_bool_field_value, field_name="enable_penetration_detection"
+    ),
+    "enable_ip_banning": partial(
+        _validate_bool_field_value, field_name="enable_ip_banning"
+    ),
+    "enable_rate_limiting": partial(
+        _validate_bool_field_value, field_name="enable_rate_limiting"
+    ),
+    "emergency_mode": partial(_validate_bool_field_value, field_name="emergency_mode"),
+    "emergency_whitelist": partial(
+        _validate_str_list_field_value, field_name="emergency_whitelist"
+    ),
+    "auto_ban_threshold": partial(
+        _validate_positive_int_field_value, field_name="auto_ban_threshold"
+    ),
+    "auto_ban_duration": partial(
+        _validate_positive_int_field_value, field_name="auto_ban_duration"
+    ),
+    "enable_rate_limit_auto_ban": partial(
+        _validate_bool_field_value, field_name="enable_rate_limit_auto_ban"
+    ),
 }
 
 

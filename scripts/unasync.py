@@ -15,6 +15,7 @@ SKIP_SRC = {
     "exceptions.py",
     "_pydantic_plugin_mute.py",
     "_security_config_validators.py",
+    "_config_field_revalidators.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
