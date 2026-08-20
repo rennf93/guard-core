@@ -42,9 +42,7 @@ async def test_is_user_agent_allowed(security_config: SecurityConfig) -> None:
     assert not await is_user_agent_allowed("badbot", security_config)
 
 
-async def test_custom_logging(
-    reset_state: None, security_config: SecurityConfig, tmp_path: Any
-) -> None:
+async def test_custom_logging(security_config: SecurityConfig, tmp_path: Any) -> None:
     log_file = tmp_path / "test_log.log"
     logger = setup_custom_logging(str(log_file))
 

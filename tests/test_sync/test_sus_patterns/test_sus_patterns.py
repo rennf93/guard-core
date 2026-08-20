@@ -13,6 +13,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
     SusPatternsManager,
     sus_patterns_handler,
 )
+from tests.test_sync.test_sus_patterns.conftest import with_detection_manager
 
 
 def test_add_pattern() -> None:
@@ -345,20 +346,14 @@ def test_get_performance_stats_none() -> None:
     SusPatternsManager._instance = None
 
 
-def test_get_performance_stats_with_monitor(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_get_performance_stats_with_monitor(manager: SusPatternsManager) -> None:
     stats = manager.get_performance_stats()
     assert stats is not None
 
 
-def test_pattern_timeout_with_compiler(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_pattern_timeout_with_compiler(manager: SusPatternsManager) -> None:
     custom_pattern = r"timeout_sim_pattern"
     manager.add_pattern(custom_pattern, custom=True)
 
@@ -493,11 +488,8 @@ def test_regex_search_exception_fallback() -> None:
     SusPatternsManager._instance = None
 
 
-def test_semantic_threat_detection(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_semantic_threat_detection(manager: SusPatternsManager) -> None:
     assert manager._semantic_analyzer is not None
 
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
@@ -530,11 +522,8 @@ def test_semantic_threat_detection(
             assert "sql_injection" in attack_types
 
 
-def test_semantic_threat_suspicious_fallback(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_semantic_threat_suspicious_fallback(manager: SusPatternsManager) -> None:
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
         with patch.object(manager._semantic_analyzer, "get_threat_score") as mock_score:
             semantic_analysis = {
@@ -565,11 +554,10 @@ def test_semantic_threat_suspicious_fallback(
             assert semantic_threats[0]["threat_score"] == 0.75
 
 
+@with_detection_manager
 def test_semantic_analysis_skipped_for_binary_content(
-    sus_patterns_manager_with_detection: SusPatternsManager,
+    manager: SusPatternsManager,
 ) -> None:
-    manager = sus_patterns_manager_with_detection
-
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
         binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
 
@@ -580,11 +568,8 @@ def test_semantic_analysis_skipped_for_binary_content(
         assert semantic_threats == []
 
 
-def test_legacy_detect_semantic_threat(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_legacy_detect_semantic_threat(manager: SusPatternsManager) -> None:
     with patch.object(manager, "detect") as mock_detect:
         mock_detect.return_value = {
             "is_threat": True,
@@ -601,11 +586,8 @@ def test_legacy_detect_semantic_threat(
         assert pattern == "semantic:sql_injection"
 
 
-def test_legacy_detect_unknown_threat(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_legacy_detect_unknown_threat(manager: SusPatternsManager) -> None:
     with patch.object(manager, "detect") as mock_detect:
         mock_detect.return_value = {
             "is_threat": True,
@@ -620,11 +602,10 @@ def test_legacy_detect_unknown_threat(
         assert pattern == "unknown"
 
 
+@with_detection_manager
 def test_compiler_cache_clearing_on_pattern_operations(
-    sus_patterns_manager_with_detection: SusPatternsManager,
+    manager: SusPatternsManager,
 ) -> None:
-    manager = sus_patterns_manager_with_detection
-
     assert manager._compiler is not None
 
     with patch.object(manager._compiler, "clear_cache") as mock_clear:
@@ -650,11 +631,8 @@ def test_compiler_cache_clearing_on_pattern_operations(
             mock_remove.assert_called_once_with(pattern_to_remove)
 
 
-def test_detect_semantic_only_pattern_info(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_detect_semantic_only_pattern_info(manager: SusPatternsManager) -> None:
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
         with patch.object(manager._semantic_analyzer, "get_threat_score") as mock_score:
             mock_analyze.return_value = {"attack_probabilities": {"xss": 0.9}}
@@ -1029,14 +1007,14 @@ def test_reset_noop_when_instance_is_none() -> None:
     SusPatternsManager._instance = original
 
 
+@with_detection_manager
 def test_custom_pattern_match_rejected_by_validator_falls_through(
-    sus_patterns_manager_with_detection: SusPatternsManager,
+    manager: SusPatternsManager,
 ) -> None:
     from guard_core.sync.handlers.suspatterns_handler import (
         _GLUED_BACKTICK_CANDIDATE_RE,
     )
 
-    manager = sus_patterns_manager_with_detection
     pattern = re.compile(_GLUED_BACKTICK_CANDIDATE_RE, re.IGNORECASE)
 
     threat, timed_out = manager._check_regex_pattern(

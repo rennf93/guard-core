@@ -1107,31 +1107,37 @@ def test_detect_penetration_attempt_wall_time_ceiling_uncovered() -> None:
 
 @pytest.mark.asyncio
 async def test_detect_penetration_attempt_legacy_smoke() -> None:
+    original_detection_state = sus_patterns_handler._detection_state
     _reset_singleton_to_legacy()
 
-    malicious_detected = 0
-    for case in _PRODUCTION_MALICIOUS_CASES:
-        mechanism = await _mechanism_for_case_id(
-            _valid_mechanisms_for_category(case.category), case.case_id
+    try:
+        malicious_detected = 0
+        for case in _PRODUCTION_MALICIOUS_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _valid_mechanisms_for_category(case.category), case.case_id
+            )
+            if await _detected_via(mechanism, case.payload):
+                malicious_detected += 1
+
+        benign_flagged = 0
+        for benign_case in _PRODUCTION_BENIGN_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _ALL_MECHANISMS, benign_case.case_id
+            )
+            if await _detected_via(mechanism, benign_case.payload):
+                benign_flagged += 1
+
+        assert malicious_detected >= _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL, (
+            f"legacy singleton recall regressed: "
+            f"baseline={_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL} "
+            f"actual={malicious_detected}"
         )
-        if await _detected_via(mechanism, case.payload):
-            malicious_detected += 1
-
-    benign_flagged = 0
-    for benign_case in _PRODUCTION_BENIGN_CASES:
-        mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
-        if await _detected_via(mechanism, benign_case.payload):
-            benign_flagged += 1
-
-    assert malicious_detected >= _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL, (
-        f"legacy singleton recall regressed: "
-        f"baseline={_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL} "
-        f"actual={malicious_detected}"
-    )
-    assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
-        f"legacy singleton false-positive rate rose: "
-        f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
-    )
+        assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
+            f"legacy singleton false-positive rate rose: "
+            f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
+        )
+    finally:
+        sus_patterns_handler._detection_state = original_detection_state
 
 
 @pytest.mark.asyncio
