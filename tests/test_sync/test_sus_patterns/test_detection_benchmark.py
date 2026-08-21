@@ -2769,7 +2769,7 @@ BENIGN_CORPUS: list[BenignCase] = [
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 45,
+    "cmd_injection": 37,
     "cms_probing": 10,
     "code_injection": 3,
     "deserialization": 18,
@@ -2789,8 +2789,8 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 39,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 328
-BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 320
+BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 320
+BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 318
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 12,

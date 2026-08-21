@@ -540,7 +540,17 @@ _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "defect5_form_body_keyword_after_glued_shell_command",
         _form_body_request("search`whoami` LIMIT 10"),
-        True,
+        False,
+        "a glued bare word inside backticks with no shell operator anywhere in "
+        "the surrounding window and no adjacent strong SQL keyword is "
+        "syntactically indistinguishable from a MySQL backtick-quoted "
+        "identifier concatenated onto other text (MySQL quoted identifiers may "
+        "sit directly adjacent to other tokens); this project's own benign "
+        "corpus (cmd_injection_glued_plausible_token_ref_user_list, "
+        "cmd_injection_glued_kebab_identifier_header_forward) pins the "
+        "identical shape as non-threat, so flagging on spelling alone is the "
+        "removed anti-pattern and flagging on structure alone is not possible "
+        "here without an operator or SQL-keyword signal",
     ),
     TargetedCase(
         "defect5_json_body_keyword_before_glued_shell_command",
@@ -612,7 +622,14 @@ _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
     TargetedCase(
         "round6_denylist_nmap_glued_backtick_raw_body",
         _raw_body_request("x`nmap`"),
-        True,
+        False,
+        "a glued bare word inside backticks with no shell operator anywhere in "
+        "the surrounding window and no adjacent strong SQL keyword is "
+        "syntactically indistinguishable from a MySQL backtick-quoted "
+        "identifier concatenated onto other text; the command-name list this "
+        "case used to depend on is the removed anti-pattern, and there is no "
+        "structural signal left to distinguish nmap from any other bare word "
+        "in this position",
     ),
     TargetedCase(
         "round6_log4shell_direct_ldap_custom_header",
@@ -908,8 +925,8 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     for case_id, (reason, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 315
-_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 309
+BASELINE_MALICIOUS_DETECTED_TOTAL = 311
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 305
 
 _UNCOVERED_CPU_TIME_CEILING_SECONDS = 100.0
 _CPU_TIME_REPORT_PATTERN = re.compile(r"cpu time: ([\d.]+)s")

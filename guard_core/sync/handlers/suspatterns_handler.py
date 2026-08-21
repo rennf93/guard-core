@@ -1,5 +1,4 @@
 import concurrent.futures
-import fnmatch
 import io
 import ipaddress
 import logging
@@ -673,7 +672,9 @@ _BACKTICK_WINDOW_DELIMITER_RE = re.compile(r"[`'\"\n\r]")
 
 _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE = re.compile(r"[\s/.;|&$()]")
 _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE = re.compile(r"[/.;|&$()]")
-_IMPLAUSIBLE_DOLLAR_BRACE_TOKEN_CHARS_RE = re.compile(r"[/;|&$(){}]")
+_BARE_SHELL_PARAMETER_NAME_RE = re.compile(
+    r"\A[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\Z"
+)
 _SHELL_SPECIAL_PARAMETER_NAMES = frozenset({"ifs"})
 _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS = frozenset({"query_param", "url_path"})
 _CTX_CMD_INJECTION_WITH_URL_PATH = frozenset(
@@ -683,88 +684,13 @@ _CTX_LOG4SHELL = frozenset(
     {"query_param", "header", "request_body", "url_path", "unknown"}
 )
 
-_STRONG_SHELL_COMMAND_DENYLIST = frozenset(
-    {
-        "whoami",
-        "uname",
-        "hostname",
-        "ifconfig",
-        "ipconfig",
-        "netstat",
-        "ss",
-        "ps",
-        "pwd",
-        "ls",
-        "dir",
-        "cat",
-        "head",
-        "tail",
-        "curl",
-        "wget",
-        "fetch",
-        "nc",
-        "ncat",
-        "netcat",
-        "telnet",
-        "bash",
-        "sh",
-        "ksh",
-        "zsh",
-        "csh",
-        "ash",
-        "ping",
-        "dig",
-        "nslookup",
-        "chmod",
-        "chown",
-        "rm",
-        "mv",
-        "cp",
-        "kill",
-        "sudo",
-        "su",
-        "env",
-        "export",
-        "eval",
-        "exec",
-        "python",
-        "perl",
-        "ruby",
-        "php",
-        "node",
-        "base64",
-        "xxd",
-        "printf",
-        "id_rsa",
-        "nmap",
-        "socat",
-        "msfconsole",
-        "msfvenom",
-        "certutil",
-        "bitsadmin",
-        "powershell",
-        "pwsh",
-        "mkfifo",
-        "aria2c",
-    }
-)
-_STRONG_SHELL_COMMAND_ALTERNATION = "|".join(
-    re.escape(command)
-    for command in sorted(_STRONG_SHELL_COMMAND_DENYLIST, key=lambda c: (-len(c), c))
-)
-
-_BRACE_GLOB_COMMAND_DENYLIST = _STRONG_SHELL_COMMAND_DENYLIST | frozenset(
-    {"id", "touch"}
-)
-_BRACE_GLOB_COMMAND_ALTERNATION = "|".join(
-    re.escape(command)
-    for command in sorted(_BRACE_GLOB_COMMAND_DENYLIST, key=lambda c: (-len(c), c))
-)
-
-_BRACE_EXPANSION_ITEM_RE = r"[^{}\s,][^{},]*"
+_BRACE_EXPANSION_ITEM_RE = r"[^{}\s,:'\"][^{},:'\"]*"
 _BRACE_EXPANSION_COMMAND_RE = (
-    r"\{(?-i:" + _BRACE_GLOB_COMMAND_ALTERNATION + r")\b"
-    r"(?:,(?:" + _BRACE_EXPANSION_ITEM_RE + r")?)+\}"
+    r"(?:\A|[;&|]\s*|\$\()\{"
+    + _BRACE_EXPANSION_ITEM_RE
+    + r"(?:,(?:"
+    + _BRACE_EXPANSION_ITEM_RE
+    + r")?)+\}"
 )
 
 _QUOTE_SPLICE_CANDIDATE_RE = r"\w+(?:['\"]+\w+){1,10}"
@@ -772,7 +698,7 @@ _QUOTE_SPLICE_CANDIDATE_COMPILED_RE = re.compile(
     _QUOTE_SPLICE_CANDIDATE_RE, re.IGNORECASE
 )
 
-_GLOB_WILDCARD_ATOM_RE = r"[\w./*?-]*[?*][\w./*?-]*"
+_GLOB_WILDCARD_ATOM_RE = r"[A-Za-z0-9_./*?-]*[?*][A-Za-z0-9_./*?-]*"
 _GLOB_WILDCARD_PATH_RUN_RE = re.compile(r"[\w./*?-]+")
 _GLOB_WILDCARD_CHAR_RE = re.compile(r"[?*]")
 
@@ -807,10 +733,16 @@ _PY_VARS_INDIRECTION_RE = (
     r"['\"](?:" + _PY_DANGEROUS_METHOD_RE + r")['\"]\s*\]\s*\()"
 )
 
-_BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE = re.compile(
-    rf"(?i)(?:;|\|\||\||&&)\s*(?:{_STRONG_SHELL_COMMAND_ALTERNATION})\b"
+_SHELL_CHAIN_OPERATOR_RE = re.compile(r";|\|\||\||&&")
+
+
+def _backtick_token_has_chained_shell_operators(token: str) -> bool:
+    return len(_SHELL_CHAIN_OPERATOR_RE.findall(token)) >= 2
+
+
+_SHELL_METACHARACTER_WINDOW_RE = re.compile(
+    r"(?:;|\|\||\||&&)\s*(?:`|[\w./-]+(?:`|\s+[/.~-]))|\$\(|\$\{"
 )
-_SHELL_METACHARACTER_WINDOW_RE = re.compile(r";|\|\||\||&&|\$\(|\$\{")
 
 
 def _backtick_pair_glued(content: str, start: int, end: int) -> bool:
@@ -845,9 +777,7 @@ _SHELL_TEXT_PRINTABLE_ASCII_RE = re.compile(r"\A[\t\x20-\x7e]*\Z")
 
 
 def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
-    if _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE.search(token):
-        return True
-    return token.strip().lower() in _STRONG_SHELL_COMMAND_DENYLIST
+    return bool(_IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE.search(token))
 
 
 def _strong_sql_keyword_glued_to_pair(content: str, start: int, end: int) -> bool:
@@ -866,7 +796,7 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
     token = content[start + 1 : end - 1]
     if not _SHELL_TEXT_PRINTABLE_ASCII_RE.match(token):
         return False
-    if _BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE.search(token):
+    if _backtick_token_has_chained_shell_operators(token):
         return True
     if not _backtick_pair_glued(content, start, end):
         return False
@@ -882,16 +812,11 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
 
 def _dollar_substitution_token_is_implausible(token: str, delimiter: str) -> bool:
     stripped = token.strip().lower()
-    if stripped in _STRONG_SHELL_COMMAND_DENYLIST:
-        return True
     if stripped in _SHELL_SPECIAL_PARAMETER_NAMES:
         return True
-    chars_re = (
-        _IMPLAUSIBLE_DOLLAR_BRACE_TOKEN_CHARS_RE
-        if delimiter == "{"
-        else _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE
-    )
-    return bool(chars_re.search(token))
+    if delimiter == "{":
+        return not _BARE_SHELL_PARAMETER_NAME_RE.match(token.strip())
+    return bool(_IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE.search(token))
 
 
 def _dollar_substitution_pair_backtick_quoted(
@@ -917,8 +842,15 @@ def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> boo
 
 
 def _quote_splice_token_is_dangerous_command(match: re.Match) -> bool:
-    stripped = re.sub(r"['\"]+", "", match.group()).lower()
-    return stripped in _STRONG_SHELL_COMMAND_DENYLIST
+    run = 0
+    for fragment in re.split(r"['\"]+", match.group()):
+        run = run + 1 if len(fragment) == 1 else 0
+        if run >= 3:
+            return True
+    return False
+
+
+_GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE = re.compile(r"(?:;|\|\||\||&&|\$\(|`)\s*\Z")
 
 
 def _glob_wildcard_token_is_dangerous_command(match: re.Match) -> bool:
@@ -928,10 +860,8 @@ def _glob_wildcard_token_is_dangerous_command(match: re.Match) -> bool:
         return False
     if "*" in basename and len(literal_chars) < 2:
         return False
-    return any(
-        fnmatch.fnmatchcase(command, basename)
-        for command in _BRACE_GLOB_COMMAND_DENYLIST
-    )
+    prefix = match.string[: match.start()]
+    return bool(_GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE.search(prefix))
 
 
 class _PickleOpcodePrefixResolutionBlocked(Exception):
