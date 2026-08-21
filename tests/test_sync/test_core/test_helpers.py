@@ -1,5 +1,8 @@
+import logging
 from ipaddress import ip_address
 from unittest.mock import MagicMock
+
+import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks.helpers import (
@@ -7,6 +10,7 @@ from guard_core.sync.core.checks.helpers import (
     _check_ip_whitelist,
     _get_detection_disabled_reason,
     _get_effective_penetration_setting,
+    _log_exception_safely,
     check_country_access,
     check_route_ip_access,
     check_user_agent_allowed,
@@ -369,3 +373,36 @@ def test_check_user_agent_allowed_route_blocklist_no_match() -> None:
 def test_check_user_agent_allowed_no_route_config_uses_global() -> None:
     config = SecurityConfig(blocked_user_agents=[])
     assert check_user_agent_allowed("Mozilla/5.0", None, config) is True
+
+
+class _RaisingLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        raise RuntimeError("log sink filter exploded")
+
+
+def test_log_exception_safely_swallows_when_logger_succeeds() -> None:
+    logger = MagicMock()
+
+    _log_exception_safely(logger, "escalation failed for %s", "9.9.9.9")
+
+    logger.exception.assert_called_once_with("escalation failed for %s", "9.9.9.9")
+
+
+def test_log_exception_safely_falls_back_to_module_logger_when_logger_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    broken_logger = logging.getLogger("test.guard_core.broken_logger")
+    broken_logger.addFilter(_RaisingLogFilter())
+    try:
+        with caplog.at_level(
+            logging.ERROR, logger="guard_core.sync.core.checks.helpers"
+        ):
+            _log_exception_safely(broken_logger, "escalation failed for %s", "9.9.9.9")
+    finally:
+        broken_logger.filters.clear()
+
+    fallback_records = [
+        r for r in caplog.records if r.name == "guard_core.sync.core.checks.helpers"
+    ]
+    assert len(fallback_records) == 1
+    assert fallback_records[0].getMessage() == "escalation failed for 9.9.9.9"

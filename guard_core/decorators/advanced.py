@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Callable, MutableMapping
 from typing import Any
 from urllib.parse import parse_qs
@@ -8,6 +9,8 @@ from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import _read_capped_body
+
+logger = logging.getLogger(__name__)
 
 
 class _SimpleResponse:
@@ -84,8 +87,11 @@ class AdvancedMixin(BaseSecurityMixin):
                         )
                         if _has_trap_field_filled(json_data):
                             return _SimpleResponse("Forbidden", 403)
-                    except Exception:
-                        pass
+                    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
+                        logger.debug(
+                            "honeypot_detection: skipping unparsable JSON body: %s",
+                            exc,
+                        )
                     return None
 
                 if request.method not in ["POST", "PUT", "PATCH"]:

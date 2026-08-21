@@ -111,6 +111,68 @@ def test_honeypot_json_non_utf8_body_with_trap_value_is_blocked(
     assert result.status_code == 403
 
 
+def test_honeypot_json_non_object_body_not_blocked(
+    decorator: SecurityDecorator,
+) -> None:
+    mock_func = Mock()
+    mock_func.__name__ = mock_func.__qualname__ = "test_func"
+    mock_func.__module__ = "test_module"
+
+    honeypot_decorator = decorator.honeypot_detection(["trap_field"])
+    decorated_func = honeypot_decorator(mock_func)
+
+    route_id = decorated_func._guard_route_id
+    route_config = decorator.get_route_config(route_id)
+    assert route_config is not None
+    validator = route_config.custom_validators[0]
+
+    from tests.test_sync.conftest import SyncMockGuardRequest
+
+    body = b"123"
+    mock_request = SyncMockGuardRequest(
+        method="POST",
+        headers={
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+        body_content=body,
+    )
+
+    result = validator(mock_request)
+    assert result is None
+
+
+def test_honeypot_json_deeply_nested_body_not_blocked(
+    decorator: SecurityDecorator,
+) -> None:
+    mock_func = Mock()
+    mock_func.__name__ = mock_func.__qualname__ = "test_func"
+    mock_func.__module__ = "test_module"
+
+    honeypot_decorator = decorator.honeypot_detection(["trap_field"])
+    decorated_func = honeypot_decorator(mock_func)
+
+    route_id = decorated_func._guard_route_id
+    route_config = decorator.get_route_config(route_id)
+    assert route_config is not None
+    validator = route_config.custom_validators[0]
+
+    from tests.test_sync.conftest import SyncMockGuardRequest
+
+    body = (b"[" * 2000) + (b"]" * 2000)
+    mock_request = SyncMockGuardRequest(
+        method="POST",
+        headers={
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+        body_content=body,
+    )
+
+    result = validator(mock_request)
+    assert result is None
+
+
 def test_honeypot_non_post_method(decorator: SecurityDecorator) -> None:
     mock_func = Mock()
     mock_func.__name__ = mock_func.__qualname__ = "test_func"

@@ -1,7 +1,10 @@
 import ast
+import logging
 import re
 from collections import Counter
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _BINARY_CONTENT_RATIO_THRESHOLD = 0.2
 
@@ -295,7 +298,9 @@ class SemanticAnalyzer:
                     return 0.2
 
         except Exception:
-            pass
+            logger.warning(
+                "AST parsing risk check failed and was skipped", exc_info=True
+            )
 
         return 0.0
 

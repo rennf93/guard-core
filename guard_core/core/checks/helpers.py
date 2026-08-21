@@ -319,7 +319,7 @@ def _log_exception_safely(logger: logging.Logger, message: str, *args: Any) -> N
     try:
         logger.exception(message, *args)
     except Exception:
-        pass
+        logging.getLogger(__name__).exception(message, *args)
 
 
 async def escalate_identity_violation(
