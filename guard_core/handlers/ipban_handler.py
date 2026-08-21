@@ -1,51 +1,32 @@
-import contextlib
-import ipaddress
 import logging
-import time
-from collections.abc import Callable
-from datetime import datetime, timezone
 from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.handlers._ipban_bans import _LOOPBACK_NETWORKS, IpBanOperationsMixin
+from guard_core.handlers._ipban_cache import _Network, _ObservableTTLCache
+from guard_core.handlers._ipban_migration import (
+    _BANNED_IPS_NAMESPACE,
+    IpBanMigrationMixin,
+    _close_if_unusable,
+)
+from guard_core.handlers._ipban_queries import IpBanQueryMixin
 from guard_core.utils import _canonicalize_ip
 
-_Network = ipaddress.IPv4Network | ipaddress.IPv6Network
-
-_BANNED_IPS_NAMESPACE = "banned_ips"
-
-
-def _close_if_unusable(obj: Any, required_attr: str) -> bool:
-    if hasattr(obj, required_attr):
-        return True
-    with contextlib.suppress(AttributeError):
-        obj.close()
-    return False
-
-
-_LOOPBACK_NETWORKS: tuple[_Network, ...] = (
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-)
+__all__ = [
+    "IPBanManager",
+    "_BANNED_IPS_NAMESPACE",
+    "_LOOPBACK_NETWORKS",
+    "_Network",
+    "_ObservableTTLCache",
+    "_canonicalize_ip",
+    "_close_if_unusable",
+    "ip_ban_manager",
+    "reset_global_state",
+]
 
 
-class _ObservableTTLCache(TTLCache):
-    def __init__(
-        self,
-        maxsize: int,
-        ttl: float,
-        on_evict: Callable[[], None],
-    ) -> None:
-        super().__init__(maxsize=maxsize, ttl=ttl)
-        self._on_evict = on_evict
-
-    def popitem(self) -> tuple[Any, Any]:
-        item = super().popitem()
-        self._on_evict()
-        return item
-
-
-class IPBanManager:
+class IPBanManager(IpBanMigrationMixin, IpBanOperationsMixin, IpBanQueryMixin):
     LOCAL_CACHE_TTL_CAP_SECONDS = 3600
     _EVICTION_LOG_EVERY = 100
 
@@ -80,281 +61,6 @@ class IPBanManager:
                 "IP ban cache full; %d entries evicted (silent overflow)",
                 self.evictions_count,
             )
-
-    async def initialize_redis(self, redis_handler: Any) -> None:
-        self.redis_handler = redis_handler
-        await self._migrate_legacy_ban_keys()
-
-    async def initialize_agent(self, agent_handler: Any) -> None:
-        self.agent_handler = agent_handler
-
-    async def _migrate_legacy_ban_keys(self) -> None:
-        if self.redis_handler is None:
-            return
-        prefix = f"{self.redis_handler.config.redis_prefix}{_BANNED_IPS_NAMESPACE}:"
-        connection_cm = self.redis_handler.get_connection()
-        if not _close_if_unusable(connection_cm, "__aenter__"):
-            self.logger.warning(
-                "Legacy ban-key migration skipped: redis connection unavailable"
-            )
-            return
-        try:
-            async with connection_cm as conn:
-                scan_result = conn.scan_iter(match=f"{prefix}*")
-                if not _close_if_unusable(scan_result, "__aiter__"):
-                    raise TypeError("redis connection did not return an async iterator")
-                async for key in scan_result:
-                    await self._migrate_one_ban_key(conn, key, prefix)
-        except Exception as e:
-            self.logger.warning("Legacy ban-key migration skipped: %s", e)
-
-    async def _migrate_one_ban_key(self, conn: Any, key: str, prefix: str) -> None:
-        raw_ip = key[len(prefix) :]
-        canonical_ip = _canonicalize_ip(raw_ip)
-        if canonical_ip == raw_ip:
-            return
-
-        async with conn.pipeline() as pipe:
-            await pipe.get(key)
-            await pipe.pttl(key)
-            value, old_pttl = await pipe.execute()
-
-        if old_pttl <= 0:
-            await conn.delete(key)
-            return
-
-        canonical_key = f"{prefix}{canonical_ip}"
-        new_pttl = await conn.pttl(canonical_key)
-        if new_pttl < old_pttl:
-            await conn.set(canonical_key, value, px=old_pttl)
-        await conn.delete(key)
-
-    def _assert_positive_duration(self, duration: int) -> None:
-        if duration <= 0:
-            raise ValueError(f"ban duration must be positive, got {duration}")
-
-    def _clamp_to_local_cap(self, duration: int, cause: str) -> int:
-        if duration <= self.LOCAL_CACHE_TTL_CAP_SECONDS:
-            return duration
-        self.logger.warning(
-            "Redis unavailable (%s): ban shortened from %ds to %ds so "
-            "protection still applies",
-            cause,
-            duration,
-            self.LOCAL_CACHE_TTL_CAP_SECONDS,
-        )
-        return self.LOCAL_CACHE_TTL_CAP_SECONDS
-
-    async def _ban_cidr(self, ip: str, duration: int) -> None:
-        try:
-            network = ipaddress.ip_network(ip, strict=False)
-        except ValueError as e:
-            raise ValueError(f"Invalid CIDR network {ip!r}: {e}") from e
-
-        if self.redis_handler is None:
-            duration = self._clamp_to_local_cap(duration, "not configured")
-            self.banned_networks.append((network, time.time() + duration))
-            return
-
-        try:
-            await self.redis_handler.set_key(
-                "banned_networks",
-                str(network),
-                str(time.time() + duration),
-                ttl=duration,
-            )
-        except Exception:
-            duration = self._clamp_to_local_cap(duration, "request failed")
-            self.banned_networks.append((network, time.time() + duration))
-
-    async def _ban_exact_ip(self, ip: str, duration: int, reason: str) -> None:
-        try:
-            ipaddress.ip_address(ip)
-        except ValueError as e:
-            raise ValueError(f"Invalid IP address {ip!r}: {e}") from e
-
-        if self.redis_handler is None:
-            duration = self._clamp_to_local_cap(duration, "not configured")
-
-        expiry = time.time() + duration
-        self.banned_ips[ip] = expiry
-
-        if self.redis_handler:
-            try:
-                await self.redis_handler.set_key(
-                    "banned_ips", ip, str(expiry), ttl=duration
-                )
-            except Exception:
-                duration = self._clamp_to_local_cap(duration, "request failed")
-                self.banned_ips[ip] = time.time() + duration
-
-        if self.agent_handler:
-            await self._send_ban_event(ip, duration, reason)
-
-    def _target_network(self, ip: str) -> _Network | None:
-        try:
-            if "/" in ip:
-                return ipaddress.ip_network(ip, strict=False)
-            return ipaddress.ip_network(ipaddress.ip_address(ip))
-        except ValueError:
-            return None
-
-    def _trusted_proxy_networks(self) -> list[_Network]:
-        trusted_proxies = getattr(self.config, "trusted_proxies", None) or ()
-        networks = []
-        for entry in trusted_proxies:
-            try:
-                networks.append(ipaddress.ip_network(entry, strict=False))
-            except ValueError:
-                continue
-        return networks
-
-    def _self_dos_refusal_reason(self, ip: str) -> str | None:
-        target = self._target_network(ip)
-        if target is None:
-            return None
-        if any(
-            target.version == network.version and target.overlaps(network)
-            for network in _LOOPBACK_NETWORKS
-        ):
-            return "loopback"
-        if any(
-            target.version == network.version and target.overlaps(network)
-            for network in self._trusted_proxy_networks()
-        ):
-            return "trusted_proxy"
-        return None
-
-    def _log_refused_ban(self, ip: str, reason: str) -> None:
-        space = "loopback" if reason == "loopback" else "a configured trusted proxy"
-        self.logger.warning(
-            "Refused to ban %s: overlaps %s space and would self-DoS this "
-            "deployment. If unexpected, trusted_proxies is likely unset "
-            "behind a reverse proxy; see docs/configuration/security-config.md",
-            ip,
-            space,
-        )
-
-    async def ban_ip(
-        self, ip: str, duration: int, reason: str = "threshold_exceeded"
-    ) -> None:
-        self._assert_positive_duration(duration)
-        refusal = self._self_dos_refusal_reason(ip)
-        if refusal is not None:
-            self._log_refused_ban(ip, refusal)
-            return
-        if "/" in ip:
-            await self._ban_cidr(ip, duration)
-        else:
-            await self._ban_exact_ip(ip, duration, reason)
-
-    async def _send_ban_event(self, ip: str, duration: int, reason: str) -> None:
-        from guard_core.core.events.event_types import EVENT_IP_BANNED
-
-        try:
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=EVENT_IP_BANNED,
-                ip_address=ip,
-                action_taken="banned",
-                reason=reason,
-                metadata={"duration": duration},
-            )
-            await self.agent_handler.send_event(event)
-        except Exception as e:
-            self.logger.error("Failed to send ban event to agent: %s", e)
-
-    async def unban_ip(self, ip: str) -> None:
-        if ip in self.banned_ips:
-            del self.banned_ips[ip]
-
-        if self.redis_handler:
-            await self.redis_handler.delete("banned_ips", ip)
-
-        if self.agent_handler:
-            await self._send_unban_event(ip)
-
-    async def _send_unban_event(self, ip: str) -> None:
-        from guard_core.core.events.event_types import EVENT_IP_UNBANNED
-
-        try:
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=EVENT_IP_UNBANNED,
-                ip_address=ip,
-                action_taken="unbanned",
-                reason="dynamic_rule_whitelist",
-                metadata={"action": "unban"},
-            )
-            await self.agent_handler.send_event(event)
-        except Exception as e:
-            self.logger.error("Failed to send unban event to agent: %s", e)
-
-    def _check_network_cache(
-        self, addr: ipaddress.IPv4Address | ipaddress.IPv6Address, now: float
-    ) -> bool:
-        active: list[tuple[_Network, float]] = []
-        hit = False
-        for network, expiry in self.banned_networks:
-            if expiry <= now:
-                continue
-            active.append((network, expiry))
-            if not hit and addr.version == network.version and addr in network:
-                hit = True
-        self.banned_networks = active
-        return hit
-
-    async def _check_redis_exact(self, ip: str, current_time: float) -> bool:
-        expiry = await self.redis_handler.get_key("banned_ips", ip)
-        if not expiry:
-            return False
-        expiry_time = float(expiry)
-        if current_time <= expiry_time:
-            self.banned_ips[ip] = expiry_time
-            return True
-        await self.redis_handler.delete("banned_ips", ip)
-        return False
-
-    async def is_ip_banned(self, ip: str) -> bool:
-        current_time = time.time()
-
-        if ip in self.banned_ips:
-            if current_time > self.banned_ips[ip]:
-                del self.banned_ips[ip]
-                return False
-            return True
-
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
-            return False
-
-        if self._check_network_cache(addr, current_time):
-            return True
-
-        if self.redis_handler:
-            return await self._check_redis_exact(ip, current_time)
-
-        return False
-
-    async def reset(self) -> None:
-        self.banned_ips.clear()
-        self.banned_networks.clear()
-        if self.redis_handler:
-            async with self.redis_handler.get_connection() as conn:
-                keys = await conn.keys(
-                    f"{self.redis_handler.config.redis_prefix}banned_ips:*"
-                )
-                if keys:
-                    await conn.delete(*keys)
 
 
 ip_ban_manager = IPBanManager()
