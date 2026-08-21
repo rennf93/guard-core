@@ -196,7 +196,7 @@ class BehaviorTracker:
             if not raw_body:
                 return False
 
-            body_str = raw_body.decode("utf-8", errors="replace")
+            body_str = raw_body.decode("utf-8", errors="surrogateescape")
 
             if pattern.startswith("json:"):
                 json_pattern = pattern.split(":", 1)[1]

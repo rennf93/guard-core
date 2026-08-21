@@ -1,4 +1,5 @@
 import email.message
+import email.parser
 import os
 from unittest.mock import patch
 
@@ -227,22 +228,24 @@ def test_multipart_text_parts_no_name_file_part_has_no_exclusion_key() -> None:
 
 
 def test_multipart_text_parts_skips_non_string_payload() -> None:
-    original_get_payload = email.message.Message.get_payload
+    original_parsestr = email.parser.Parser.parsestr
 
-    def fake_get_payload(
-        self: email.message.Message, *_args: object, **_kwargs: object
-    ) -> object:
-        if self.is_multipart():
-            return original_get_payload(self)
-        return None
+    def fake_parsestr(
+        self: email.parser.Parser, text: str, headersonly: bool = False
+    ) -> email.message.Message:
+        message = original_parsestr(self, text, headersonly)
+        for part in message.walk():
+            if not part.is_multipart():
+                object.__setattr__(part, "_payload", None)
+        return message
 
     file_body = _file_part_body("shell.php.jpg", "payload-bytes").decode()
-    with patch.object(email.message.Message, "get_payload", fake_get_payload):
+    with patch.object(email.parser.Parser, "parsestr", fake_parsestr):
         file_parts = _multipart_text_parts(file_body, _CONTENT_TYPE)
     assert file_parts == [("file", "file", 'filename="shell.php.jpg"')]
 
     text_body = _text_field_body("field", "value").decode()
-    with patch.object(email.message.Message, "get_payload", fake_get_payload):
+    with patch.object(email.parser.Parser, "parsestr", fake_parsestr):
         text_parts = _multipart_text_parts(text_body, _CONTENT_TYPE)
     assert text_parts == []
 

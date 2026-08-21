@@ -1137,7 +1137,9 @@ def _scan_form_body(
 ) -> tuple[bool, str, list[dict]]:
     from urllib.parse import parse_qsl
 
-    for name, value in parse_qsl(raw_body, keep_blank_values=True):
+    for name, value in parse_qsl(
+        raw_body, keep_blank_values=True, errors="surrogateescape"
+    ):
         if name.lower() in excluded_body_fields:
             continue
         name_hit = _scan_component_name(
@@ -1180,7 +1182,7 @@ def _multipart_text_parts(
         if filename is not None:
             sanitized_filename = filename.replace('"', "").replace("'", "")
             parts.append((exclusion_key, label, f'filename="{sanitized_filename}"'))
-        payload = part.get_payload(decode=False)
+        payload = getattr(part, "_payload", None)
         if isinstance(payload, str):
             parts.append((exclusion_key, label, payload))
     return parts
@@ -1539,7 +1541,7 @@ def detect_penetration_attempt(
     if body_bytes is None:
         return _build_detection_miss()
 
-    raw_body = body_bytes.decode("utf-8", errors="replace")
+    raw_body = body_bytes.decode("utf-8", errors="surrogateescape")
 
     content_type = request.headers.get("content-type") or ""
     detected, trigger, threats = _scan_request_body(
