@@ -18,6 +18,8 @@ SKIP_SRC = {
     "_pydantic_plugin_mute.py",
     "_security_config_validators.py",
     "_config_field_revalidators.py",
+    "_security_config_fields.py",
+    "_dynamic_rules.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
