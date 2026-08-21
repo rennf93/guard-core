@@ -147,6 +147,7 @@ _LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS = frozenset("\"'\n")
 _LDAP_BREAKOUT_LOCAL_SCAN_CHARS = 40
 _LDAP_BREAKOUT_WILDCARD_CLAUSE_END_RE = re.compile(r"=[^()]+\*\s*\Z")
 _LDAP_BREAKOUT_ATTACK_TOKEN_RE = re.compile(r"\*|\(\s*[&|!]|\x00|\(\s*\(|~=|>=|<=")
+_LDAP_FILTER_EXPRESSION_STRUCTURE_RE = re.compile(r"[()\"'\n]")
 
 _PROTO_POLLUTION_PROTOTYPE_ASSIGN_RE = r"Object\.prototype\.[A-Za-z_$][\w$]*\s*=(?!=)"
 _PROTO_POLLUTION_SET_PROTOTYPE_OF_RE = r"\b(?:Object|Reflect)\.setPrototypeOf\s*\("
@@ -187,10 +188,10 @@ _JS_DYNAMIC_EVAL_TIMER_STRING_ARG_RE = r"\b(?:setTimeout|setInterval)\s*\(\s*[\"
 
 
 _LDAP_PAREN_CONJUNCTION_RE = r"\(\s*[&|]\s*"
-_LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE = re.compile(
-    rf"\A\s*(?:[!(]|\*|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
+_LDAP_PAREN_CONJUNCTION_FOLLOWUP_SYMBOL_RE = re.compile(r"\A\s*(?:[!(]|\*)")
+_LDAP_PAREN_CONJUNCTION_FOLLOWUP_ATTR_RE = re.compile(
+    rf"\A\s*{_LDAP_ATTR_EXTENSIBLE_MATCH_RE}"
 )
-_LDAP_PAREN_CONJUNCTION_LOOKAHEAD_CHARS = 40
 
 _LDAP_WILDCARD_EQUALS_RE = (
     rf"\*\s*\)+\s*(?:[|&!]\s*)?\(+\s*(?:[&|!]|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
@@ -888,15 +889,41 @@ def _ldap_breakout_backward_window(
     return backward_window, depth, depth_unresolved
 
 
-def _ldap_breakout_forward_window(text: str, close_paren_pos: int) -> str:
-    forward_end = min(len(text), close_paren_pos + _LDAP_BREAKOUT_LOCAL_SCAN_CHARS)
-    position = close_paren_pos
-    while (
-        position < forward_end
-        and text[position] not in _LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS
-    ):
-        position += 1
-    return text[close_paren_pos:position]
+def _ldap_next_candidate_scan_limit(match: re.Match, after: int) -> int:
+    next_match = match.re.search(match.string, after)
+    return next_match.end() if next_match else len(match.string)
+
+
+def _ldap_filter_expression_forward_extent(
+    text: str, start: int, scan_limit: int
+) -> int:
+    position = start
+    depth = 0
+    while True:
+        boundary = _LDAP_FILTER_EXPRESSION_STRUCTURE_RE.search(
+            text, position, scan_limit
+        )
+        if boundary is None:
+            return scan_limit
+        char = boundary.group()
+        if char in _LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS:
+            return boundary.start()
+        if char == "(":
+            depth += 1
+        elif depth == 0:
+            return boundary.start()
+        else:
+            depth -= 1
+        position = boundary.end()
+
+
+def _ldap_breakout_forward_window(match: re.Match, close_paren_pos: int) -> str:
+    text: str = match.string
+    scan_limit = _ldap_next_candidate_scan_limit(match, match.end())
+    extent = _ldap_filter_expression_forward_extent(
+        text, close_paren_pos + 1, scan_limit
+    )
+    return text[close_paren_pos:extent]
 
 
 def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
@@ -906,7 +933,7 @@ def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
     backward_window, depth, depth_unresolved = _ldap_breakout_backward_window(
         text, close_paren_pos
     )
-    forward_window = _ldap_breakout_forward_window(text, close_paren_pos)
+    forward_window = _ldap_breakout_forward_window(match, close_paren_pos)
 
     wildcard_adjacent = match.group().startswith("*")
     depth_proves_breakout = depth <= 0 and (wildcard_adjacent or not depth_unresolved)
@@ -922,9 +949,13 @@ def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
 
 
 def _ldap_paren_conjunction_is_injection(match: re.Match) -> bool:
-    lookahead_end = match.end() + _LDAP_PAREN_CONJUNCTION_LOOKAHEAD_CHARS
-    tail = match.string[match.end() : lookahead_end]
-    return bool(_LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE.match(tail))
+    text = match.string
+    scan_limit = _ldap_next_candidate_scan_limit(match, match.end())
+    tail_end = _ldap_filter_expression_forward_extent(text, match.end(), scan_limit)
+    tail = text[match.end() : tail_end]
+    if _LDAP_PAREN_CONJUNCTION_FOLLOWUP_SYMBOL_RE.match(tail):
+        return True
+    return "=" in tail and bool(_LDAP_PAREN_CONJUNCTION_FOLLOWUP_ATTR_RE.match(tail))
 
 
 DETECTION_CATEGORY_WEIGHTS: dict[str, float] = {
