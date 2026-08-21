@@ -65,6 +65,7 @@ class ContentPreprocessor:
     _MAX_GUNZIP_OUTPUT_BYTES = 8192
     _MAX_GUNZIP_ATTEMPTS_PER_PASS = 8
     _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
+    _LDAP_HEX_ESCAPE_RE = re.compile(r"\\([0-9a-fA-F]{2})")
     _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
     _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
     _PERCENT_U_ESCAPE_RE = re.compile(r"%u([0-9a-fA-F]{4})", re.IGNORECASE)
@@ -366,6 +367,15 @@ class ContentPreprocessor:
 
         return self._HEX_ESCAPE_RE.sub(_replace, content)
 
+    def _decode_ldap_hex_escapes(self, content: str) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            try:
+                return chr(int(match.group(1), 16))
+            except ValueError:
+                return match.group(0)
+
+        return self._LDAP_HEX_ESCAPE_RE.sub(_replace, content)
+
     def _decode_unicode_escapes(self, content: str) -> str:
         def _replace(match: re.Match[str]) -> str:
             try:
@@ -490,6 +500,7 @@ class ContentPreprocessor:
 
             content = self._decode_percent_u_escapes(content)
             content = self._decode_hex_escapes(content)
+            content = self._decode_ldap_hex_escapes(content)
             content = self._decode_unicode_escapes(content)
             content = self.normalize_unicode(content)
             content = self._decode_base64_candidates(content, gunzip_attempts_left)

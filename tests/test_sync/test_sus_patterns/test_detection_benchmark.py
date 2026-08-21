@@ -128,17 +128,6 @@ _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON = (
     "injection shape it was built to catch"
 )
 
-_CRONTAB_VAR_ASSIGNMENT_INCIDENTAL_LDAP_WILDCARD_KNOWN_FP_REASON = (
-    _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON + " "
-    "this exact crontab body also incidentally trips the pre-existing, "
-    "unrelated ldap wildcard-equals pattern: whitespace normalization "
-    "collapses the newline before PATH= into a space, so the schedule's "
-    "trailing '* root' run into 'PATH=' reads as '* root PATH=', "
-    "character-identical to the '*attr=' LDAP filter wildcard shape; a "
-    "genuine five-field crontab schedule cannot be told apart from that "
-    "shape by structure alone, independent of this widening"
-)
-
 _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
     "the dedicated RFI file_inclusion pattern flags any param-value "
     "delivery of an explicit http(s)/ftp URL whose final path segment ends "
@@ -2369,7 +2358,7 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cmd_injection_crontab_env_prefixed_backup_line",
         "5 4 * * * root\nPATH=/usr/bin:/bin bash -c 'do_backup.sh'",
         "production",
-        _CRONTAB_VAR_ASSIGNMENT_INCIDENTAL_LDAP_WILDCARD_KNOWN_FP_REASON,
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
     ),
     BenignCase(
         "cmd_injection_makefile_env_prefixed_recipe",
@@ -2555,7 +2544,6 @@ BASELINE_MALICIOUS_DETECTED_TOTAL = 281
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 12,
     "file_inclusion": 6,
-    "ldap": 1,
     "template": 6,
 }
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 24

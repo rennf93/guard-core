@@ -98,8 +98,18 @@ def test_hex_escape_all_valid_chars(pp: ContentPreprocessor) -> None:
     assert "abc" in result.lower()
 
 
+def test_ldap_hex_escape_decoded_in_preprocess(pp: ContentPreprocessor) -> None:
+    payload = r"admin\29\28cn=\2a"
+    result = pp.preprocess(payload)
+    assert "admin)(cn=*" in result
+
+
 def test_decode_hex_escapes_directly(pp: ContentPreprocessor) -> None:
     assert pp._decode_hex_escapes(r"\x41\x42") == "AB"
+
+
+def test_decode_ldap_hex_escapes_directly(pp: ContentPreprocessor) -> None:
+    assert pp._decode_ldap_hex_escapes(r"\29\28cn=\2a") == ")(cn=*"
 
 
 def test_decode_unicode_escapes_directly(pp: ContentPreprocessor) -> None:
@@ -280,6 +290,14 @@ def test_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:
     with patch("builtins.chr", side_effect=ValueError("invalid")):
         result = pp._decode_hex_escapes("\\x41")
     assert result == "\\x41"
+
+
+def test_ldap_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:
+    from unittest.mock import patch
+
+    with patch("builtins.chr", side_effect=ValueError("invalid")):
+        result = pp._decode_ldap_hex_escapes("\\29")
+    assert result == "\\29"
 
 
 def test_unicode_escape_value_error_path(pp: ContentPreprocessor) -> None:

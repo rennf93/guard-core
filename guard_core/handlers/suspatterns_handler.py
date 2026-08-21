@@ -134,19 +134,25 @@ _NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 
-_LDAP_WILDCARD_CHAIN_RE = r"\*\)[|&]?\(+\s*[a-zA-Z][\w-]*\s*="
-_LDAP_ATTR_BEFORE_WILDCARD_RE = re.compile(r"\(\s*[a-zA-Z][\w-]*\s*=\Z")
+_LDAP_ATTR_EXTENSIBLE_MATCH_RE = r"[a-zA-Z][\w.-]*(?::[\w.-]+)*\s*:?="
+
+_LDAP_WILDCARD_CHAIN_RE = rf"\*\)[|&]?\(+\s*{_LDAP_ATTR_EXTENSIBLE_MATCH_RE}"
+_LDAP_BREAKOUT_BACKWARD_BOUNDARY_CHARS = frozenset("\"'\n&")
+_LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS = frozenset("\"'\n")
+_LDAP_BREAKOUT_LOCAL_SCAN_CHARS = 40
+_LDAP_BREAKOUT_WILDCARD_CLAUSE_END_RE = re.compile(r"=[^()]+\*\s*\Z")
+_LDAP_BREAKOUT_ATTACK_TOKEN_RE = re.compile(r"\*|\(\s*[&|!]|\x00|\(\s*\(|~=|>=|<=")
 
 _LDAP_PAREN_CONJUNCTION_RE = r"\(\s*[&|]\s*"
 _LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE = re.compile(
-    r"\A\s*(?:[!(]|\*|[A-Za-z][\w-]*\s*[=~<>])"
+    rf"\A\s*(?:[!(]|\*|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
 )
 _LDAP_PAREN_CONJUNCTION_LOOKAHEAD_CHARS = 40
 
-_LDAP_WILDCARD_ATTR_RE = r"[ \t0-9A-Za-z_]{1,32}"
 _LDAP_WILDCARD_EQUALS_RE = (
-    rf"\*(?:{_LDAP_WILDCARD_ATTR_RE}\s*=|=\s*{_LDAP_WILDCARD_ATTR_RE})"
+    rf"\*\s*\)+\s*(?:[|&!]\s*)?\(+\s*(?:[&|!]|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
 )
+_LDAP_PAREN_BREAKOUT_RE = r"\)\s*\(\s*(?:[&|!]|[a-zA-Z][\w.-]*(?::[\w.-]+)*\s*:?[=~<>])"
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"(?:[&#;,\"'<>]|\s*\Z)"
@@ -686,9 +692,57 @@ def _legacy_ipv4_match_is_blocked(match: re.Match) -> bool:
     return ip_int is not None and _is_blocked_legacy_ipv4(ip_int)
 
 
+def _ldap_breakout_backward_window(
+    text: str, close_paren_pos: int
+) -> tuple[str, int, bool]:
+    depth = 0
+    backward_start = max(0, close_paren_pos - _LDAP_BREAKOUT_LOCAL_SCAN_CHARS)
+    position = close_paren_pos - 1
+    while (
+        position >= backward_start
+        and text[position] not in _LDAP_BREAKOUT_BACKWARD_BOUNDARY_CHARS
+    ):
+        if text[position] == ")":
+            depth -= 1
+        elif text[position] == "(":
+            depth += 1
+        position -= 1
+    backward_window = text[position + 1 : close_paren_pos]
+    depth_unresolved = backward_start > 0 and position < backward_start
+    return backward_window, depth, depth_unresolved
+
+
+def _ldap_breakout_forward_window(text: str, close_paren_pos: int) -> str:
+    forward_end = min(len(text), close_paren_pos + _LDAP_BREAKOUT_LOCAL_SCAN_CHARS)
+    position = close_paren_pos
+    while (
+        position < forward_end
+        and text[position] not in _LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS
+    ):
+        position += 1
+    return text[close_paren_pos:position]
+
+
 def _ldap_wildcard_chain_is_injection(match: re.Match) -> bool:
-    prefix = match.string[: match.start()]
-    return _LDAP_ATTR_BEFORE_WILDCARD_RE.search(prefix) is None
+    text = match.string
+    close_paren_pos = match.start() + match.group().index(")")
+
+    backward_window, depth, depth_unresolved = _ldap_breakout_backward_window(
+        text, close_paren_pos
+    )
+    forward_window = _ldap_breakout_forward_window(text, close_paren_pos)
+
+    wildcard_adjacent = match.group().startswith("*")
+    depth_proves_breakout = depth <= 0 and (wildcard_adjacent or not depth_unresolved)
+    depth_or_wildcard_clause = depth_proves_breakout or bool(
+        _LDAP_BREAKOUT_WILDCARD_CLAUSE_END_RE.search(backward_window)
+    )
+    if not depth_or_wildcard_clause:
+        return False
+    return bool(
+        _LDAP_BREAKOUT_ATTACK_TOKEN_RE.search(backward_window)
+        or _LDAP_BREAKOUT_ATTACK_TOKEN_RE.search(forward_window)
+    )
 
 
 def _ldap_paren_conjunction_is_injection(match: re.Match) -> bool:
@@ -763,6 +817,8 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
 ] = (
     (_LEGACY_IPV4_HOST_RE, lambda m, _c: _legacy_ipv4_match_is_blocked(m)),
     (_LDAP_WILDCARD_CHAIN_RE, lambda m, _c: _ldap_wildcard_chain_is_injection(m)),
+    (_LDAP_WILDCARD_EQUALS_RE, lambda m, _c: _ldap_wildcard_chain_is_injection(m)),
+    (_LDAP_PAREN_BREAKOUT_RE, lambda m, _c: _ldap_wildcard_chain_is_injection(m)),
     (
         _LDAP_PAREN_CONJUNCTION_RE,
         lambda m, _c: _ldap_paren_conjunction_is_injection(m),
@@ -1044,6 +1100,7 @@ class SusPatternsManager:
         ),
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_EQUALS_RE, _CTX_LDAP, "ldap"),
+        (_LDAP_PAREN_BREAKOUT_RE, _CTX_LDAP, "ldap"),
         (_LDAP_PAREN_CONJUNCTION_RE, _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_CHAIN_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_ATTR_RE, _CTX_LDAP, "ldap"),

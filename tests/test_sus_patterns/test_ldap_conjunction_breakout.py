@@ -84,6 +84,22 @@ LDAP_BENIGN_PAYLOADS = [
 ]
 
 
+LDAP_RFC4515_HEX_ESCAPE_WIRE_PAYLOADS = [
+    pytest.param(r"admin\29\28cn=\2a", id="paren_breakout_wildcard_escaped"),
+    pytest.param(r"*\29\28cn=admin", id="wildcard_chain_breakout_escaped"),
+    pytest.param(r"admin\5c29\5c28cn=\5c2a", id="double_escaped_paren_breakout"),
+    pytest.param(r"admin\29\28cn=\2A", id="mixed_case_hex_digits"),
+]
+
+
+LDAP_WILDCARD_BREAKOUT_PRE_JUNK_PAYLOADS = [
+    pytest.param("x" * 39 + "*)(uid=*", id="pre_junk_below_window_bound"),
+    pytest.param("x" * 40 + "*)(uid=*", id="pre_junk_at_window_bound"),
+    pytest.param("x" * 41 + "*)(uid=*", id="pre_junk_past_window_bound"),
+    pytest.param("x" * 200 + "*)(uid=*", id="pre_junk_far_past_window_bound"),
+]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", LDAP_CONJUNCTION_BREAKOUT_PAYLOADS)
 async def test_conjunction_breakout_fires_ldap(payload: str) -> None:
@@ -95,6 +111,24 @@ async def test_conjunction_breakout_fires_ldap(payload: str) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", LDAP_PLAIN_BREAKOUT_REGRESSION_PAYLOADS)
 async def test_plain_breakout_still_fires_ldap(payload: str) -> None:
+    assert await _body_is_threat(payload) is True
+    categories = await _body_categories(payload)
+    assert "ldap" in categories
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", LDAP_RFC4515_HEX_ESCAPE_WIRE_PAYLOADS)
+async def test_rfc4515_hex_escape_fires_through_wire_entry(payload: str) -> None:
+    assert await _body_is_threat(payload) is True
+    categories = await _body_categories(payload)
+    assert "ldap" in categories
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", LDAP_WILDCARD_BREAKOUT_PRE_JUNK_PAYLOADS)
+async def test_wildcard_breakout_fires_regardless_of_leading_junk_length(
+    payload: str,
+) -> None:
     assert await _body_is_threat(payload) is True
     categories = await _body_categories(payload)
     assert "ldap" in categories
