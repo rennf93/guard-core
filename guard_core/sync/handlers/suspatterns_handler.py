@@ -227,7 +227,7 @@ _PATH_TRAVERSAL_ENCODED_DOT_RE = (
 _PATH_TRAVERSAL_SEMICOLON_SEP_RE = r"\.\.;[^/\\]*[/\\]"
 _PATH_TRAVERSAL_DECODED_SHAPE_RE = re.compile(r"\.\.[\\/]")
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
-    r"\n[^\S\r\n]*(?:[^=\s;|&]+=[^\s;|&]+\s+){0,8}(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"\n[^\S\r\n]*(?:[^=\s;|&]+=[^\s;|&]+\s+)*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
 )
 _DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
@@ -383,6 +383,46 @@ _FILE_UPLOAD_DECODED_TRUNCATION_RE = (
 
 def _file_upload_scan_window(content: str) -> str:
     return content[: max(content.rfind('"'), content.rfind("'")) + 1]
+
+
+_CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE = re.compile(
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE, re.IGNORECASE
+)
+_CMD_INJECTION_ASSIGNMENT_PREFIX_RE = re.compile(r"\n[^\S\r\n]*")
+_CMD_INJECTION_ASSIGNMENT_TOKEN_RE = re.compile(
+    r"[^=\s;|&]+=[^\s;|&]+\s+", re.IGNORECASE
+)
+
+
+def _cmd_injection_shell_dash_c_finditer(
+    text: str, compiled: re.Pattern
+) -> Iterator[re.Match]:
+    last_end = 0
+    for prefix_match in _CMD_INJECTION_ASSIGNMENT_PREFIX_RE.finditer(text):
+        start = prefix_match.start()
+        if start < last_end:
+            continue
+        pos = prefix_match.end()
+        while True:
+            token_match = _CMD_INJECTION_ASSIGNMENT_TOKEN_RE.match(text, pos)
+            if token_match is None:
+                break
+            pos = token_match.end()
+        match = compiled.match(text, start)
+        if match is not None:
+            yield match
+            last_end = match.end()
+        else:
+            last_end = pos
+
+
+_WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE: lambda text: (
+        _cmd_injection_shell_dash_c_finditer(
+            text, _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE
+        )
+    ),
+}
 
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
@@ -2152,6 +2192,12 @@ class SusPatternsManager:
         context: str = "unknown",
     ) -> tuple[dict | None, bool]:
         state = self._resolve_state(state)
+        windowed_finder = _WINDOWED_PATTERN_FINDERS.get(pattern.pattern)
+        if windowed_finder is not None:
+            return self._check_windowed_pattern(
+                pattern, windowed_finder, content, pattern_start, category, context
+            )
+
         timeout_occurred = False
         compiler = state.compiler
 
@@ -2178,6 +2224,39 @@ class SusPatternsManager:
                 return threat, timeout_occurred
 
         return None, timeout_occurred
+
+    def _check_windowed_pattern(
+        self,
+        pattern: re.Pattern,
+        finder: Callable[[str], Iterator[re.Match]],
+        content: str,
+        pattern_start: float,
+        category: str,
+        context: str,
+    ) -> tuple[dict | None, bool]:
+        timeout = getattr(
+            self._config, "detection_compiler_timeout", _DEFAULT_COMPILER_TIMEOUT
+        )
+        future = shared_regex_executor().submit(lambda: list(finder(content)))
+        try:
+            matches = future.result(timeout=timeout)
+            report_scan_success()
+        except concurrent.futures.TimeoutError:
+            logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+            future.cancel()
+            report_scan_timeout()
+            return None, True
+        except Exception as e:
+            logger.error(
+                f"Error in windowed regex search for pattern "
+                f"{pattern.pattern[:50]}...: {e}"
+            )
+            return None, False
+
+        threat = _first_accepted_regex_threat(
+            iter(matches), pattern, category, pattern_start, context
+        )
+        return threat, False
 
     def _check_regex_pattern_with_retry(
         self,
