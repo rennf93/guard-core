@@ -1402,6 +1402,48 @@ _WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
     ),
 }
 
+_SCAN_WINDOW_BOUND_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
+    r"<script[^>]*>[^<]*<\/script\s*>": ((r"<script", r"<\/script\s*>"),),
+    (
+        r"(?:<[A-Za-z/][^<>]*style\s*=\s{0,20}[\"']?[^<>\"']*"
+        r"(?:expression|behavior|url)\s*\([^)]*\))"
+    ): ((r"<[A-Za-z/][^<>]*style\s*=", r"\)"),),
+    r"(?:<object[^>]*>[\s\S]*<\/object\s*>)": ((r"<object", r"<\/object\s*>"),),
+    r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)": ((r"<embed", r"<\/embed\s*>"),),
+    r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)": ((r"<applet", r"<\/applet\s*>"),),
+    r"\.\.;[^/\\]*[/\\]": ((r"\.\.;", r"[/\\]"),),
+    (
+        r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])"
+    ): (
+        (
+            r"=(?:https?|ftp):\/\/",
+            r"\.(?:phtml|php\d*|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)[a-zA-Z0-9]*",
+        ),
+    ),
+    r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>": ((r"<!(?:ENTITY|DOCTYPE)", r">"),),
+    r"(?:<!\[CDATA\[.*?\]\]>)": ((r"<!\[CDATA\[", r"\]\]>"),),
+    r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY": ((r"<!DOCTYPE", r"<!ENTITY"),),
+    _SSTI_HASH_BRACE_SHAPE_RE: ((r"#\{", r"\}"),),
+}
+
+_SCAN_WINDOW_PATTERNS: dict[str, tuple[tuple[re.Pattern, re.Pattern], ...]] = {
+    source: tuple(
+        (re.compile(prefix, re.IGNORECASE), re.compile(terminator, re.IGNORECASE))
+        for prefix, terminator in pairs
+    )
+    for source, pairs in _SCAN_WINDOW_BOUND_SOURCES.items()
+}
+
+
+def _iter_scan_window_matches(
+    content: str,
+    pattern: re.Pattern,
+    bounds: tuple[tuple[re.Pattern, re.Pattern], ...],
+) -> Iterator[re.Match]:
+    for prefix, terminator in bounds:
+        yield from bounded_finditer(content, pattern, prefix, terminator)
+
 
 def _sanitize_for_reporting(value: str) -> str:
     return value.encode("utf-8", errors="surrogateescape").decode(
@@ -2509,6 +2551,17 @@ class SusPatternsManager:
             )
 
         timeout_occurred = False
+
+        scan_window_bounds = _SCAN_WINDOW_PATTERNS.get(pattern.pattern)
+        if scan_window_bounds is not None:
+            scan_window_matches = _iter_scan_window_matches(
+                content, pattern, scan_window_bounds
+            )
+            threat = _first_accepted_regex_threat(
+                scan_window_matches, pattern, category, pattern_start, context
+            )
+            return threat, timeout_occurred
+
         compiler = state.compiler
 
         if compiler:
