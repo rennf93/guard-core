@@ -211,7 +211,9 @@ async def test_scan_headers_excluded_skipped_when_cmd_injection_disabled() -> No
 async def test_scan_component_name_skips_embedded_json_parse(
     mocker: MockerFixture,
 ) -> None:
-    spy = mocker.patch("guard_core.utils._try_check_json_value", return_value=None)
+    spy = mocker.patch(
+        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+    )
     await _scan_component_name(
         json.dumps({"a": "1"}),
         "query_param:filters",
@@ -227,7 +229,9 @@ async def test_scan_component_name_skips_embedded_json_parse(
 async def test_check_request_component_value_scan_still_attempts_embedded_json_parse(
     mocker: MockerFixture,
 ) -> None:
-    spy = mocker.patch("guard_core.utils._try_check_json_value", return_value=None)
+    spy = mocker.patch(
+        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+    )
     await _check_request_component(
         json.dumps({"a": "1"}),
         "query_param:filters",
@@ -243,7 +247,9 @@ async def test_check_request_component_value_scan_still_attempts_embedded_json_p
 async def test_check_value_enhanced_scan_embedded_json_false_skips_json_parse(
     mocker: MockerFixture,
 ) -> None:
-    spy = mocker.patch("guard_core.utils._try_check_json_value", return_value=None)
+    spy = mocker.patch(
+        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+    )
     await _check_value_enhanced(
         json.dumps({"a": "1"}),
         "query_param:filters",
@@ -258,7 +264,9 @@ async def test_check_value_enhanced_scan_embedded_json_false_skips_json_parse(
 async def test_check_value_enhanced_scan_embedded_json_true_attempts_json_parse(
     mocker: MockerFixture,
 ) -> None:
-    spy = mocker.patch("guard_core.utils._try_check_json_value", return_value=None)
+    spy = mocker.patch(
+        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+    )
     await _check_value_enhanced(
         json.dumps({"a": "1"}),
         "query_param:filters",
@@ -305,6 +313,24 @@ async def test_check_json_fields_enabled_categories_filters_name_scan() -> None:
         {"xss"},
     )
     assert detected is False
+
+
+async def test_embedded_json_scan_miss_still_falls_through_to_pattern_scan(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "guard_core._utils.detection_scan._try_check_json_value",
+        return_value=(False, ""),
+    )
+    detected, trigger, threats = await _check_value_enhanced(
+        "<script>alert(1)</script>",
+        "query_param:filters",
+        "127.0.0.1",
+        "corr-1",
+        None,
+    )
+    assert detected is True
+    assert threats
 
 
 async def test_check_json_fields_enabled_categories_none_detects_name() -> None:

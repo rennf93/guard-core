@@ -4,14 +4,14 @@ from unittest.mock import patch
 import pytest
 
 from guard_core.models import SecurityConfig
-from guard_core.sync import utils
+from guard_core.sync._utils import ip_extraction
 from guard_core.sync.utils import _extract_from_forwarded_header, extract_client_ip
 from tests.test_sync.conftest import SyncMockGuardRequest
 
 
 @pytest.fixture(autouse=True)
 def _reset_forwarded_header_preemption_warning() -> None:
-    utils._forwarded_header_preemption_warned = False
+    ip_extraction._forwarded_header_preemption_warned = False
 
 
 def test_extract_client_ip_without_trusted_proxies() -> None:
@@ -112,7 +112,8 @@ def test_extract_client_ip_error_handling(
 
     with caplog.at_level(logging.WARNING):
         with patch(
-            "guard_core.sync.utils.ip_address", side_effect=ValueError("Invalid IP")
+            "guard_core.sync._utils.ip_extraction.ip_address",
+            side_effect=ValueError("Invalid IP"),
         ):
             ip = extract_client_ip(request, config)
             assert ip == "127.0.0.1"

@@ -208,11 +208,12 @@ def test_attack_detected_log_respects_level(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     from guard_core.sync import utils
+    from guard_core.sync._utils import detection_scan
 
     def fake_enhanced(*args: object, **kwargs: object) -> tuple[bool, str, list[dict]]:
         return True, "trigger", [{"type": "regex", "category": "sqli"}]
 
-    monkeypatch.setattr(utils, "_check_value_enhanced", fake_enhanced)
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", fake_enhanced)
 
     caplog.set_level(logging.DEBUG, logger="guard_core")
     utils._check_request_component(
@@ -228,11 +229,12 @@ def test_attack_detected_log_silenced_when_level_none(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     from guard_core.sync import utils
+    from guard_core.sync._utils import detection_scan
 
     def fake_enhanced(*args: object, **kwargs: object) -> tuple[bool, str, list[dict]]:
         return True, "trigger", [{"type": "regex", "category": "sqli"}]
 
-    monkeypatch.setattr(utils, "_check_value_enhanced", fake_enhanced)
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", fake_enhanced)
 
     caplog.set_level(logging.DEBUG, logger="guard_core")
     utils._check_request_component(

@@ -277,7 +277,7 @@ async def test_utils_detect_header_threat() -> None:
     from guard_core.utils import _check_request_component
 
     with patch(
-        "guard_core.utils._check_value_enhanced",
+        "guard_core._utils.detection_scan._check_value_enhanced",
         new_callable=AsyncMock,
         return_value=(True, "XSS detected", []),
     ):
@@ -297,9 +297,17 @@ async def test_utils_detect_header_threat() -> None:
 async def test_utils_detect_penetration_header_match() -> None:
     from guard_core.utils import detect_penetration_attempt
 
-    with patch(
-        "guard_core.utils._check_request_component", new_callable=AsyncMock
-    ) as mock_check:
+    mock_check = AsyncMock()
+
+    with (
+        patch(
+            "guard_core._utils.body_content_scan._check_request_component", mock_check
+        ),
+        patch(
+            "guard_core._utils.penetration_detection._check_request_component",
+            mock_check,
+        ),
+    ):
         call_count = 0
 
         async def side_effect(

@@ -20,6 +20,18 @@ def test_normalize_context_strips_suffix() -> None:
     assert SusPatternsManager._normalize_context("url_path") == "url_path"
 
 
+def test_normalize_context_strips_colon_joined_nested_json_field() -> None:
+    assert (
+        SusPatternsManager._normalize_context("request_body:username") == "request_body"
+    )
+    assert SusPatternsManager._normalize_context("url_path:username") == "url_path"
+
+
+def test_normalize_context_dot_joined_nested_field_degrades_to_unknown() -> None:
+    assert SusPatternsManager._normalize_context("request_body.username") == "unknown"
+    assert SusPatternsManager._normalize_context("url_path.username") == "unknown"
+
+
 def test_normalize_context_unknown_for_unrecognized() -> None:
     assert SusPatternsManager._normalize_context("test") == "unknown"
     assert SusPatternsManager._normalize_context("foobar") == "unknown"

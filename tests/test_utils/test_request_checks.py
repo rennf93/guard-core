@@ -538,7 +538,7 @@ async def test_is_ip_allowed_general_exception(
     config = SecurityConfig()
 
     mock_error = Exception("Unexpected error")
-    mocker.patch("guard_core.utils.ip_address", side_effect=mock_error)
+    mocker.patch("guard_core._utils.access_control.ip_address", side_effect=mock_error)
 
     with caplog.at_level(logging.ERROR):
         result = await is_ip_allowed("192.168.1.1", config)
@@ -804,7 +804,7 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
         raise RuntimeError("Detection engine failure")
 
     mock_pattern = MagicMock()
-    mock_pattern.search.side_effect = Exception("Pattern error")
+    mock_pattern.search.side_effect = RecursionError("Pattern error")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}

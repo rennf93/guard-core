@@ -277,7 +277,7 @@ def test_utils_detect_header_threat() -> None:
     from guard_core.sync.utils import _check_request_component
 
     with patch(
-        "guard_core.sync.utils._check_value_enhanced",
+        "guard_core.sync._utils.detection_scan._check_value_enhanced",
         return_value=(True, "XSS detected", []),
     ):
         detected, trigger, threats = _check_request_component(
@@ -296,7 +296,18 @@ def test_utils_detect_header_threat() -> None:
 def test_utils_detect_penetration_header_match() -> None:
     from guard_core.sync.utils import detect_penetration_attempt
 
-    with patch("guard_core.sync.utils._check_request_component") as mock_check:
+    mock_check = MagicMock()
+
+    with (
+        patch(
+            "guard_core.sync._utils.body_content_scan._check_request_component",
+            mock_check,
+        ),
+        patch(
+            "guard_core.sync._utils.penetration_detection._check_request_component",
+            mock_check,
+        ),
+    ):
         call_count = 0
 
         def side_effect(

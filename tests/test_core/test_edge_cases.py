@@ -1,6 +1,8 @@
 import re
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from guard_core.core.events.middleware_events import SecurityEventBus
 from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.handlers.ratelimit_handler import RateLimitManager
@@ -88,21 +90,51 @@ async def test_remove_default_pattern_invalid_index() -> None:
         handler.compiled_patterns = original_compiled
 
 
-async def test_fallback_pattern_check_with_exception() -> None:
+async def test_fallback_pattern_check_recursion_error_is_logged_and_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
     from guard_core.utils import _fallback_pattern_check
 
     with patch(
         "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_pattern = Mock()
-        mock_pattern.search = Mock(side_effect=Exception("Pattern error"))
+        mock_pattern.pattern = "(evil){1,100}"
+        mock_pattern.search = Mock(
+            side_effect=RecursionError("maximum recursion depth")
+        )
         mock_handler.get_all_compiled_patterns = AsyncMock(
             return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
         )
 
-        result = await _fallback_pattern_check("test_value")
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            result = await _fallback_pattern_check("test_value")
 
         assert result == (False, "")
+        assert "recursion" in caplog.text.lower()
+        assert "(evil){1,100}" in caplog.text
+
+
+async def test_fallback_pattern_check_unexpected_exception_propagates() -> None:
+    from guard_core.utils import _fallback_pattern_check
+
+    with patch(
+        "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_pattern = Mock()
+        mock_pattern.search = Mock(side_effect=ValueError("not a recursion error"))
+        mock_handler.get_all_compiled_patterns = AsyncMock(
+            return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
+        )
+
+        try:
+            await _fallback_pattern_check("test_value")
+        except ValueError as exc:
+            assert str(exc) == "not a recursion error"
+        else:
+            raise AssertionError("expected ValueError to propagate")
 
 
 async def test_check_value_enhanced_empty_threats_list() -> None:

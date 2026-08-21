@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from guard_core import utils
+from guard_core._utils import ip_extraction
 from guard_core.models import SecurityConfig
 from guard_core.utils import _extract_from_forwarded_header, extract_client_ip
 from tests.conftest import MockGuardRequest
@@ -11,7 +11,7 @@ from tests.conftest import MockGuardRequest
 
 @pytest.fixture(autouse=True)
 def _reset_forwarded_header_preemption_warning() -> None:
-    utils._forwarded_header_preemption_warned = False
+    ip_extraction._forwarded_header_preemption_warned = False
 
 
 async def test_extract_client_ip_without_trusted_proxies() -> None:
@@ -111,7 +111,10 @@ async def test_extract_client_ip_error_handling(
     )
 
     with caplog.at_level(logging.WARNING):
-        with patch("guard_core.utils.ip_address", side_effect=ValueError("Invalid IP")):
+        with patch(
+            "guard_core._utils.ip_extraction.ip_address",
+            side_effect=ValueError("Invalid IP"),
+        ):
             ip = await extract_client_ip(request, config)
             assert ip == "127.0.0.1"
             assert "Potential IP spoof attempt" in caplog.text

@@ -1,6 +1,8 @@
 import hashlib
 from typing import cast
 
+from pytest_mock import MockerFixture
+
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.utils import detect_penetration_attempt
@@ -104,3 +106,27 @@ async def test_deterministic_pseudo_random_binary_blob_stays_clean() -> None:
     body = b"".join(hashlib.sha256(str(i).encode()).digest() for i in range(8))
     is_threat, _ = await _detect(body)
     assert is_threat is False
+
+
+async def test_body_decode_boundary_uses_surrogateescape_not_replace(
+    mocker: MockerFixture,
+) -> None:
+    captured: dict[str, str] = {}
+
+    async def _capture_raw_body(
+        raw_body: str, *args: object, **kwargs: object
+    ) -> tuple[bool, str, list[dict]]:
+        captured["raw_body"] = raw_body
+        return False, "", []
+
+    mocker.patch(
+        "guard_core._utils.penetration_detection._scan_request_body",
+        side_effect=_capture_raw_body,
+    )
+
+    body = b"\xff\xfe<script>alert(1)</script>"
+    request = _BodyRequest(body=body)
+    await detect_penetration_attempt(cast(GuardRequest, request), _CONFIG)
+
+    assert captured["raw_body"] == body.decode("utf-8", errors="surrogateescape")
+    assert captured["raw_body"] != body.decode("utf-8", errors="replace")

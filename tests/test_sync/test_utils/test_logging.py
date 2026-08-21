@@ -318,7 +318,7 @@ def test_setup_custom_logging_file_handler_exception(
 ) -> None:
     mocker.patch("os.path.exists", return_value=True)
     mocker.patch(
-        "guard_core.sync.utils.logging.FileHandler",
+        "guard_core.sync._utils.logging_utils.logging.FileHandler",
         side_effect=PermissionError("Permission denied: cannot create log file"),
     )
 

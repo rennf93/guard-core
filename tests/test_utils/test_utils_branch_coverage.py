@@ -64,7 +64,7 @@ async def test_check_blocked_countries_country_not_blocked() -> None:
     config.blocked_countries = ["CN"]
     geo_ip = MagicMock()
     with patch(
-        "guard_core.utils.check_ip_country",
+        "guard_core._utils.access_control.check_ip_country",
         new=MagicMock(return_value=False),
     ) as mock_check:
 
@@ -81,7 +81,7 @@ async def test_check_blocked_countries_country_blocked() -> None:
     config.blocked_countries = ["CN"]
     geo_ip = MagicMock()
     with patch(
-        "guard_core.utils.check_ip_country",
+        "guard_core._utils.access_control.check_ip_country",
         new=MagicMock(return_value=True),
     ) as mock_check:
 
@@ -99,7 +99,7 @@ async def test_check_blocked_countries_no_rules_skips_lookup() -> None:
     config.whitelist_countries = []
     geo_ip = MagicMock()
     with patch(
-        "guard_core.utils.check_ip_country",
+        "guard_core._utils.access_control.check_ip_country",
         new=MagicMock(return_value=True),
     ) as mock_check:
 
@@ -132,6 +132,32 @@ async def test_check_json_fields_ignores_non_string_entries() -> None:
     assert mock_detect.call_count == 3
     scanned_contents = {call.kwargs["content"] for call in mock_detect.call_args_list}
     assert scanned_contents == {"k1", "k2", "k3"}
+
+
+async def test_check_json_fields_nested_context_stays_a_known_context() -> None:
+    from guard_core.handlers.suspatterns_handler import (
+        SusPatternsManager,
+        sus_patterns_handler,
+    )
+
+    with patch.object(sus_patterns_handler, "detect") as mock_detect:
+
+        async def _async_miss(*_a: object, **_kw: object) -> dict[str, object]:
+            return {"is_threat": False, "threats": []}
+
+        mock_detect.side_effect = _async_miss
+        await _check_json_fields(
+            {"username": "safe value"},
+            context="url_path",
+            client_ip="1.2.3.4",
+            correlation_id="cid",
+        )
+
+    scanned_contexts = {call.kwargs["context"] for call in mock_detect.call_args_list}
+    assert scanned_contexts == {"url_path:username"}
+    normalized = {SusPatternsManager._normalize_context(c) for c in scanned_contexts}
+    assert normalized == {"url_path"}
+    assert "unknown" not in normalized
 
 
 async def test_detect_penetration_attempt_no_client_host() -> None:
