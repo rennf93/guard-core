@@ -350,7 +350,14 @@ def _build_log_message_generic(
     return details, reason_message
 
 
+def _sanitize_for_reporting(value: str) -> str:
+    return value.encode("utf-8", errors="surrogateescape").decode(
+        "utf-8", errors="backslashreplace"
+    )
+
+
 def _log_at_level(logger: logging.Logger, level: str, msg: str) -> None:
+    msg = _sanitize_for_reporting(msg)
     if level == "INFO":
         logger.info(msg)
     elif level == "DEBUG":
@@ -743,7 +750,8 @@ def _check_value_enhanced(
         )
         if json_result is not None:
             detected, trigger = json_result
-            return detected, trigger, []
+            if detected:
+                return detected, trigger, []
 
     try:
         result = sus_patterns_handler.detect(
@@ -837,7 +845,7 @@ def _check_always_scan_header(value: str) -> tuple[bool, str, list[dict]]:
             threat = {
                 "type": "regex",
                 "pattern": pattern.pattern,
-                "match": match.group(),
+                "match": _sanitize_for_reporting(match.group()),
                 "position": match.start(),
                 "category": "cmd_injection",
             }
@@ -1075,7 +1083,7 @@ def _scan_json_value(
                 threat = {
                     "type": "regex",
                     "pattern": _MONGO_OPERATOR_KEY_RE.pattern,
-                    "match": key_str,
+                    "match": _sanitize_for_reporting(key_str),
                     "position": 0,
                     "category": "nosql",
                 }
@@ -1307,7 +1315,7 @@ def _build_detection_hit(trigger: str, threats: list[dict]) -> DetectionResult:
         scores[category] = max(scores.get(category, 0.0), score)
     return DetectionResult(
         is_threat=True,
-        trigger_info=trigger,
+        trigger_info=_sanitize_for_reporting(trigger),
         threat_categories=categories,
         threat_scores=scores,
     )

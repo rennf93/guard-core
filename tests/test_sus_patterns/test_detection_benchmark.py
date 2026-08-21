@@ -186,6 +186,10 @@ _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON = (
     "unresolved tradeoff, it does not create a new one"
 )
 
+def _payload_as_ingested_from_the_wire(raw: bytes) -> str:
+    return raw.decode("utf-8", errors="surrogateescape")
+
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -1393,6 +1397,36 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "deserialization_pickle_global_opcode_arbitrary_module",
         "deserialization",
         "cshutil\nrmtree\n(S'/tmp/x'\ntR.",
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_none_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"Ncshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_empty_dict_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"}cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_mark_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"(cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_proto_header_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"\x80\x04cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_binint1_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"K\x00cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_newtrue_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"\x88cshutil\nrmtree\n(S'/tmp/x'\ntR."),
     ),
     MaliciousCase(
         "deserialization_ruby_marshal_array_top_level_b64",
@@ -2737,7 +2771,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 45,
     "cms_probing": 10,
     "code_injection": 3,
-    "deserialization": 12,
+    "deserialization": 18,
     "dir_traversal": 9,
     "file_inclusion": 16,
     "file_upload": 32,

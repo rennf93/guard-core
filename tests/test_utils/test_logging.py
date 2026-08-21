@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
 from guard_core.utils import (
+    detect_penetration_attempt,
     is_ip_allowed,
     is_user_agent_allowed,
     log_activity,
@@ -58,6 +59,30 @@ async def test_custom_logging(security_config: SecurityConfig, tmp_path: Any) ->
     with open(log_file) as f:
         log_content = f.read()
         assert "Request from 127.0.0.1: GET https://test/" in log_content
+
+
+async def test_detected_component_with_lone_surrogate_writes_intact_log_line(
+    tmp_path: Any,
+) -> None:
+    log_file = tmp_path / "audit.log"
+    setup_custom_logging(str(log_file))
+
+    body = b"\x88cshutil\nrmtree\n(S'/tmp/x'\ntR."
+    request = MockGuardRequest(
+        method="POST",
+        headers={"content-length": str(len(body))},
+        body_content=body,
+    )
+
+    result = await detect_penetration_attempt(request, SecurityConfig())
+    assert result.is_threat is True
+
+    with open(log_file, encoding="utf-8") as f:
+        log_content = f.read()
+    assert log_content, "audit log entry was silently dropped"
+    assert "Potential attack detected" in log_content
+    assert "\\x88" in log_content
+    assert "\udc88" not in log_content
 
 
 async def test_log_request(caplog: pytest.LogCaptureFixture) -> None:

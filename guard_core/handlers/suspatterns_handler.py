@@ -1,9 +1,12 @@
 import asyncio
 import concurrent.futures
 import fnmatch
+import io
 import ipaddress
 import logging
+import pickle
 import re
+import sys
 import time
 from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
@@ -212,11 +215,12 @@ _DESERIALIZATION_DOTNET_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:AAEAAAD)"
 _DESERIALIZATION_PICKLE_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:gA[SW]V)"
 _DESERIALIZATION_RUBY_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:BAh[Jv7bV])"
 _DESERIALIZATION_PICKLE_OS_GLOBAL_RE = r"cos\n"
-_PICKLE_IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
-_PICKLE_DOTTED_MODULE_RE = rf"{_PICKLE_IDENT_RE}(?:\.{_PICKLE_IDENT_RE})*"
+_PICKLE_IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]{0,100}"
+_PICKLE_DOTTED_MODULE_RE = rf"{_PICKLE_IDENT_RE}(?:\.{_PICKLE_IDENT_RE}){{0,20}}"
 _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE = (
-    rf"(?:^|\n)c{_PICKLE_DOTTED_MODULE_RE}\n{_PICKLE_IDENT_RE}\n[^ \t]{{0,100}}?[Rb]\."
+    rf"c{_PICKLE_DOTTED_MODULE_RE}\n{_PICKLE_IDENT_RE}\n[^ \t]{{0,100}}?[Rb]\."
 )
+_PICKLE_OPCODE_PREFIX_WINDOW_BYTES = 32
 
 _FILE_UPLOAD_DANGEROUS_EXTENSIONS = frozenset(
     {
@@ -617,6 +621,116 @@ def _glob_wildcard_token_is_dangerous_command(match: re.Match) -> bool:
     )
 
 
+class _PickleOpcodePrefixResolutionBlocked(Exception):
+    pass
+
+
+class _PickleOpcodePrefixShortRead(Exception):
+    pass
+
+
+class _PickleOpcodePrefixUnpickler(pickle._Unpickler):
+    stack: list[Any]
+    metastack: list[Any]
+    append: Callable[[Any], None]
+    read: Callable[[int], bytes]
+    readline: Callable[[], bytes]
+    readinto: Callable[[bytearray], int]
+
+    def find_class(self, module: str, name: str) -> Any:
+        raise _PickleOpcodePrefixResolutionBlocked(module, name)
+
+    def get_extension(self, code: int) -> Any:
+        raise _PickleOpcodePrefixResolutionBlocked(code)
+
+    def persistent_load(self, pid: Any) -> Any:
+        raise _PickleOpcodePrefixResolutionBlocked(pid)
+
+
+def _pickle_prefix_bounded_read(stream: io.BytesIO, size: int) -> bytes:
+    data = stream.read(size)
+    if len(data) != size:
+        raise _PickleOpcodePrefixShortRead(size)
+    return data
+
+
+def _pickle_prefix_bounded_readline(stream: io.BytesIO) -> bytes:
+    line = stream.readline()
+    if not line.endswith(b"\n"):
+        raise _PickleOpcodePrefixShortRead(-1)
+    return line
+
+
+def _pickle_prefix_bounded_readinto(stream: io.BytesIO, buf: bytearray) -> int:
+    count = stream.readinto(buf)
+    if count != len(buf):
+        raise _PickleOpcodePrefixShortRead(len(buf))
+    return count
+
+
+def _pickle_prefix_load_frame(unpickler: _PickleOpcodePrefixUnpickler) -> None:
+    frame_size = int.from_bytes(unpickler.read(8), "little")
+    if frame_size > sys.maxsize:
+        raise ValueError(f"frame size > sys.maxsize: {frame_size}")
+
+
+def _pickle_prefix_is_clean_opcode_run(window: bytes) -> bool:
+    total = len(window)
+    stream = io.BytesIO(window)
+    unpickler = _PickleOpcodePrefixUnpickler(stream)
+    unpickler.stack = []
+    unpickler.metastack = []
+    unpickler.append = unpickler.stack.append
+    unpickler.read = lambda size: _pickle_prefix_bounded_read(stream, size)
+    unpickler.readline = lambda: _pickle_prefix_bounded_readline(stream)
+    unpickler.readinto = lambda buf: _pickle_prefix_bounded_readinto(stream, buf)
+    try:
+        while stream.tell() < total:
+            key = unpickler.read(1)
+            if key[0] == pickle.FRAME[0]:
+                _pickle_prefix_load_frame(unpickler)
+                continue
+            handler: Any = unpickler.dispatch.get(key[0])
+            if handler is None:
+                return False
+            handler(unpickler)
+    except Exception:
+        return False
+    return stream.tell() == total
+
+
+_PICKLE_SURROGATEESCAPE_LOW = 0xDC80
+_PICKLE_SURROGATEESCAPE_HIGH = 0xDCFF
+
+
+def _pickle_prefix_window_from_chars(prefix_tail: str) -> bytes | None:
+    window = bytearray()
+    for char in prefix_tail:
+        code = ord(char)
+        if code <= 0xFF:
+            window.append(code)
+        elif _PICKLE_SURROGATEESCAPE_LOW <= code <= _PICKLE_SURROGATEESCAPE_HIGH:
+            window.append(code - _PICKLE_SURROGATEESCAPE_LOW + 0x80)
+        else:
+            return None
+    return bytes(window)
+
+
+def _pickle_global_prefix_is_opcode_stream(prefix: str) -> bool:
+    if not prefix or prefix[-1] == "\n":
+        return True
+    window = _pickle_prefix_window_from_chars(
+        prefix[-_PICKLE_OPCODE_PREFIX_WINDOW_BYTES:]
+    )
+    if window is None:
+        return False
+    return _pickle_prefix_is_clean_opcode_run(window)
+
+
+def _pickle_global_candidate_is_injection(match: re.Match, _context: str) -> bool:
+    return _pickle_global_prefix_is_opcode_stream(match.string[: match.start()])
+
+
 _LOG4SHELL_JNDI_LOOKUP_RE = (
     r"(?i)\$\{(?:jndi:(?:ldap|rmi|dns)://"
     r"|\$?\{?(?:lower|upper):j\}ndi"
@@ -851,7 +965,14 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
         _GLOB_WILDCARD_ATOM_RE,
         lambda m, _c: _glob_wildcard_token_is_dangerous_command(m),
     ),
+    (_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE, _pickle_global_candidate_is_injection),
 )
+
+
+def _sanitize_for_reporting(value: str) -> str:
+    return value.encode("utf-8", errors="surrogateescape").decode(
+        "utf-8", errors="backslashreplace"
+    )
 
 
 def _build_regex_threat(
@@ -867,7 +988,7 @@ def _build_regex_threat(
     return {
         "type": "regex",
         "pattern": pattern.pattern,
-        "match": match.group(),
+        "match": _sanitize_for_reporting(match.group()),
         "position": match.start(),
         "execution_time": time.monotonic() - pattern_start,
         "category": category,
@@ -2173,7 +2294,7 @@ class SusPatternsManager:
         return {
             "type": "regex",
             "pattern": _PATH_TRAVERSAL_DECODED_SHAPE_RE.pattern,
-            "match": match.group(),
+            "match": _sanitize_for_reporting(match.group()),
             "position": match.start(),
             "execution_time": time.monotonic() - pattern_start,
             "category": "path_traversal",
@@ -2350,7 +2471,9 @@ class SusPatternsManager:
             reason=f"Threat detected in {context}",
             pattern=pattern_info,
             context=context,
-            content_preview=content[:100] if len(content) > 100 else content,
+            content_preview=_sanitize_for_reporting(
+                content[:100] if len(content) > 100 else content
+            ),
             threat_score=threat_score,
             threats=len(threats),
             regex_threats=len(regex_threats),

@@ -42,7 +42,7 @@ def _force_enhanced_detection_singleton() -> Iterator[None]:
 
 
 def _body_request(payload: str, content_type: str) -> SyncMockGuardRequest:
-    body = payload.encode()
+    body = payload.encode("utf-8", errors="surrogateescape")
     headers = {"content-length": str(len(body))}
     if content_type:
         headers["content-type"] = content_type
@@ -55,7 +55,8 @@ def _raw_body_request(payload: str) -> SyncMockGuardRequest:
 
 def _form_body_request(payload: str) -> SyncMockGuardRequest:
     return _body_request(
-        urlencode({"field": payload}), "application/x-www-form-urlencoded"
+        urlencode({"field": payload}, errors="surrogateescape"),
+        "application/x-www-form-urlencoded",
     )
 
 
@@ -1185,6 +1186,33 @@ def test_known_e2e_false_positive_pins_are_all_non_vacuous() -> None:
             f"{case_id}[{mechanism}]: pin is vacuous, this mechanism does not "
             "flag the payload"
         )
+
+
+_BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS = frozenset(
+    {
+        "deserialization_pickle_global_opcode_proto_header_prefixed",
+        "deserialization_pickle_global_opcode_newtrue_prefixed",
+    }
+)
+
+
+def test_byte_sensitive_deserialization_detected_via_every_mechanism() -> None:
+    byte_sensitive_cases = [
+        case
+        for case in MALICIOUS_CORPUS
+        if case.case_id in _BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS
+    ]
+    assert {
+        case.case_id for case in byte_sensitive_cases
+    } == _BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS
+
+    failures = [
+        f"{case.case_id}[{mechanism}]"
+        for case in byte_sensitive_cases
+        for mechanism in _BODY_MECHANISMS
+        if not _detected_via(mechanism, case.payload)
+    ]
+    assert not failures, failures
 
 
 def test_always_scan_header_shield_honors_disabled_cmd_injection_category() -> None:

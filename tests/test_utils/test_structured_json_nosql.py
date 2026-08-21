@@ -21,6 +21,10 @@ def _json_body_request(payload: dict) -> MockGuardRequest:
     return MockGuardRequest(body_content=body, headers=headers)
 
 
+def _json_query_param_request(payload: dict) -> MockGuardRequest:
+    return MockGuardRequest(query_params={"v": json.dumps(payload)})
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -71,6 +75,26 @@ async def test_operator_query_json_twin_fires_nosql(payload: dict) -> None:
     result = await detect_penetration_attempt(request, _CONFIG)
     assert result.is_threat is True
     assert result.threat_categories == ["nosql"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"username": {"$ne": None}},
+        {"$where": "1==1"},
+        {"__proto__": {"isAdmin": True}},
+    ],
+)
+async def test_json_structure_attack_detected_on_query_param(payload: dict) -> None:
+    request = _json_query_param_request(payload)
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+
+
+async def test_json_structure_attack_survives_a_leading_non_json_byte() -> None:
+    request = MockGuardRequest(query_params={"v": 'x={"username":{"$ne":null}}'})
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
 
 
 async def test_excluded_body_field_suppresses_operator_key() -> None:
