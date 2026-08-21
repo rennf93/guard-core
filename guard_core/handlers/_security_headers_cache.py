@@ -1,0 +1,105 @@
+import hashlib
+import json
+import logging
+from typing import Any
+
+from cachetools import TTLCache
+
+
+class SecurityHeadersCacheMixin:
+    headers_cache: TTLCache
+    redis_handler: Any
+    logger: logging.Logger
+    enabled: bool
+    custom_headers: dict[str, str]
+    csp_config: dict[str, list[str]] | None
+    hsts_config: dict[str, Any] | None
+    cors_config: dict[str, Any] | None
+    default_headers: dict[str, str]
+
+    def _generate_cache_key(self, request_path: str | None) -> str:
+        if not request_path:
+            return "default"
+        normalized = request_path.lower().strip("/")
+        hash_obj = hashlib.sha256(normalized.encode())
+        return f"path_{hash_obj.hexdigest()[:16]}"
+
+    async def initialize_redis(self, redis_handler: Any) -> None:
+        self.redis_handler = redis_handler
+        await self._load_cached_config()
+        await self._cache_configuration()
+
+    async def _load_cached_config(self) -> None:
+        if not self.redis_handler:
+            return
+
+        try:
+            csp_config = await self.redis_handler.get_key(
+                "security_headers", "csp_config"
+            )
+            if csp_config:
+                self.csp_config = json.loads(csp_config)
+
+            hsts_config = await self.redis_handler.get_key(
+                "security_headers", "hsts_config"
+            )
+            if hsts_config:
+                self.hsts_config = json.loads(hsts_config)
+
+            custom_headers = await self.redis_handler.get_key(
+                "security_headers", "custom_headers"
+            )
+            if custom_headers:
+                self.custom_headers = json.loads(custom_headers)
+
+        except Exception as e:
+            self.logger.warning(f"Failed to load cached header config: {e}")
+
+    async def _cache_configuration(self) -> None:
+        if not self.redis_handler:
+            return
+
+        try:
+            if self.csp_config:
+                await self.redis_handler.set_key(
+                    "security_headers",
+                    "csp_config",
+                    json.dumps(self.csp_config),
+                    ttl=86400,
+                )
+            if self.hsts_config:
+                await self.redis_handler.set_key(
+                    "security_headers",
+                    "hsts_config",
+                    json.dumps(self.hsts_config),
+                    ttl=86400,
+                )
+            if self.custom_headers:
+                await self.redis_handler.set_key(
+                    "security_headers",
+                    "custom_headers",
+                    json.dumps(self.custom_headers),
+                    ttl=86400,
+                )
+        except Exception as e:
+            self.logger.warning(f"Failed to cache header configuration: {e}")
+
+    async def reset(self) -> None:
+        self.headers_cache.clear()
+        self.custom_headers.clear()
+        self.csp_config = None
+        self.hsts_config = None
+        self.cors_config = None
+        self.enabled = True
+        self.default_headers = self.__class__.default_headers.copy()
+
+        if self.redis_handler:
+            try:
+                async with self.redis_handler.get_connection() as conn:
+                    keys = await conn.keys(
+                        f"{self.redis_handler.config.redis_prefix}security_headers:*"
+                    )
+                    if keys:
+                        await conn.delete(*keys)
+            except Exception as e:
+                self.logger.warning(f"Failed to clear Redis cache: {e}")
