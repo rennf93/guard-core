@@ -144,9 +144,14 @@ def _path_only_pattern(required: str, trailing: str = "") -> str:
     )
 
 
-_NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
-    rf"\A{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
-)
+def _nested_path_pattern(required: str) -> str:
+    return (
+        rf"\A{_PATH_ONLY_SEP_RE}"
+        rf"(?:(?!{required}(?:{_PATH_ONLY_SEP_RE}|\Z))"
+        rf"{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+        rf"{required}{_PATH_ONLY_SUFFIX_RE}"
+    )
+
 
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
@@ -2202,9 +2207,10 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _NESTED_TOP_LEVEL_PATH_PREFIX_RE
-            + rf"(?:management|config_dump|credentials|system{_PATH_ONLY_SEP_RE}version"
-            rf"|version{_PATH_ONLY_SEP_RE}system)" + _PATH_ONLY_SUFFIX_RE,
+            _nested_path_pattern(
+                rf"(?:management|config_dump|credentials|system{_PATH_ONLY_SEP_RE}version"
+                rf"|version{_PATH_ONLY_SEP_RE}system)"
+            ),
             _CTX_RECON,
             "recon",
         ),
