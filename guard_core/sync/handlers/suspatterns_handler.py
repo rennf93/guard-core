@@ -121,7 +121,9 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
 _SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
-_SQLI_TAUTOLOGY_RE = r"(?i)\b(?:OR|AND)\s*(\d+|'[^']*'|\"[^\"]*\")\s*=\s*\1\b"
+_SQLI_TAUTOLOGY_RE = (
+    r"(?i)\b(?:OR|AND)\s*(\d+|'[^']*'|\"[^\"]*\"|[@:$][A-Za-z_]\w*)\s*=\s*\1\b"
+)
 
 _PATH_ONLY_CHAR_RE = r"[\w.\-~%]"
 _PATH_ONLY_SEP_RE = r"[/\\]"
@@ -1377,8 +1379,8 @@ class SusPatternsManager:
         (_SQLI_TAUTOLOGY_RE, _CTX_SQLI, "sqli"),
         (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
         (
-            r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?[\d\w]+\s*(?:=|LIKE|<|>|<=|>=)\s*"
-            r"[\(\s]*'?[\d\w]+)",
+            r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+)\s*"
+            r"(?:=|LIKE|<|>|<=|>=)\s*[\(\s]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+))",
             _CTX_SQLI,
             "sqli",
         ),
@@ -1399,7 +1401,12 @@ class SusPatternsManager:
             "sqli",
         ),
         (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
-        (r"(?i)(?:OR|AND)\s+'[\w\d]*'='[\w\d]*'?", _CTX_SQLI, "sqli"),
+        (
+            r"(?i)(?:OR|AND)\s+(?:'[\w\d]*'='[\w\d]*'?|"
+            r"[@:$][A-Za-z_]\w*\s*=\s*[@:$][A-Za-z_]\w*)",
+            _CTX_SQLI,
+            "sqli",
+        ),
         (
             r"(?i);\s*(?:DROP|TRUNCATE|ALTER|CREATE)\s+(?:TABLE|DATABASE|SCHEMA)\b",
             _CTX_SQLI,
