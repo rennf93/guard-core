@@ -523,7 +523,10 @@ async def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
             )
             return response
 
-    with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession", _FakeSession):
+    with patch(
+        "guard_core.handlers._cloud_provider_fetchers.aiohttp.ClientSession",
+        _FakeSession,
+    ):
         networks, _ = await fetch_gcp_ip_ranges()
 
     assert len(networks) == 1

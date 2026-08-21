@@ -55,7 +55,9 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 @pytest.fixture
 def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
-    with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession") as mock_cls:
+    with patch(
+        "guard_core.handlers._cloud_provider_fetchers.aiohttp.ClientSession"
+    ) as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
         mock_sess.__aexit__ = AsyncMock(return_value=None)
@@ -472,7 +474,7 @@ async def test_azure_page_fetch_shares_the_download_deadline(  # async-only
             side_effect=[0.0, 0.0, 12.0],
         ),
         patch(
-            "guard_core.handlers.cloud_handler.aiohttp.ClientTimeout"
+            "guard_core.handlers._cloud_azure_fetch.aiohttp.ClientTimeout"
         ) as mock_client_timeout,
     ):
         result = await fetch_azure_ip_ranges()
@@ -876,7 +878,7 @@ async def test_fetch_azure_ip_ranges_sizes_timeout_from_remaining_budget(  # asy
             side_effect=[0.0, 0.0, 0.0, 15.0, 15.0],
         ),
         patch(
-            "guard_core.handlers.cloud_handler.aiohttp.ClientTimeout"
+            "guard_core.handlers._cloud_azure_fetch.aiohttp.ClientTimeout"
         ) as mock_client_timeout,
     ):
         result = await fetch_azure_ip_ranges()

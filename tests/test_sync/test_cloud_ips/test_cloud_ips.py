@@ -54,7 +54,9 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 @pytest.fixture
 def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
-    with patch("guard_core.sync.handlers.cloud_handler.requests.Session") as mock_cls:
+    with patch(
+        "guard_core.sync.handlers._cloud_provider_fetchers.requests.Session"
+    ) as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__enter__ = MagicMock(return_value=mock_sess)
         mock_sess.__exit__ = MagicMock(return_value=None)
