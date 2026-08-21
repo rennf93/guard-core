@@ -1,18 +1,9 @@
-import binascii
 import re
-import string
 import unicodedata
 from typing import Any
 
+from guard_core.detection_engine import base64_decode, encoding_decoders, truncation
 from guard_core.detection_engine.base64_view import build_short_base64_additive_view
-
-_BASE64_DATA_CHARS = frozenset(string.ascii_letters + string.digits + "+/_-")
-_BASE64_SEPARATOR_CHARS = "".join(
-    chr(byte) for byte in range(0x80) if chr(byte) not in _BASE64_DATA_CHARS
-) + "".join(chr(codepoint) for codepoint in range(0xDC80, 0xDD00))
-_BASE64_WIDENED_SEPARATOR_CHARS = (
-    "".join(char for char in _BASE64_SEPARATOR_CHARS if char not in "\r\n=") + "_-"
-)
 
 
 class ContentPreprocessor:
@@ -68,41 +59,10 @@ class ContentPreprocessor:
             re.compile(pattern, re.IGNORECASE) for pattern in self.attack_indicators
         ]
 
-    _MIN_BASE64_RUN_LENGTH = 12
-    _BASE64_DATA_ALPHABET = "A-Za-z0-9+/_\\-"
-    _BASE64_RUN_UNIT = (
-        rf"[{_BASE64_DATA_ALPHABET}][{re.escape(_BASE64_SEPARATOR_CHARS)}]*"
-    )
-    _BASE64_RE = re.compile(
-        rf"(?<![{_BASE64_DATA_ALPHABET}])(?:"
-        rf"(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH},}}={{0,2}}"
-        rf"|(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH - 1},}}="
-        rf"|(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH - 2},}}=="
-        rf")(?![{_BASE64_DATA_ALPHABET}=])"
-    )
-    _BASE64_RUN_RE = re.compile(
-        rf"(?<![{_BASE64_DATA_ALPHABET}])[{_BASE64_DATA_ALPHABET}]{{{_MIN_BASE64_RUN_LENGTH},}}"
-        rf"={{0,2}}(?![{_BASE64_DATA_ALPHABET}=])"
-    )
-    _BASE64_SUB_FLOOR_RUN_RE = re.compile(
-        rf"(?<![{_BASE64_DATA_ALPHABET}])"
-        rf"[{_BASE64_DATA_ALPHABET}]{{1,{_MIN_BASE64_RUN_LENGTH - 1}}}"
-        rf"(?![{_BASE64_DATA_ALPHABET}])"
-    )
-    _BASE64_WHITESPACE_RE = re.compile(rf"[{re.escape(_BASE64_SEPARATOR_CHARS)}]+")
-    _BASE64_URLSAFE_TRANSLATION = str.maketrans("-_", "+/")
-    _BASE64_WIDENED_CANDIDATE_MARKER_RE = re.compile(
-        rf"[{re.escape(_BASE64_WIDENED_SEPARATOR_CHARS)}]"
-    )
-    _GZIP_MAGIC = b"\x1f\x8b"
-    _MAX_GUNZIP_OUTPUT_BYTES = 8192
-    _MAX_GUNZIP_ATTEMPTS_PER_PASS = 8
-    _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
+    _BASE64_RE = base64_decode.BASE64_RE
+    _GZIP_MAGIC = base64_decode.GZIP_MAGIC
+    _MAX_GUNZIP_ATTEMPTS_PER_PASS = base64_decode.MAX_GUNZIP_ATTEMPTS_PER_PASS
     _LDAP_HEX_ESCAPE_RE = re.compile(r"\\([0-9a-fA-F]{2})")
-    _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
-    _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
-    _PERCENT_U_ESCAPE_RE = re.compile(r"%u([0-9a-fA-F]{4})", re.IGNORECASE)
-    _PERCENT_BYTE_RUN_RE = re.compile(r"(?:%[0-9a-fA-F]{2})+")
     _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
         r"(?<!\w)/\*(?!!)(.*?)\*/|/\*(?!!)(.*?)\*/(?!\w)", re.DOTALL
     )
@@ -187,44 +147,7 @@ class ContentPreprocessor:
         return content
 
     def extract_attack_regions(self, content: str) -> list[tuple[int, int]]:
-        max_regions = min(100, self.max_content_length // 100)
-        regions = []
-
-        for indicator in self.compiled_indicators:
-            import concurrent.futures
-
-            def _find_all(pattern: re.Pattern, text: str) -> list[tuple[int, int]]:
-                found: list[tuple[int, int]] = []
-                for match in pattern.finditer(text):
-                    if len(found) >= max_regions:
-                        break
-                    start = max(0, match.start() - 100)
-                    end = min(len(text), match.end() + 100)
-                    found.append((start, end))
-                return found
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_find_all, indicator, content)
-                try:
-                    indicator_regions = future.result(timeout=0.5)
-                    regions.extend(indicator_regions)
-                except concurrent.futures.TimeoutError:
-                    continue
-
-            if len(regions) >= max_regions:
-                break
-
-        if regions:
-            regions.sort()
-            merged = [regions[0]]
-            for start, end in regions[1:]:
-                if start <= merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-                else:
-                    merged.append((start, end))
-            return merged[:max_regions]
-
-        return []
+        return truncation.extract_attack_regions(self, content)
 
     def _extract_and_concatenate_attack_regions(
         self,
@@ -234,17 +157,9 @@ class ContentPreprocessor:
     ) -> str:
         if budget is None:
             budget = self.max_content_length
-        result = ""
-        remaining = budget
-
-        for start, end in attack_regions:
-            chunk_len = min(end - start, remaining)
-            result += content[start : start + chunk_len]
-            remaining -= chunk_len
-            if remaining <= 0:
-                break
-
-        return result
+        return truncation.extract_and_concatenate_attack_regions(
+            content, attack_regions, budget
+        )
 
     def _build_result_with_attack_regions_and_context(
         self,
@@ -254,65 +169,15 @@ class ContentPreprocessor:
     ) -> str:
         if budget is None:
             budget = self.max_content_length
-        attack_length = sum(end - start for start, end in attack_regions)
-        gap_budget = budget - attack_length
-        result_parts: list[str] = []
-        last_end = 0
-
-        for start, end in attack_regions:
-            if last_end < start and gap_budget > 0:
-                gap_len = start - last_end
-                if gap_len <= gap_budget:
-                    result_parts.append(content[last_end:start])
-                    gap_budget -= gap_len
-                else:
-                    chunk_len = gap_budget - 1
-                    if chunk_len > 0:
-                        result_parts.append(content[last_end : last_end + chunk_len])
-                    result_parts.append(" ")
-                    gap_budget = 0
-            result_parts.append(content[start:end])
-            last_end = end
-
-        if last_end < len(content) and gap_budget > 0:
-            tail_len = min(len(content) - last_end, gap_budget)
-            result_parts.append(content[last_end : last_end + tail_len])
-
-        return "".join(result_parts)
-
-    _FULL_SCAN_TAIL_BYTES = 4096
+        return truncation.build_result_with_attack_regions_and_context(
+            content, attack_regions, budget
+        )
 
     def _cap_with_tail(self, content: str) -> str:
-        cap = self._MAX_FULL_SCAN_BYTES
-        tail = min(self._FULL_SCAN_TAIL_BYTES, cap)
-        head_len = cap - tail
-        return content[:head_len] + content[-tail:]
+        return truncation.cap_with_tail(content, self._MAX_FULL_SCAN_BYTES)
 
     def truncate_safely(self, content: str) -> str:
-        if len(content) <= self.max_content_length:
-            return content
-
-        if not self.preserve_attack_patterns:
-            return content[: self.max_content_length]
-
-        if len(content) <= self._MAX_FULL_SCAN_BYTES:
-            return content
-
-        attack_regions = self.extract_attack_regions(content)
-
-        if not attack_regions:
-            return self._cap_with_tail(content)
-
-        attack_length = sum(end - start for start, end in attack_regions)
-
-        if attack_length >= self._MAX_FULL_SCAN_BYTES:
-            return self._extract_and_concatenate_attack_regions(
-                content, attack_regions, budget=self._MAX_FULL_SCAN_BYTES
-            )
-
-        return self._build_result_with_attack_regions_and_context(
-            content, attack_regions, budget=self._MAX_FULL_SCAN_BYTES
-        )
+        return truncation.truncate_safely(self, content)
 
     def remove_null_bytes(self, content: str) -> str:
         content = content.replace("\x00", "")
@@ -321,122 +186,25 @@ class ContentPreprocessor:
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
 
-    _PRINTABLE_RATIO_THRESHOLD = 0.5
-    _FALLBACK_PRINTABLE_RATIO_THRESHOLD = 0.95
-    _MAX_REPLACEMENT_CHAR_RATIO = 0.2
-
     def _is_hex_literal(self, token: str) -> bool:
-        return bool(self._HEX_LITERAL_RE.fullmatch(token))
+        return base64_decode.is_hex_literal(token)
 
     def _printable_ratio(self, text: str) -> float:
-        if not text:
-            return 0.0
-        printable_count = sum(1 for char in text if char.isprintable())
-        return printable_count / len(text)
+        return base64_decode.printable_ratio(text)
 
     def _replacement_char_ratio(self, text: str) -> float:
-        if not text:
-            return 0.0
-        return text.count("�") / len(text)
+        return base64_decode.replacement_char_ratio(text)
 
     def _bounded_gunzip(self, raw: bytes) -> bytes | None:
-        if raw[:2] != self._GZIP_MAGIC:
-            return None
-        import zlib
-
-        try:
-            decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-            return decompressor.decompress(raw, self._MAX_GUNZIP_OUTPUT_BYTES)
-        except (zlib.error, OSError):
-            return None
+        return base64_decode.bounded_gunzip(raw)
 
     def _decode_base64_candidates(
         self, content: str, gunzip_attempts_left: list[int] | None = None
     ) -> str:
-        import base64
-
-        if gunzip_attempts_left is None:
-            gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
-
-        def _decode_cleaned(cleaned: str, min_printable_ratio: float) -> str | None:
-            padding = (4 - len(cleaned) % 4) % 4
-            padded = cleaned + "=" * padding
-            try:
-                raw = base64.b64decode(padded, validate=True)
-            except (ValueError, binascii.Error):
-                return None
-            if raw[:2] == self._GZIP_MAGIC and gunzip_attempts_left[0] > 0:
-                gunzip_attempts_left[0] -= 1
-                gunzipped = self._bounded_gunzip(raw)
-                if gunzipped is not None:
-                    raw = gunzipped
-            try:
-                decoded = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                decoded = raw.decode("utf-8", errors="replace")
-                if (
-                    self._replacement_char_ratio(decoded)
-                    > self._MAX_REPLACEMENT_CHAR_RATIO
-                ):
-                    return None
-            if self._printable_ratio(decoded) >= min_printable_ratio:
-                return decoded
-            return None
-
-        def _decode_token(token: str, min_printable_ratio: float) -> str | None:
-            if self._is_hex_literal(token):
-                return None
-            cleaned = self._BASE64_WHITESPACE_RE.sub("", token)
-            urlsafe_decoded = _decode_cleaned(
-                cleaned.translate(self._BASE64_URLSAFE_TRANSLATION), min_printable_ratio
-            )
-            if urlsafe_decoded is not None:
-                return urlsafe_decoded
-            if "-" in cleaned or "_" in cleaned:
-                return _decode_cleaned(
-                    cleaned.replace("-", "").replace("_", ""), min_printable_ratio
-                )
-            return None
-
-        def _decode_runs(token: str) -> str:
-            def _replace_run(match: re.Match[str]) -> str:
-                segment = match.group(0)
-                decoded = _decode_token(
-                    segment, self._FALLBACK_PRINTABLE_RATIO_THRESHOLD
-                )
-                return decoded if decoded is not None else segment
-
-            return self._BASE64_RUN_RE.sub(_replace_run, token)
-
-        def _replace(match: re.Match[str]) -> str:
-            token = match.group(0)
-            primary_threshold = (
-                self._FALLBACK_PRINTABLE_RATIO_THRESHOLD
-                if self._BASE64_WIDENED_CANDIDATE_MARKER_RE.search(token)
-                else self._PRINTABLE_RATIO_THRESHOLD
-            )
-            decoded = _decode_token(token, primary_threshold)
-            base = decoded if decoded is not None else _decode_runs(token)
-            fragments = "".join(self._BASE64_SUB_FLOOR_RUN_RE.findall(token))
-            reassembled = (
-                _decode_token(fragments, self._FALLBACK_PRINTABLE_RATIO_THRESHOLD)
-                if len(fragments) >= self._MIN_BASE64_RUN_LENGTH
-                else None
-            )
-            if reassembled is None or reassembled in base:
-                return base
-            return f"{base} {reassembled}"
-
-        return self._BASE64_RE.sub(_replace, content)
+        return base64_decode.decode_base64_candidates(content, gunzip_attempts_left)
 
     def _decode_hex_escapes(self, content: str) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            try:
-                return chr(int(match.group(1), 16))
-            except ValueError:
-                return match.group(0)
-
-        return self._HEX_ESCAPE_RE.sub(_replace, content)
+        return encoding_decoders.decode_hex_escapes(content)
 
     def _decode_ldap_hex_escapes(self, content: str) -> str:
         def _replace(match: re.Match[str]) -> str:
@@ -448,77 +216,16 @@ class ContentPreprocessor:
         return self._LDAP_HEX_ESCAPE_RE.sub(_replace, content)
 
     def _decode_unicode_escapes(self, content: str) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            try:
-                return chr(int(match.group(1), 16))
-            except ValueError:
-                return match.group(0)
-
-        return self._UNICODE_ESCAPE_RE.sub(_replace, content)
+        return encoding_decoders.decode_unicode_escapes(content)
 
     def _decode_percent_u_escapes(self, content: str) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            try:
-                return chr(int(match.group(1), 16))
-            except ValueError:
-                return match.group(0)
-
-        return self._PERCENT_U_ESCAPE_RE.sub(_replace, content)
-
-    _OVERLONG_LEAD_SPECS: dict[int, tuple[int, int, int, int]] = {
-        0xC0: (2, 0x1F, 0x80, 0xBF),
-        0xC1: (2, 0x1F, 0x80, 0xBF),
-        0xE0: (3, 0x0F, 0x80, 0x9F),
-        0xF0: (4, 0x07, 0x80, 0x8F),
-    }
-
-    def _decode_overlong_sequence_at(
-        self, raw: bytes, index: int
-    ) -> tuple[str, int] | None:
-        spec = self._OVERLONG_LEAD_SPECS.get(raw[index])
-        if spec is None or index + spec[0] > len(raw):
-            return None
-        sequence_length, lead_mask, first_continuation_min, first_continuation_max = (
-            spec
-        )
-        continuations = raw[index + 1 : index + sequence_length]
-        if not first_continuation_min <= continuations[0] <= first_continuation_max:
-            return None
-        if any(not 0x80 <= byte <= 0xBF for byte in continuations[1:]):
-            return None
-        codepoint = raw[index] & lead_mask
-        for byte in continuations:
-            codepoint = (codepoint << 6) | (byte & 0x3F)
-        return chr(codepoint), sequence_length
+        return encoding_decoders.decode_percent_u_escapes(content)
 
     def _lenient_overlong_utf8_decode(self, raw: bytes) -> str:
-        chars: list[str] = []
-        index = 0
-        length = len(raw)
-        while index < length:
-            overlong = self._decode_overlong_sequence_at(raw, index)
-            if overlong is not None:
-                char, consumed = overlong
-                chars.append(char)
-                index += consumed
-            elif raw[index] < 0x80:
-                chars.append(chr(raw[index]))
-                index += 1
-            else:
-                index += 1
-        return "".join(chars)
+        return encoding_decoders.lenient_overlong_utf8_decode(raw)
 
     def _decode_overlong_utf8_percent_runs(self, content: str) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            run = match.group()
-            raw = bytes(int(run[i + 1 : i + 3], 16) for i in range(0, len(run), 3))
-            try:
-                raw.decode("utf-8")
-            except UnicodeDecodeError:
-                return self._lenient_overlong_utf8_decode(raw)
-            return run
-
-        return self._PERCENT_BYTE_RUN_RE.sub(_replace, content)
+        return encoding_decoders.decode_overlong_utf8_percent_runs(content)
 
     def _strip_sql_comments(self, content: str) -> str:
         def _replace_block_comment(match: re.Match[str]) -> str:

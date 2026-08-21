@@ -1,0 +1,131 @@
+from typing import Any
+
+_FULL_SCAN_TAIL_BYTES = 4096
+
+
+def extract_attack_regions(preprocessor: Any, content: str) -> list[tuple[int, int]]:
+    max_regions = min(100, preprocessor.max_content_length // 100)
+    regions: list[tuple[int, int]] = []
+
+    for indicator in preprocessor.compiled_indicators:
+        import concurrent.futures
+
+        def _find_all(pattern: Any, text: str) -> list[tuple[int, int]]:
+            found: list[tuple[int, int]] = []
+            for match in pattern.finditer(text):
+                if len(found) >= max_regions:
+                    break
+                start = max(0, match.start() - 100)
+                end = min(len(text), match.end() + 100)
+                found.append((start, end))
+            return found
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_find_all, indicator, content)
+            try:
+                indicator_regions = future.result(timeout=0.5)
+                regions.extend(indicator_regions)
+            except concurrent.futures.TimeoutError:
+                continue
+
+        if len(regions) >= max_regions:
+            break
+
+    if regions:
+        regions.sort()
+        merged = [regions[0]]
+        for start, end in regions[1:]:
+            if start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged[:max_regions]
+
+    return []
+
+
+def extract_and_concatenate_attack_regions(
+    content: str, attack_regions: list[tuple[int, int]], budget: int
+) -> str:
+    result = ""
+    remaining = budget
+
+    for start, end in attack_regions:
+        chunk_len = min(end - start, remaining)
+        result += content[start : start + chunk_len]
+        remaining -= chunk_len
+        if remaining <= 0:
+            break
+
+    return result
+
+
+def _consume_gap(
+    content: str, last_end: int, start: int, gap_budget: int
+) -> tuple[str, int]:
+    gap_len = start - last_end
+    if gap_len <= gap_budget:
+        return content[last_end:start], gap_budget - gap_len
+    chunk_len = gap_budget - 1
+    piece = content[last_end : last_end + chunk_len] if chunk_len > 0 else ""
+    return f"{piece} ", 0
+
+
+def build_result_with_attack_regions_and_context(
+    content: str, attack_regions: list[tuple[int, int]], budget: int
+) -> str:
+    attack_length = sum(end - start for start, end in attack_regions)
+    gap_budget = budget - attack_length
+    result_parts: list[str] = []
+    last_end = 0
+
+    for start, end in attack_regions:
+        if last_end < start and gap_budget > 0:
+            piece, gap_budget = _consume_gap(content, last_end, start, gap_budget)
+            result_parts.append(piece)
+        result_parts.append(content[start:end])
+        last_end = end
+
+    if last_end < len(content) and gap_budget > 0:
+        tail_len = min(len(content) - last_end, gap_budget)
+        result_parts.append(content[last_end : last_end + tail_len])
+
+    return "".join(result_parts)
+
+
+def cap_with_tail(content: str, max_full_scan_bytes: int) -> str:
+    cap = max_full_scan_bytes
+    tail = min(_FULL_SCAN_TAIL_BYTES, cap)
+    head_len = cap - tail
+    return content[:head_len] + content[-tail:]
+
+
+def truncate_safely(preprocessor: Any, content: str) -> str:
+    if len(content) <= preprocessor.max_content_length:
+        return content
+
+    if not preprocessor.preserve_attack_patterns:
+        return content[: preprocessor.max_content_length]
+
+    max_full_scan_bytes = preprocessor._MAX_FULL_SCAN_BYTES
+    if len(content) <= max_full_scan_bytes:
+        return content
+
+    attack_regions = preprocessor.extract_attack_regions(content)
+
+    if not attack_regions:
+        content = preprocessor._cap_with_tail(content)
+        return content
+
+    attack_length = sum(end - start for start, end in attack_regions)
+
+    if attack_length >= max_full_scan_bytes:
+        content = preprocessor._extract_and_concatenate_attack_regions(
+            content, attack_regions, budget=max_full_scan_bytes
+        )
+        return content
+
+    content = preprocessor._build_result_with_attack_regions_and_context(
+        content, attack_regions, budget=max_full_scan_bytes
+    )
+    return content
