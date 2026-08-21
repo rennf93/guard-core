@@ -8,6 +8,7 @@ import pytest
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
     _DEFAULT_MAX_SCAN_LENGTH,
+    _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
 )
 
@@ -67,7 +68,14 @@ _ADVERSARIAL_INPUTS: list[Callable[[int], str]] = [
 ]
 
 
-@pytest.mark.parametrize("pat,_ctx,cat", SusPatternsManager._pattern_definitions)
+_RAW_SEARCH_SAFE_PATTERN_DEFINITIONS = [
+    (pat, ctx, cat)
+    for pat, ctx, cat in SusPatternsManager._pattern_definitions
+    if pat not in _WINDOWED_PATTERN_FINDERS
+]
+
+
+@pytest.mark.parametrize("pat,_ctx,cat", _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS)
 def test_builtin_pattern_is_not_catastrophic(
     pat: str, _ctx: frozenset[str], cat: str
 ) -> None:
@@ -75,6 +83,43 @@ def test_builtin_pattern_is_not_catastrophic(
     results = _timed_batch(pat, texts, timeout=6.0 * len(texts))
     assert results is not None, (
         f"{cat} pattern did not finish in 6s on some 80k adversarial input "
+        f"(super-linear): {pat!r}"
+    )
+
+
+def _windowed_child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
+    from guard_core.handlers.suspatterns_handler import _WINDOWED_PATTERN_FINDERS
+
+    finder = _WINDOWED_PATTERN_FINDERS[pat]
+    times = []
+    for text in texts:
+        t0 = time.time()
+        list(finder(text))
+        times.append(time.time() - t0)
+    q.put(times)
+
+
+def _timed_windowed_batch(
+    pat: str, texts: list[str], timeout: float
+) -> list[float] | None:
+    ctx = mp.get_context("forkserver")
+    q: mp.Queue[list[float]] = ctx.Queue()
+    p = ctx.Process(target=_windowed_child, args=(pat, texts, q))
+    p.start()
+    p.join(timeout)
+    if p.is_alive():
+        p.terminate()
+        p.join()
+        return None
+    return q.get() if not q.empty() else [0.0] * len(texts)
+
+
+@pytest.mark.parametrize("pat", sorted(_WINDOWED_PATTERN_FINDERS))
+def test_windowed_builtin_pattern_is_not_catastrophic(pat: str) -> None:
+    texts = [mk(80000) for mk in _ADVERSARIAL_INPUTS]
+    results = _timed_windowed_batch(pat, texts, timeout=6.0 * len(texts))
+    assert results is not None, (
+        f"windowed pattern did not finish in 6s on some 80k adversarial input "
         f"(super-linear): {pat!r}"
     )
 
@@ -335,7 +380,7 @@ def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
 def test_every_builtin_passes_the_safety_validator() -> None:
     pc = PatternCompiler()
     bad = []
-    for pat, _c, cat in SusPatternsManager._pattern_definitions:
+    for pat, _c, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS:
         ok, reason = pc.validate_pattern_safety(pat)
         if not ok:
             bad.append((cat, reason, pat))

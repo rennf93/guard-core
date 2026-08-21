@@ -14,6 +14,7 @@ from guard_core.detection_engine.compiler import (
     _strip_escapes_and_char_classes,
 )
 from guard_core.handlers.suspatterns_handler import (
+    _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
     sus_patterns_handler,
 )
@@ -125,10 +126,21 @@ def test_validator_rejects_zero_built_in_patterns() -> None:
     compiler = PatternCompiler()
     rejected = []
     for pattern, _ctx, _category in SusPatternsManager._pattern_definitions:
+        if pattern in _WINDOWED_PATTERN_FINDERS:
+            continue
         is_safe, _reason = compiler.validate_pattern_safety(pattern)
         if not is_safe:
             rejected.append(pattern)
     assert rejected == []
+
+
+def test_windowed_patterns_are_exactly_the_scan_window_converted_five() -> None:
+    assert len(_WINDOWED_PATTERN_FINDERS) == 5
+    windowed_pattern_sources = set(_WINDOWED_PATTERN_FINDERS)
+    builtin_pattern_sources = {
+        pattern for pattern, _ctx, _category in SusPatternsManager._pattern_definitions
+    }
+    assert windowed_pattern_sources <= builtin_pattern_sources
 
 
 def test_validator_keeps_benign_custom_corpus_safe() -> None:

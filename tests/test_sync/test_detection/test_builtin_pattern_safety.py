@@ -6,6 +6,7 @@ from guard_core.handlers.suspatterns_handler import (
 from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
     _DEFAULT_MAX_SCAN_LENGTH,
+    _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
 )
 
@@ -21,6 +22,8 @@ def test_every_builtin_passes_the_safety_validator() -> None:
     pc = PatternCompiler()
     bad = []
     for pat, _c, cat in SusPatternsManager._pattern_definitions:
+        if pat in _WINDOWED_PATTERN_FINDERS:
+            continue
         ok, reason = pc.validate_pattern_safety(pat)
         if not ok:
             bad.append((cat, reason, pat))

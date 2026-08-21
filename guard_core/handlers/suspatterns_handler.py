@@ -24,6 +24,7 @@ from guard_core.detection_engine.compiler import (
     report_scan_timeout,
     shared_regex_executor,
 )
+from guard_core.detection_engine.scan_window import bounded_finditer
 
 logger = logging.getLogger("guard_core.handlers.suspatterns")
 
@@ -210,11 +211,21 @@ _FILE_INCLUSION_BARE_HOST_RE = (
 )
 
 _LDAP_NULL_BYTE_ATTR_RE = (
-    r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
+    r"[a-zA-Z][\w-]*\s*=[\d\w\s]*\*\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
 )
 _LDAP_NULL_BYTE_BARE_RE = r"\*\)\)+(?:%00|\\u0000|\\x00|\\0|\x00)"
-_LDAP_NULL_BYTE_DECODED_ATTR_RE = r"[a-zA-Z][\w-]{0,63}\s*=[\d\w\s]{0,255}\*\)+\x00"
+_LDAP_NULL_BYTE_DECODED_ATTR_RE = r"[a-zA-Z][\w-]*\s*=[\d\w\s]*\*\)+\x00"
 _LDAP_NULL_BYTE_DECODED_BARE_RE = r"\*\)\)+\x00"
+
+_LDAP_NULL_BYTE_ATTR_COMPILED_RE = re.compile(_LDAP_NULL_BYTE_ATTR_RE, re.IGNORECASE)
+_LDAP_NULL_BYTE_DECODED_ATTR_COMPILED_RE = re.compile(
+    _LDAP_NULL_BYTE_DECODED_ATTR_RE, re.IGNORECASE
+)
+_LDAP_NULL_BYTE_TAIL_RE = re.compile(r"\*\)+(?:%00|\\u0000|\\x00|\\0|\x00)")
+_LDAP_NULL_BYTE_DECODED_TAIL_RE = re.compile(r"\*\)+\x00")
+_LDAP_NULL_BYTE_VALUE_CHAR_RE = re.compile(r"[\d\w\s]")
+_LDAP_NULL_BYTE_ATTR_CONTINUATION_CHAR_RE = re.compile(r"[\w-]")
+_LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE = re.compile(r"[a-zA-Z]")
 _HTTP_SPLIT_CRLF_RE = r"[\r\n][^\S\r\n]*(?:HTTP\/[0-9.]+|Location:|Set-Cookie:)"
 _SQLI_ORDER_BY_TERMINATOR_RE = (
     r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
@@ -251,6 +262,83 @@ _SSTI_HASH_BRACE_SHAPE_RE = (
     r"#\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
     r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}"
 )
+
+_TEMPLATE_MUSTACHE_KEYWORD_CAPPED_RE = (
+    r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}"
+)
+_TEMPLATE_JSP_EL_DOLLAR_BRACE_CAPPED_RE = (
+    r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}"
+)
+_TEMPLATE_MUSTACHE_MATH_CAPPED_RE = (
+    r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\("
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}"
+)
+
+_TEMPLATE_MUSTACHE_KEYWORD_RE = (
+    r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}"
+)
+_TEMPLATE_JSP_EL_DOLLAR_BRACE_RE = (
+    r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}"
+)
+_TEMPLATE_MUSTACHE_MATH_RE = (
+    r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}"
+)
+
+_TEMPLATE_MUSTACHE_KEYWORD_COMPILED_RE = re.compile(
+    _TEMPLATE_MUSTACHE_KEYWORD_RE, re.IGNORECASE
+)
+_TEMPLATE_JSP_EL_DOLLAR_BRACE_COMPILED_RE = re.compile(
+    _TEMPLATE_JSP_EL_DOLLAR_BRACE_RE, re.IGNORECASE
+)
+_TEMPLATE_MUSTACHE_MATH_COMPILED_RE = re.compile(
+    _TEMPLATE_MUSTACHE_MATH_RE, re.IGNORECASE
+)
+
+_TEMPLATE_DOUBLE_BRACE_PREFIX_RE = re.compile(r"\{\{")
+_TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE = re.compile(r"\}\}")
+_TEMPLATE_DOLLAR_BRACE_PREFIX_RE = re.compile(r"\$\{")
+_TEMPLATE_SINGLE_BRACE_TERMINATOR_RE = re.compile(r"\}")
+
+_TEMPLATE_KEYWORD_MARKER_RE = re.compile(
+    r"system|exec|popen|eval|require|include", re.IGNORECASE
+)
+_TEMPLATE_MATH_MARKER_RE = re.compile(r"[(@+\-*/%]")
+
+
+def _template_mustache_keyword_finditer(text: str) -> Iterator[re.Match]:
+    if "}}" not in text or not _TEMPLATE_KEYWORD_MARKER_RE.search(text):
+        return
+    yield from bounded_finditer(
+        text,
+        _TEMPLATE_MUSTACHE_KEYWORD_COMPILED_RE,
+        _TEMPLATE_DOUBLE_BRACE_PREFIX_RE,
+        _TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE,
+    )
+
+
+def _template_jsp_el_dollar_brace_finditer(text: str) -> Iterator[re.Match]:
+    if "}" not in text or not _TEMPLATE_MATH_MARKER_RE.search(text):
+        return
+    yield from bounded_finditer(
+        text,
+        _TEMPLATE_JSP_EL_DOLLAR_BRACE_COMPILED_RE,
+        _TEMPLATE_DOLLAR_BRACE_PREFIX_RE,
+        _TEMPLATE_SINGLE_BRACE_TERMINATOR_RE,
+    )
+
+
+def _template_mustache_math_finditer(text: str) -> Iterator[re.Match]:
+    if "}}" not in text or not _TEMPLATE_MATH_MARKER_RE.search(text):
+        return
+    yield from bounded_finditer(
+        text,
+        _TEMPLATE_MUSTACHE_MATH_COMPILED_RE,
+        _TEMPLATE_DOUBLE_BRACE_PREFIX_RE,
+        _TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE,
+    )
+
+
 _DESERIALIZATION_JAVA_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:rO0AB)"
 _DESERIALIZATION_DOTNET_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:AAEAAAD)"
 _DESERIALIZATION_PICKLE_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:gA[SW]V)"
@@ -417,13 +505,87 @@ def _cmd_injection_shell_dash_c_finditer(
             last_end = pos
 
 
-_WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
-    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE: lambda text: (
-        _cmd_injection_shell_dash_c_finditer(
-            text, _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE
-        )
-    ),
-}
+def _ldap_null_byte_attr_name_start(text: str, equals_pos: int) -> int | None:
+    i = equals_pos
+    while i > 0 and _LDAP_NULL_BYTE_ATTR_CONTINUATION_CHAR_RE.match(text, i - 1):
+        i -= 1
+    if i == equals_pos or not _LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE.match(text, i):
+        return None
+    return i
+
+
+def _ldap_null_byte_value_start(text: str, star_pos: int) -> int:
+    i = star_pos
+    while i > 0 and _LDAP_NULL_BYTE_VALUE_CHAR_RE.match(text, i - 1):
+        i -= 1
+    return i
+
+
+def _ldap_null_byte_attr_finditer(
+    text: str, compiled: re.Pattern, tail_re: re.Pattern
+) -> Iterator[re.Match]:
+    if "*" not in text or ")" not in text:
+        return
+    last_end = 0
+    for tail_match in tail_re.finditer(text):
+        star_pos = tail_match.start()
+        if star_pos < last_end:
+            continue
+        value_start = _ldap_null_byte_value_start(text, star_pos)
+        if value_start == 0 or text[value_start - 1] != "=":
+            continue
+        name_start = _ldap_null_byte_attr_name_start(text, value_start - 1)
+        if name_start is None:
+            continue
+        match = compiled.match(text, name_start, tail_match.end())
+        if match is not None:
+            yield match
+            last_end = match.end()
+
+
+_QUOTE_SPLICE_WORD_CHAR_RE = re.compile(r"\w")
+_QUOTE_SPLICE_QUOTE_RUN_RE = re.compile(r"['\"]+")
+
+
+def _quote_splice_word_start(text: str, pos: int) -> int | None:
+    i = pos
+    while i > 0 and _QUOTE_SPLICE_WORD_CHAR_RE.match(text, i - 1):
+        i -= 1
+    return i if i < pos else None
+
+
+def _quote_splice_finditer(text: str, compiled: re.Pattern) -> Iterator[re.Match]:
+    n = len(text)
+    last_end = 0
+    for quote_match in _QUOTE_SPLICE_QUOTE_RUN_RE.finditer(text):
+        if quote_match.start() < last_end:
+            continue
+        if quote_match.end() >= n or not _QUOTE_SPLICE_WORD_CHAR_RE.match(
+            text, quote_match.end()
+        ):
+            continue
+        word_start = _quote_splice_word_start(text, quote_match.start())
+        if word_start is None:
+            continue
+        match = compiled.match(text, word_start)
+        if match is not None:
+            yield match
+            last_end = match.end()
+        else:
+            last_end = quote_match.end()
+
+
+_GLOB_WILDCARD_CLASS_RUN_RE = re.compile(r"[\w./*?-]+")
+_GLOB_WILDCARD_MARKER_RE = re.compile(r"[?*]")
+
+
+def _glob_wildcard_finditer(text: str, compiled: re.Pattern) -> Iterator[re.Match]:
+    for run in _GLOB_WILDCARD_CLASS_RUN_RE.finditer(text):
+        if not _GLOB_WILDCARD_MARKER_RE.search(run.group()):
+            continue
+        match = compiled.match(text, run.start(), run.end())
+        if match is not None:
+            yield match
 
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
@@ -573,9 +735,13 @@ _BRACE_EXPANSION_COMMAND_RE = (
     r"(?:,(?:" + _BRACE_EXPANSION_ITEM_RE + r")?)+\}"
 )
 
-_QUOTE_SPLICE_CANDIDATE_RE = r"\w{1,12}(?:['\"]+\w{1,12}){1,10}"
+_QUOTE_SPLICE_CANDIDATE_RE = r"\w+(?:['\"]+\w+){1,10}"
+_QUOTE_SPLICE_CANDIDATE_COMPILED_RE = re.compile(
+    _QUOTE_SPLICE_CANDIDATE_RE, re.IGNORECASE
+)
 
-_GLOB_WILDCARD_ATOM_RE = r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}"
+_GLOB_WILDCARD_ATOM_RE = r"[\w./*?-]*[?*][\w./*?-]*"
+_GLOB_WILDCARD_ATOM_COMPILED_RE = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
 
 _PY_DANGEROUS_MODULE_RE = (
     r"__import__\(\s*['\"](?:os|subprocess|builtins|importlib)['\"]\s*\)"
@@ -1096,6 +1262,29 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
     ),
     (_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE, _pickle_global_candidate_is_injection),
 )
+
+
+_WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
+    _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE: lambda text: (
+        _cmd_injection_shell_dash_c_finditer(
+            text, _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE
+        )
+    ),
+    _LDAP_NULL_BYTE_ATTR_RE: lambda text: _ldap_null_byte_attr_finditer(
+        text, _LDAP_NULL_BYTE_ATTR_COMPILED_RE, _LDAP_NULL_BYTE_TAIL_RE
+    ),
+    _LDAP_NULL_BYTE_DECODED_ATTR_RE: lambda text: _ldap_null_byte_attr_finditer(
+        text,
+        _LDAP_NULL_BYTE_DECODED_ATTR_COMPILED_RE,
+        _LDAP_NULL_BYTE_DECODED_TAIL_RE,
+    ),
+    _QUOTE_SPLICE_CANDIDATE_RE: lambda text: _quote_splice_finditer(
+        text, _QUOTE_SPLICE_CANDIDATE_COMPILED_RE
+    ),
+    _GLOB_WILDCARD_ATOM_RE: lambda text: _glob_wildcard_finditer(
+        text, _GLOB_WILDCARD_ATOM_COMPILED_RE
+    ),
+}
 
 
 def _sanitize_for_reporting(value: str) -> str:
@@ -1738,7 +1927,7 @@ class SusPatternsManager:
         ),
         (_PATH_TRAVERSAL_ENCODED_DOT_RE, _CTX_PATH_TRAVERSAL, "path_traversal"),
         (
-            r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}",
+            _TEMPLATE_MUSTACHE_KEYWORD_CAPPED_RE,
             _CTX_TEMPLATE,
             "template",
         ),
@@ -1754,13 +1943,12 @@ class SusPatternsManager:
             "template",
         ),
         (
-            r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}",
+            _TEMPLATE_JSP_EL_DOLLAR_BRACE_CAPPED_RE,
             _CTX_TEMPLATE,
             "template",
         ),
         (
-            r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\("
-            r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}",
+            _TEMPLATE_MUSTACHE_MATH_CAPPED_RE,
             _CTX_TEMPLATE,
             "template",
         ),
