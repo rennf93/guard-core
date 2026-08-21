@@ -134,8 +134,8 @@ def test_validator_rejects_zero_built_in_patterns() -> None:
     assert rejected == []
 
 
-def test_windowed_patterns_are_exactly_the_scan_window_converted_five() -> None:
-    assert len(_WINDOWED_PATTERN_FINDERS) == 5
+def test_windowed_patterns_are_exactly_the_scan_window_converted_four() -> None:
+    assert len(_WINDOWED_PATTERN_FINDERS) == 4
     windowed_pattern_sources = set(_WINDOWED_PATTERN_FINDERS)
     builtin_pattern_sources = {
         pattern for pattern, _ctx, _category in SusPatternsManager._pattern_definitions

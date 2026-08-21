@@ -4,13 +4,11 @@ import time
 from collections.abc import Callable
 
 from guard_core.sync.handlers.suspatterns_handler import (
-    _GLOB_WILDCARD_ATOM_COMPILED_RE,
     _LDAP_NULL_BYTE_ATTR_COMPILED_RE,
     _LDAP_NULL_BYTE_DECODED_ATTR_COMPILED_RE,
     _LDAP_NULL_BYTE_DECODED_TAIL_RE,
     _LDAP_NULL_BYTE_TAIL_RE,
     _QUOTE_SPLICE_CANDIDATE_COMPILED_RE,
-    _glob_wildcard_finditer,
     _ldap_null_byte_attr_finditer,
     _quote_splice_finditer,
 )
@@ -26,10 +24,6 @@ def _ldap_dense_attack_reach_probe(n: int) -> str:
 
 def _quote_splice_dense_reach_probe(n: int) -> str:
     return ("a'" * (n // 2))[:n]
-
-
-def _glob_wildcard_dense_reach_probe(n: int) -> str:
-    return ("a?" * (n // 2))[:n]
 
 
 _CASES: dict[str, tuple] = {
@@ -55,12 +49,6 @@ _CASES: dict[str, tuple] = {
         _quote_splice_dense_reach_probe,
         lambda text: list(
             _quote_splice_finditer(text, _QUOTE_SPLICE_CANDIDATE_COMPILED_RE)
-        ),
-    ),
-    "glob_wildcard": (
-        _glob_wildcard_dense_reach_probe,
-        lambda text: list(
-            _glob_wildcard_finditer(text, _GLOB_WILDCARD_ATOM_COMPILED_RE)
         ),
     ),
 }

@@ -5,7 +5,6 @@ import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.suspatterns_handler import (
-    _GLOB_WILDCARD_ATOM_COMPILED_RE,
     _GLOB_WILDCARD_ATOM_RE,
     _LDAP_NULL_BYTE_ATTR_COMPILED_RE,
     _LDAP_NULL_BYTE_ATTR_RE,
@@ -16,7 +15,6 @@ from guard_core.sync.handlers.suspatterns_handler import (
     _QUOTE_SPLICE_CANDIDATE_COMPILED_RE,
     _QUOTE_SPLICE_CANDIDATE_RE,
     SusPatternsManager,
-    _glob_wildcard_finditer,
     _ldap_null_byte_attr_finditer,
     _quote_splice_finditer,
 )
@@ -31,9 +29,6 @@ _OLD_LDAP_NULL_BYTE_DECODED_ATTR_RE = re.compile(
 )
 _OLD_QUOTE_SPLICE_CANDIDATE_RE = re.compile(
     r"\w{1,12}(?:['\"]+\w{1,12}){1,10}", re.IGNORECASE
-)
-_OLD_GLOB_WILDCARD_ATOM_RE = re.compile(
-    r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}", re.IGNORECASE
 )
 
 
@@ -210,34 +205,6 @@ def test_quote_splice_detected_through_full_pipeline(
     assert result["is_threat"] is True
     patterns = [t["pattern"] for t in result["threats"] if t["type"] == "regex"]
     assert _QUOTE_SPLICE_CANDIDATE_RE in patterns
-
-
-@pytest.mark.parametrize("payload", ["c?t", "w*t", "/usr/bin/c?t"])
-def test_glob_wildcard_old_payload_still_matches(payload: str) -> None:
-    old_match = _OLD_GLOB_WILDCARD_ATOM_RE.search(payload)
-    new_matches = list(
-        _glob_wildcard_finditer(payload, _GLOB_WILDCARD_ATOM_COMPILED_RE)
-    )
-    assert bool(old_match) == bool(new_matches)
-    assert new_matches
-    assert old_match is not None
-    assert new_matches[0].group() == old_match.group()
-
-
-def test_glob_wildcard_2x_and_10x_bound_still_matches_and_agrees_with_raw_search() -> (
-    None
-):
-    for multiplier in (2, 10):
-        padding = "a" * (100 * multiplier)
-        payload = f"{padding}/c?t"
-        raw_match = _GLOB_WILDCARD_ATOM_COMPILED_RE.search(payload)
-        matches = list(
-            _glob_wildcard_finditer(payload, _GLOB_WILDCARD_ATOM_COMPILED_RE)
-        )
-        assert matches, f"multiplier={multiplier}"
-        assert raw_match is not None
-        assert matches[0].group() == raw_match.group()
-        assert matches[0].start() == raw_match.start()
 
 
 def test_glob_wildcard_detected_through_full_pipeline(

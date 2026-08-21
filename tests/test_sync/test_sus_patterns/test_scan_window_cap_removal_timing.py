@@ -13,7 +13,6 @@ _EXPECTED_LABELS = {
     "ldap_null_byte_attr",
     "ldap_null_byte_decoded_attr",
     "quote_splice",
-    "glob_wildcard",
 }
 
 
@@ -28,7 +27,7 @@ def _assert_doubling_stays_linear(times: list[float], label: str) -> None:
         )
 
 
-def test_the_four_converted_patterns_stay_under_the_cpu_time_budget() -> None:
+def test_the_three_converted_patterns_stay_under_the_cpu_time_budget() -> None:
     result = subprocess.run(
         [sys.executable, str(_PROBE)],
         capture_output=True,

@@ -262,81 +262,6 @@ _SSTI_HASH_BRACE_SHAPE_RE = (
     r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}"
 )
 
-_TEMPLATE_MUSTACHE_KEYWORD_CAPPED_RE = (
-    r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}"
-)
-_TEMPLATE_JSP_EL_DOLLAR_BRACE_CAPPED_RE = (
-    r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}"
-)
-_TEMPLATE_MUSTACHE_MATH_CAPPED_RE = (
-    r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\("
-    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}"
-)
-
-_TEMPLATE_MUSTACHE_KEYWORD_RE = (
-    r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}"
-)
-_TEMPLATE_JSP_EL_DOLLAR_BRACE_RE = (
-    r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}"
-)
-_TEMPLATE_MUSTACHE_MATH_RE = (
-    r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
-    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}"
-)
-
-_TEMPLATE_MUSTACHE_KEYWORD_COMPILED_RE = re.compile(
-    _TEMPLATE_MUSTACHE_KEYWORD_RE, re.IGNORECASE
-)
-_TEMPLATE_JSP_EL_DOLLAR_BRACE_COMPILED_RE = re.compile(
-    _TEMPLATE_JSP_EL_DOLLAR_BRACE_RE, re.IGNORECASE
-)
-_TEMPLATE_MUSTACHE_MATH_COMPILED_RE = re.compile(
-    _TEMPLATE_MUSTACHE_MATH_RE, re.IGNORECASE
-)
-
-_TEMPLATE_DOUBLE_BRACE_PREFIX_RE = re.compile(r"\{\{")
-_TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE = re.compile(r"\}\}")
-_TEMPLATE_DOLLAR_BRACE_PREFIX_RE = re.compile(r"\$\{")
-_TEMPLATE_SINGLE_BRACE_TERMINATOR_RE = re.compile(r"\}")
-
-_TEMPLATE_KEYWORD_MARKER_RE = re.compile(
-    r"system|exec|popen|eval|require|include", re.IGNORECASE
-)
-_TEMPLATE_MATH_MARKER_RE = re.compile(r"[(@+\-*/%]")
-
-
-def _template_mustache_keyword_finditer(text: str) -> Iterator[re.Match]:
-    if "}}" not in text or not _TEMPLATE_KEYWORD_MARKER_RE.search(text):
-        return
-    yield from bounded_finditer(
-        text,
-        _TEMPLATE_MUSTACHE_KEYWORD_COMPILED_RE,
-        _TEMPLATE_DOUBLE_BRACE_PREFIX_RE,
-        _TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE,
-    )
-
-
-def _template_jsp_el_dollar_brace_finditer(text: str) -> Iterator[re.Match]:
-    if "}" not in text or not _TEMPLATE_MATH_MARKER_RE.search(text):
-        return
-    yield from bounded_finditer(
-        text,
-        _TEMPLATE_JSP_EL_DOLLAR_BRACE_COMPILED_RE,
-        _TEMPLATE_DOLLAR_BRACE_PREFIX_RE,
-        _TEMPLATE_SINGLE_BRACE_TERMINATOR_RE,
-    )
-
-
-def _template_mustache_math_finditer(text: str) -> Iterator[re.Match]:
-    if "}}" not in text or not _TEMPLATE_MATH_MARKER_RE.search(text):
-        return
-    yield from bounded_finditer(
-        text,
-        _TEMPLATE_MUSTACHE_MATH_COMPILED_RE,
-        _TEMPLATE_DOUBLE_BRACE_PREFIX_RE,
-        _TEMPLATE_DOUBLE_BRACE_TERMINATOR_RE,
-    )
-
 
 _DESERIALIZATION_JAVA_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:rO0AB)"
 _DESERIALIZATION_DOTNET_B64_RE = r"(?<![A-Za-z0-9+/])(?-i:AAEAAAD)"
@@ -574,17 +499,125 @@ def _quote_splice_finditer(text: str, compiled: re.Pattern) -> Iterator[re.Match
             last_end = quote_match.end()
 
 
-_GLOB_WILDCARD_CLASS_RUN_RE = re.compile(r"[\w./*?-]+")
-_GLOB_WILDCARD_MARKER_RE = re.compile(r"[?*]")
+_FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE = re.compile(r"filename\s*=\s*[\"']", re.IGNORECASE)
+_FILE_UPLOAD_QUOTE_RE = re.compile(r"[\"']")
 
 
-def _glob_wildcard_finditer(text: str, compiled: re.Pattern) -> Iterator[re.Match]:
-    for run in _GLOB_WILDCARD_CLASS_RUN_RE.finditer(text):
-        if not _GLOB_WILDCARD_MARKER_RE.search(run.group()):
-            continue
-        match = compiled.match(text, run.start(), run.end())
-        if match is not None:
-            yield match
+def _file_upload_double_extension_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content, compiled, _FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE, _FILE_UPLOAD_QUOTE_RE
+        )
+    )
+
+
+_SQLI_LOAD_FILE_RE = r"(?i)(?:LOAD_FILE\s*\([^)]+\))"
+_LOAD_FILE_SCAN_PREFIX_RE = re.compile(r"LOAD_FILE\s*\(", re.IGNORECASE)
+_LOAD_FILE_SCAN_TERMINATOR_RE = re.compile(r"\)")
+
+
+def _load_file_scan_matches(content: str, compiled: re.Pattern) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content, compiled, _LOAD_FILE_SCAN_PREFIX_RE, _LOAD_FILE_SCAN_TERMINATOR_RE
+        )
+    )
+
+
+_CMD_INJECTION_DOLLAR_SUBSTITUTION_RE = r"(?:[;&|]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))"
+_CMD_INJECTION_DOLLAR_PAREN_PREFIX_RE = re.compile(r"[;&|]\s*\$\(")
+_CMD_INJECTION_DOLLAR_PAREN_TERMINATOR_RE = re.compile(r"\)")
+_CMD_INJECTION_DOLLAR_BRACE_PREFIX_RE = re.compile(r"[;&|]\s*\$\{")
+_CMD_INJECTION_DOLLAR_BRACE_TERMINATOR_RE = re.compile(r"\}")
+
+
+def _cmd_injection_dollar_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    paren_matches = list(
+        bounded_finditer(
+            content,
+            compiled,
+            _CMD_INJECTION_DOLLAR_PAREN_PREFIX_RE,
+            _CMD_INJECTION_DOLLAR_PAREN_TERMINATOR_RE,
+        )
+    )
+    brace_matches = list(
+        bounded_finditer(
+            content,
+            compiled,
+            _CMD_INJECTION_DOLLAR_BRACE_PREFIX_RE,
+            _CMD_INJECTION_DOLLAR_BRACE_TERMINATOR_RE,
+        )
+    )
+    return paren_matches + brace_matches
+
+
+_TEMPLATE_CURLY_KEYWORD_RE = (
+    r"\{\{\s*[^\}]+(?:system|exec|popen|eval|require|include)\s*\}\}"
+)
+_TEMPLATE_CURLY_PREFIX_RE = re.compile(r"\{\{\s*")
+_TEMPLATE_CURLY_TERMINATOR_RE = re.compile(r"\}\}")
+
+
+def _template_curly_keyword_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content, compiled, _TEMPLATE_CURLY_PREFIX_RE, _TEMPLATE_CURLY_TERMINATOR_RE
+        )
+    )
+
+
+_TEMPLATE_DOLLAR_BRACE_CALL_RE = (
+    r"\$\{[^}]*(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]*\}"
+)
+_TEMPLATE_DOLLAR_BRACE_PREFIX_RE = re.compile(r"\$\{")
+_TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE = re.compile(r"\}")
+
+
+def _template_dollar_brace_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content,
+            compiled,
+            _TEMPLATE_DOLLAR_BRACE_PREFIX_RE,
+            _TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE,
+        )
+    )
+
+
+_TEMPLATE_CURLY_CALL_RE = (
+    r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}"
+)
+
+
+def _template_curly_call_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content, compiled, _TEMPLATE_CURLY_PREFIX_RE, _TEMPLATE_CURLY_TERMINATOR_RE
+        )
+    )
+
+
+_PATTERN_SCAN_WINDOW_MATCHERS: dict[
+    str, Callable[[str, re.Pattern], list[re.Match]]
+] = {
+    _SQLI_LOAD_FILE_RE: _load_file_scan_matches,
+    _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE: _cmd_injection_dollar_scan_matches,
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE: _file_upload_double_extension_scan_matches,
+    _TEMPLATE_CURLY_KEYWORD_RE: _template_curly_keyword_scan_matches,
+    _TEMPLATE_DOLLAR_BRACE_CALL_RE: _template_dollar_brace_scan_matches,
+    _TEMPLATE_CURLY_CALL_RE: _template_curly_call_scan_matches,
+}
 
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
@@ -740,7 +773,23 @@ _QUOTE_SPLICE_CANDIDATE_COMPILED_RE = re.compile(
 )
 
 _GLOB_WILDCARD_ATOM_RE = r"[\w./*?-]*[?*][\w./*?-]*"
-_GLOB_WILDCARD_ATOM_COMPILED_RE = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
+_GLOB_WILDCARD_PATH_RUN_RE = re.compile(r"[\w./*?-]+")
+_GLOB_WILDCARD_CHAR_RE = re.compile(r"[?*]")
+
+
+def _glob_wildcard_scan_matches(content: str, compiled: re.Pattern) -> list[re.Match]:
+    matches = []
+    for run_match in _GLOB_WILDCARD_PATH_RUN_RE.finditer(content):
+        run_start, run_end = run_match.start(), run_match.end()
+        if _GLOB_WILDCARD_CHAR_RE.search(content, run_start, run_end) is None:
+            continue
+        match = compiled.match(content, run_start, run_end)
+        if match is not None:
+            matches.append(match)
+    return matches
+
+
+_PATTERN_SCAN_WINDOW_MATCHERS[_GLOB_WILDCARD_ATOM_RE] = _glob_wildcard_scan_matches
 
 _PY_DANGEROUS_MODULE_RE = (
     r"__import__\(\s*['\"](?:os|subprocess|builtins|importlib)['\"]\s*\)"
@@ -1280,9 +1329,6 @@ _WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
     _QUOTE_SPLICE_CANDIDATE_RE: lambda text: _quote_splice_finditer(
         text, _QUOTE_SPLICE_CANDIDATE_COMPILED_RE
     ),
-    _GLOB_WILDCARD_ATOM_RE: lambda text: _glob_wildcard_finditer(
-        text, _GLOB_WILDCARD_ATOM_COMPILED_RE
-    ),
 }
 
 
@@ -1664,7 +1710,7 @@ class SusPatternsManager:
             "sqli",
         ),
         (r"(?i)(?:INTO\s+(?:OUTFILE|DUMPFILE)\s+'[^']+')", _CTX_SQLI, "sqli"),
-        (r"(?i)(?:LOAD_FILE\s*\([^)]+\))", _CTX_SQLI, "sqli"),
+        (_SQLI_LOAD_FILE_RE, _CTX_SQLI, "sqli"),
         (r"(?i)(?:BENCHMARK\s*\(\s*\d+\s*,)", _CTX_SQLI, "sqli"),
         (r"(?i)(?:SLEEP\s*\(\s*\d+\s*\))", _CTX_SQLI, "sqli"),
         (
@@ -1716,7 +1762,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:[;&|]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
+            _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -1847,7 +1893,7 @@ class SusPatternsManager:
             _CTX_FILE_INCLUSION,
             "file_inclusion",
         ),
-        (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
+        (r"\(\s*[|&]\s*\(\s*[^)(]+=[*]", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_EQUALS_RE, _CTX_LDAP, "ldap"),
         (_LDAP_PAREN_BREAKOUT_RE, _CTX_LDAP, "ldap"),
         (_LDAP_PAREN_CONJUNCTION_RE, _CTX_LDAP, "ldap"),
@@ -1926,7 +1972,7 @@ class SusPatternsManager:
         ),
         (_PATH_TRAVERSAL_ENCODED_DOT_RE, _CTX_PATH_TRAVERSAL, "path_traversal"),
         (
-            _TEMPLATE_MUSTACHE_KEYWORD_CAPPED_RE,
+            _TEMPLATE_CURLY_KEYWORD_RE,
             _CTX_TEMPLATE,
             "template",
         ),
@@ -1942,12 +1988,12 @@ class SusPatternsManager:
             "template",
         ),
         (
-            _TEMPLATE_JSP_EL_DOLLAR_BRACE_CAPPED_RE,
+            _TEMPLATE_DOLLAR_BRACE_CALL_RE,
             _CTX_TEMPLATE,
             "template",
         ),
         (
-            _TEMPLATE_MUSTACHE_MATH_CAPPED_RE,
+            _TEMPLATE_CURLY_CALL_RE,
             _CTX_TEMPLATE,
             "template",
         ),
@@ -1960,7 +2006,8 @@ class SusPatternsManager:
         ),
         (
             _PATH_ONLY_PREFIX_RE
-            + r"[\w-]*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+            + r"(?:(?!config)[\w-])*config[\w-]*"
+            + r"\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
             + _PATH_ONLY_SUFFIX_RE,
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
@@ -2390,10 +2437,14 @@ class SusPatternsManager:
         compiler = state.compiler
 
         if compiler:
-            safe_finder = compiler.create_async_safe_finditer_matcher(
-                pattern, inline_safe=category != "custom"
-            )
-            matches = safe_finder(content)
+            scan_window_matcher = _PATTERN_SCAN_WINDOW_MATCHERS.get(pattern.pattern)
+            if scan_window_matcher is not None:
+                matches = scan_window_matcher(content, pattern)
+            else:
+                safe_finder = compiler.create_async_safe_finditer_matcher(
+                    pattern, inline_safe=category != "custom"
+                )
+                matches = safe_finder(content)
             timeout_threshold = 0.9 * compiler.default_timeout
             if not matches and time.monotonic() - pattern_start >= timeout_threshold:
                 timeout_occurred = True
