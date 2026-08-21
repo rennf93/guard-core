@@ -1098,3 +1098,82 @@ async def test_log4shell_jndi_payload_matched_by_dedicated_pattern_in_url_path(
         threat.get("pattern") == _LOG4SHELL_JNDI_LOOKUP_RE
         for threat in result["threats"]
     )
+
+
+_BACKTICK_WINDOW_OFFSETS = [39, 40, 41, 200, 4096]
+
+
+def _glued_backtick_padded_shell_metacharacter(offset: int) -> str:
+    return "`custom_col`" + "A" * offset + "; echo"
+
+
+def _glued_backtick_padded_no_metacharacter(offset: int) -> str:
+    return "`custom_col`" + "A" * offset
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+async def test_glued_backtick_far_shell_metacharacter_detected_in_request_body(
+    offset: int,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=_glued_backtick_padded_shell_metacharacter(offset),
+        ip_address="203.0.113.9",
+        context="request_body",
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+async def test_glued_backtick_padding_with_no_metacharacter_not_flagged(
+    offset: int,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=_glued_backtick_padded_no_metacharacter(offset),
+        ip_address="198.51.100.4",
+        context="request_body",
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.asyncio
+async def test_glued_backtick_far_metacharacter_bounded_by_intervening_quote() -> None:
+    payload = "`custom_col`" + "'" + "A" * 200 + "; echo"
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+def test_backtick_window_reaches_the_full_gap_when_no_delimiter_present(
+    offset: int,
+) -> None:
+    import re
+
+    from guard_core.handlers.suspatterns_handler import (
+        _GLUED_BACKTICK_CANDIDATE_RE,
+        _backtick_pair_context_window,
+    )
+
+    content = _glued_backtick_padded_no_metacharacter(offset)
+    match = re.search(_GLUED_BACKTICK_CANDIDATE_RE, content)
+    assert match is not None
+    window = _backtick_pair_context_window(content, match.start(), match.end())
+    assert window == content

@@ -433,7 +433,8 @@ _STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE = re.compile(
     r"(?i)\A(?:SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN|VALUES|ORDER\s+BY|"
     r"GROUP\s+BY)\b"
 )
-_BACKTICK_CONTEXT_WINDOW_CHARS = 40
+_BACKTICK_WINDOW_DELIMITER_CHARS = "`'\"\n\r"
+_BACKTICK_WINDOW_DELIMITER_RE = re.compile(r"[`'\"\n\r]")
 
 _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE = re.compile(r"[\s/.;|&$()]")
 _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE = re.compile(r"[/.;|&$()]")
@@ -567,9 +568,21 @@ def _backtick_pair_glued(content: str, start: int, end: int) -> bool:
     return prefix_glued or suffix_glued
 
 
+def _backtick_window_start(content: str, position: int) -> int:
+    index = position
+    while index > 0 and content[index - 1] not in _BACKTICK_WINDOW_DELIMITER_CHARS:
+        index -= 1
+    return index
+
+
+def _backtick_window_end(content: str, position: int) -> int:
+    delimiter = _BACKTICK_WINDOW_DELIMITER_RE.search(content, position)
+    return delimiter.start() if delimiter else len(content)
+
+
 def _backtick_pair_context_window(content: str, start: int, end: int) -> str:
-    window_start = max(0, start - _BACKTICK_CONTEXT_WINDOW_CHARS)
-    window_end = min(len(content), end + _BACKTICK_CONTEXT_WINDOW_CHARS)
+    window_start = _backtick_window_start(content, start)
+    window_end = _backtick_window_end(content, end)
     return content[window_start:window_end]
 
 
@@ -583,8 +596,8 @@ def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
 
 
 def _strong_sql_keyword_glued_to_pair(content: str, start: int, end: int) -> bool:
-    window_start = max(0, start - _BACKTICK_CONTEXT_WINDOW_CHARS)
-    window_end = min(len(content), end + _BACKTICK_CONTEXT_WINDOW_CHARS)
+    window_start = _backtick_window_start(content, start)
+    window_end = _backtick_window_end(content, end)
     prefix = content[window_start:start]
     suffix = content[end:window_end]
     if _STRONG_SQL_KEYWORD_GLUED_PREFIX_RE.search(prefix):
