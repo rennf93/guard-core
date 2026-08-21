@@ -186,6 +186,7 @@ _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON = (
     "unresolved tradeoff, it does not create a new one"
 )
 
+
 def _payload_as_ingested_from_the_wire(raw: bytes) -> str:
     return raw.decode("utf-8", errors="surrogateescape")
 

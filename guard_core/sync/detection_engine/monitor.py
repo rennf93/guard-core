@@ -1,37 +1,40 @@
+import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from statistics import mean, stdev
+from statistics import mean
 from typing import Any
 
-_DEFAULT_RECENT_TIMES_WINDOW = 100
+from .monitor_anomalies import (
+    build_anomaly_event_data,
+    build_callback_error_event_data,
+    detect_slow_execution_anomaly,
+    detect_statistical_anomaly,
+    detect_timeout_anomaly,
+    sanitize_anomaly_data,
+)
+from .monitor_reporting import (
+    build_pattern_report,
+    build_summary_dict,
+    collect_problematic_patterns,
+    collect_slow_patterns,
+    empty_summary,
+    extract_metric_components,
+)
+from .monitor_types import DEFAULT_RECENT_TIMES_WINDOW, PatternStats, PerformanceMetric
 
+_DEFAULT_RECENT_TIMES_WINDOW = DEFAULT_RECENT_TIMES_WINDOW
 
-@dataclass
-class PerformanceMetric:
-    pattern: str
-    execution_time: float
-    content_length: int
-    timestamp: datetime
-    matched: bool
-    timeout: bool = False
+__all__ = [
+    "PatternStats",
+    "PerformanceMetric",
+    "PerformanceMonitor",
+    "DEFAULT_RECENT_TIMES_WINDOW",
+    "_DEFAULT_RECENT_TIMES_WINDOW",
+]
 
-
-@dataclass
-class PatternStats:
-    pattern: str
-    total_executions: int = 0
-    total_matches: int = 0
-    total_timeouts: int = 0
-    avg_execution_time: float = 0.0
-    max_execution_time: float = 0.0
-    min_execution_time: float = float("inf")
-    recent_times: deque[float] = field(
-        default_factory=lambda: deque(maxlen=_DEFAULT_RECENT_TIMES_WINDOW)
-    )
-    last_anomaly_emitted_at: float | None = None
+logger = logging.getLogger("guard_core.sync.detection_engine.monitor")
 
 
 class PerformanceMonitor:
@@ -55,7 +58,7 @@ class PerformanceMonitor:
         )
         self.min_samples_for_anomaly = max(10, min(1000, int(min_samples_for_anomaly)))
         self._recent_times_maxlen = max(
-            self.min_samples_for_anomaly, _DEFAULT_RECENT_TIMES_WINDOW
+            self.min_samples_for_anomaly, DEFAULT_RECENT_TIMES_WINDOW
         )
 
         self.pattern_stats: dict[str, PatternStats] = {}
@@ -122,51 +125,20 @@ class PerformanceMonitor:
     def _detect_timeout_anomaly(
         self, metric: PerformanceMetric
     ) -> dict[str, Any] | None:
-        if metric.timeout:
-            return {
-                "type": "timeout",
-                "pattern": metric.pattern,
-                "content_length": metric.content_length,
-            }
-        return None
+        return detect_timeout_anomaly(metric)
 
     def _detect_slow_execution_anomaly(
         self, metric: PerformanceMetric
     ) -> dict[str, Any] | None:
-        if not metric.timeout and metric.execution_time > self.slow_pattern_threshold:
-            return {
-                "type": "slow_execution",
-                "pattern": metric.pattern,
-                "execution_time": metric.execution_time,
-                "content_length": metric.content_length,
-            }
-        return None
+        return detect_slow_execution_anomaly(metric, self.slow_pattern_threshold)
 
     def _detect_statistical_anomaly(
         self, metric: PerformanceMetric
     ) -> dict[str, Any] | None:
         stats = self.pattern_stats.get(metric.pattern)
-        if not stats or len(stats.recent_times) < self.min_samples_for_anomaly:
-            return None
-
-        recent_times = list(stats.recent_times)
-        avg_time = mean(recent_times)
-        std_time = stdev(recent_times)
-
-        if std_time <= 0:
-            return None
-
-        z_score = (metric.execution_time - avg_time) / std_time
-        if z_score > self.anomaly_threshold:
-            return {
-                "type": "statistical_anomaly",
-                "pattern": metric.pattern,
-                "execution_time": metric.execution_time,
-                "z_score": z_score,
-                "avg_time": avg_time,
-                "std_time": std_time,
-            }
-        return None
+        return detect_statistical_anomaly(
+            metric, stats, self.min_samples_for_anomaly, self.anomaly_threshold
+        )
 
     def _send_anomaly_event(
         self,
@@ -174,33 +146,15 @@ class PerformanceMonitor:
         agent_handler: Any,
         correlation_id: str | None,
     ) -> None:
+        event_data = build_anomaly_event_data(anomaly, correlation_id)
+        event = type("SecurityEvent", (), event_data)()
         try:
-            event_data = {
-                "timestamp": datetime.now(timezone.utc),
-                "event_type": f"pattern_anomaly_{anomaly['type']}",
-                "ip_address": "system",
-                "action_taken": "anomaly_detected",
-                "reason": f"Pattern performance anomaly: {anomaly['type']}",
-                "metadata": {
-                    "component": "PerformanceMonitor",
-                    "correlation_id": correlation_id,
-                    **anomaly,
-                },
-            }
-            event = type("SecurityEvent", (), event_data)()
             agent_handler.send_event(event)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to send anomaly event to agent: %s", e)
 
     def _sanitize_anomaly_data(self, anomaly: dict[str, Any]) -> dict[str, Any]:
-        safe_anomaly = anomaly.copy()
-        if "pattern" in safe_anomaly:
-            pattern = str(safe_anomaly["pattern"])
-            safe_anomaly["pattern"] = (
-                pattern[:50] + "..." if len(pattern) > 50 else pattern
-            )
-            safe_anomaly["pattern_hash"] = str(hash(pattern))[:8]
-        return safe_anomaly
+        return sanitize_anomaly_data(anomaly)
 
     def _send_callback_error_event(
         self,
@@ -209,24 +163,14 @@ class PerformanceMonitor:
         agent_handler: Any,
         correlation_id: str | None,
     ) -> None:
+        event_data = build_callback_error_event_data(
+            error, safe_anomaly, correlation_id
+        )
+        event = type("SecurityEvent", (), event_data)()
         try:
-            event_data = {
-                "timestamp": datetime.now(timezone.utc),
-                "event_type": "detection_engine_callback_error",
-                "ip_address": "system",
-                "action_taken": "logged",
-                "reason": f"Anomaly callback failed: {str(error)}",
-                "metadata": {
-                    "component": "PerformanceMonitor",
-                    "correlation_id": correlation_id,
-                    "callback_error": str(error),
-                    "anomaly_type": safe_anomaly.get("type", "unknown"),
-                },
-            }
-            event = type("SecurityEvent", (), event_data)()
             agent_handler.send_event(event)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to send callback-error event to agent: %s", e)
 
     def _notify_callbacks(
         self,
@@ -297,80 +241,23 @@ class PerformanceMonitor:
         if not stats:
             return None
 
-        safe_pattern = pattern[:50] + "..." if len(pattern) > 50 else pattern
-
-        return {
-            "pattern": safe_pattern,
-            "pattern_hash": str(hash(pattern))[:8],
-            "total_executions": stats.total_executions,
-            "total_matches": stats.total_matches,
-            "total_timeouts": stats.total_timeouts,
-            "match_rate": stats.total_matches / max(stats.total_executions, 1),
-            "timeout_rate": stats.total_timeouts / max(stats.total_executions, 1),
-            "avg_execution_time": round(stats.avg_execution_time, 4),
-            "max_execution_time": round(stats.max_execution_time, 4),
-            "min_execution_time": round(
-                stats.min_execution_time
-                if stats.min_execution_time != float("inf")
-                else 0.0,
-                4,
-            ),
-        }
+        return build_pattern_report(pattern, stats)
 
     def get_slow_patterns(self, limit: int = 10) -> list[dict[str, Any]]:
-        patterns_with_times = [
-            (stats.avg_execution_time, pattern)
-            for pattern, stats in self.pattern_stats.items()
-            if stats.recent_times
-        ]
-
-        patterns_with_times.sort(reverse=True)
-
-        reports = []
-        for _, pattern in patterns_with_times[:limit]:
-            report = self.get_pattern_report(pattern)
-            if report is not None:
-                reports.append(report)
-        return reports
+        return collect_slow_patterns(self.pattern_stats, self.get_pattern_report, limit)
 
     def get_problematic_patterns(self) -> list[dict[str, Any]]:
-        problematic = []
-
-        for pattern, stats in self.pattern_stats.items():
-            if stats.total_executions == 0:
-                continue
-
-            timeout_rate = stats.total_timeouts / stats.total_executions
-
-            if timeout_rate > 0.1:
-                report = self.get_pattern_report(pattern)
-                if report:
-                    report["issue"] = "high_timeout_rate"
-                    problematic.append(report)
-
-            elif stats.avg_execution_time > self.slow_pattern_threshold:
-                report = self.get_pattern_report(pattern)
-                if report:
-                    report["issue"] = "consistently_slow"
-                    problematic.append(report)
-
-        return problematic
+        return collect_problematic_patterns(
+            self.pattern_stats, self.get_pattern_report, self.slow_pattern_threshold
+        )
 
     def _get_empty_summary(self) -> dict[str, Any]:
-        return {
-            "total_executions": 0,
-            "avg_execution_time": 0.0,
-            "timeout_rate": 0.0,
-            "match_rate": 0.0,
-        }
+        return empty_summary()
 
     def _extract_metric_components(
         self,
     ) -> tuple[list[float], int, int]:
-        recent_times = [m.execution_time for m in self.recent_metrics if not m.timeout]
-        timeouts = sum(1 for m in self.recent_metrics if m.timeout)
-        matches = sum(1 for m in self.recent_metrics if m.matched)
-        return recent_times, timeouts, matches
+        return extract_metric_components(self.recent_metrics)
 
     def _build_summary_dict(
         self,
@@ -378,16 +265,13 @@ class PerformanceMonitor:
         timeouts: int,
         matches: int,
     ) -> dict[str, Any]:
-        total_metrics = len(self.recent_metrics)
-        return {
-            "total_executions": total_metrics,
-            "avg_execution_time": mean(recent_times) if recent_times else 0.0,
-            "max_execution_time": max(recent_times) if recent_times else 0.0,
-            "min_execution_time": min(recent_times) if recent_times else 0.0,
-            "timeout_rate": timeouts / total_metrics,
-            "match_rate": matches / total_metrics,
-            "total_patterns": len(self.pattern_stats),
-        }
+        return build_summary_dict(
+            len(self.recent_metrics),
+            len(self.pattern_stats),
+            recent_times,
+            timeouts,
+            matches,
+        )
 
     def get_summary_stats(self) -> dict[str, Any]:
         if not self.recent_metrics:
