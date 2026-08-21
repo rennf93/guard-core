@@ -1,7 +1,20 @@
 import binascii
 import re
+import string
 import unicodedata
 from typing import Any
+
+from guard_core.sync.detection_engine.base64_view import (
+    build_short_base64_additive_view,
+)
+
+_BASE64_DATA_CHARS = frozenset(string.ascii_letters + string.digits + "+/_-")
+_BASE64_SEPARATOR_CHARS = "".join(
+    chr(byte) for byte in range(0x80) if chr(byte) not in _BASE64_DATA_CHARS
+) + "".join(chr(codepoint) for codepoint in range(0xDC80, 0xDD00))
+_BASE64_WIDENED_SEPARATOR_CHARS = (
+    "".join(char for char in _BASE64_SEPARATOR_CHARS if char not in "\r\n=") + "_-"
+)
 
 
 class ContentPreprocessor:
@@ -58,16 +71,31 @@ class ContentPreprocessor:
         ]
 
     _MIN_BASE64_RUN_LENGTH = 12
+    _BASE64_DATA_ALPHABET = "A-Za-z0-9+/_\\-"
+    _BASE64_RUN_UNIT = (
+        rf"[{_BASE64_DATA_ALPHABET}][{re.escape(_BASE64_SEPARATOR_CHARS)}]*"
+    )
     _BASE64_RE = re.compile(
-        rf"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){{{_MIN_BASE64_RUN_LENGTH},}}"
-        r"={0,2}(?![A-Za-z0-9+/=])"
+        rf"(?<![{_BASE64_DATA_ALPHABET}])(?:"
+        rf"(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH},}}={{0,2}}"
+        rf"|(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH - 1},}}="
+        rf"|(?:{_BASE64_RUN_UNIT}){{{_MIN_BASE64_RUN_LENGTH - 2},}}=="
+        rf")(?![{_BASE64_DATA_ALPHABET}=])"
     )
-    _BASE64_RUN_RE = re.compile(rf"[A-Za-z0-9+/=]{{{_MIN_BASE64_RUN_LENGTH},}}")
+    _BASE64_RUN_RE = re.compile(
+        rf"(?<![{_BASE64_DATA_ALPHABET}])[{_BASE64_DATA_ALPHABET}]{{{_MIN_BASE64_RUN_LENGTH},}}"
+        rf"={{0,2}}(?![{_BASE64_DATA_ALPHABET}=])"
+    )
     _BASE64_SUB_FLOOR_RUN_RE = re.compile(
-        rf"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{{1,{_MIN_BASE64_RUN_LENGTH - 1}}}"
-        r"(?![A-Za-z0-9+/=])"
+        rf"(?<![{_BASE64_DATA_ALPHABET}])"
+        rf"[{_BASE64_DATA_ALPHABET}]{{1,{_MIN_BASE64_RUN_LENGTH - 1}}}"
+        rf"(?![{_BASE64_DATA_ALPHABET}])"
     )
-    _BASE64_WHITESPACE_RE = re.compile(r"[\r\n]+")
+    _BASE64_WHITESPACE_RE = re.compile(rf"[{re.escape(_BASE64_SEPARATOR_CHARS)}]+")
+    _BASE64_URLSAFE_TRANSLATION = str.maketrans("-_", "+/")
+    _BASE64_WIDENED_CANDIDATE_MARKER_RE = re.compile(
+        rf"[{re.escape(_BASE64_WIDENED_SEPARATOR_CHARS)}]"
+    )
     _GZIP_MAGIC = b"\x1f\x8b"
     _MAX_GUNZIP_OUTPUT_BYTES = 8192
     _MAX_GUNZIP_ATTEMPTS_PER_PASS = 8
@@ -332,10 +360,7 @@ class ContentPreprocessor:
         if gunzip_attempts_left is None:
             gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
 
-        def _decode_token(token: str, min_printable_ratio: float) -> str | None:
-            if self._is_hex_literal(token):
-                return None
-            cleaned = self._BASE64_WHITESPACE_RE.sub("", token)
+        def _decode_cleaned(cleaned: str, min_printable_ratio: float) -> str | None:
             padding = (4 - len(cleaned) % 4) % 4
             padded = cleaned + "=" * padding
             try:
@@ -360,6 +385,21 @@ class ContentPreprocessor:
                 return decoded
             return None
 
+        def _decode_token(token: str, min_printable_ratio: float) -> str | None:
+            if self._is_hex_literal(token):
+                return None
+            cleaned = self._BASE64_WHITESPACE_RE.sub("", token)
+            urlsafe_decoded = _decode_cleaned(
+                cleaned.translate(self._BASE64_URLSAFE_TRANSLATION), min_printable_ratio
+            )
+            if urlsafe_decoded is not None:
+                return urlsafe_decoded
+            if "-" in cleaned or "_" in cleaned:
+                return _decode_cleaned(
+                    cleaned.replace("-", "").replace("_", ""), min_printable_ratio
+                )
+            return None
+
         def _decode_runs(token: str) -> str:
             def _replace_run(match: re.Match[str]) -> str:
                 segment = match.group(0)
@@ -372,7 +412,12 @@ class ContentPreprocessor:
 
         def _replace(match: re.Match[str]) -> str:
             token = match.group(0)
-            decoded = _decode_token(token, self._PRINTABLE_RATIO_THRESHOLD)
+            primary_threshold = (
+                self._FALLBACK_PRINTABLE_RATIO_THRESHOLD
+                if self._BASE64_WIDENED_CANDIDATE_MARKER_RE.search(token)
+                else self._PRINTABLE_RATIO_THRESHOLD
+            )
+            decoded = _decode_token(token, primary_threshold)
             base = decoded if decoded is not None else _decode_runs(token)
             fragments = "".join(self._BASE64_SUB_FLOOR_RUN_RE.findall(token))
             reassembled = (
@@ -567,6 +612,9 @@ class ContentPreprocessor:
         content = self.normalize_unicode(content)
         content = self.decode_common_encodings(content)
         return self.truncate_safely(content)
+
+    def preprocess_short_base64_additive_view(self, content: str) -> str:
+        return build_short_base64_additive_view(self, content)
 
     def preprocess_batch(self, contents: list[str]) -> list[str]:
         return [self.preprocess(content) for content in contents]

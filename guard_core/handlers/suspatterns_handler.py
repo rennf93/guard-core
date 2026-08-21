@@ -2434,6 +2434,36 @@ class SusPatternsManager:
             url_decoded_view_only=True,
         )
 
+    async def _check_short_base64_additive_view_patterns(
+        self,
+        content: str,
+        ip_address: str,
+        context: str,
+        correlation_id: str | None,
+        enabled_categories: set[str] | None,
+        state: _DetectionState,
+    ) -> tuple[list[dict], list[str], list[str]]:
+        preprocessor = state.preprocessor
+        if not preprocessor:
+            return [], [], []
+        if self._normalize_context(context) not in ("request_body", "query_param"):
+            return [], [], []
+
+        additive_view_content = preprocessor.preprocess_short_base64_additive_view(
+            content
+        )
+        if not additive_view_content:
+            return [], [], []
+
+        return await self._check_regex_patterns(
+            additive_view_content,
+            ip_address,
+            correlation_id,
+            context,
+            enabled_categories,
+            state=state,
+        )
+
     async def detect(
         self,
         content: str,
@@ -2484,6 +2514,17 @@ class SusPatternsManager:
         regex_threats = regex_threats + url_decoded_threats
         matched_patterns = matched_patterns + url_decoded_matched
         timeouts = timeouts + url_decoded_timeouts
+
+        (
+            short_base64_threats,
+            short_base64_matched,
+            short_base64_timeouts,
+        ) = await self._check_short_base64_additive_view_patterns(
+            content, ip_address, context, correlation_id, enabled_categories, state
+        )
+        regex_threats = regex_threats + short_base64_threats
+        matched_patterns = matched_patterns + short_base64_matched
+        timeouts = timeouts + short_base64_timeouts
 
         semantic_threats, semantic_score = await self._check_semantic_threats(
             processed_content, state=state, raw_content=original_content

