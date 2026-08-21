@@ -692,6 +692,23 @@ _BRACE_EXPANSION_COMMAND_RE = (
     + _BRACE_EXPANSION_ITEM_RE
     + r")?)+\}"
 )
+_BRACE_EXPANSION_WORD_ITEM_RE = re.compile(r"\A[A-Za-z0-9_./~-]+\Z")
+_BRACE_EXPANSION_LETTER_RE = re.compile(r"[A-Za-z]")
+
+
+def _brace_expansion_is_dangerous_command(match: re.Match) -> bool:
+    text = match.group()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return False
+    for item in text[start + 1 : end].split(","):
+        if _BRACE_EXPANSION_WORD_ITEM_RE.match(
+            item
+        ) and _BRACE_EXPANSION_LETTER_RE.search(item):
+            return True
+    return False
+
 
 _QUOTE_SPLICE_CANDIDATE_RE = r"\w+(?:['\"]+\w+){1,10}"
 _QUOTE_SPLICE_CANDIDATE_COMPILED_RE = re.compile(
@@ -741,7 +758,7 @@ def _backtick_token_has_chained_shell_operators(token: str) -> bool:
 
 
 _SHELL_METACHARACTER_WINDOW_RE = re.compile(
-    r"(?:;|\|\||\||&&)\s*(?:`|[\w./-]+(?:`|\s+[/.~-]))|\$\(|\$\{"
+    r"(?:;|\|\||\||&&)\s*(?:`|[A-Za-z_][\w-]*|[~./][\w./-]*|-[\w-]*)|\$\(|\$\{"
 )
 
 
@@ -851,17 +868,43 @@ def _quote_splice_token_is_dangerous_command(match: re.Match) -> bool:
 
 
 _GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE = re.compile(r"(?:;|\|\||\||&&|\$\(|`)\s*\Z")
+_GLOB_WILDCARD_VALUE_START_CONTEXTS = frozenset({"request_body"})
+_GLOB_WILDCARD_LETTER_RE = re.compile(r"[A-Za-z]")
+_GLOB_WILDCARD_COMMAND_SUFFIX_CHARS = " \t\r\n;|&"
 
 
-def _glob_wildcard_token_is_dangerous_command(match: re.Match) -> bool:
-    basename = match.group().rsplit("/", 1)[-1]
-    literal_chars = basename.replace("?", "").replace("*", "")
-    if not literal_chars:
+def _glob_wildcard_token_is_word_shaped(token: str) -> bool:
+    for wildcard in _GLOB_WILDCARD_CHAR_RE.finditer(token):
+        index = wildcard.start()
+        left = 0
+        position = index - 1
+        while position >= 0 and _GLOB_WILDCARD_LETTER_RE.match(token, position):
+            left += 1
+            position -= 1
+        right = 0
+        position = index + 1
+        while position < len(token) and _GLOB_WILDCARD_LETTER_RE.match(token, position):
+            right += 1
+            position += 1
+        if left + right >= 2:
+            return True
+    return False
+
+
+def _glob_wildcard_token_is_dangerous_command(
+    match: re.Match, context: str = "unknown"
+) -> bool:
+    if not _glob_wildcard_token_is_word_shaped(match.group()):
         return False
-    if "*" in basename and len(literal_chars) < 2:
+    suffix = match.string[match.end() : match.end() + 1]
+    if suffix and suffix not in _GLOB_WILDCARD_COMMAND_SUFFIX_CHARS:
         return False
     prefix = match.string[: match.start()]
-    return bool(_GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE.search(prefix))
+    if _GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE.search(prefix):
+        return True
+    if context in _GLOB_WILDCARD_VALUE_START_CONTEXTS:
+        return not prefix.strip()
+    return False
 
 
 class _PickleOpcodePrefixResolutionBlocked(Exception):
@@ -1301,12 +1344,16 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
     (_GLUED_BACKTICK_CANDIDATE_RE, _glued_backtick_pair_is_injection),
     (_GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE, _dollar_substitution_pair_is_injection),
     (
+        _BRACE_EXPANSION_COMMAND_RE,
+        lambda m, _c: _brace_expansion_is_dangerous_command(m),
+    ),
+    (
         _QUOTE_SPLICE_CANDIDATE_RE,
         lambda m, _c: _quote_splice_token_is_dangerous_command(m),
     ),
     (
         _GLOB_WILDCARD_ATOM_RE,
-        lambda m, _c: _glob_wildcard_token_is_dangerous_command(m),
+        _glob_wildcard_token_is_dangerous_command,
     ),
     (_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE, _pickle_global_candidate_is_injection),
 )
