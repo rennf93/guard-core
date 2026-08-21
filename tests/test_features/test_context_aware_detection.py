@@ -22,12 +22,9 @@ def test_normalize_context_strips_suffix() -> None:
 
 def test_normalize_context_strips_colon_joined_nested_json_field() -> None:
     assert (
-        SusPatternsManager._normalize_context("request_body:username")
-        == "request_body"
+        SusPatternsManager._normalize_context("request_body:username") == "request_body"
     )
-    assert (
-        SusPatternsManager._normalize_context("url_path:username") == "url_path"
-    )
+    assert SusPatternsManager._normalize_context("url_path:username") == "url_path"
 
 
 def test_normalize_context_dot_joined_nested_field_degrades_to_unknown() -> None:

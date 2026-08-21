@@ -7,6 +7,8 @@ from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
     _DEFAULT_MAX_SCAN_LENGTH,
     _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
+    _PATTERN_SCAN_WINDOW_MATCHERS,
+    _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
 )
@@ -25,7 +27,11 @@ def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validato
     pc = PatternCompiler()
     bad = []
     for pat, _c, cat in SusPatternsManager._pattern_definitions:
-        if pat in _WINDOWED_PATTERN_FINDERS:
+        if (
+            pat in _WINDOWED_PATTERN_FINDERS
+            or pat in _PATTERN_SCAN_WINDOW_MATCHERS
+            or pat in _SCAN_WINDOW_PATTERNS
+        ):
             continue
         if pat in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX:
             continue

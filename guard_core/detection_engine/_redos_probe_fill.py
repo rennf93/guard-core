@@ -28,7 +28,8 @@ def _repeat_probe_to_length(unit: str, length: int) -> str:
         return unit
     reps = length // len(unit) + 1
     result = (unit * reps)[:length]
-    if length % len(unit) == 0:
+    homogeneous_unit = len(set(unit)) <= 1
+    if homogeneous_unit or length % len(unit) == 0:
         result = result[:-1] + _REACH_PROBE_STRAY_BYTE
     return result
 

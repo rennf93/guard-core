@@ -619,6 +619,15 @@ def _template_curly_call_scan_matches(
     )
 
 
+_TEMPLATE_PERCENT_KEYWORD_RE = (
+    r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}"
+)
+_TEMPLATE_ASP_KEYWORD_RE = (
+    r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
+    r"|\d+\s*[-+*/]\s*\d+)[^%]*%>"
+)
+
+
 _PATTERN_SCAN_WINDOW_MATCHERS: dict[
     str, Callable[[str, re.Pattern], list[re.Match]]
 ] = {
@@ -667,65 +676,10 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
 
 _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX: frozenset[str] = frozenset(
     {
-        r"<script[^>]*>[^<]*<\/script\s*>",
-        r"(?:<[^<>]*(?<!=)(?<!=\")(?<!=')[\s/]+on\w+\s*="
-        r"(?:[\"'][^\"']*[\"']|[^\s>]+))",
-        r"(?:<object[^>]*>[\s\S]*<\/object\s*>)",
-        r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)",
-        r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)",
-        r"(?:[;&|]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
-        r"(?i)(?:LOAD_FILE\s*\([^)]+\))",
-        r"\.\.;[^/\\]*[/\\]",
-        r"(?:<!\[CDATA\[.*?\]\]>)",
-        r"\(\s*[|&]\s*\(\s*[^)]+=[*]",
-        _PATH_ONLY_PREFIX_RE
-        + r"[\w-]*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
-        + _PATH_ONLY_SUFFIX_RE,
-        r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*(?:bash|sh|"
-        r"ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
-        r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*\.(?:phtml|php[3-5]?|"
-        r"phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])",
-        r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>",
-        r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY",
-        r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
-        r"|\d+\s*[-+*/]\s*\d+)[^%]*%>",
-        _SSTI_HASH_BRACE_SHAPE_RE,
-        r"(?:<[^<>]*\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
-        r"vbscript|data):)",
-        r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}",
-        r"(?i)filename=[\"'].*?\.(?:php\d*|phtml|shtml|asax|ascx|ashx|asmx|aspx|"
-        r"bash|jspx|phar|phps|asa|asp|bat|cer|cfc|cfm|cgi|cmd|com|exe|hta|jsp|"
-        r"msi|pht|vbe|vbs|war|wsf|js|pl|py|rb|sh|ws)[\"\']",
-        r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}",
-        r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}",
-        r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}",
-        r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|['\"]?\d+['\"]?\s*[*/%+\-]"
-        r"\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}",
-        _PATH_ONLY_PREFIX_RE + r"[\w.\-~%]*\.map" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE + r"\.(?:git|svn|hg|bzr)" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db|\.npmrc|\.dockerenv"
-        r"|web\.config)" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"(?:actuator|server-status|telescope)"
-        + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"(?:geoserver|confluence|nifi|ScadaBR|pandora_console|centreon|kylin"
-        r"|decisioncenter|evox|MagicInfo|metasys|officescan|helpdesk|ignite)"
-        r"(?:[.\-][\w.\-~%]*)?" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE + r"cgi-(?:bin|mod)" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)"
-        + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE + r"(?:language|languages)" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"(?:sap|ise|nidp|cslu|rustfs|developmentserver|fog/management|lms/db"
-        r"|json/login_session|sms_mp|plugin/webs_model|wsman|am_bin)"
-        + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE + r"\.(?:openclaw|clawdbot)" + _PATH_ONLY_SUFFIX_RE,
-        _PATH_ONLY_PREFIX_RE
-        + r"\.git/(?:refs|index|HEAD|objects|logs)"
-        + _PATH_ONLY_SUFFIX_RE,
+        _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
+        _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
+        _TEMPLATE_PERCENT_KEYWORD_RE,
+        _TEMPLATE_ASP_KEYWORD_RE,
     }
 )
 
@@ -2156,13 +2110,12 @@ class SusPatternsManager:
             "template",
         ),
         (
-            r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}",
+            _TEMPLATE_PERCENT_KEYWORD_RE,
             _CTX_TEMPLATE,
             "template",
         ),
         (
-            r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
-            r"|\d+\s*[-+*/]\s*\d+)[^%]*%>",
+            _TEMPLATE_ASP_KEYWORD_RE,
             _CTX_TEMPLATE,
             "template",
         ),

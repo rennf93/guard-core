@@ -46,6 +46,8 @@ from guard_core.detection_engine._redos_unreachable_terminator import (
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
     _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
+    _PATTERN_SCAN_WINDOW_MATCHERS,
+    _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
     SusPatternsManager,
     sus_patterns_handler,
@@ -177,7 +179,11 @@ def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
     compiler = PatternCompiler()
     rejected = set()
     for pattern, _ctx, _category in SusPatternsManager._pattern_definitions:
-        if pattern in _WINDOWED_PATTERN_FINDERS:
+        if (
+            pattern in _WINDOWED_PATTERN_FINDERS
+            or pattern in _PATTERN_SCAN_WINDOW_MATCHERS
+            or pattern in _SCAN_WINDOW_PATTERNS
+        ):
             continue
         is_safe, _reason = compiler.validate_pattern_safety(pattern)
         if not is_safe:
@@ -650,7 +656,6 @@ def test_validate_pattern_safety_rejects_bounded_mandatory_optional_pair() -> No
 def test_validate_pattern_safety_accepts_disjoint_and_fixed_length_corpus() -> None:
     compiler = PatternCompiler()
     safe_patterns = [
-        r"\d+abc",
         r"(?:[/\\][\w.\-~%]*)*",
         r"(?:[\w.\-~%]+[/\\])*",
         r"BadBot|EvilCrawler",
@@ -659,6 +664,13 @@ def test_validate_pattern_safety_accepts_disjoint_and_fixed_length_corpus() -> N
     for pattern in safe_patterns:
         is_safe, reason = compiler.validate_pattern_safety(pattern)
         assert is_safe is True, f"{pattern} was rejected: {reason}"
+
+
+def test_validate_pattern_safety_rejects_quantifier_before_disjoint_literal() -> None:
+    compiler = PatternCompiler()
+    for pattern in (r"\d+abc", r"(ab{2})+$"):
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is False, f"{pattern} was accepted: {reason}"
 
 
 def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
@@ -704,13 +716,6 @@ def test_validate_pattern_safety_rejects_single_bounded_variable_atom() -> None:
         assert "ambiguous optional tail" in reason.lower(), (pattern, reason)
 
 
-def test_validate_pattern_safety_accepts_fixed_count_single_and_paired_atoms() -> None:
-    compiler = PatternCompiler()
-    for pattern in (r"(\d{2})+$", r"(ab{2})+$"):
-        is_safe, reason = compiler.validate_pattern_safety(pattern)
-        assert is_safe is True, f"{pattern} was rejected: {reason}"
-
-
 def test_validate_pattern_safety_rejects_nested_and_named_group_wrapping() -> None:
     compiler = PatternCompiler()
     for pattern in (
@@ -743,16 +748,22 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
     for pattern, unit in _CAP_AWARE_CANARIES:
         probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
         samples = _time_reach_probes_subprocess(pattern, probes)
-        assert samples is not None, f"{pattern}: probe subprocess did not complete"
-        over_at_body_cap, extrapolated, ratio, min_32, median_32 = (
-            _reach_probe_verdict_from_samples(samples, _PATTERN_SAFETY_DEFAULT_CAP)
-        )
-        measurement = (
-            f"{pattern} unit={unit!r}: growth ratio {ratio:.2f}x per doubling, "
-            f"CPU time at 32000 chars min={min_32:.4f}s median={median_32:.4f}s, "
-            f"extrapolated to body cap ({_PATTERN_SAFETY_DEFAULT_CAP} chars) = "
-            f"{extrapolated:.3f}s"
-        )
+        if samples is None:
+            over_at_body_cap = True
+            measurement = (
+                f"{pattern} unit={unit!r}: probe subprocess did not complete "
+                "within its own budget, treated as over-budget (fail closed)"
+            )
+        else:
+            over_at_body_cap, extrapolated, ratio, min_32, median_32 = (
+                _reach_probe_verdict_from_samples(samples, _PATTERN_SAFETY_DEFAULT_CAP)
+            )
+            measurement = (
+                f"{pattern} unit={unit!r}: growth ratio {ratio:.2f}x per doubling, "
+                f"CPU time at 32000 chars min={min_32:.4f}s median={median_32:.4f}s, "
+                f"extrapolated to body cap ({_PATTERN_SAFETY_DEFAULT_CAP} chars) = "
+                f"{extrapolated:.3f}s"
+            )
 
         is_safe_body, reason_body = compiler.validate_pattern_safety(
             pattern, max_content_length=_PATTERN_SAFETY_DEFAULT_CAP
@@ -760,6 +771,9 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
         assert is_safe_body is (not over_at_body_cap), (
             f"{measurement}; validator said safe={is_safe_body} ({reason_body})"
         )
+
+        if samples is None:
+            continue
 
         is_safe_ua, reason_ua = compiler.validate_pattern_safety(
             pattern, max_content_length=_MAX_USER_AGENT_MATCH_LENGTH

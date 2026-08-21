@@ -15,6 +15,7 @@ from guard_core.handlers.suspatterns_handler import (
     _GLOB_WILDCARD_ATOM_RE,
     _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
     _PATTERN_SCAN_WINDOW_MATCHERS,
+    _SCAN_WINDOW_PATTERNS,
     _SQLI_LOAD_FILE_RE,
     _TEMPLATE_CURLY_CALL_RE,
     _TEMPLATE_CURLY_KEYWORD_RE,
@@ -161,6 +162,8 @@ _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS = [
     (pat, ctx, cat)
     for pat, ctx, cat in SusPatternsManager._pattern_definitions
     if pat not in _WINDOWED_PATTERN_FINDERS
+    and pat not in _PATTERN_SCAN_WINDOW_MATCHERS
+    and pat not in _SCAN_WINDOW_PATTERNS
 ]
 
 

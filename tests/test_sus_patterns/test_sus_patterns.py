@@ -307,12 +307,12 @@ async def test_regex_timeout_fallback() -> None:
         mock_shared_executor.return_value.submit.return_value = mock_future
 
         with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
-            matched, pattern = await manager.detect_pattern_match(
-                evil_content, "127.0.0.1", "test_timeout"
-            )
+            result = await manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
-            assert not matched
-            assert pattern is None
+            assert result["is_threat"] is True
+            assert any(
+                threat["type"] == "pattern_timeout" for threat in result["threats"]
+            )
 
             mock_logger.warning.assert_called()
             warning_msg = mock_logger.warning.call_args[0][0]
