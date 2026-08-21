@@ -333,6 +333,12 @@ def test_block_user_agents() -> None:
     assert "badbot" in rc.blocked_user_agents
 
 
+def test_block_user_agents_rejects_catastrophic_pattern() -> None:
+    d = _decorator()
+    with pytest.raises(ValueError, match="rejected by ReDoS validator"):
+        d.block_user_agents([r"(?:a+)+$"])
+
+
 def test_content_type_filter() -> None:
     d = _decorator()
     decorated = d.content_type_filter(["application/json"])(_sample_func)

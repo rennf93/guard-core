@@ -9,7 +9,7 @@ from guard_core.detection_engine import (
 def test_pattern_compiler() -> None:
     compiler = PatternCompiler()
 
-    safe_pattern = r"<script[^>]*>"
+    safe_pattern = r"\d{3}-\d{3}-\d{4}"
     is_safe, reason = compiler.validate_pattern_safety(safe_pattern)
     assert is_safe is True
 

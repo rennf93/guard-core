@@ -1,6 +1,6 @@
 import logging
 from ipaddress import ip_address
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,6 +21,7 @@ from guard_core.sync.core.checks.helpers import (
     is_referrer_domain_allowed,
 )
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.detection_engine.compiler import PatternCompiler
 
 
 def test_is_ip_in_blacklist_exact_match() -> None:
@@ -295,8 +296,6 @@ def test_get_detection_disabled_reason_not_enabled() -> None:
 
 
 def test_detect_penetration_patterns_enabled() -> None:
-    from unittest.mock import patch
-
     from guard_core.sync.detection_result import DetectionResult
 
     config = SecurityConfig(enable_redis=False, enable_penetration_detection=True)
@@ -366,7 +365,6 @@ def test_check_user_agent_allowed_route_blocklist_no_match() -> None:
     config = SecurityConfig(blocked_user_agents=[])
     route_config = RouteConfig()
     route_config.blocked_user_agents = ["badbot"]
-    # User agent doesn't match the route pattern, falls through to global check.
     assert check_user_agent_allowed("Mozilla/5.0", route_config, config) is True
 
 
@@ -406,3 +404,41 @@ def test_log_exception_safely_falls_back_to_module_logger_when_logger_raises(
     ]
     assert len(fallback_records) == 1
     assert fallback_records[0].getMessage() == "escalation failed for 9.9.9.9"
+
+
+def test_check_user_agent_allowed_route_blocklist_uses_inline_safe_path() -> None:
+    captured: list[bool] = []
+    original = PatternCompiler.create_async_safe_finditer_matcher
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> object:
+        captured.append(inline_safe)
+        return original(self, pattern, timeout=timeout, inline_safe=inline_safe)
+
+    rc = RouteConfig()
+    rc.blocked_user_agents = ["badbot"]
+    config = SecurityConfig(blocked_user_agents=[])
+    with patch.object(PatternCompiler, "create_async_safe_finditer_matcher", _spy):
+        result = check_user_agent_allowed("badbot/1.0", rc, config)
+
+    assert result is False
+    assert captured == [True]
+
+
+def test_check_user_agent_allowed_route_blocklist_caps_subject_length() -> None:
+    from guard_core.sync.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    marker = "zzq_route_ua_length_cap_marker_zzq"
+    rc = RouteConfig()
+    rc.blocked_user_agents = [marker]
+    config = SecurityConfig(blocked_user_agents=[])
+
+    beyond_cap = "a" * _MAX_USER_AGENT_MATCH_LENGTH + marker
+    within_cap = marker + "a" * 10
+
+    assert check_user_agent_allowed(beyond_cap, rc, config) is True
+    assert check_user_agent_allowed(within_cap, rc, config) is False

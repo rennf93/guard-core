@@ -64,6 +64,7 @@ from guard_core.sync._utils.detection_result_builders import (
     _threat_score,
 )
 from guard_core.sync._utils.detection_scan import (
+    _MAX_USER_AGENT_MATCH_LENGTH,
     _build_threat_message,
     _check_always_scan_header,
     _check_json_fields,
@@ -73,6 +74,7 @@ from guard_core.sync._utils.detection_scan import (
     _log_detected_component,
     _scan_component_name,
     _try_check_json_value,
+    _user_agent_matches_blocked_pattern,
 )
 from guard_core.sync._utils.ip_extraction import (
     _canonical_ip_text,
@@ -111,6 +113,7 @@ __all__ = [
     "_DEFAULT_EXCLUDED_HEADERS",
     "_GENERIC_LIST_BLOCK_REASON",
     "_MAX_STRADDLE_OVERLAP_BYTES",
+    "_MAX_USER_AGENT_MATCH_LENGTH",
     "_MONGO_OPERATOR_KEY_RE",
     "_build_detection_hit",
     "_build_detection_miss",
@@ -172,6 +175,7 @@ __all__ = [
     "_threat_category",
     "_threat_score",
     "_try_check_json_value",
+    "_user_agent_matches_blocked_pattern",
     "_warn_forwarded_header_preempted",
     "IpAccessResult",
     "JsonFormatter",

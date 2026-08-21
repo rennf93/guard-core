@@ -1,9 +1,9 @@
 import logging
-import re
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Any
 
+from guard_core.sync._utils.detection_scan import _user_agent_matches_blocked_pattern
 from guard_core.sync._utils.ip_extraction import _canonicalize_ip
 from guard_core.sync._utils.logging_utils import _log_at_level
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
@@ -13,10 +13,10 @@ logger = logging.getLogger("guard_core")
 
 
 def is_user_agent_allowed(user_agent: str, config: Any) -> bool:
-    for pattern in config.blocked_user_agents:
-        if re.search(pattern, user_agent, re.IGNORECASE):
-            return False
-    return True
+    blocked = _user_agent_matches_blocked_pattern(
+        user_agent, config.blocked_user_agents
+    )
+    return not blocked
 
 
 def _extract_ip_from_request(request: str | SyncGuardRequest) -> str:

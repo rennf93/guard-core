@@ -74,7 +74,24 @@ def _build_threat_message(threat: dict[str, Any]) -> str:
         attack_type = threat.get("attack_type", "suspicious")
         score = threat.get("probability", threat.get("threat_score", 0))
         return f"Semantic attack: {attack_type} (score: {score:.2f})"
+    elif threat["type"] == "pattern_timeout":
+        return f"Pattern exceeded scan time budget: '{threat['pattern']}'"
     return "Threat detected"
+
+
+_MAX_USER_AGENT_MATCH_LENGTH = 512
+
+
+def _user_agent_matches_blocked_pattern(user_agent: str, patterns: list[str]) -> bool:
+    from guard_core.sync.detection_engine.compiler import PatternCompiler
+
+    subject = user_agent[:_MAX_USER_AGENT_MATCH_LENGTH]
+    compiler = PatternCompiler()
+    for pattern in patterns:
+        finder = compiler.create_async_safe_finditer_matcher(pattern, inline_safe=True)
+        if finder(subject):
+            return True
+    return False
 
 
 def _fallback_pattern_check(value: str) -> tuple[bool, str]:

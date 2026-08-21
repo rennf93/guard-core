@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import functools
 import io
 import ipaddress
 import logging
@@ -29,6 +30,7 @@ logger = logging.getLogger("guard_core.handlers.suspatterns")
 
 _DEFAULT_MAX_SCAN_LENGTH = 10000
 _DEFAULT_COMPILER_TIMEOUT = 2.0
+_DEFAULT_MAX_BODY_INSPECT_BYTES = 262144
 
 _ENHANCED_CONFIG_REQUIRED_ATTRS = (
     "detection_compiler_timeout",
@@ -132,6 +134,16 @@ _PATH_ONLY_PREFIX_RE = (
     rf"\A{_PATH_ONLY_SEP_RE}?(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
 )
 _PATH_ONLY_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}*)*(?:\?\S*)?\s*\Z"
+
+
+def _path_only_pattern(required: str, trailing: str = "") -> str:
+    return (
+        rf"\A{_PATH_ONLY_SEP_RE}?"
+        rf"(?:(?!{required}(?:{_PATH_ONLY_SEP_RE}|\Z))"
+        rf"{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+        rf"{required}{trailing}{_PATH_ONLY_SUFFIX_RE}"
+    )
+
 
 _NESTED_TOP_LEVEL_PATH_PREFIX_RE = (
     rf"\A{_PATH_ONLY_SEP_RE}(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
@@ -651,6 +663,70 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _FILE_UPLOAD_DECODED_TRUNCATION_RE,
         _LDAP_NULL_BYTE_DECODED_ATTR_RE,
         _LDAP_NULL_BYTE_DECODED_BARE_RE,
+    }
+)
+
+_KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX: frozenset[str] = frozenset(
+    {
+        r"<script[^>]*>[^<]*<\/script\s*>",
+        r"(?:<[^<>]*(?<!=)(?<!=\")(?<!=')[\s/]+on\w+\s*="
+        r"(?:[\"'][^\"']*[\"']|[^\s>]+))",
+        r"(?:<object[^>]*>[\s\S]*<\/object\s*>)",
+        r"(?:<embed[^>]*>[\s\S]*<\/embed\s*>)",
+        r"(?:<applet[^>]*>[\s\S]*<\/applet\s*>)",
+        r"(?:[;&|]\s*(?:\$\([^)]+\)|\$\{[^}]+\}))",
+        r"(?i)(?:LOAD_FILE\s*\([^)]+\))",
+        r"\.\.;[^/\\]*[/\\]",
+        r"(?:<!\[CDATA\[.*?\]\]>)",
+        r"\(\s*[|&]\s*\(\s*[^)]+=[*]",
+        _PATH_ONLY_PREFIX_RE
+        + r"[\w-]*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+        + _PATH_ONLY_SUFFIX_RE,
+        r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*(?:bash|sh|"
+        r"ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
+        r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*\.(?:phtml|php[3-5]?|"
+        r"phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])",
+        r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>",
+        r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY",
+        r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
+        r"|\d+\s*[-+*/]\s*\d+)[^%]*%>",
+        _SSTI_HASH_BRACE_SHAPE_RE,
+        r"(?:<[^<>]*\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
+        r"vbscript|data):)",
+        r"[\w./*?-]{0,100}[?*][\w./*?-]{0,100}",
+        r"(?i)filename=[\"'].*?\.(?:php\d*|phtml|shtml|asax|ascx|ashx|asmx|aspx|"
+        r"bash|jspx|phar|phps|asa|asp|bat|cer|cfc|cfm|cgi|cmd|com|exe|hta|jsp|"
+        r"msi|pht|vbe|vbs|war|wsf|js|pl|py|rb|sh|ws)[\"\']",
+        r"\{\{\s*[^\}]{1,256}(?:system|exec|popen|eval|require|include)\s*\}\}",
+        r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}",
+        r"\$\{[^}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|\d+\s*[*/%+\-]\s*\d+)[^}]{0,256}\}",
+        r"\{\{\s*[^\}]{0,256}(?:@[\w.]+@|\b\w+\s*\(|['\"]?\d+['\"]?\s*[*/%+\-]"
+        r"\s*['\"]?\d+['\"]?)[^\}]{0,256}\}\}",
+        _PATH_ONLY_PREFIX_RE + r"[\w.\-~%]*\.map" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE + r"\.(?:git|svn|hg|bzr)" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db|\.npmrc|\.dockerenv"
+        r"|web\.config)" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"(?:actuator|server-status|telescope)"
+        + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"(?:geoserver|confluence|nifi|ScadaBR|pandora_console|centreon|kylin"
+        r"|decisioncenter|evox|MagicInfo|metasys|officescan|helpdesk|ignite)"
+        r"(?:[.\-][\w.\-~%]*)?" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE + r"cgi-(?:bin|mod)" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)"
+        + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE + r"(?:language|languages)" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"(?:sap|ise|nidp|cslu|rustfs|developmentserver|fog/management|lms/db"
+        r"|json/login_session|sms_mp|plugin/webs_model|wsman|am_bin)"
+        + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE + r"\.(?:openclaw|clawdbot)" + _PATH_ONLY_SUFFIX_RE,
+        _PATH_ONLY_PREFIX_RE
+        + r"\.git/(?:refs|index|HEAD|objects|logs)"
+        + _PATH_ONLY_SUFFIX_RE,
     }
 )
 
@@ -1449,6 +1525,20 @@ def _build_regex_threat(
     }
 
 
+def _build_timeout_threat(
+    pattern: re.Pattern, category: str, pattern_start: float
+) -> dict[str, Any]:
+    return {
+        "type": "pattern_timeout",
+        "pattern": pattern.pattern,
+        "match": "",
+        "position": 0,
+        "execution_time": time.monotonic() - pattern_start,
+        "category": category,
+        "weight": _resolve_pattern_weight(pattern.pattern, category),
+    }
+
+
 def _first_accepted_regex_threat(
     matches: Iterator[re.Match],
     pattern: re.Pattern,
@@ -2090,34 +2180,31 @@ class SusPatternsManager:
         (_SSTI_HASH_BRACE_SHAPE_RE, _CTX_TEMPLATE, "template"),
         (_HTTP_SPLIT_CRLF_RE, _CTX_HTTP_SPLIT, "http_split"),
         (
-            _PATH_ONLY_PREFIX_RE + r"\.env(?:\.\w+)?" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"\.env(?:\.\w+)?"),
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:(?!config)[\w-])*config[\w-]*"
-            + r"\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:(?!config)[\w-])*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+            ),
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + rf"{_PATH_ONLY_CHAR_RE}*\.map"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(rf"{_PATH_ONLY_CHAR_RE}*\.map"),
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+            ),
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"\.(?:git|svn|hg|bzr)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"\.(?:git|svn|hg|bzr)"),
             _CTX_SENSITIVE_FILE,
             "sensitive_file",
         ),
@@ -2127,36 +2214,38 @@ class SusPatternsManager:
             "sensitive_file",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
-            r"\.?(?:php)?" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
+                r"\.?(?:php)?"
+            ),
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:phpinfo|info|test|php_info)\.php"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"(?:phpinfo|info|test|php_info)\.php"),
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:bak|backup|old|orig|save|swp|swo|tmp|temp)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                rf"{_PATH_ONLY_CHAR_RE}*\.(?:bak|backup|old|orig|save|swp|swo|tmp|temp)"
+            ),
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
-            r"|\.npmrc|\.dockerenv|web\.config)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
+                r"|\.npmrc|\.dockerenv|web\.config)"
+            ),
             _CTX_CMS_PROBING,
             "cms_probing",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + rf"{_PATH_ONLY_CHAR_RE}*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do"
-            r"|action|lua|inc|woa|nsf|esp)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                rf"{_PATH_ONLY_CHAR_RE}*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do"
+                r"|action|lua|inc|woa|nsf|esp)"
+            ),
             _CTX_RECON,
             "recon",
         ),
@@ -2173,9 +2262,7 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:actuator|server-status|telescope)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"(?:actuator|server-status|telescope)"),
             _CTX_RECON,
             "recon",
         ),
@@ -2187,50 +2274,51 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:geoserver|confluence|nifi|ScadaBR|pandora_console"
-            r"|centreon|kylin|decisioncenter|evox|MagicInfo|metasys"
-            r"|officescan|helpdesk|ignite)"
-            + rf"(?:[.\-]{_PATH_ONLY_CHAR_RE}*)?"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:geoserver|confluence|nifi|ScadaBR|pandora_console"
+                r"|centreon|kylin|decisioncenter|evox|MagicInfo|metasys"
+                r"|officescan|helpdesk|ignite)",
+                trailing=rf"(?:[.\-]{_PATH_ONLY_CHAR_RE}*)?",
+            ),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"cgi-(?:bin|mod)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"cgi-(?:bin|mod)"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"(?:HNAP1|IPCamDesc\.xml|SDK/webLanguage)"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:language|languages)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"(?:language|languages)"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
-            r"|build\.gradle|appsettings\.json|crossdomain\.xml)"
-            + rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:readme\.txt|README\.md|CHANGELOG|pom\.xml"
+                r"|build\.gradle|appsettings\.json|crossdomain\.xml)",
+                trailing=rf"(?:\.{_PATH_ONLY_CHAR_RE}*)?",
+            ),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:sap|ise|nidp|cslu|rustfs|developmentserver"
-            r"|fog/management|lms/db|json/login_session|sms_mp"
-            r"|plugin/webs_model|wsman|am_bin)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:sap|ise|nidp|cslu|rustfs|developmentserver"
+                r"|fog/management|lms/db|json/login_session|sms_mp"
+                r"|plugin/webs_model|wsman|am_bin)"
+            ),
             _CTX_RECON,
             "recon",
         ),
         (r"(?:nmaplowercheck|nice\s+ports|Trinity\.txt)", _CTX_RECON, "recon"),
         (
-            _PATH_ONLY_PREFIX_RE + r"\.(?:openclaw|clawdbot)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"\.(?:openclaw|clawdbot)"),
             _CTX_RECON,
             "recon",
         ),
@@ -2243,42 +2331,46 @@ class SusPatternsManager:
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"inicio\.html?" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"inicio\.html?"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:\.streamlit|\.gpt-pilot|\.aider|\.cursor"
-            r"|\.windsurf|\.copilot|\.devcontainer)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:\.streamlit|\.gpt-pilot|\.aider|\.cursor"
+                r"|\.windsurf|\.copilot|\.devcontainer)"
+            ),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"(?:docker-compose|Dockerfile|Makefile|Vagrantfile"
-            r"|Jenkinsfile|Procfile)(?:\.ya?ml)?" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                r"(?:docker-compose|Dockerfile|Makefile|Vagrantfile"
+                r"|Jenkinsfile|Procfile)(?:\.ya?ml)?"
+            ),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + rf"{_PATH_ONLY_CHAR_RE}*(?:secrets?|credentials?)"
-            r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(
+                rf"{_PATH_ONLY_CHAR_RE}*(?:secrets?|credentials?)"
+                r"\.(?:py|json|yml|yaml|toml|txt|env|xml|conf|cfg)"
+            ),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"autodiscover" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"autodiscover"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE + r"dns-query" + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"dns-query"),
             _CTX_RECON,
             "recon",
         ),
         (
-            _PATH_ONLY_PREFIX_RE
-            + r"\.git/(?:refs|index|HEAD|objects|logs)"
-            + _PATH_ONLY_SUFFIX_RE,
+            _path_only_pattern(r"\.git/(?:refs|index|HEAD|objects|logs)"),
             _CTX_RECON,
             "recon",
         ),
@@ -2732,6 +2824,8 @@ class SusPatternsManager:
 
             if timeout_occurred:
                 timeouts.append(pattern.pattern)
+                if not threat:
+                    threat = _build_timeout_threat(pattern, category, pattern_start)
 
             if threat:
                 threats.append(threat)
@@ -3138,9 +3232,15 @@ class SusPatternsManager:
         instance = cls()
 
         compiler = instance._compiler or PatternCompiler()
-        is_safe, reason = await asyncio.to_thread(
-            compiler.validate_pattern_safety, pattern
+        max_content_length = getattr(
+            instance._config,
+            "detection_max_body_inspect_bytes",
+            _DEFAULT_MAX_BODY_INSPECT_BYTES,
         )
+        validate_with_cap = functools.partial(
+            compiler.validate_pattern_safety, max_content_length=max_content_length
+        )
+        is_safe, reason = await asyncio.to_thread(validate_with_cap, pattern)
         if not is_safe:
             logger.warning(f"Rejected unsafe pattern ({reason}): {pattern[:50]}...")
             return False

@@ -367,6 +367,24 @@ def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
     return result
 
 
+def _validate_blocked_user_agents_value(v: Any) -> list[str]:
+    from guard_core.detection_engine.compiler import PatternCompiler
+    from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    patterns = _validate_str_list_field_value(v, field_name="blocked_user_agents")
+    compiler = PatternCompiler()
+    for pattern in patterns:
+        is_safe, reason = compiler.validate_pattern_safety(
+            pattern, max_content_length=_MAX_USER_AGENT_MATCH_LENGTH
+        )
+        if not is_safe:
+            raise ValueError(
+                f"blocked_user_agents pattern rejected by ReDoS validator: "
+                f"{pattern!r} ({reason})"
+            )
+    return patterns
+
+
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
@@ -384,9 +402,7 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
         _validate_int_field_value, field_name="rate_limit_window"
     ),
     "endpoint_rate_limits": _validate_endpoint_rate_limits_value,
-    "blocked_user_agents": partial(
-        _validate_str_list_field_value, field_name="blocked_user_agents"
-    ),
+    "blocked_user_agents": _validate_blocked_user_agents_value,
     "enable_penetration_detection": partial(
         _validate_bool_field_value, field_name="enable_penetration_detection"
     ),

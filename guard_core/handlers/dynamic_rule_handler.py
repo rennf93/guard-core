@@ -213,7 +213,7 @@ class DynamicRuleManager(DynamicRuleApplicationMixin):
 
     def _restore_config(self, snapshot: dict[str, object]) -> None:
         for field, value in snapshot.items():
-            setattr(self.config, field, value)
+            self.config._set_prevalidated(field, value)
 
     def _capture_active_base_snapshot(self, snapshot: dict[str, object]) -> None:
         if self.current_rules is None and self._active_base_snapshot is None:

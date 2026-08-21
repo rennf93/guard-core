@@ -37,7 +37,7 @@ async def test_safe_pattern_is_added_to_custom_patterns(
     fresh_legacy_singleton: SusPatternsManager,
 ) -> None:
     manager = fresh_legacy_singleton
-    pattern = r"foo.*bar"
+    pattern = r"attackterm\d+"
 
     await manager.add_pattern(pattern, custom=True)
 
@@ -106,10 +106,13 @@ async def test_add_pattern_validates_safety_off_the_calling_thread(  # async-onl
     original = PatternCompiler.validate_pattern_safety
 
     def _tracking(
-        self: PatternCompiler, pattern: str, test_strings: list[str] | None = None
+        self: PatternCompiler,
+        pattern: str,
+        test_strings: list[str] | None = None,
+        max_content_length: int | None = None,
     ) -> tuple[bool, str]:
         seen_thread_ids.append(threading.get_ident())
-        return original(self, pattern, test_strings)
+        return original(self, pattern, test_strings, max_content_length)
 
     monkeypatch.setattr(PatternCompiler, "validate_pattern_safety", _tracking)
 

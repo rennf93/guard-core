@@ -109,8 +109,28 @@ class DynamicRuleApplicationMixin(DynamicRuleEventSenderMixin):
         self.logger.info(f"Dynamic rule: Blocked cloud providers {valid}")
 
     async def _apply_user_agent_rules(self, user_agents: list[str]) -> None:
-        self.config.blocked_user_agents = user_agents
-        self.logger.info(f"Dynamic rule: Blocked user agents {user_agents}")
+        from guard_core.detection_engine.compiler import PatternCompiler
+        from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+        compiler = PatternCompiler()
+        valid: list[str] = []
+        rejected: list[tuple[str, str]] = []
+        for pattern in user_agents:
+            is_safe, reason = compiler.validate_pattern_safety(
+                pattern, max_content_length=_MAX_USER_AGENT_MATCH_LENGTH
+            )
+            if is_safe:
+                valid.append(pattern)
+            else:
+                rejected.append((pattern, reason))
+
+        self.config._set_prevalidated("blocked_user_agents", valid)
+        if rejected:
+            self.logger.warning(
+                f"Dynamic rule: rejected blocked_user_agents patterns failing the "
+                f"ReDoS validator: {rejected}"
+            )
+        self.logger.info(f"Dynamic rule: Blocked user agents {valid}")
 
     async def _apply_pattern_rules(self, patterns: list[str]) -> None:
         from guard_core.handlers.suspatterns_handler import sus_patterns_handler

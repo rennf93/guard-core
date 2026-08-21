@@ -1,8 +1,12 @@
+import ast
+import inspect
+import textwrap
+import threading
 from typing import Any, cast
 
 import pytest
 
-from guard_core.models import SecurityConfig
+from guard_core.models import SecurityConfig, _skip_revalidation
 
 BOOL_FIELDS = [
     "enable_penetration_detection",
@@ -104,6 +108,97 @@ def test_str_list_field_reassignment_accepts_str_list(field_name: str) -> None:
     config = SecurityConfig()
     setattr(config, field_name, ["ok"])
     assert getattr(config, field_name) == ["ok"]
+
+
+_CATASTROPHIC_USER_AGENT_PATTERN = r"(?:a+)+$"
+
+
+def test_blocked_user_agents_construction_rejects_catastrophic_pattern() -> None:
+    with pytest.raises(ValueError, match="rejected by ReDoS validator"):
+        SecurityConfig(blocked_user_agents=[_CATASTROPHIC_USER_AGENT_PATTERN])
+
+
+def test_blocked_user_agents_reassignment_rejects_catastrophic_pattern() -> None:
+    config = SecurityConfig()
+    with pytest.raises(ValueError, match="rejected by ReDoS validator"):
+        config.blocked_user_agents = [_CATASTROPHIC_USER_AGENT_PATTERN]
+
+
+def test_blocked_user_agents_construction_accepts_safe_pattern() -> None:
+    config = SecurityConfig(blocked_user_agents=["badbot"])
+    assert config.blocked_user_agents == ["badbot"]
+
+
+_P0_FIBONACCI_REDOS_USER_AGENT_PATTERN = r"(\d\d?)+$"
+
+
+def test_blocked_user_agents_construction_rejects_fibonacci_redos_pattern() -> None:
+    with pytest.raises(ValueError, match="rejected by ReDoS validator"):
+        SecurityConfig(blocked_user_agents=[_P0_FIBONACCI_REDOS_USER_AGENT_PATTERN])
+
+
+_CATASTROPHIC_DANGEROUS_CONSTRUCT_PATTERN = r"(a+)+"
+
+
+def test_set_prevalidated_skip_flag_is_not_shared_across_threads() -> None:
+    config = SecurityConfig()
+    bypassed = threading.Event()
+    stop = threading.Event()
+
+    def safe_toggler() -> None:
+        while not stop.is_set():
+            config._set_prevalidated("blocked_user_agents", ["safe-bot"])
+
+    def attacker() -> None:
+        for _ in range(2000):
+            try:
+                config.blocked_user_agents = [_CATASTROPHIC_DANGEROUS_CONSTRUCT_PATTERN]
+            except ValueError:
+                config.blocked_user_agents = []
+                continue
+            bypassed.set()
+            return
+
+    toggler_thread = threading.Thread(target=safe_toggler, daemon=True)
+    attacker_thread = threading.Thread(target=attacker)
+    toggler_thread.start()
+    attacker_thread.start()
+    attacker_thread.join()
+    stop.set()
+
+    assert not bypassed.is_set()
+
+
+def test_set_prevalidated_stays_synchronous_with_no_await_between_set_and_reset() -> (
+    None
+):
+    source = textwrap.dedent(inspect.getsource(SecurityConfig._set_prevalidated))
+    func_node = ast.parse(source).body[0]
+    assert isinstance(func_node, ast.FunctionDef), (
+        "SecurityConfig._set_prevalidated must stay a synchronous def; making it "
+        "async and awaiting between the ContextVar set() and reset() (for "
+        "example via asyncio.to_thread) copies the context into a worker and "
+        "can leak the _skip_revalidation bypass flag past the setattr it "
+        "was meant to guard"
+    )
+    assert not any(isinstance(node, ast.Await) for node in ast.walk(func_node)), (
+        "an was introduced inside SecurityConfig._set_prevalidated; this "
+        "reopens the asyncio.to_thread context-leak bug the synchronous "
+        "set()/setattr()/reset() sequence was written to avoid"
+    )
+
+
+def test_set_prevalidated_skip_flag_does_not_survive_model_copy() -> None:
+    config = SecurityConfig()
+    token = _skip_revalidation.set(True)
+    try:
+        copy = config.model_copy()
+    finally:
+        _skip_revalidation.reset(token)
+
+    assert _skip_revalidation.get() is False
+    with pytest.raises(ValueError, match="rejected by ReDoS validator"):
+        copy.blocked_user_agents = [_CATASTROPHIC_DANGEROUS_CONSTRUCT_PATTERN]
 
 
 def test_endpoint_rate_limits_reassignment_rejects_non_dict() -> None:

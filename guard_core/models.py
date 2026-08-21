@@ -1,3 +1,4 @@
+import contextvars
 import difflib
 import logging
 import warnings
@@ -21,6 +22,7 @@ from guard_core._security_config_validators import (
     _resolve_geo_ip_handler,
     _revalidate_copied_config,
     _validate_block_cloud_providers_value,
+    _validate_blocked_user_agents_value,
     _validate_country_set_value,
     _validate_enabled_detection_categories_value,
     _validate_exclude_paths_value,
@@ -67,6 +69,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("guard_core.models")
 
+_skip_revalidation: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "guard_core_security_config_skip_revalidation", default=False
+)
+
 
 class SecurityConfig(_SecurityConfigFields):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -80,7 +86,7 @@ class SecurityConfig(_SecurityConfigFields):
             _validate_global_behavior_rule_assignment(self, name, value)
         if name in _GEO_STATE_FIELDS:
             value = _apply_geo_ip_handler_assignment(self, name, value)
-        if name in _FIELD_REVALIDATORS:
+        if name in _FIELD_REVALIDATORS and not _skip_revalidation.get():
             value = _FIELD_REVALIDATORS[name](value)
 
         should_warn = _country_shadow_should_warn(self, name, value)
@@ -90,6 +96,13 @@ class SecurityConfig(_SecurityConfigFields):
             object.__setattr__(self, "_revision", self._revision + 1)
         if should_warn:
             _warn_country_allowlist_shadows_blocklist(stacklevel=3)
+
+    def _set_prevalidated(self, name: str, value: Any) -> None:
+        token = _skip_revalidation.set(True)
+        try:
+            setattr(self, name, value)
+        finally:
+            _skip_revalidation.reset(token)
 
     @property
     def revision(self) -> int:
@@ -147,6 +160,10 @@ class SecurityConfig(_SecurityConfigFields):
     @field_validator("block_cloud_providers", mode="before")
     def validate_cloud_providers(cls, v: Any) -> frozenset[str] | None:
         return _validate_block_cloud_providers_value(v)
+
+    @field_validator("blocked_user_agents", mode="before")
+    def validate_blocked_user_agents(cls, v: Any) -> list[str]:
+        return _validate_blocked_user_agents_value(v)
 
     @model_validator(mode="after")
     def validate_optional_extras_installed(self) -> Self:

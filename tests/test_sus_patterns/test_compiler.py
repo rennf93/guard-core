@@ -1,18 +1,17 @@
 import asyncio
 import concurrent.futures
 import re
-import time
 import types
 from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from guard_core.detection_engine.compiler import (
-    PatternCompiler,
+from guard_core.detection_engine._redos_structure import (
     _detect_nested_unbounded_quantifier,
     _strip_escapes_and_char_classes,
 )
+from guard_core.detection_engine.compiler import PatternCompiler
 
 
 @pytest.fixture
@@ -119,19 +118,19 @@ def test_validate_pattern_safety_dangerous_patterns(compiler: PatternCompiler) -
 def test_validate_pattern_safety_slow_pattern(compiler: PatternCompiler) -> None:
     slow_pattern = r"^[a-z]+$"
 
-    call_count = 0
-    start_time = time.monotonic()
+    fake_completed = MagicMock()
+    fake_completed.returncode = 0
+    fake_completed.stdout = (
+        '{"safe": false, "reason": "Pattern timed out on test string of length 5"}'
+    )
 
-    def mock_time() -> float:
-        nonlocal call_count
-        call_count += 1
-        if call_count % 2 == 0:
-            return start_time + 0.06
-        else:
-            return start_time
-
-    with patch("time.monotonic", side_effect=mock_time):
-        is_safe, reason = compiler.validate_pattern_safety(slow_pattern)
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        return_value=fake_completed,
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(
+            slow_pattern, test_strings=["aaaaa"]
+        )
         assert is_safe is False
         assert "timed out on test string" in reason
 
@@ -149,7 +148,7 @@ def test_validate_pattern_safety_exception(compiler: PatternCompiler) -> None:
 
 def test_validate_pattern_safety_safe_pattern(compiler: PatternCompiler) -> None:
     safe_patterns = [
-        r"<script[^>]*>",
+        r"^[^>]*x",
         r"\d{3}-\d{3}-\d{4}",
         r"[a-zA-Z0-9]+",
         r"https?://[^\s]+",
@@ -161,22 +160,62 @@ def test_validate_pattern_safety_safe_pattern(compiler: PatternCompiler) -> None
         assert reason == "Pattern appears safe"
 
 
-def test_validate_pattern_safety_rejects_nested_unbounded_quantifier(
+def test_validate_pattern_safety_rejects_unanchored_broad_scan_with_no_prefix() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"[^>]*x")
+    assert is_safe is False, (
+        "an unanchored broad scan with a missing terminator gives re.search a "
+        "start position at every offset, each paying its own O(remaining) "
+        f"backtrack search; this measures genuinely quadratic, got reason={reason}"
+    )
+    assert "extrapolated" in reason.lower(), reason
+
+
+def test_validate_pattern_safety_accepts_unanchored_nested_star_group_shapes(
     compiler: PatternCompiler,
 ) -> None:
-    nested_patterns = [
+    unanchored_patterns = [
         r"(X*)*",
         r"(X+)*",
         r"(X*|Y)*",
         r"(?:X*)*",
         r"(?:X+)*",
         r"(a{2,})*",
-        r"(a*){2,}",
     ]
-    for pattern in nested_patterns:
+    for pattern in unanchored_patterns:
         is_safe, reason = compiler.validate_pattern_safety(pattern)
-        assert is_safe is False, f"{pattern} was not rejected"
-        assert "nested unbounded quantifier" in reason.lower()
+        assert is_safe is True, (
+            f"{pattern}: an outer-*-quantified group with nothing forcing "
+            "failure afterward always has a trivial zero-repetition empty "
+            f"match, so re.search never needs to backtrack; got {reason}"
+        )
+
+
+def test_validate_pattern_safety_rejects_nested_unbounded_quantifier_when_anchored(
+    compiler: PatternCompiler,
+) -> None:
+    anchored_patterns = [
+        r"(X*)*$",
+        r"(X+)*$",
+        r"(?:X*)*$",
+        r"(?:X+)*$",
+        r"(a{2,})*$",
+    ]
+    for pattern in anchored_patterns:
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is False, (
+            f"{pattern}: the trailing $ forces exhaustive backtracking once "
+            f"the trivial empty match no longer satisfies the pattern; {reason}"
+        )
+
+
+def test_validate_pattern_safety_rejects_brace_outer_dangerous_construct(
+    compiler: PatternCompiler,
+) -> None:
+    is_safe, reason = compiler.validate_pattern_safety(r"(a*){2,}")
+    assert is_safe is False
+    assert "dangerous" in reason.lower()
+    assert _detect_nested_unbounded_quantifier(r"(a*){2,}") is not None
 
 
 def test_validate_pattern_safety_accepts_separator_anchored_groups(
@@ -198,7 +237,7 @@ def test_detect_nested_unbounded_quantifier_helper() -> None:
     assert _detect_nested_unbounded_quantifier(r"(?:X+)*") is not None
     assert _detect_nested_unbounded_quantifier(r"(a{2,})*") is not None
     assert _detect_nested_unbounded_quantifier(r"(a*){2,}") is not None
-    assert _detect_nested_unbounded_quantifier(r"(?P<n>a*)*") is None
+    assert _detect_nested_unbounded_quantifier(r"(?P<n>a*)*") is not None
     assert _detect_nested_unbounded_quantifier(r"abc") is None
     assert _detect_nested_unbounded_quantifier(r"(unclosed") is None
     assert _detect_nested_unbounded_quantifier(r"(a*){2,4}") is None
@@ -212,22 +251,125 @@ def test_strip_escapes_and_char_classes_helper() -> None:
     assert _strip_escapes_and_char_classes(r"[\[\]]") == "X"
 
 
-def test_validate_pattern_safety_timeout() -> None:
+def test_validate_pattern_safety_probe_subprocess_crash() -> None:
     compiler = PatternCompiler()
 
     pattern = r"test_pattern"
 
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise OSError("no forkable subprocess slot")
+
     with patch(
-        "guard_core.detection_engine.compiler.validation_regex_executor"
-    ) as mock_validation_executor:
-        mock_future = MagicMock()
-        mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_validation_executor.return_value.submit.return_value = mock_future
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run", _raise
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(pattern, test_strings=["x"])
 
-        is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is False
+    assert "Pattern validation probe failed to run" in reason
 
-        assert is_safe is False
-        assert "Pattern timed out on test string" in reason
+
+def test_validate_pattern_safety_probe_nonzero_returncode() -> None:
+    compiler = PatternCompiler()
+
+    fake_completed = MagicMock()
+    fake_completed.returncode = 1
+    fake_completed.stdout = ""
+    fake_completed.stderr = "child interpreter crashed"
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        return_value=fake_completed,
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(
+            r"test_pattern", test_strings=["x"]
+        )
+
+    assert is_safe is False
+    assert "Pattern validation probe failed" in reason
+
+
+def test_validate_pattern_safety_probe_malformed_output() -> None:
+    compiler = PatternCompiler()
+
+    fake_completed = MagicMock()
+    fake_completed.returncode = 0
+    fake_completed.stdout = "not json"
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        return_value=fake_completed,
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(
+            r"test_pattern", test_strings=["x"]
+        )
+
+    assert is_safe is False
+    assert "malformed output" in reason.lower()
+
+
+def test_reach_probe_subprocess_crash_rejects_with_killable_subprocess_reason() -> None:
+    compiler = PatternCompiler()
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise OSError("no forkable subprocess slot")
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run", _raise
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(r"test_pattern")
+
+    assert is_safe is False
+    assert "killable-subprocess" in reason
+
+
+def test_reach_probe_subprocess_nonzero_returncode_rejects() -> None:
+    compiler = PatternCompiler()
+
+    fake_completed = MagicMock()
+    fake_completed.returncode = 1
+    fake_completed.stdout = ""
+    fake_completed.stderr = "child interpreter crashed"
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        return_value=fake_completed,
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(r"test_pattern")
+
+    assert is_safe is False
+    assert "killable-subprocess" in reason
+
+
+def test_reach_probe_subprocess_malformed_output_rejects() -> None:
+    compiler = PatternCompiler()
+
+    fake_completed = MagicMock()
+    fake_completed.returncode = 0
+    fake_completed.stdout = "not json"
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        return_value=fake_completed,
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(r"test_pattern")
+
+    assert is_safe is False
+    assert "killable-subprocess" in reason
+
+
+def test_validate_pattern_safety_fails_closed_when_probe_cannot_reach(
+    compiler: PatternCompiler,
+) -> None:
+    is_safe, reason = compiler.validate_pattern_safety(r"(?P<n>a)(?P=n)")
+    assert is_safe is False
+    assert "could not construct a test string that reaches" in reason
+
+
+def test_validate_pattern_safety_accepts_resolvable_numeric_backreference(
+    compiler: PatternCompiler,
+) -> None:
+    is_safe, reason = compiler.validate_pattern_safety(r"(a)\1")
+    assert is_safe is True, reason
 
 
 def test_validate_pattern_safety_custom_test_strings(compiler: PatternCompiler) -> None:

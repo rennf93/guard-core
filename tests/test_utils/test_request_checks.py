@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from pytest_mock import MockerFixture
 
+from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.models import SecurityConfig
 from guard_core.protocols.geo_ip_protocol import GeoIPHandler
@@ -40,6 +41,39 @@ async def test_is_ip_allowed(
 async def test_is_user_agent_allowed(security_config: SecurityConfig) -> None:
     assert await is_user_agent_allowed("goodbot", security_config)
     assert not await is_user_agent_allowed("badbot", security_config)
+
+
+async def test_is_user_agent_allowed_uses_inline_safe_path() -> None:
+    captured: list[bool] = []
+    original = PatternCompiler.create_async_safe_finditer_matcher
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> Any:
+        captured.append(inline_safe)
+        return original(self, pattern, timeout=timeout, inline_safe=inline_safe)
+
+    config = SecurityConfig(blocked_user_agents=["badbot"])
+    with patch.object(PatternCompiler, "create_async_safe_finditer_matcher", _spy):
+        result = await is_user_agent_allowed("badbot/1.0", config)
+
+    assert result is False
+    assert captured == [True]
+
+
+async def test_is_user_agent_allowed_caps_subject_length_before_matching() -> None:
+    from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    marker = "zzq_ua_length_cap_marker_zzq"
+    beyond_cap = "a" * _MAX_USER_AGENT_MATCH_LENGTH + marker
+    within_cap = marker + "a" * 10
+    config = SecurityConfig(blocked_user_agents=[marker])
+
+    assert await is_user_agent_allowed(beyond_cap, config) is True
+    assert await is_user_agent_allowed(within_cap, config) is False
 
 
 async def test_detect_penetration_attempt() -> None:

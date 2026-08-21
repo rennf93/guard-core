@@ -1408,6 +1408,94 @@ async def test_apply_user_agent_rules(
 
 
 @pytest.mark.asyncio
+async def test_apply_user_agent_rules_rejects_catastrophic_pattern(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    user_agents = [r"(?:a+)+$", "badbot"]
+
+    with caplog.at_level(logging.WARNING):
+        await manager._apply_user_agent_rules(user_agents)
+
+    assert manager.config.blocked_user_agents == ["badbot"]
+    assert "rejected blocked_user_agents patterns" in caplog.text
+    assert r"(?:a+)+$" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_apply_user_agent_rules_validates_each_pattern_exactly_once(
+    config: SecurityConfig,
+) -> None:
+    from guard_core.detection_engine.compiler import PatternCompiler
+
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    calls: list[str] = []
+    original = PatternCompiler.validate_pattern_safety
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        test_strings: list[str] | None = None,
+        max_content_length: int | None = None,
+    ) -> tuple[bool, str]:
+        calls.append(pattern)
+        return original(self, pattern, test_strings, max_content_length)
+
+    with patch.object(PatternCompiler, "validate_pattern_safety", _spy):
+        await manager._apply_user_agent_rules(["badbot", "scanner"])
+
+    assert calls.count("badbot") == 1
+    assert calls.count("scanner") == 1
+
+
+@pytest.mark.asyncio
+async def test_update_rules_expiry_restore_does_not_revalidate_patterns(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+    sample_rules: DynamicRules,
+) -> None:
+    from guard_core.detection_engine.compiler import PatternCompiler
+
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.blocked_user_agents = ["scanner-bot"]
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    await manager.update_rules()
+
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    mock_agent_handler.get_dynamic_rules.return_value = None
+
+    calls: list[str] = []
+    original = PatternCompiler.validate_pattern_safety
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        test_strings: list[str] | None = None,
+        max_content_length: int | None = None,
+    ) -> tuple[bool, str]:
+        calls.append(pattern)
+        return original(self, pattern, test_strings, max_content_length)
+
+    with patch.object(PatternCompiler, "validate_pattern_safety", _spy):
+        await manager.update_rules()
+
+    assert calls == []
+    assert config.blocked_user_agents != ["scanner-bot"]
+
+
+@pytest.mark.asyncio
 async def test_apply_pattern_rules(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:

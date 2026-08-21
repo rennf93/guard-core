@@ -11,7 +11,7 @@ from guard_core.sync.detection_engine.compiler import (
     PatternCompiler,
     shared_regex_executor,
 )
-from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+from guard_core.sync.handlers.suspatterns_handler import _CTX_ALL, SusPatternsManager
 
 
 def test_shared_regex_executor_is_a_singleton() -> None:
@@ -86,6 +86,32 @@ def test_safe_matcher_times_out_on_catastrophic_pattern() -> None:
     compiler = PatternCompiler()
     matcher = compiler.create_safe_matcher(r"(a+)+$", timeout=0.05)
     assert matcher("a" * 24 + "b") is None
+
+
+def test_timeout_does_not_bound_a_gil_holding_catastrophic_match() -> None:
+    compiler = PatternCompiler()
+    matcher = compiler.create_safe_matcher(r"(?:a+)+$", timeout=0.3)
+    subject = "a" * 25 + "!"
+
+    start = time.monotonic()
+    result = matcher(subject)
+    elapsed = time.monotonic() - start
+
+    assert result is None
+    assert elapsed > 1.0, (
+        f"a configured 0.3s timeout bounded a GIL-holding catastrophic regex "
+        f"match to {elapsed:.3f}s. CPython's sre engine does not release the "
+        f"GIL while matching, so future.result(timeout=...) cannot make the "
+        f"waiting thread observe its own timeout until the match itself "
+        f"finishes; shared_regex_executor()/create_safe_matcher only bound a "
+        f"call whose regex work periodically releases the GIL (multiple "
+        f"short matches, not one long one). If this assertion starts "
+        f"failing, either the interpreter changed sre's GIL behavior or the "
+        f"pattern was swapped for one from a module that genuinely releases "
+        f"the GIL during matching (for example the third-party regex "
+        f"module's own timeout= argument), and the timeout executor can "
+        f"then be trusted as a real ReDoS bound again."
+    )
 
 
 def test_safe_matcher_still_works_after_a_timeout() -> None:
@@ -167,6 +193,43 @@ def test_custom_category_uses_safe_finditer_matcher(
 
     assert threat is not None
     assert calls == [pattern]
+
+
+def test_pattern_timeout_on_custom_category_is_reported_as_a_threat(
+    fresh_manager: Any,
+) -> None:
+    fresh_manager.configure(SecurityConfig(detection_compiler_timeout=0.1))
+    slow_pattern = re.compile(r"(a+)+$")
+    fresh_manager.compiled_custom_patterns.add((slow_pattern, _CTX_ALL, "custom"))
+
+    result = fresh_manager.detect(
+        content="a" * 24 + "!",
+        ip_address="1.2.3.4",
+        context="unknown",
+        correlation_id="test",
+    )
+
+    assert result["is_threat"] is True
+    timeout_threats = [t for t in result["threats"] if t["type"] == "pattern_timeout"]
+    assert timeout_threats
+    assert timeout_threats[0]["pattern"] == slow_pattern.pattern
+
+
+def test_normal_input_stays_clean_after_the_timeout_fix(
+    fresh_manager: Any,
+) -> None:
+    fresh_manager.configure(SecurityConfig(detection_compiler_timeout=0.1))
+    slow_pattern = re.compile(r"(a+)+$")
+    fresh_manager.compiled_custom_patterns.add((slow_pattern, _CTX_ALL, "custom"))
+
+    result = fresh_manager.detect(
+        content="just a normal comment, nothing to see here",
+        ip_address="1.2.3.4",
+        context="unknown",
+        correlation_id="test",
+    )
+
+    assert result["is_threat"] is False
 
 
 def test_custom_category_timeout_heuristic_ignores_wall_clock_jump(

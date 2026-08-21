@@ -1,5 +1,4 @@
 import logging
-import re
 import threading
 from collections.abc import Callable, Collection, Mapping
 from ipaddress import ip_address
@@ -14,7 +13,12 @@ from guard_core.sync.core.events.event_types import (
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-from guard_core.sync.utils import _ip_in_list, detect_penetration_attempt, log_activity
+from guard_core.sync.utils import (
+    _ip_in_list,
+    _user_agent_matches_blocked_pattern,
+    detect_penetration_attempt,
+    log_activity,
+)
 
 if TYPE_CHECKING:
     from guard_core.sync.protocols.middleware_protocol import (
@@ -117,9 +121,10 @@ def check_user_agent_allowed(
     from guard_core.sync.utils import is_user_agent_allowed as global_user_agent_check
 
     if route_config and route_config.blocked_user_agents:
-        for pattern in route_config.blocked_user_agents:
-            if re.search(pattern, user_agent, re.IGNORECASE):
-                return False
+        if _user_agent_matches_blocked_pattern(
+            user_agent, route_config.blocked_user_agents
+        ):
+            return False
 
     return global_user_agent_check(user_agent, config)
 
