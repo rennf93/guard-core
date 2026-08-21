@@ -148,3 +148,91 @@ async def test_xml_injection_does_not_fire_on_url_path() -> None:
         context="url_path",
     )
     assert result["is_threat"] is False
+
+
+@pytest.mark.asyncio
+async def test_xml_injection_fires_on_query_param() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        '<!DOCTYPE foo SYSTEM "http://evil/evil.dtd">',
+        "127.0.0.1",
+        context="query_param:doc",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_xss_fires_on_url_path() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "<script>alert(1)</script>",
+        "127.0.0.1",
+        context="url_path",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_cmd_injection_fires_on_header() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "; whoami",
+        "127.0.0.1",
+        context="header:X-Custom",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_ssrf_fires_on_url_path() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "http://169.254.169.254/latest/meta-data/",
+        "127.0.0.1",
+        context="url_path",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_ssrf_fires_on_header() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "http://169.254.169.254/latest/meta-data/",
+        "127.0.0.1",
+        context="header:X-Custom",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_template_fires_on_url_path() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "{{7*7}}",
+        "127.0.0.1",
+        context="url_path",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_deserialization_fires_on_header() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        'O:8:"stdClass":0:{}',
+        "127.0.0.1",
+        context="header:X-Custom",
+    )
+    assert result["is_threat"] is True
+
+
+@pytest.mark.asyncio
+async def test_sqli_still_does_not_fire_on_url_path_after_widening_round() -> None:
+    manager = SusPatternsManager()
+    result = await manager.detect(
+        "' UNION SELECT username,password FROM users--",
+        "127.0.0.1",
+        context="url_path",
+    )
+    assert result["is_threat"] is False

@@ -22,6 +22,7 @@ from tests.test_sus_patterns.test_detection_benchmark import (
     _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
     _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
     _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
@@ -887,6 +888,18 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
     "file_upload_prose_ticket_dangerous_filename_spaced_equals": (
         _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
         "form_body",
+    ),
+    "cmd_injection_prose_semicolon_bare_shell_control": (
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        "header",
+    ),
+    "template_fp_date_hash_brace": (
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+        "url_path",
+    ),
+    "template_fp_call_branch_map_arrow": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        "url_path",
     ),
 }
 

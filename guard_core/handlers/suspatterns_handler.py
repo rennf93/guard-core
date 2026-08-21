@@ -51,25 +51,25 @@ def _supports_enhanced_config(config: Any) -> bool:
     )
 
 
-_CTX_XSS = frozenset({"query_param", "header", "request_body", "unknown"})
+_CTX_XSS = frozenset({"query_param", "header", "request_body", "url_path", "unknown"})
 _CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
 _CTX_DIR_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
-_CTX_CMD_INJECTION = frozenset({"query_param", "request_body", "unknown"})
+_CTX_CMD_INJECTION = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_FILE_INCLUSION = frozenset({"url_path", "query_param", "request_body", "unknown"})
 _CTX_LDAP = frozenset({"query_param", "request_body", "unknown"})
-_CTX_XML = frozenset({"header", "request_body", "unknown"})
-_CTX_SSRF = frozenset({"query_param", "request_body", "unknown"})
+_CTX_XML = frozenset({"header", "request_body", "unknown", "query_param"})
+_CTX_SSRF = frozenset({"query_param", "header", "request_body", "url_path", "unknown"})
 _CTX_NOSQL = frozenset({"query_param", "request_body", "unknown"})
 _CTX_FILE_UPLOAD = frozenset({"header", "request_body", "unknown"})
 _CTX_PATH_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
-_CTX_TEMPLATE = frozenset({"query_param", "request_body", "unknown"})
+_CTX_TEMPLATE = frozenset({"query_param", "request_body", "url_path", "unknown"})
 _CTX_HTTP_SPLIT = frozenset({"header", "query_param", "request_body", "unknown"})
 _CTX_SENSITIVE_FILE = frozenset({"url_path", "request_body", "unknown"})
 _CTX_CMS_PROBING = frozenset({"url_path", "request_body", "unknown"})
 _CTX_RECON = frozenset({"url_path", "unknown"})
 _CTX_PROTO_POLLUTION = frozenset({"query_param", "request_body", "unknown"})
 _CTX_CODE_INJECTION = frozenset({"query_param", "request_body", "unknown"})
-_CTX_DESERIALIZATION = frozenset({"query_param", "request_body", "unknown"})
+_CTX_DESERIALIZATION = frozenset({"query_param", "header", "request_body", "unknown"})
 _CTX_ALL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
 
 
@@ -146,6 +146,44 @@ _LDAP_BREAKOUT_FORWARD_BOUNDARY_CHARS = frozenset("\"'\n")
 _LDAP_BREAKOUT_LOCAL_SCAN_CHARS = 40
 _LDAP_BREAKOUT_WILDCARD_CLAUSE_END_RE = re.compile(r"=[^()]+\*\s*\Z")
 _LDAP_BREAKOUT_ATTACK_TOKEN_RE = re.compile(r"\*|\(\s*[&|!]|\x00|\(\s*\(|~=|>=|<=")
+
+_PROTO_POLLUTION_PROTOTYPE_ASSIGN_RE = r"Object\.prototype\.[A-Za-z_$][\w$]*\s*=(?!=)"
+_PROTO_POLLUTION_SET_PROTOTYPE_OF_RE = r"\b(?:Object|Reflect)\.setPrototypeOf\s*\("
+
+_XML_XXE_PUBLIC_EXTERNAL_DTD_RE = (
+    r"<!DOCTYPE[^>\[]+PUBLIC[^>\[]+[\"']https?://"
+    r"(?!(?:www\.)?w3\.org/)[^\"'>]+[\"'][^>\[]*>"
+)
+
+_XSS_JS_SCHEME_CTRL_CHAR_RE = (
+    r"j[\t\r\n]*a[\t\r\n]*v[\t\r\n]*a[\t\r\n]*s[\t\r\n]*c[\t\r\n]*r[\t\r\n]*i"
+    r"[\t\r\n]*p[\t\r\n]*t[\t\r\n]*:\s*[^\s]+"
+)
+
+_FILE_INCLUSION_JSON_VALUE_RE = (
+    r"[\"'](?:template|include|tpl|module|layout)[\"']\s*:\s*"
+    r"[\"'](?:https?|ftp)://[^\s'\"<>]+/[^\s'\"<>/]*\.(?:phtml|php[3-5]?|"
+    r"phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])[\"']"
+)
+
+_SSRF_BARE_METADATA_ALIAS_RE = r"://(?:metadata|instance-data)(?::\d+)?(?:/|\s|$)"
+
+_CMD_INJECTION_NODE_CHILD_PROCESS_RE = (
+    r"(?:require\(\s*[\"']child_process[\"']\s*\)|child_process)\s*\.\s*"
+    r"(?:execSync|spawnSync|spawn|fork)\s*\("
+)
+_CMD_INJECTION_PHP_ASSERT_VARIABLE_RE = r"\bassert\s*\(\s*\$"
+_CMD_INJECTION_PYTHON_EXEC_FAMILY_RE = r"\bos\.exec(?:l|le|lp|lpe|v|ve|vp|vpe)\s*\("
+
+_JS_DYNAMIC_EVAL_FUNCTION_CTOR_RE = r"\b(?:new\s+)?Function\s*\(\s*[\"']"
+_JS_DYNAMIC_EVAL_BRACKET_RE = r"\[\s*[\"']eval[\"']\s*\]\s*\(\s*[\"']"
+_JS_DYNAMIC_EVAL_CTOR_GADGET_RE = (
+    r"(?:\.\s*constructor|\[\s*[\"']constructor[\"']\s*\])"
+    r"\s*(?:\.\s*constructor|\[\s*[\"']constructor[\"']\s*\])"
+    r"\s*\(\s*[\"']"
+)
+_JS_DYNAMIC_EVAL_TIMER_STRING_ARG_RE = r"\b(?:setTimeout|setInterval)\s*\(\s*[\"']"
+
 
 _LDAP_PAREN_CONJUNCTION_RE = r"\(\s*[&|]\s*"
 _LDAP_PAREN_CONJUNCTION_FOLLOWUP_RE = re.compile(
@@ -362,6 +400,7 @@ DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
         _FILE_UPLOAD_TRUNCATION_RE,
         _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+        _XSS_JS_SCHEME_CTRL_CHAR_RE,
     }
 )
 
@@ -504,6 +543,10 @@ _PY_DANGEROUS_METHOD_RE = (
 _PY_GETATTR_INDIRECTION_RE = (
     r"(?-i:\bgetattr\(\s*(?:" + _PY_DANGEROUS_MODULE_RE + r")\s*,\s*"
     r"['\"](?:" + _PY_DANGEROUS_METHOD_RE + r")['\"]\s*\)\s*\()"
+)
+_PY_VARS_INDIRECTION_RE = (
+    r"(?-i:\bvars\(\s*(?:" + _PY_DANGEROUS_MODULE_RE + r")\s*\)\s*\[\s*"
+    r"['\"](?:" + _PY_DANGEROUS_METHOD_RE + r")['\"]\s*\]\s*\()"
 )
 
 _BACKTICK_TOKEN_CHAINED_SHELL_COMMAND_RE = re.compile(
@@ -1296,6 +1339,7 @@ class SusPatternsManager:
     _pattern_definitions: list[tuple[str, frozenset[str], str]] = [
         (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS, "xss"),
         (r"javascript:\s*[^\s]+", _CTX_XSS, "xss"),
+        (_XSS_JS_SCHEME_CTRL_CHAR_RE, _CTX_XSS, "xss"),
         (
             r"(?:"
             + _HTML_TAG_OPEN_RE
@@ -1438,7 +1482,42 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"\b(?:eval|system|exec|shell_exec|passthru|popen|proc_open)\s*\(",
+            r"\b(?:eval|system|exec|shell_exec|passthru|popen|proc_open|create_function)\s*\(",
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _CMD_INJECTION_NODE_CHILD_PROCESS_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _CMD_INJECTION_PHP_ASSERT_VARIABLE_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _CMD_INJECTION_PYTHON_EXEC_FAMILY_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _JS_DYNAMIC_EVAL_FUNCTION_CTOR_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _JS_DYNAMIC_EVAL_BRACKET_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _JS_DYNAMIC_EVAL_CTOR_GADGET_RE,
+            _CTX_CMD_INJECTION,
+            "cmd_injection",
+        ),
+        (
+            _JS_DYNAMIC_EVAL_TIMER_STRING_ARG_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
@@ -1484,6 +1563,11 @@ class SusPatternsManager:
             _CTX_FILE_INCLUSION,
             "file_inclusion",
         ),
+        (
+            _FILE_INCLUSION_JSON_VALUE_RE,
+            _CTX_FILE_INCLUSION,
+            "file_inclusion",
+        ),
         (r"\(\s*[|&]\s*\(\s*[^)]+=[*]", _CTX_LDAP, "ldap"),
         (_LDAP_WILDCARD_EQUALS_RE, _CTX_LDAP, "ldap"),
         (_LDAP_PAREN_BREAKOUT_RE, _CTX_LDAP, "ldap"),
@@ -1494,6 +1578,7 @@ class SusPatternsManager:
         (_LDAP_NULL_BYTE_DECODED_ATTR_RE, _CTX_LDAP, "ldap"),
         (_LDAP_NULL_BYTE_DECODED_BARE_RE, _CTX_LDAP, "ldap"),
         (r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>", _CTX_XML, "xml"),
+        (_XML_XXE_PUBLIC_EXTERNAL_DTD_RE, _CTX_XML, "xml"),
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
         (
@@ -1508,6 +1593,7 @@ class SusPatternsManager:
         (_LEGACY_IPV4_HOST_RE, _CTX_SSRF, "ssrf"),
         (r"(?:file|dict|gopher|jar|tftp)://[^\s]+", _CTX_SSRF, "ssrf"),
         (r"://[^/\s@]*@[^/\s@]*@", _CTX_SSRF, "ssrf"),
+        (_SSRF_BARE_METADATA_ALIAS_RE, _CTX_SSRF, "ssrf"),
         (
             r"\{\s*\$(?:where|gt|lt|ne|eq|regex|in|nin|all|size|exists|type|mod|"
             r"options):",
@@ -1521,8 +1607,12 @@ class SusPatternsManager:
             "nosql",
         ),
         (
-            r'"\$(?:gt|gte|lt|lte|ne|eq|in|nin|all|mod)"'
-            r'\s*:\s*(?:""|null|\{|\[)',
+            r'"\$(?:gt|gte|lt|lte|ne|eq|in|nin|all|mod)"' r'\s*:\s*(?:""|null|\{|\[)',
+            _CTX_NOSQL,
+            "nosql",
+        ),
+        (
+            r'"[^"]+"\s*:\s*\{\s*"\$(?:ne|eq)"\s*:\s*(?:true|false)',
             _CTX_NOSQL,
             "nosql",
         ),
@@ -1790,12 +1880,27 @@ class SusPatternsManager:
             "proto_pollution",
         ),
         (
+            _PROTO_POLLUTION_PROTOTYPE_ASSIGN_RE,
+            _CTX_PROTO_POLLUTION,
+            "proto_pollution",
+        ),
+        (
+            _PROTO_POLLUTION_SET_PROTOTYPE_OF_RE,
+            _CTX_PROTO_POLLUTION,
+            "proto_pollution",
+        ),
+        (
             r"System\.Diagnostics\.Process\.Start\s*\(|System\.Reflection\.|Assembly\.Load\s*\(",
             _CTX_CODE_INJECTION,
             "code_injection",
         ),
         (
             _PY_GETATTR_INDIRECTION_RE,
+            _CTX_CODE_INJECTION,
+            "code_injection",
+        ),
+        (
+            _PY_VARS_INDIRECTION_RE,
             _CTX_CODE_INJECTION,
             "code_injection",
         ),
