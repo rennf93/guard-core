@@ -1,4 +1,5 @@
 import io
+import json
 import pickle
 from unittest.mock import patch
 from urllib.parse import urlencode
@@ -6,7 +7,9 @@ from urllib.parse import urlencode
 import pytest
 
 from guard_core.handlers.suspatterns_handler import (
+    _PICKLE_OPCODE_WORK_BUDGET_BYTES,
     _pickle_global_prefix_is_opcode_stream,
+    _pickle_global_suffix_reaches_reduce_or_build,
     sus_patterns_handler,
 )
 from guard_core.models import SecurityConfig
@@ -14,6 +17,15 @@ from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 
 _BASELINE_PICKLE_PAYLOAD = b"cshutil\nrmtree\n(S'/tmp/x'\ntR."
+_MEMOIZED_PICKLE_PAYLOAD = (
+    b"cshutil\nrmtree\nq\x00X\x06\x00\x00\x00/tmp/xq\x01\x85q\x02Rq\x03."
+)
+
+
+def _clean_multibyte_opcode_padding(length: int) -> bytes:
+    unit = b"Nq\x00"
+    whole_units, remainder = divmod(length, len(unit))
+    return b"N" * remainder + unit * whole_units
 
 
 @pytest.fixture(autouse=True)
@@ -116,6 +128,91 @@ _REAL_ENTRY_POINT_BODY_REQUEST_BUILDERS = {
 }
 
 
+def _query_param_request(payload: str) -> MockGuardRequest:
+    return MockGuardRequest(
+        query_params={"v": payload}, headers={"content-length": "0"}
+    )
+
+
+def _json_body_request(payload: str) -> MockGuardRequest:
+    body = b'{"v":' + json.dumps(payload).encode("utf-8") + b"}"
+    return MockGuardRequest(
+        body_content=body,
+        headers={
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+    )
+
+
+_WINDOW_BOUNDARY_MECHANISM_BUILDERS = {
+    **_REAL_ENTRY_POINT_BODY_REQUEST_BUILDERS,
+    "query_param": _query_param_request,
+    "json_body": _json_body_request,
+}
+
+
+_WINDOW_BOUNDARY_PREFIX_LENGTHS = [31, 32, 33, 200, 4096]
+
+_WINDOW_BOUNDARY_TAIL_SHAPES = {
+    "bare_reduce": _BASELINE_PICKLE_PAYLOAD,
+    "memoized_reduce": _MEMOIZED_PICKLE_PAYLOAD,
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix_len", _WINDOW_BOUNDARY_PREFIX_LENGTHS)
+@pytest.mark.parametrize("tail_shape", sorted(_WINDOW_BOUNDARY_TAIL_SHAPES))
+@pytest.mark.parametrize("mechanism", sorted(_WINDOW_BOUNDARY_MECHANISM_BUILDERS))
+async def test_opcode_prefix_at_window_boundary_lengths_detected_via_real_entry_point(
+    mechanism: str, tail_shape: str, prefix_len: int
+) -> None:
+    padding = _clean_multibyte_opcode_padding(prefix_len)
+    tail = _WINDOW_BOUNDARY_TAIL_SHAPES[tail_shape]
+    payload = _decoded_like_production(padding + tail)
+    request = _WINDOW_BOUNDARY_MECHANISM_BUILDERS[mechanism](payload)
+    result = await detect_penetration_attempt(request, SecurityConfig())
+    assert result.is_threat is True
+
+
+class _CallRecordingUnpickler(pickle.Unpickler):
+    def __init__(self, file: io.BytesIO) -> None:
+        super().__init__(file)
+        self.find_class_calls: list[tuple[str, str]] = []
+        self.reduce_call_args: list[tuple[tuple, dict]] = []
+
+    def find_class(self, module: str, name: str) -> object:
+        self.find_class_calls.append((module, name))
+
+        def _sentinel(*args: object, **kwargs: object) -> object:
+            self.reduce_call_args.append((args, kwargs))
+            raise RuntimeError("blocked-before-real-call")
+
+        return _sentinel
+
+
+def test_opcode_prefix_at_window_boundary_lengths_genuinely_execute() -> None:
+    for tail in _WINDOW_BOUNDARY_TAIL_SHAPES.values():
+        for prefix_len in _WINDOW_BOUNDARY_PREFIX_LENGTHS:
+            payload = _clean_multibyte_opcode_padding(prefix_len) + tail
+            unpickler = _CallRecordingUnpickler(io.BytesIO(payload))
+            with pytest.raises(RuntimeError, match="blocked-before-real-call"):
+                unpickler.load()
+            assert unpickler.find_class_calls == [("shutil", "rmtree")]
+            assert unpickler.reduce_call_args == [(("/tmp/x",), {})]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix_len", [4097, 5000, 8192])
+async def test_opcode_prefix_beyond_work_budget_still_flags(prefix_len: int) -> None:
+    assert prefix_len > _PICKLE_OPCODE_WORK_BUDGET_BYTES
+    padding = _clean_multibyte_opcode_padding(prefix_len)
+    payload = _decoded_like_production(padding + _BASELINE_PICKLE_PAYLOAD)
+    request = _raw_body_request(payload)
+    result = await detect_penetration_attempt(request, SecurityConfig())
+    assert result.is_threat is True
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prefix", BYTE_SENSITIVE_OPCODE_PREFIX_FAMILY)
 @pytest.mark.parametrize("mechanism", sorted(_REAL_ENTRY_POINT_BODY_REQUEST_BUILDERS))
@@ -190,6 +287,10 @@ BENIGN_PROSE_NOT_MATCHING_GLOBAL_SHAPE = [
     pytest.param(
         b"Build log: step finished(cache\nvalue\nR.\n",
         id="glued_mark_prefix_in_prose",
+    ),
+    pytest.param(
+        b"Internal tools we use:\nconfluence\nhelpdesk\njira",
+        id="bare_letter_after_newline_glued_global_in_prose",
     ),
 ]
 
@@ -333,3 +434,88 @@ def test_prefix_validator_readinto_short_read_is_rejected() -> None:
         )
         is False
     )
+
+
+def test_prefix_validator_exactly_at_budget_clean_run_is_resolved_true() -> None:
+    prefix = "N" * _PICKLE_OPCODE_WORK_BUDGET_BYTES
+    assert _pickle_global_prefix_is_opcode_stream(prefix) is True
+
+
+def test_prefix_validator_budget_exceeded_clean_run_is_unresolved_and_flags() -> None:
+    prefix = "N" * (_PICKLE_OPCODE_WORK_BUDGET_BYTES + 1000)
+    assert _pickle_global_prefix_is_opcode_stream(prefix) is True
+
+
+def test_prefix_validator_budget_exceeded_dangling_opcode_is_unresolved_and_flags() -> (
+    None
+):
+    budget = _PICKLE_OPCODE_WORK_BUDGET_BYTES
+    dangling = _clean_multibyte_opcode_padding(budget - 1) + b"K" + b"extra"
+    prefix = dangling.decode("utf-8", errors="surrogateescape")
+    assert len(prefix) > budget
+    assert _pickle_global_prefix_is_opcode_stream(prefix) is True
+
+
+def test_prefix_validator_budget_exceeded_early_dispatch_failure_still_rejected() -> (
+    None
+):
+    prefix = "Z" + "A" * (_PICKLE_OPCODE_WORK_BUDGET_BYTES + 1000)
+    assert _pickle_global_prefix_is_opcode_stream(prefix) is False
+
+
+def test_suffix_validator_reaches_reduce_directly() -> None:
+    assert _pickle_global_suffix_reaches_reduce_or_build("R") is True
+
+
+def test_suffix_validator_reaches_build_directly() -> None:
+    assert _pickle_global_suffix_reaches_reduce_or_build("b") is True
+
+
+def test_suffix_validator_clean_run_without_reduce_is_rejected() -> None:
+    assert _pickle_global_suffix_reaches_reduce_or_build("N") is False
+
+
+def test_suffix_validator_unknown_opcode_byte_is_rejected() -> None:
+    assert _pickle_global_suffix_reaches_reduce_or_build("Z") is False
+
+
+def test_suffix_validator_codepoint_beyond_byte_range_is_rejected() -> None:
+    assert _pickle_global_suffix_reaches_reduce_or_build("☃") is False
+
+
+def test_suffix_validator_frame_opcode_before_reduce_is_detected() -> None:
+    suffix = "\x95" + "\x00" * 8 + "R"
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is True
+
+
+def test_suffix_validator_frame_length_exceeding_sys_maxsize_is_rejected() -> None:
+    overflowing_length = bytes([0xFF] * 8).decode("utf-8", errors="surrogateescape")
+    suffix = "\x95" + overflowing_length + "R"
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is False
+
+
+def test_suffix_validator_exactly_at_budget_clean_run_is_resolved_false() -> None:
+    suffix = "N" * _PICKLE_OPCODE_WORK_BUDGET_BYTES
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is False
+
+
+def test_suffix_validator_budget_exceeded_clean_run_is_unresolved_and_flags() -> None:
+    suffix = "N" * (_PICKLE_OPCODE_WORK_BUDGET_BYTES + 1000)
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is True
+
+
+def test_suffix_validator_budget_exceeded_dangling_opcode_is_unresolved_and_flags() -> (
+    None
+):
+    budget = _PICKLE_OPCODE_WORK_BUDGET_BYTES
+    dangling = _clean_multibyte_opcode_padding(budget - 1) + b"K" + b"extra"
+    suffix = dangling.decode("utf-8", errors="surrogateescape")
+    assert len(suffix) > budget
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is True
+
+
+def test_suffix_validator_budget_exceeded_early_dispatch_failure_still_rejected() -> (
+    None
+):
+    suffix = "Z" + "A" * (_PICKLE_OPCODE_WORK_BUDGET_BYTES + 1000)
+    assert _pickle_global_suffix_reaches_reduce_or_build(suffix) is False
