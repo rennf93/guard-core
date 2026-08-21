@@ -201,20 +201,32 @@ def test_decode_base64_candidates_returns_token_when_decode_fails(
     assert result == payload
 
 
-def test_printable_ascii_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
-    assert pp._printable_ascii_ratio("") == 0.0
+def test_printable_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
+    assert pp._printable_ratio("") == 0.0
 
 
-def test_printable_ascii_ratio_of_all_printable_ascii_is_one(
+def test_printable_ratio_of_all_printable_ascii_is_one(
     pp: ContentPreprocessor,
 ) -> None:
-    assert pp._printable_ascii_ratio("hello world 123") == 1.0
+    assert pp._printable_ratio("hello world 123") == 1.0
 
 
-def test_printable_ascii_ratio_counts_only_ascii_printable_range(
+def test_printable_ratio_excludes_control_characters(
     pp: ContentPreprocessor,
 ) -> None:
-    assert pp._printable_ascii_ratio("ab\x01\x02") == 0.5
+    assert pp._printable_ratio("ab\x01\x02") == 0.5
+
+
+def test_printable_ratio_counts_non_ascii_letters_as_printable(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ratio("你好世界") == 1.0
+
+
+def test_printable_ratio_of_mixed_ascii_and_cjk_is_one(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ratio("'; EXEC xp_cmdshell('whoami'); -- 你好") == 1.0
 
 
 def test_replacement_char_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:

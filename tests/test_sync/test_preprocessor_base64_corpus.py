@@ -310,6 +310,55 @@ def test_realistic_non_base64_content_survives_decode_unchanged(
     assert pp._decode_base64_candidates(candidate) == candidate
 
 
+_STACKED_BENIGN_ALNUM_RUNS = [
+    "4df8c9fa3b2c1e6d7f8a9b0c1d2e3f4a5b6c7d8e",
+    "a618a05f4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e",
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85",
+    "d41d8cd98f00b204e9800998ecf8427e0123456789abcdef0123456789abcd",
+    "wJalrXUtnFEMI0K7MDENG0bPxRfiCYEXAMPLEKEY0123456789",
+    "AKIAIOSFODNN7EXAMPLE1234567890ABCDEF",
+]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (a, b)
+        for a in _STACKED_BENIGN_ALNUM_RUNS
+        for b in _STACKED_BENIGN_ALNUM_RUNS
+        if a != b
+    ],
+)
+def test_stacked_benign_alnum_runs_separated_by_single_break_stay_undetected(
+    pp: ContentPreprocessor, first: str, second: str
+) -> None:
+    content = f"{first}\n{second}"
+    assert pp._decode_base64_candidates(content) == content
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (a, b)
+        for a in _STACKED_BENIGN_ALNUM_RUNS
+        for b in _STACKED_BENIGN_ALNUM_RUNS
+        if a != b
+    ],
+)
+def test_stacked_benign_alnum_runs_separated_by_blank_line_stay_undetected(
+    pp: ContentPreprocessor, first: str, second: str
+) -> None:
+    content = f"{first}\n\n{second}"
+    assert pp._decode_base64_candidates(content) == content
+
+
+def test_three_stacked_benign_alnum_runs_with_mixed_breaks_stay_undetected(
+    pp: ContentPreprocessor,
+) -> None:
+    content = "\n\n".join(_STACKED_BENIGN_ALNUM_RUNS[:3])
+    assert pp._decode_base64_candidates(content) == content
+
+
 @pytest.mark.parametrize(
     "token",
     BASE64_JWT_CORPUS,
@@ -333,6 +382,63 @@ def test_base64_wrapped_attack_payload_is_decoded_and_recoverable(
 ) -> None:
     token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
     result = pp._decode_base64_candidates(token)
+    assert plaintext in result
+
+
+@pytest.mark.parametrize(
+    ("label", "plaintext"),
+    BASE64_DECODE_CORPUS,
+    ids=[label for label, _ in BASE64_DECODE_CORPUS],
+)
+def test_base64_attack_payload_survives_mime_header_glue(
+    pp: ContentPreprocessor, label: str, plaintext: str
+) -> None:
+    token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+    content = f"Content-Transfer-Encoding: base64\r\n\r\n{token}"
+    result = pp._decode_base64_candidates(content)
+    assert plaintext in result
+
+
+@pytest.mark.parametrize(
+    ("label", "plaintext"),
+    BASE64_DECODE_CORPUS,
+    ids=[label for label, _ in BASE64_DECODE_CORPUS],
+)
+def test_base64_attack_payload_survives_76_column_line_wrapping(
+    pp: ContentPreprocessor, label: str, plaintext: str
+) -> None:
+    token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+    wrapped = "\r\n".join(token[i : i + 76] for i in range(0, len(token), 76))
+    result = pp._decode_base64_candidates(wrapped)
+    assert plaintext in result
+
+
+@pytest.mark.parametrize(
+    ("label", "plaintext"),
+    BASE64_DECODE_CORPUS,
+    ids=[label for label, _ in BASE64_DECODE_CORPUS],
+)
+def test_base64_attack_payload_survives_two_single_break_decoys(
+    pp: ContentPreprocessor, label: str, plaintext: str
+) -> None:
+    token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+    content = f"AAAAAAAAAAAA\nB\n{token}"
+    result = pp._decode_base64_candidates(content)
+    assert plaintext in result
+
+
+@pytest.mark.parametrize(
+    ("label", "plaintext"),
+    BASE64_DECODE_CORPUS,
+    ids=[label for label, _ in BASE64_DECODE_CORPUS],
+)
+def test_base64_attack_payload_survives_stylistic_double_break(
+    pp: ContentPreprocessor, label: str, plaintext: str
+) -> None:
+    token = base64.b64encode(plaintext.encode("utf-8")).decode("ascii")
+    split_at = min(7, len(token) - 1)
+    content = token[:split_at] + "\n\n" + token[split_at:]
+    result = pp._decode_base64_candidates(content)
     assert plaintext in result
 
 

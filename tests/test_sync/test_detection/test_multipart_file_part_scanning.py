@@ -1,3 +1,4 @@
+import base64
 import email.message
 import email.parser
 import os
@@ -10,6 +11,7 @@ from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.sync.utils import (
     _multipart_text_parts,
     _scan_multipart_body,
+    _scan_request_body,
     detect_penetration_attempt,
 )
 from tests.test_sync.conftest import SyncMockGuardRequest
@@ -119,6 +121,113 @@ def test_malicious_upload_content_detected(content: str, category: str) -> None:
     result = detect_penetration_attempt(request, _CONFIG)
     assert result.is_threat is True
     assert result.threat_categories == [category]
+
+
+_BASE64_TRANSFER_ENCODED_CATEGORY_PAYLOADS = [
+    ("<script>alert(document.cookie)</script>", "xss"),
+    ("' OR '1'='1' -- comment for admin bypass", "sqli"),
+    (";cat /etc/passwd;whoami;id;uname -a", "cmd_injection"),
+    ("*)(uid=*))(|(uid=*", "ldap"),
+    ("../../../../../../etc/passwd%00.jpg", "dir_traversal"),
+]
+
+
+def _base64_transfer_encoded_file_part_body(content: str) -> bytes:
+    encoded = base64.b64encode(content.encode()).decode()
+    return (
+        '--B0\r\nContent-Disposition: form-data; name="file"; '
+        'filename="payload.b64"\r\nContent-Type: text/plain\r\n'
+        f"Content-Transfer-Encoding: base64\r\n\r\n{encoded}\r\n--B0--\r\n"
+    ).encode()
+
+
+@pytest.mark.parametrize(
+    ("content", "category"), _BASE64_TRANSFER_ENCODED_CATEGORY_PAYLOADS
+)
+def test_base64_transfer_encoded_upload_content_detected(
+    content: str, category: str
+) -> None:
+    request = _body_request(
+        _base64_transfer_encoded_file_part_body(content), _CONTENT_TYPE
+    )
+    result = detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert category in result.threat_categories
+
+
+@pytest.mark.parametrize(
+    ("content", "category"), _BASE64_TRANSFER_ENCODED_CATEGORY_PAYLOADS
+)
+def test_base64_transfer_encoded_upload_survives_boundary_mismatch(
+    content: str, category: str
+) -> None:
+    raw_body = _base64_transfer_encoded_file_part_body(content).decode()
+    assert (
+        _multipart_text_parts(raw_body, "multipart/form-data; boundary=DOES-NOT-MATCH")
+        is None
+    )
+
+    detected, trigger, threats = _scan_request_body(
+        raw_body,
+        "multipart/form-data; boundary=DOES-NOT-MATCH",
+        set(),
+        None,
+        "127.0.0.1",
+        "corr-1",
+        "WARNING",
+    )
+    assert detected is True
+    assert any(t.get("category") == category for t in threats)
+
+
+def _decoy_prefixed_file_part_body(content: str) -> bytes:
+    encoded = base64.b64encode(content.encode()).decode()
+    file_bytes = f"AAAAAAAAAAAA\nB\n{encoded}"
+    return _file_part_body("notes.txt", file_bytes)
+
+
+@pytest.mark.parametrize(
+    ("content", "category"), _BASE64_TRANSFER_ENCODED_CATEGORY_PAYLOADS
+)
+def test_wellformed_upload_with_decoy_prefixed_base64_content_detected(
+    content: str, category: str
+) -> None:
+    raw_body = _decoy_prefixed_file_part_body(content)
+    assert _multipart_text_parts(raw_body.decode(), _CONTENT_TYPE) is not None
+
+    request = _body_request(raw_body, _CONTENT_TYPE)
+    result = detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert category in result.threat_categories
+
+
+def _fragmented_below_run_floor_file_part_body(content: str) -> bytes:
+    import string
+
+    raw = content.encode()
+    chunk_bytes = 3
+    parts = []
+    for index in range(0, len(raw), chunk_bytes):
+        decoy = string.ascii_uppercase[(index // chunk_bytes) % 26] * 12
+        chunk = base64.b64encode(raw[index : index + chunk_bytes]).decode()
+        parts.append(decoy)
+        parts.append(chunk)
+    return _file_part_body("notes.txt", "\n".join(parts))
+
+
+@pytest.mark.parametrize(
+    ("content", "category"), _BASE64_TRANSFER_ENCODED_CATEGORY_PAYLOADS
+)
+def test_wellformed_upload_with_fragmented_below_floor_base64_content_detected(
+    content: str, category: str
+) -> None:
+    raw_body = _fragmented_below_run_floor_file_part_body(content)
+    assert _multipart_text_parts(raw_body.decode(), _CONTENT_TYPE) is not None
+
+    request = _body_request(raw_body, _CONTENT_TYPE)
+    result = detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert category in result.threat_categories
 
 
 def test_benign_upload_filename_and_content_not_detected() -> None:

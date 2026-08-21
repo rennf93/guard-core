@@ -559,6 +559,195 @@ def test_decode_base64_candidates_eleven_char_run_is_not_a_decode_candidate() ->
     assert result == content
 
 
+def test_decode_base64_candidates_recovers_payload_glued_across_blank_line() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    blob = base64.b64encode(payload.encode()).decode()
+    content = f"Content-Transfer-Encoding: base64\r\n\r\n{blob}"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+    assert "Content-Transfer-Encoding: base64" in result
+
+
+def test_decode_base64_candidates_single_line_break_keeps_candidate_joined() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>" * 3
+    blob = base64.b64encode(payload.encode()).decode()
+    wrapped = "\r\n".join(blob[i : i + 76] for i in range(0, len(blob), 76))
+
+    result = preprocessor._decode_base64_candidates(wrapped)
+
+    assert payload in result
+
+
+def test_base64_re_merges_across_a_blank_line_into_one_candidate() -> None:
+    preprocessor = ContentPreprocessor()
+    content = "AAAAAAAAAAAA\r\n\r\nbmluZS1ieXRl"
+
+    matches = [m.group(0) for m in preprocessor._BASE64_RE.finditer(content)]
+
+    assert len(matches) == 1
+    assert matches[0] == content
+
+
+def test_decode_base64_candidates_recovers_payload_past_two_single_break_decoys() -> (
+    None
+):
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    blob = base64.b64encode(payload.encode()).decode()
+    content = f"AAAAAAAAAAAA\nB\n{blob}"
+
+    matches = [m.group(0) for m in preprocessor._BASE64_RE.finditer(content)]
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert len(matches) == 1
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_payload_past_three_single_break_decoys() -> (
+    None
+):
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "' OR '1'='1' -- comment for admin bypass"
+    blob = base64.b64encode(payload.encode()).decode()
+    content = f"AAAAAAAAAAAA\nB\nCCCCCCCCCCCC\nD\n{blob}"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_recovers_content_split_by_stylistic_break() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = (
+        "a legitimate document body delivered as one continuous base64 "
+        "attachment, with a stylistic blank line inserted mid-stream by "
+        "an upstream relay, at a byte offset that does not fall on a "
+        "four-character boundary"
+    )
+    blob = base64.b64encode(payload.encode()).decode()
+    split_at = 37
+    content = blob[:split_at] + "\n\n" + blob[split_at:]
+
+    matches = [m.group(0) for m in preprocessor._BASE64_RE.finditer(content)]
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert len(matches) == 1
+    assert payload in result
+
+
+def test_decode_base64_candidates_leaves_too_short_run_untouched_on_fallback() -> None:
+    preprocessor = ContentPreprocessor()
+
+    result = preprocessor._decode_base64_candidates("short\nbmluZS1ieXRl")
+
+    assert result.startswith("short\n")
+    assert "nine-byte" in result
+
+
+def test_decode_base64_candidates_leaves_hex_literal_run_untouched_on_fallback() -> (
+    None
+):
+    preprocessor = ContentPreprocessor()
+    hex_literal = "0x2f6574632f706173737764"
+    content = f"{hex_literal}\nbmluZS1ieXRl"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert hex_literal in result
+    assert "nine-byte" in result
+
+
+def test_decode_base64_candidates_rejects_low_quality_fallback_decode() -> None:
+    preprocessor = ContentPreprocessor()
+    content = "Xk29LmQpZt841HbNcRfWs\nwzV6Kj1oJ2OnYwhzMgjJns"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
+def test_decode_base64_candidates_leaves_short_payload_below_run_floor() -> None:
+    import base64
+
+    preprocessor = ContentPreprocessor()
+    payload = "id"
+    token = base64.b64encode(payload.encode()).decode()
+    content = f"AAAAAAAAAAAA\nB\n{token}"
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload not in result
+    assert token in result
+
+
+def _fragment_below_run_floor(payload: str) -> str:
+    import base64
+    import string
+
+    raw = payload.encode()
+    parts = []
+    for index in range(0, len(raw), 6):
+        decoy = string.ascii_uppercase[(index // 6) % 26] * 12
+        chunk = base64.b64encode(raw[index : index + 6]).decode()
+        parts.append(decoy)
+        parts.append(chunk)
+    return "\n".join(parts)
+
+
+def test_decode_base64_candidates_recovers_payload_fragmented_below_run_floor() -> None:
+    preprocessor = ContentPreprocessor()
+    payload = "<script>alert(document.cookie)</script>"
+    content = _fragment_below_run_floor(payload)
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert payload in result
+
+
+def test_decode_base64_candidates_fragmented_below_run_floor_needs_two_fragments() -> (
+    None
+):
+    preprocessor = ContentPreprocessor()
+    content = _fragment_below_run_floor("id")
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert "id" not in result
+
+
+_BENIGN_SHORT_IDENTIFIER_LINES = [
+    "SKU48213",
+    "SKU91027",
+    "REF33810",
+    "REF77492",
+    "ORD10394",
+    "ORD58261",
+]
+
+
+def test_stacked_benign_short_identifiers_stay_undetected_after_reassembly() -> None:
+    preprocessor = ContentPreprocessor()
+    content = "\n".join(_BENIGN_SHORT_IDENTIFIER_LINES)
+
+    result = preprocessor._decode_base64_candidates(content)
+
+    assert result == content
+
+
 def test_decode_hex_escapes_replaces_two_digit_escape() -> None:
     preprocessor = ContentPreprocessor()
 

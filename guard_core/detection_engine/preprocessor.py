@@ -57,8 +57,15 @@ class ContentPreprocessor:
             re.compile(pattern, re.IGNORECASE) for pattern in self.attack_indicators
         ]
 
+    _MIN_BASE64_RUN_LENGTH = 12
     _BASE64_RE = re.compile(
-        r"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){12,}={0,2}(?![A-Za-z0-9+/=])"
+        rf"(?<![A-Za-z0-9+/])(?:[A-Za-z0-9+/][\r\n]*){{{_MIN_BASE64_RUN_LENGTH},}}"
+        r"={0,2}(?![A-Za-z0-9+/=])"
+    )
+    _BASE64_RUN_RE = re.compile(rf"[A-Za-z0-9+/=]{{{_MIN_BASE64_RUN_LENGTH},}}")
+    _BASE64_SUB_FLOOR_RUN_RE = re.compile(
+        rf"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{{1,{_MIN_BASE64_RUN_LENGTH - 1}}}"
+        r"(?![A-Za-z0-9+/=])"
     )
     _BASE64_WHITESPACE_RE = re.compile(r"[\r\n]+")
     _GZIP_MAGIC = b"\x1f\x8b"
@@ -288,16 +295,17 @@ class ContentPreprocessor:
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
 
-    _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.5
+    _PRINTABLE_RATIO_THRESHOLD = 0.5
+    _FALLBACK_PRINTABLE_RATIO_THRESHOLD = 0.95
     _MAX_REPLACEMENT_CHAR_RATIO = 0.2
 
     def _is_hex_literal(self, token: str) -> bool:
         return bool(self._HEX_LITERAL_RE.fullmatch(token))
 
-    def _printable_ascii_ratio(self, text: str) -> float:
+    def _printable_ratio(self, text: str) -> float:
         if not text:
             return 0.0
-        printable_count = sum(1 for char in text if 0x20 <= ord(char) <= 0x7E)
+        printable_count = sum(1 for char in text if char.isprintable())
         return printable_count / len(text)
 
     def _replacement_char_ratio(self, text: str) -> float:
@@ -324,17 +332,16 @@ class ContentPreprocessor:
         if gunzip_attempts_left is None:
             gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
 
-        def _replace(match: re.Match[str]) -> str:
-            token = match.group(0)
+        def _decode_token(token: str, min_printable_ratio: float) -> str | None:
             if self._is_hex_literal(token):
-                return token
+                return None
             cleaned = self._BASE64_WHITESPACE_RE.sub("", token)
             padding = (4 - len(cleaned) % 4) % 4
             padded = cleaned + "=" * padding
             try:
                 raw = base64.b64decode(padded, validate=True)
             except (ValueError, binascii.Error):
-                return token
+                return None
             if raw[:2] == self._GZIP_MAGIC and gunzip_attempts_left[0] > 0:
                 gunzip_attempts_left[0] -= 1
                 gunzipped = self._bounded_gunzip(raw)
@@ -348,13 +355,34 @@ class ContentPreprocessor:
                     self._replacement_char_ratio(decoded)
                     > self._MAX_REPLACEMENT_CHAR_RATIO
                 ):
-                    return token
-            if (
-                self._printable_ascii_ratio(decoded)
-                >= self._PRINTABLE_ASCII_RATIO_THRESHOLD
-            ):
+                    return None
+            if self._printable_ratio(decoded) >= min_printable_ratio:
                 return decoded
-            return token
+            return None
+
+        def _decode_runs(token: str) -> str:
+            def _replace_run(match: re.Match[str]) -> str:
+                segment = match.group(0)
+                decoded = _decode_token(
+                    segment, self._FALLBACK_PRINTABLE_RATIO_THRESHOLD
+                )
+                return decoded if decoded is not None else segment
+
+            return self._BASE64_RUN_RE.sub(_replace_run, token)
+
+        def _replace(match: re.Match[str]) -> str:
+            token = match.group(0)
+            decoded = _decode_token(token, self._PRINTABLE_RATIO_THRESHOLD)
+            base = decoded if decoded is not None else _decode_runs(token)
+            fragments = "".join(self._BASE64_SUB_FLOOR_RUN_RE.findall(token))
+            reassembled = (
+                _decode_token(fragments, self._FALLBACK_PRINTABLE_RATIO_THRESHOLD)
+                if len(fragments) >= self._MIN_BASE64_RUN_LENGTH
+                else None
+            )
+            if reassembled is None or reassembled in base:
+                return base
+            return f"{base} {reassembled}"
 
         return self._BASE64_RE.sub(_replace, content)
 
