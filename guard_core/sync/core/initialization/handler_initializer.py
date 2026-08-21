@@ -174,8 +174,10 @@ class HandlerInitializer:
         return cast(SyncCloudIpStoreProtocol, store)
 
     def _configure_detection(self) -> None:
+        from guard_core.sync.handlers.ipban_handler import ip_ban_manager
         from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
+        ip_ban_manager.config = self.config
         sus_patterns_handler.configure(self.config)
 
     def _warn_if_lazy_init_is_inert(self) -> None:

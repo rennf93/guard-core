@@ -1,5 +1,6 @@
 PYTHON_VERSIONS = 3.10 3.11 3.12 3.13 3.14
 DEFAULT_PYTHON = 3.10
+CLEAN_CACHES = find . \( -name '__pycache__' -o -name '*.pyc' -o -name '*.pyo' -o -name '.pytest_cache' -o -name '.ruff_cache' -o -name '.mypy_cache' \) -prune -exec rm -rf {} +
 
 
 .PHONY: sync
@@ -15,26 +16,26 @@ check-sync:
 .PHONY: install
 install:
 	@uv sync
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: install-dev
 install-dev:
-	@uv sync --extra dev
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@uv sync --extra dev --extra otel --extra logfire
+	@$(CLEAN_CACHES)
 
 
 .PHONY: lock
 lock:
 	@uv lock
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: upgrade
 upgrade:
 	@uv lock --upgrade
 	@uv sync --all-extras
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: stop
@@ -67,7 +68,7 @@ lint:
 	@echo ''
 	@uv run vulture
 	@echo ''
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: fix
@@ -75,7 +76,7 @@ fix:
 	@echo "Fixing formatting w/ Ruff..."
 	@echo ''
 	@uv run ruff check --fix .
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: vulture
@@ -83,7 +84,7 @@ vulture:
 	@echo "Finding dead code with Vulture..."
 	@echo ''
 	@uv run vulture
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: bandit
@@ -91,7 +92,7 @@ bandit:
 	@echo "Running Bandit security scan..."
 	@echo ''
 	@uv run bandit -r guard_core -ll
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: safety
@@ -99,7 +100,7 @@ safety:
 	@echo "Checking dependencies with Safety..."
 	@echo ''
 	@uv run safety scan
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: pip-audit
@@ -107,7 +108,7 @@ pip-audit:
 	@echo "Auditing dependencies with pip-audit..."
 	@echo ''
 	@uv run pip-audit
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: radon
@@ -122,7 +123,7 @@ radon:
 	@echo ''
 	@echo "Raw Metrics:"
 	@uv run radon raw guard_core
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: xenon
@@ -130,7 +131,7 @@ xenon:
 	@echo "Checking complexity thresholds with Xenon..."
 	@echo ''
 	@uv run xenon guard_core --max-absolute B --max-modules A --max-average A
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: deptry
@@ -138,7 +139,7 @@ deptry:
 	@echo "Analyzing dependencies with Deptry..."
 	@echo ''
 	@uv run deptry .
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: semgrep
@@ -146,7 +147,7 @@ semgrep:
 	@echo "Running Semgrep static analysis..."
 	@echo ''
 	@uv run semgrep --config=auto guard_core
-	@find . | grep -E "(__pycache__|\.pyc|\.pyo|\.pytest_cache|\.ruff_cache|\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: security
@@ -228,7 +229,7 @@ test-3.14:
 .PHONY: local-test
 local-test:
 	@REDIS_URL=redis://localhost:6379 uv run pytest -v --cov=guard_core --cov-report=term-missing
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: attack-sim
@@ -238,26 +239,29 @@ attack-sim:
 
 .PHONY: integration-test
 integration-test:
-	@INTEGRATION_TESTS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} IPINFO_TOKEN=$${IPINFO_TOKEN:-test_token} REDIS_PREFIX=$${REDIS_PREFIX:-test:guard_core:} uv run pytest tests/integration -m integration -v
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@STATUS=0; \
+	INTEGRATION_TESTS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} IPINFO_TOKEN=$${IPINFO_TOKEN:-test_token} env $${REDIS_PREFIX:+REDIS_PREFIX="$$REDIS_PREFIX"} uv run pytest tests/integration -m integration -v || STATUS=1; \
+	INTEGRATION_TESTS=1 REDIS_URL=$${REDIS_URL:-redis://localhost:6379} IPINFO_TOKEN=$${IPINFO_TOKEN:-test_token} env $${REDIS_PREFIX:+REDIS_PREFIX="$$REDIS_PREFIX"} uv run pytest tests/test_sync/integration -m integration -v || STATUS=1; \
+	$(CLEAN_CACHES); \
+	exit $$STATUS
 
 
 .PHONY: serve-docs
 serve-docs:
 	@uv run mkdocs serve
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: lint-docs
 lint-docs:
 	@uv run pymarkdownlnt scan -r --respect-gitignore .
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: fix-docs
 fix-docs:
 	@uv run pymarkdownlnt fix -r --respect-gitignore .
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: prune
@@ -267,7 +271,7 @@ prune:
 
 .PHONY: clean
 clean:
-	@find . | grep -E "(__pycache__|\\.pyc|\\.pyo|\\.pytest_cache|\\.ruff_cache|\\.mypy_cache)" | xargs rm -rf
+	@$(CLEAN_CACHES)
 
 
 .PHONY: bump-version

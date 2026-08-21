@@ -5,14 +5,21 @@ import pytest
 from guard_core.models import VALID_CLOUD_PROVIDERS, SecurityConfig
 
 
-def test_block_cloud_providers_none_becomes_empty_frozenset() -> None:
+def test_block_cloud_providers_none_construction_stays_none() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == frozenset()
-    assert isinstance(config.block_cloud_providers, frozenset)
+    assert config.block_cloud_providers is None
 
 
 def test_block_cloud_providers_unset_default_is_none() -> None:
     assert SecurityConfig().block_cloud_providers is None
+
+
+def test_block_cloud_providers_reassignment_to_none_stores_none() -> None:
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    config.block_cloud_providers = None
+
+    assert config.block_cloud_providers is None
 
 
 def test_block_cloud_providers_rejects_invalid_entry() -> None:

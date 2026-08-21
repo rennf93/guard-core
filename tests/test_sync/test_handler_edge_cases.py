@@ -221,10 +221,16 @@ def test_utils_check_json_data_other_threat() -> None:
         "is_threat": True,
         "threats": [{"type": "heuristic"}],
     }
+
+    def _detect_only_value(*_a: object, **kw: object) -> dict[str, object]:
+        if kw.get("content") == "payload":
+            return mock_result
+        return {"is_threat": False, "threats": []}
+
     with patch(
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
-        mock_handler.detect = MagicMock(return_value=mock_result)
+        mock_handler.detect = MagicMock(side_effect=_detect_only_value)
         detected, info = _check_json_fields(
             {"field": "payload"}, "body", "1.2.3.4", "corr-1"
         )
@@ -236,10 +242,16 @@ def test_utils_check_json_data_no_threats_list() -> None:
     from guard_core.sync.utils import _check_json_fields
 
     mock_result = {"is_threat": True, "threats": []}
+
+    def _detect_only_value(*_a: object, **kw: object) -> dict[str, object]:
+        if kw.get("content") == "val":
+            return mock_result
+        return {"is_threat": False, "threats": []}
+
     with patch(
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
-        mock_handler.detect = MagicMock(return_value=mock_result)
+        mock_handler.detect = MagicMock(side_effect=_detect_only_value)
         detected, info = _check_json_fields(
             {"field": "val"}, "body", "1.2.3.4", "corr-1"
         )
@@ -265,7 +277,7 @@ def test_utils_detect_header_threat() -> None:
     from guard_core.sync.utils import _check_request_component
 
     with patch(
-        "guard_core.sync.utils._check_value_enhanced",
+        "guard_core.sync._utils.detection_scan._check_value_enhanced",
         return_value=(True, "XSS detected", []),
     ):
         detected, trigger, threats = _check_request_component(
@@ -284,7 +296,18 @@ def test_utils_detect_header_threat() -> None:
 def test_utils_detect_penetration_header_match() -> None:
     from guard_core.sync.utils import detect_penetration_attempt
 
-    with patch("guard_core.sync.utils._check_request_component") as mock_check:
+    mock_check = MagicMock()
+
+    with (
+        patch(
+            "guard_core.sync._utils.body_content_scan._check_request_component",
+            mock_check,
+        ),
+        patch(
+            "guard_core.sync._utils.penetration_detection._check_request_component",
+            mock_check,
+        ),
+    ):
         call_count = 0
 
         def side_effect(
@@ -295,6 +318,7 @@ def test_utils_detect_penetration_header_match() -> None:
             correlation_id: str,
             enabled_categories: set[str] | None = None,
             log_level: str | None = "WARNING",
+            scan_embedded_json: bool = True,
         ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1
@@ -462,8 +486,6 @@ def test_is_ip_banned_not_in_memory_and_no_redis() -> None:
 
 
 def test_is_ip_banned_redis_miss_returns_false() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.ipban_handler import IPBanManager
 
     manager = IPBanManager()
@@ -476,7 +498,6 @@ def test_is_ip_banned_redis_miss_returns_false() -> None:
 
 def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
     import time
-    from unittest.mock import MagicMock
 
     from guard_core.sync.handlers.ipban_handler import IPBanManager
 
@@ -492,8 +513,6 @@ def test_is_ip_banned_redis_stale_expiry_cleanup() -> None:
 
 def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
     # Covers elif-False: loop continues over a prefix dict with neither key.
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.cloud_handler import fetch_gcp_ip_ranges
 
     class _FakeSession:
@@ -516,7 +535,10 @@ def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
             )
             return response
 
-    with patch("guard_core.sync.handlers.cloud_handler.requests.Session", _FakeSession):
+    with patch(
+        "guard_core.sync.handlers._cloud_provider_fetchers.requests.Session",
+        _FakeSession,
+    ):
         networks, _ = fetch_gcp_ip_ranges()
 
     assert len(networks) == 1

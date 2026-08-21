@@ -105,7 +105,9 @@ class RateLimitManager:
 
     async def reset(self) -> None:
         """
-        Clear all in-memory timestamps and Redis rate-limit keys.
+        Clear all in-memory timestamps and Redis rate-limit keys, and
+        detach the Redis handler. Call initialize_redis() again before
+        Redis-backed rate limiting resumes.
         """
 ```
 

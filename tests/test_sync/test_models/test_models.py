@@ -1,8 +1,9 @@
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
 
-from guard_core.models import SecurityConfig
+from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 
@@ -32,7 +33,7 @@ def test_security_config_none_whitelist() -> None:
 
 def test_none_cloud_providers() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == frozenset()
+    assert config.block_cloud_providers is None
 
 
 def test_missing_ipinfo_token() -> None:
@@ -151,3 +152,36 @@ def test_muted_event_types_validation_valid() -> None:
 def test_muted_metric_types_validation_valid() -> None:
     config = SecurityConfig(muted_metric_types={"response_time"})
     assert config.muted_metric_types == {"response_time"}
+
+
+def test_security_config_auth_verifier_defaults_none() -> None:
+    config = SecurityConfig()
+    assert config.auth_verifier is None
+
+
+def test_security_config_auth_verifier_accepts_callable() -> None:
+    def verifier(request: object, credential: str) -> object:
+        return credential
+
+    config = SecurityConfig(auth_verifier=verifier)
+    assert config.auth_verifier is verifier
+
+
+def test_dynamic_rules_rejects_non_positive_auto_ban_threshold() -> None:
+    with pytest.raises(ValueError):
+        DynamicRules(
+            rule_id="r1",
+            version=1,
+            timestamp=datetime.now(timezone.utc),
+            auto_ban_threshold=0,
+        )
+
+
+def test_dynamic_rules_rejects_non_positive_auto_ban_duration() -> None:
+    with pytest.raises(ValueError):
+        DynamicRules(
+            rule_id="r1",
+            version=1,
+            timestamp=datetime.now(timezone.utc),
+            auto_ban_duration=0,
+        )

@@ -125,7 +125,7 @@ def test_block_cloud_providers_none_without_cloud_packages_does_not_raise(
 
     config = SecurityConfig(block_cloud_providers=None)
 
-    assert config.block_cloud_providers == set()
+    assert config.block_cloud_providers is None
 
 
 def test_block_cloud_providers_with_only_requests_available_does_not_raise(
@@ -164,7 +164,7 @@ def test_enable_dynamic_rules_false_without_cloud_packages_does_not_raise(
 
     config = SecurityConfig(enable_dynamic_rules=False, block_cloud_providers=None)
 
-    assert config.block_cloud_providers == set()
+    assert config.block_cloud_providers is None
 
 
 @pytest.mark.parametrize(

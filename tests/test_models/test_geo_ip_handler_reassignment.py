@@ -36,7 +36,7 @@ def test_blocked_countries_assignment_with_geo_handler_already_set_succeeds(
 
     config.blocked_countries = cast(frozenset[str], ["US"])
 
-    assert cast(list[str], config.blocked_countries) == ["US"]
+    assert config.blocked_countries == frozenset({"US"})
     assert config.geo_ip_handler is handler
 
 
@@ -53,7 +53,7 @@ def test_blocked_countries_assignment_with_ipinfo_token_auto_constructs_handler(
         config.blocked_countries = cast(frozenset[str], ["US"])
 
     assert type(config.geo_ip_handler).__name__ == "IPInfoManager"
-    assert cast(list[str], config.blocked_countries) == ["US"]
+    assert config.blocked_countries == frozenset({"US"})
 
 
 def test_geo_ip_handler_assignment_to_none_with_active_rules_and_no_token_raises(
@@ -87,7 +87,7 @@ def test_model_copy_update_blocked_countries_with_geo_handler_in_same_update_suc
         update={"blocked_countries": ["US"], "geo_ip_handler": handler}
     )
 
-    assert cast(list[str], copied.blocked_countries) == ["US"]
+    assert copied.blocked_countries == frozenset({"US"})
     assert copied.geo_ip_handler is handler
 
 
@@ -104,7 +104,7 @@ def test_model_copy_update_blocked_countries_with_token_auto_constructs_handler(
         copied = base.model_copy(update={"blocked_countries": ["US"]})
 
     assert type(copied.geo_ip_handler).__name__ == "IPInfoManager"
-    assert cast(list[str], copied.blocked_countries) == ["US"]
+    assert copied.blocked_countries == frozenset({"US"})
     assert base.geo_ip_handler is None
 
 

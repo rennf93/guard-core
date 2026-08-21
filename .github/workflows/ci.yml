@@ -125,7 +125,7 @@ jobs:
 
       - name: Run tests
         run: |
-          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' REDIS_PREFIX='test:guard_core:' uv run pytest -v --cov=guard_core --cov-fail-under=100 -W error
+          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' uv run pytest -v --cov=guard_core --cov-fail-under=100 -W error
 
       - name: Notify Success on Slack Channel
         uses: rennf93/good-comms@master

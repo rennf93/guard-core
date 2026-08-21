@@ -3,7 +3,10 @@ import re
 import pytest
 
 from guard_core.sync.detection_engine.preprocessor import ContentPreprocessor
-from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+from guard_core.sync.handlers.suspatterns_handler import (
+    SusPatternsManager,
+    _build_regex_threat,
+)
 
 _CMD_INJECTION_PATTERNS = [
     re.compile(pattern, re.IGNORECASE | re.MULTILINE)
@@ -71,7 +74,11 @@ COMMAND_INJECTION_PAYLOADS_PAST_TRUNCATION_CUTOFF = [
 
 
 def _is_cmd_injection_detected(text: str) -> bool:
-    return any(pattern.search(text) for pattern in _CMD_INJECTION_PATTERNS)
+    for pattern in _CMD_INJECTION_PATTERNS:
+        match = pattern.search(text)
+        if match and _build_regex_threat(pattern, match, "cmd_injection", 0.0):
+            return True
+    return False
 
 
 BACKTICK_ANCHORING_EXCLUSION_REASON = (
@@ -116,7 +123,7 @@ def test_command_injection_payload_past_cutoff_survives_truncation(
 
     truncated = preprocessor.truncate_safely(content)
 
-    assert len(truncated) <= _MAX_CONTENT_LENGTH
+    assert truncated == content
     assert _is_cmd_injection_detected(truncated)
 
 
@@ -146,7 +153,7 @@ def test_backtick_payload_past_cutoff_text_survives_truncation(
 
     truncated = preprocessor.truncate_safely(content)
 
-    assert len(truncated) <= _MAX_CONTENT_LENGTH
+    assert truncated == content
     assert payload in truncated
 
 

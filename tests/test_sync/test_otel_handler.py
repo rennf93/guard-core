@@ -136,24 +136,44 @@ def test_send_metric_records_error_counter(config: MagicMock) -> None:
         mock_histogram.record.assert_not_called()
 
 
-def test_stop_shuts_down_providers(config: MagicMock) -> None:
+def test_stop_shuts_down_only_owned_providers(config: MagicMock) -> None:
     with patch("guard_core.sync.core.events.otel_handler._otel_available", True):
         handler = OtelHandler(config)
-        mock_tracer = MagicMock()
-        mock_meter = MagicMock()
-        handler._tracer = mock_tracer
-        handler._meter = mock_meter
+        handler._tracer = MagicMock()
+        handler._meter = MagicMock()
         mock_tracer_provider = MagicMock()
         mock_meter_provider = MagicMock()
+        handler._owned_tracer_provider = mock_tracer_provider
+        handler._owned_meter_provider = mock_meter_provider
+
+        handler.stop()
+
+        mock_tracer_provider.shutdown.assert_called_once()
+        mock_meter_provider.shutdown.assert_called_once()
+        assert handler._tracer is None
+        assert handler._meter is None
+        assert handler._owned_tracer_provider is None
+        assert handler._owned_meter_provider is None
+
+
+def test_stop_does_not_shut_down_borrowed_providers(config: MagicMock) -> None:
+    with patch("guard_core.sync.core.events.otel_handler._otel_available", True):
+        handler = OtelHandler(config)
+        handler._tracer = MagicMock()
+        handler._meter = MagicMock()
+        handler._owned_tracer_provider = None
+        handler._owned_meter_provider = None
+
         with (
             patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
             patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
         ):
-            mock_trace.get_tracer_provider.return_value = mock_tracer_provider
-            mock_metrics.get_meter_provider.return_value = mock_meter_provider
             handler.stop()
-        mock_tracer_provider.shutdown.assert_called_once()
-        mock_meter_provider.shutdown.assert_called_once()
+            mock_trace.get_tracer_provider.assert_not_called()
+            mock_metrics.get_meter_provider.assert_not_called()
+
+        assert handler._tracer is None
+        assert handler._meter is None
 
 
 def test_stop_no_tracer_or_meter(config: MagicMock) -> None:
@@ -161,6 +181,8 @@ def test_stop_no_tracer_or_meter(config: MagicMock) -> None:
         handler = OtelHandler(config)
         handler._tracer = None
         handler._meter = None
+        handler._owned_tracer_provider = None
+        handler._owned_meter_provider = None
         handler.stop()
 
 
@@ -169,15 +191,16 @@ def test_stop_is_idempotent(config: MagicMock) -> None:
         handler = OtelHandler(config)
         handler._tracer = MagicMock()
         handler._meter = MagicMock()
-        with (
-            patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
-            patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
-        ):
-            mock_trace.get_tracer_provider.return_value = MagicMock()
-            mock_metrics.get_meter_provider.return_value = MagicMock()
-            handler.stop()
-            handler.stop()
+        mock_tracer_provider = MagicMock()
+        mock_meter_provider = MagicMock()
+        handler._owned_tracer_provider = mock_tracer_provider
+        handler._owned_meter_provider = mock_meter_provider
 
+        handler.stop()
+        handler.stop()
+
+        mock_tracer_provider.shutdown.assert_called_once()
+        mock_meter_provider.shutdown.assert_called_once()
         assert handler._tracer is None
         assert handler._meter is None
 
@@ -191,13 +214,13 @@ def test_stop_providers_without_shutdown_attr(config: MagicMock) -> None:
         class _NoShutdown:
             pass
 
-        with (
-            patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
-            patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
-        ):
-            mock_trace.get_tracer_provider.return_value = _NoShutdown()
-            mock_metrics.get_meter_provider.return_value = _NoShutdown()
-            handler.stop()
+        handler._owned_tracer_provider = _NoShutdown()
+        handler._owned_meter_provider = _NoShutdown()
+
+        handler.stop()
+
+        assert handler._owned_tracer_provider is None
+        assert handler._owned_meter_provider is None
 
 
 def test_start_configures_otel(config: MagicMock) -> None:
@@ -231,6 +254,8 @@ def test_start_configures_otel(config: MagicMock) -> None:
             MockTP.return_value = mock_tp
             mock_mp = MagicMock()
             MockMP.return_value = mock_mp
+            mock_trace.get_tracer_provider.return_value = mock_tp
+            mock_metrics.get_meter_provider.return_value = mock_mp
             mock_trace.get_tracer.return_value = mock_tracer
             mock_metrics.get_meter.return_value = mock_meter
             handler.start()
@@ -253,6 +278,200 @@ def test_start_configures_otel(config: MagicMock) -> None:
             assert handler._rt_histogram is mock_histogram
             assert handler._request_counter is mock_counter
             assert handler._error_counter is mock_error_counter
+            assert handler._owned_tracer_provider is mock_tp
+            assert handler._owned_meter_provider is mock_mp
+            mock_tp.shutdown.assert_not_called()
+            mock_mp.shutdown.assert_not_called()
+
+
+def test_start_is_idempotent_on_repeated_calls(config: MagicMock) -> None:
+    with (
+        patch("guard_core.sync.core.events.otel_handler._otel_available", True),
+        patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+        patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        patch("guard_core.sync.core.events.otel_handler.Resource"),
+        patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
+        patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
+        patch("guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
+        patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
+    ):
+        mock_tp = MagicMock()
+        MockTP.return_value = mock_tp
+        mock_mp = MagicMock()
+        MockMP.return_value = mock_mp
+        mock_trace.get_tracer_provider.return_value = mock_tp
+        mock_metrics.get_meter_provider.return_value = mock_mp
+
+        handler = OtelHandler(config)
+        handler.start()
+        handler.start()
+
+        MockTP.assert_called_once()
+        MockMP.assert_called_once()
+        mock_trace.set_tracer_provider.assert_called_once_with(mock_tp)
+        mock_metrics.set_meter_provider.assert_called_once_with(mock_mp)
+        assert handler._owned_tracer_provider is mock_tp
+        assert handler._owned_meter_provider is mock_mp
+
+
+def test_start_matrix_no_ambient_tracer_no_ambient_meter_owns_both(
+    config: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with (
+        patch("guard_core.sync.core.events.otel_handler._otel_available", True),
+        patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+        patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        patch("guard_core.sync.core.events.otel_handler.Resource"),
+        patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
+        patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
+        patch("guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
+        patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
+    ):
+        mock_tp = MagicMock()
+        MockTP.return_value = mock_tp
+        mock_mp = MagicMock()
+        MockMP.return_value = mock_mp
+        mock_trace.get_tracer_provider.return_value = mock_tp
+        mock_metrics.get_meter_provider.return_value = mock_mp
+
+        handler = OtelHandler(config)
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            handler.start()
+
+        assert handler._owned_tracer_provider is mock_tp
+        assert handler._owned_meter_provider is mock_mp
+        mock_tp.shutdown.assert_not_called()
+        mock_mp.shutdown.assert_not_called()
+        assert caplog.records == []
+
+
+def test_start_matrix_ambient_tracer_no_ambient_meter_borrows_tracer_owns_meter(
+    config: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with (
+        patch("guard_core.sync.core.events.otel_handler._otel_available", True),
+        patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+        patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        patch("guard_core.sync.core.events.otel_handler.Resource"),
+        patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
+        patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
+        patch("guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
+        patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
+    ):
+        mock_tp = MagicMock()
+        MockTP.return_value = mock_tp
+        mock_mp = MagicMock()
+        MockMP.return_value = mock_mp
+        host_tp = MagicMock()
+        mock_trace.get_tracer_provider.return_value = host_tp
+        mock_metrics.get_meter_provider.return_value = mock_mp
+
+        handler = OtelHandler(config)
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            handler.start()
+
+        assert handler._owned_tracer_provider is None
+        assert handler._owned_meter_provider is mock_mp
+        mock_tp.shutdown.assert_called_once()
+        host_tp.shutdown.assert_not_called()
+        mock_mp.shutdown.assert_not_called()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("tracer provider" in m and "already active" in m for m in messages)
+        assert not any("meter provider" in m for m in messages)
+
+
+def test_start_matrix_no_ambient_tracer_ambient_meter_owns_tracer_borrows_meter(
+    config: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with (
+        patch("guard_core.sync.core.events.otel_handler._otel_available", True),
+        patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+        patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        patch("guard_core.sync.core.events.otel_handler.Resource"),
+        patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
+        patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
+        patch("guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
+        patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
+    ):
+        mock_tp = MagicMock()
+        MockTP.return_value = mock_tp
+        mock_mp = MagicMock()
+        MockMP.return_value = mock_mp
+        host_mp = MagicMock()
+        mock_trace.get_tracer_provider.return_value = mock_tp
+        mock_metrics.get_meter_provider.return_value = host_mp
+
+        handler = OtelHandler(config)
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            handler.start()
+
+        assert handler._owned_tracer_provider is mock_tp
+        assert handler._owned_meter_provider is None
+        mock_tp.shutdown.assert_not_called()
+        mock_mp.shutdown.assert_called_once()
+        host_mp.shutdown.assert_not_called()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("meter provider" in m and "already active" in m for m in messages)
+        assert not any("tracer provider" in m for m in messages)
+
+
+def test_start_matrix_ambient_tracer_and_ambient_meter_borrows_both(
+    config: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with (
+        patch("guard_core.sync.core.events.otel_handler._otel_available", True),
+        patch("guard_core.sync.core.events.otel_handler.trace") as mock_trace,
+        patch("guard_core.sync.core.events.otel_handler.metrics") as mock_metrics,
+        patch("guard_core.sync.core.events.otel_handler.Resource"),
+        patch("guard_core.sync.core.events.otel_handler.TracerProvider") as MockTP,
+        patch("guard_core.sync.core.events.otel_handler.BatchSpanProcessor"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPSpanExporter"),
+        patch("guard_core.sync.core.events.otel_handler.PeriodicExportingMetricReader"),
+        patch("guard_core.sync.core.events.otel_handler.OTLPMetricExporter"),
+        patch("guard_core.sync.core.events.otel_handler.MeterProvider") as MockMP,
+    ):
+        mock_tp = MagicMock()
+        MockTP.return_value = mock_tp
+        mock_mp = MagicMock()
+        MockMP.return_value = mock_mp
+        host_tp = MagicMock()
+        host_mp = MagicMock()
+        mock_trace.get_tracer_provider.return_value = host_tp
+        mock_metrics.get_meter_provider.return_value = host_mp
+
+        handler = OtelHandler(config)
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            handler.start()
+
+        assert handler._owned_tracer_provider is None
+        assert handler._owned_meter_provider is None
+        mock_tp.shutdown.assert_called_once()
+        mock_mp.shutdown.assert_called_once()
+        host_tp.shutdown.assert_not_called()
+        host_mp.shutdown.assert_not_called()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("tracer provider" in m and "already active" in m for m in messages)
+        assert any("meter provider" in m and "already active" in m for m in messages)
 
 
 def test_start_rewrites_explicit_traces_endpoint_for_metrics() -> None:

@@ -517,11 +517,16 @@ async def test_authentication_no_auth_required() -> None:
     assert result is None
 
 
+def _approve(request: object, credential: str) -> dict[str, str]:
+    return {"user": "test"}
+
+
 async def test_authentication_bearer_valid() -> None:
     mw = _make_middleware()
     check = AuthenticationCheck(mw)
     rc = RouteConfig()
     rc.auth_required = "bearer"
+    rc.auth_verifier = _approve
     req = _make_request_with_route_config(
         rc, headers={"authorization": "Bearer token123"}
     )
@@ -547,6 +552,7 @@ async def test_authentication_basic_valid() -> None:
     check = AuthenticationCheck(mw)
     rc = RouteConfig()
     rc.auth_required = "basic"
+    rc.auth_verifier = _approve
     req = _make_request_with_route_config(
         rc, headers={"authorization": "Basic dXNlcjpwYXNz"}
     )

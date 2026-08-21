@@ -1,6 +1,7 @@
 import importlib.util
 import warnings
 from collections.abc import Callable, Mapping
+from functools import partial
 from ipaddress import ip_address, ip_network
 from pathlib import Path
 from types import MappingProxyType
@@ -8,6 +9,13 @@ from typing import TYPE_CHECKING, Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
+from guard_core._config_field_revalidators import (
+    _validate_bool_field_value,
+    _validate_endpoint_rate_limits_value,
+    _validate_int_field_value,
+    _validate_positive_int_field_value,
+    _validate_str_list_field_value,
+)
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 
 if TYPE_CHECKING:
@@ -74,10 +82,16 @@ def _warn_country_allowlist_shadows_blocklist(*, stacklevel: int) -> None:
     )
 
 
-def _normalized_country_value(value: Any) -> Any:
-    if isinstance(value, list | tuple | set | frozenset):
-        return frozenset(str(item).upper() for item in value)
-    return value
+def _normalized_country_value(value: Any) -> frozenset[str]:
+    return frozenset(str(item).upper() for item in value)
+
+
+def _validate_country_set_value(v: Any) -> frozenset[str]:
+    if v is None:
+        return frozenset()
+    if isinstance(v, list | tuple | set | frozenset):
+        return frozenset(str(item).upper() for item in v)
+    raise ValueError("Country list must be list/tuple/set/frozenset of country codes")
 
 
 def _country_shadow_should_warn(
@@ -178,6 +192,11 @@ class ThreatBanConfig(BaseModel):
     duration: int = Field(ge=1, description="Ban duration in seconds.")
 
 
+THREAT_BAN_CONFIG_CATEGORIES: frozenset[str] = ALL_DETECTION_CATEGORIES | frozenset(
+    {"rate_limit"}
+)
+
+
 class BehaviorRuleConfig(BaseModel):
     rule_type: Literal["usage", "return_pattern", "frequency"]
     threshold: int = Field(ge=1)
@@ -273,11 +292,11 @@ def _validate_threat_ban_config_value(v: Any) -> MappingProxyType[str, Any]:
         key: value if isinstance(value, ThreatBanConfig) else ThreatBanConfig(**value)
         for key, value in dict(v).items()
     }
-    unknown = set(mapping.keys()) - ALL_DETECTION_CATEGORIES
+    unknown = set(mapping.keys()) - THREAT_BAN_CONFIG_CATEGORIES
     if unknown:
         raise ValueError(
             f"Unknown threat categories in threat_ban_config: {sorted(unknown)}. "
-            f"Valid: {sorted(ALL_DETECTION_CATEGORIES)}"
+            f"Valid: {sorted(THREAT_BAN_CONFIG_CATEGORIES)}"
         )
     return MappingProxyType(mapping)
 
@@ -332,9 +351,9 @@ def _validate_muted_check_logs_value(v: Any) -> frozenset[str]:
     return result
 
 
-def _validate_block_cloud_providers_value(v: Any) -> frozenset[str]:
+def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
     if v is None:
-        return frozenset()
+        return None
     result = frozenset(v)
     invalid = {
         sel for sel in result if sel.partition(":!")[0] not in VALID_CLOUD_PROVIDERS
@@ -348,6 +367,24 @@ def _validate_block_cloud_providers_value(v: Any) -> frozenset[str]:
     return result
 
 
+def _validate_blocked_user_agents_value(v: Any) -> list[str]:
+    from guard_core.detection_engine.compiler import PatternCompiler
+    from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    patterns = _validate_str_list_field_value(v, field_name="blocked_user_agents")
+    compiler = PatternCompiler()
+    for pattern in patterns:
+        is_safe, reason = compiler.validate_pattern_safety(
+            pattern, max_content_length=_MAX_USER_AGENT_MATCH_LENGTH
+        )
+        if not is_safe:
+            raise ValueError(
+                f"blocked_user_agents pattern rejected by ReDoS validator: "
+                f"{pattern!r} ({reason})"
+            )
+    return patterns
+
+
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
@@ -358,6 +395,36 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "muted_metric_types": _validate_muted_metric_types_value,
     "muted_check_logs": _validate_muted_check_logs_value,
     "block_cloud_providers": _validate_block_cloud_providers_value,
+    "blocked_countries": _validate_country_set_value,
+    "whitelist_countries": _validate_country_set_value,
+    "rate_limit": partial(_validate_int_field_value, field_name="rate_limit"),
+    "rate_limit_window": partial(
+        _validate_int_field_value, field_name="rate_limit_window"
+    ),
+    "endpoint_rate_limits": _validate_endpoint_rate_limits_value,
+    "blocked_user_agents": _validate_blocked_user_agents_value,
+    "enable_penetration_detection": partial(
+        _validate_bool_field_value, field_name="enable_penetration_detection"
+    ),
+    "enable_ip_banning": partial(
+        _validate_bool_field_value, field_name="enable_ip_banning"
+    ),
+    "enable_rate_limiting": partial(
+        _validate_bool_field_value, field_name="enable_rate_limiting"
+    ),
+    "emergency_mode": partial(_validate_bool_field_value, field_name="emergency_mode"),
+    "emergency_whitelist": partial(
+        _validate_str_list_field_value, field_name="emergency_whitelist"
+    ),
+    "auto_ban_threshold": partial(
+        _validate_positive_int_field_value, field_name="auto_ban_threshold"
+    ),
+    "auto_ban_duration": partial(
+        _validate_positive_int_field_value, field_name="auto_ban_duration"
+    ),
+    "enable_rate_limit_auto_ban": partial(
+        _validate_bool_field_value, field_name="enable_rate_limit_auto_ban"
+    ),
 }
 
 

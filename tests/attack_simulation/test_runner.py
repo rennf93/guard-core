@@ -12,10 +12,12 @@ def test_build_detection_config_activates_preprocessor() -> None:
     config = build_detection_config()
     SusPatternsManager._instance = None
     SusPatternsManager._config = None
-    manager = SusPatternsManager(config)
-    assert manager._preprocessor is not None
-    SusPatternsManager._instance = None
-    SusPatternsManager._config = None
+    try:
+        manager = SusPatternsManager(config)
+        assert manager._preprocessor is not None
+    finally:
+        SusPatternsManager._instance = None
+        SusPatternsManager._config = None
 
 
 @pytest.mark.asyncio
@@ -31,9 +33,11 @@ async def test_detection_manager_restores_singleton() -> None:
     SusPatternsManager._config = None
     sentinel = SusPatternsManager()
     SusPatternsManager._instance = sentinel
-    async with detection_manager() as manager:
-        assert manager is not sentinel
-    assert SusPatternsManager._instance is sentinel
-    await sentinel.reset()
-    SusPatternsManager._instance = None
-    SusPatternsManager._config = None
+    try:
+        async with detection_manager() as manager:
+            assert manager is not sentinel
+        assert SusPatternsManager._instance is sentinel
+    finally:
+        await sentinel.reset()
+        SusPatternsManager._instance = None
+        SusPatternsManager._config = None

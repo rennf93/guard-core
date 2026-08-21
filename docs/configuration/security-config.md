@@ -61,8 +61,8 @@ IP Management
 | `blocked_countries`  | `frozenset[str]`       | `frozenset()`              | Country codes always blocked.                  |
 | `blocked_user_agents`| `list[str]`       | `[]`              | Regex patterns for blocked user agents.        |
 | `enable_ip_banning`  | `bool`            | `True`            | Enable automatic IP banning.                   |
-| `auto_ban_threshold` | `int`             | `10`              | Suspicious requests before auto-ban.           |
-| `auto_ban_duration`  | `int`             | `3600`            | Ban duration in seconds.                       |
+| `auto_ban_threshold` | `int`             | `10`              | Suspicious requests before auto-ban (`>= 1`).  |
+| `auto_ban_duration`  | `int`             | `3600`            | Ban duration in seconds (`>= 1`).              |
 
 **Validators**:
 
@@ -290,6 +290,9 @@ Rate Limiting
 | `rate_limit`          | `int`            | `10`    | Maximum requests per window (global).              |
 | `rate_limit_window`   | `int`            | `60`    | Window duration in seconds (global).               |
 | `endpoint_rate_limits`| `dict[str, tuple[int, int]]` | `{}` | Per-endpoint overrides `{path: (limit, window)}`. |
+| `enable_rate_limit_auto_ban` | `bool`     | `False` | Feed rate-limit violations into the same auto-ban engine penetration detection uses. Requires `enable_ip_banning` to actually ban; off by default, so this is zero behavior change unless enabled. |
+
+`enable_rate_limit_auto_ban` reuses the [Per-Category Bans](#per-category-bans) machinery: each active-mode (non-passive) rate-limit violation increments the `rate_limit` category of `suspicious_request_counts` and runs the same threshold logic, `threat_ban_config["rate_limit"]` first if present, otherwise the flat `auto_ban_threshold` / `auto_ban_duration` policy, banning with `reason="rate_limit_exceeded"` (distinct from the `"penetration_attempt"` reason the detection path uses). See [Rate-limit auto-ban](../api/ban-config.md#rate-limit-auto-ban) for the full behavior. Like the rest of the auto-ban state, `suspicious_request_counts` is in-memory and per-process, so multi-replica deployments do not share rate-limit auto-ban counts across replicas.
 
 ___
 

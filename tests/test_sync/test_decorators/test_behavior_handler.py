@@ -7,7 +7,11 @@ import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.sync.handlers.behavior_handler import BehaviorRule, BehaviorTracker
+from guard_core.sync.handlers.behavior_handler import (
+    BehaviorRule,
+    BehaviorTracker,
+    _hash_identity_segment,
+)
 from guard_core.sync.handlers.redis_handler import redis_handler
 from tests.test_sync.conftest import MockGuardResponse
 
@@ -162,33 +166,47 @@ def test_track_endpoint_usage_with_redis(
     rule = BehaviorRule(rule_type="usage", threshold=2, window=60)
     endpoint_id = "/api/test"
     client_ip = "192.168.1.1"
-    current_time = time.time()
 
-    with (
-        patch.object(redis_mgr, "keys") as mock_keys,
-        patch.object(redis_mgr, "set_key") as mock_set_key,
-    ):
-        mock_keys.return_value = [
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time}"
-        ]
-        mock_set_key.return_value = None
+    with patch.object(redis_mgr, "record_sliding_window_hit") as mock_record:
+        mock_record.return_value = 1
         result = tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
         assert not result
 
-        mock_keys.return_value = [
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time}",
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time + 1}",
-        ]
+        mock_record.return_value = 2
         result = tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
         assert not result
 
-        mock_keys.return_value = [
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time}",
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time + 1}",
-            f"behavior_usage:behavior:usage:/api/test:192.168.1.1:{current_time + 2}",
-        ]
+        mock_record.return_value = 3
         result = tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
         assert result
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_key_uses_hashed_segments(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=5, window=60)
+    endpoint_id = "/api/test"
+    client_ip = "192.168.1.1"
+
+    with patch.object(redis_mgr, "record_sliding_window_hit") as mock_record:
+        mock_record.return_value = 1
+        tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    namespace, key = mock_record.call_args.args[0], mock_record.call_args.args[1]
+    assert namespace == "behavior_usage"
+    assert endpoint_id not in key
+    assert client_ip not in key
+    assert key == (
+        f"behavior:usage:{_hash_identity_segment(endpoint_id)}:"
+        f"{_hash_identity_segment(client_ip)}"
+    )
 
     redis_mgr.close()
 
@@ -226,23 +244,46 @@ def test_track_return_pattern_with_redis(
 
     rule = BehaviorRule(rule_type="return_pattern", threshold=1, pattern="status:200")
     response = MockGuardResponse("success", status_code=200)
-    current_time = time.time()
 
-    with (
-        patch.object(redis_mgr, "keys") as mock_keys,
-        patch.object(redis_mgr, "set_key") as mock_set_key,
-    ):
-        key = "behavior_returns:behavior:return:/api/test:192.168.1.1:status:200"
-        mock_keys.return_value = [
-            f"{key}:{current_time}",
-            f"{key}:{current_time + 1}",
-        ]
-        mock_set_key.return_value = None
+    with patch.object(redis_mgr, "record_sliding_window_hit") as mock_record:
+        mock_record.return_value = 2
 
         result = tracker.track_return_pattern(
             "/api/test", "192.168.1.1", response, rule
         )
         assert result
+
+    redis_mgr.close()
+
+
+def test_track_return_pattern_redis_key_uses_hashed_segments(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="return_pattern", threshold=5, pattern="status:200")
+    response = MockGuardResponse("success", status_code=200)
+    endpoint_id = "/api/test"
+    client_ip = "192.168.1.1"
+
+    with patch.object(redis_mgr, "record_sliding_window_hit") as mock_record:
+        mock_record.return_value = 1
+        tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+
+    namespace, key = mock_record.call_args.args[0], mock_record.call_args.args[1]
+    assert namespace == "behavior_returns"
+    assert endpoint_id not in key
+    assert client_ip not in key
+    assert rule.pattern is not None
+    assert rule.pattern not in key
+    assert key == (
+        f"behavior:return:{_hash_identity_segment(endpoint_id)}:"
+        f"{_hash_identity_segment(client_ip)}:"
+        f"{_hash_identity_segment(rule.pattern)}"
+    )
 
     redis_mgr.close()
 
@@ -696,8 +737,9 @@ def test_passive_mode_log_silenced_when_log_suspicious_level_none(
         mock_error.assert_not_called()
 
 
-def test_redis_key_timestamp_filtering(
+def test_track_endpoint_usage_redis_window_boundary(
     security_config_redis: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tracker = BehaviorTracker(security_config_redis)
     redis_mgr = redis_handler(security_config_redis)
@@ -705,23 +747,52 @@ def test_redis_key_timestamp_filtering(
     tracker.initialize_redis(redis_mgr)
 
     rule = BehaviorRule(rule_type="usage", threshold=2, window=60)
-    current_time = time.time()
+    endpoint_id = "/api/test-window-boundary"
+    client_ip = "192.168.1.50"
+    base_time = 2_100_000_000.0
 
-    with (
-        patch.object(redis_mgr, "keys") as mock_keys,
-        patch.object(redis_mgr, "set_key") as mock_set_key,
-    ):
-        mock_keys.return_value = [
-            f"behavior_usage:test:key:{current_time}",
-            f"behavior_usage:test:key:{current_time - 30}",
-            f"behavior_usage:test:key:{current_time - 120}",
-            "behavior_usage:test:key:invalid_timestamp",
-            "behavior_usage:test:key:",
-        ]
-        mock_set_key.return_value = None
+    within_window = iter([base_time, base_time + 0.01, base_time + 0.02])
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.behavior_handler.time.time",
+        lambda: next(within_window),
+    )
+    assert not tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+    assert not tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+    assert tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
 
-        result = tracker.track_endpoint_usage("/api/test", "192.168.1.1", rule)
-        assert not result
+    after_window = iter([base_time + 61, base_time + 62])
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.behavior_handler.time.time",
+        lambda: next(after_window),
+    )
+    assert not tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_frozen_clock_still_trips(
+    security_config_redis: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=10, window=60)
+    endpoint_id = "/api/test-frozen-clock"
+    client_ip = "192.168.1.51"
+    frozen_time = 2_150_000_000.0
+
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.behavior_handler.time.time", lambda: frozen_time
+    )
+
+    tripped = False
+    for _ in range(50):
+        tripped = tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    assert tripped
 
     redis_mgr.close()
 
@@ -759,8 +830,9 @@ def test_track_return_pattern_window_cleanup(
     assert len(tracker.return_patterns[pattern_key][client_ip]) == 1
 
 
-def test_redis_return_pattern_timestamp_filtering(
+def test_track_return_pattern_redis_window_boundary(
     security_config_redis: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tracker = BehaviorTracker(security_config_redis)
     redis_mgr = redis_handler(security_config_redis)
@@ -768,26 +840,30 @@ def test_redis_return_pattern_timestamp_filtering(
     tracker.initialize_redis(redis_mgr)
 
     rule = BehaviorRule(
-        rule_type="return_pattern", threshold=1, window=60, pattern="status:200"
+        rule_type="return_pattern", threshold=2, window=60, pattern="status:200"
     )
-    current_time = time.time()
+    endpoint_id = "/api/test-return-window-boundary"
+    client_ip = "192.168.1.60"
     response = MockGuardResponse("success", status_code=200)
+    base_time = 2_200_000_000.0
 
-    with (
-        patch.object(redis_mgr, "keys") as mock_keys,
-        patch.object(redis_mgr, "set_key") as mock_set_key,
-    ):
-        mock_keys.return_value = [
-            f"behavior_returns:test:key:{current_time}",
-            f"behavior_returns:test:key:{current_time - 120}",
-            "behavior_returns:test:key:invalid",
-        ]
-        mock_set_key.return_value = None
+    within_window = iter([base_time, base_time + 0.01, base_time + 0.02])
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.behavior_handler.time.time",
+        lambda: next(within_window),
+    )
+    assert not tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+    assert not tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+    assert tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
 
-        result = tracker.track_return_pattern(
-            "/api/test", "192.168.1.1", response, rule
-        )
-        assert not result
+    after_window = iter([base_time + 61, base_time + 62])
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.behavior_handler.time.time",
+        lambda: next(after_window),
+    )
+    assert not tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+
+    redis_mgr.close()
 
     redis_mgr.close()
 
@@ -824,3 +900,157 @@ def test_execute_active_mode_action_unknown_action_is_noop(
         tracker._execute_active_mode_action(rule, "1.2.3.4", "ep", "details")
     unknown_logs = [r for r in caplog.records if "details" in r.getMessage()]
     assert not unknown_logs
+
+
+def test_track_endpoint_usage_redis_glob_client_ip_does_not_leak_other_clients(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=3, window=60)
+    endpoint_id = "/api/injection-client-ip"
+    victim_ip = "10.9.9.9"
+
+    for _ in range(5):
+        tracker.track_endpoint_usage(endpoint_id, victim_ip, rule)
+
+    attacker_client_ip = "*"
+    tripped = tracker.track_endpoint_usage(endpoint_id, attacker_client_ip, rule)
+    assert not tripped
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_glob_endpoint_id_does_not_leak(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=3, window=60)
+    victim_client_ip = "10.9.9.10"
+    victim_endpoint_id = "/api/injection-endpoint-victim"
+
+    for _ in range(5):
+        tracker.track_endpoint_usage(victim_endpoint_id, victim_client_ip, rule)
+
+    attacker_endpoint_id = "*"
+    tripped = tracker.track_endpoint_usage(attacker_endpoint_id, victim_client_ip, rule)
+    assert not tripped
+
+    redis_mgr.close()
+
+
+def test_track_return_pattern_redis_glob_pattern_does_not_leak_other_patterns(
+    security_config_redis: SecurityConfig,
+) -> None:
+    security_config_redis.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    endpoint_id = "/api/injection-pattern"
+    client_ip = "10.9.9.11"
+    response = _BoundedReaderResponse(b"matched*", status_code=200)
+
+    rule_a = BehaviorRule(
+        rule_type="return_pattern", threshold=3, window=60, pattern="matched"
+    )
+    for _ in range(5):
+        tracker.track_return_pattern(endpoint_id, client_ip, response, rule_a)
+
+    rule_b = BehaviorRule(
+        rule_type="return_pattern", threshold=3, window=60, pattern="*"
+    )
+    tripped = tracker.track_return_pattern(endpoint_id, client_ip, response, rule_b)
+    assert not tripped
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_isolates_all_glob_metacharacters(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=3, window=60)
+    endpoint_id = "/api/injection-metachar-sweep"
+    victim_ip = "10.9.9.12"
+
+    for _ in range(5):
+        tracker.track_endpoint_usage(endpoint_id, victim_ip, rule)
+
+    for metachar in ("*", "?", "[", "]", "\\", "[abc]", "a*b", "a?b"):
+        tripped = tracker.track_endpoint_usage(endpoint_id, metachar, rule)
+        assert not tripped, f"metachar {metachar!r} leaked victim's usage history"
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_ordinary_identities_still_isolated(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=1, window=60)
+    endpoint_id = "/api/injection-ordinary-sweep"
+
+    for client_ip in ("10.9.9.20", "10.9.9.21", "2001:db8::1"):
+        assert not tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+        assert tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    redis_mgr.close()
+
+
+def test_track_endpoint_usage_redis_hashing_prevents_field_boundary_collision(
+    security_config_redis: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    rule = BehaviorRule(rule_type="usage", threshold=3, window=60)
+
+    for _ in range(5):
+        tracker.track_endpoint_usage("a:b", "c", rule)
+
+    tripped = tracker.track_endpoint_usage("a", "b:c", rule)
+    assert not tripped
+
+    redis_mgr.close()
+
+
+def test_track_return_pattern_redis_hashing_prevents_field_boundary_collision(
+    security_config_redis: SecurityConfig,
+) -> None:
+    security_config_redis.behavior_scan_response_body = True
+    tracker = BehaviorTracker(security_config_redis)
+    redis_mgr = redis_handler(security_config_redis)
+    redis_mgr.initialize()
+    tracker.initialize_redis(redis_mgr)
+
+    response = _BoundedReaderResponse(b"matched", status_code=200)
+    rule = BehaviorRule(
+        rule_type="return_pattern", threshold=3, window=60, pattern="matched"
+    )
+
+    for _ in range(5):
+        tracker.track_return_pattern("a:b", "c", response, rule)
+
+    tripped = tracker.track_return_pattern("a", "b:c", response, rule)
+    assert not tripped
+
+    redis_mgr.close()

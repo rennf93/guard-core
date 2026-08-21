@@ -357,8 +357,6 @@ def test_global_rate_limit_has_no_endpoint_path(
 
 
 def test_initialize_redis_noop_when_redis_disabled() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
 
@@ -371,8 +369,6 @@ def test_initialize_redis_noop_when_redis_disabled() -> None:
 
 
 def test_reset_noop_when_redis_keys_missing() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
 

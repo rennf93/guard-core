@@ -7,6 +7,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
     _CTX_CMD_INJECTION,
     _CTX_CMS_PROBING,
     _CTX_CODE_INJECTION,
+    _CTX_DESERIALIZATION,
     _CTX_DIR_TRAVERSAL,
     _CTX_FILE_INCLUSION,
     _CTX_FILE_UPLOAD,
@@ -47,6 +48,7 @@ EXPECTED_CATEGORIES = frozenset(
         "recon",
         "proto_pollution",
         "code_injection",
+        "deserialization",
     }
 )
 
@@ -88,6 +90,7 @@ def test_category_context_map_identity_with_existing_constants() -> None:
     assert CATEGORY_CONTEXT_MAP["recon"] is _CTX_RECON
     assert CATEGORY_CONTEXT_MAP["proto_pollution"] is _CTX_PROTO_POLLUTION
     assert CATEGORY_CONTEXT_MAP["code_injection"] is _CTX_CODE_INJECTION
+    assert CATEGORY_CONTEXT_MAP["deserialization"] is _CTX_DESERIALIZATION
 
 
 @pytest.fixture

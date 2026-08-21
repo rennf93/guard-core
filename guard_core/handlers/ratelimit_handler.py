@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import time
 from collections import defaultdict, deque
@@ -12,6 +13,229 @@ from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
 from guard_core.utils import log_activity
+
+_by_ip_logger = logging.getLogger("guard_core.handlers.ratelimit")
+_by_ip_request_timestamps: defaultdict[str, deque[float]] = defaultdict(deque)
+_by_ip_autoban_counts: defaultdict[str, int] = defaultdict(int)
+
+
+async def _redis_request_count(
+    redis_handler: Any,
+    logger: logging.Logger,
+    client_ip: str,
+    current_time: float,
+    window_start: float,
+    rate_limit_window: int,
+    rate_limit: int,
+    rate_limit_script_sha: str | None,
+    on_script_reloaded: Callable[[], Awaitable[None]] | None = None,
+    endpoint_path: str = "",
+) -> tuple[int | None, str | None]:
+    if not redis_handler:
+        return None, rate_limit_script_sha
+
+    rate_key = (
+        f"rate:{client_ip}:{endpoint_path}" if endpoint_path else f"rate:{client_ip}"
+    )
+    key_name = f"{redis_handler.config.redis_prefix}rate_limit:{rate_key}"
+
+    try:
+        if rate_limit_script_sha:
+            async with redis_handler.get_connection() as conn:
+                try:
+                    count = await conn.evalsha(
+                        rate_limit_script_sha,
+                        1,
+                        key_name,
+                        current_time,
+                        rate_limit_window,
+                        rate_limit,
+                    )
+                except NoScriptError:
+                    rate_limit_script_sha = await conn.script_load(RATE_LIMIT_SCRIPT)
+                    logger.info("Rate limit Lua script reloaded after NOSCRIPT")
+                    if on_script_reloaded is not None:
+                        await on_script_reloaded()
+                    count = await conn.evalsha(
+                        rate_limit_script_sha,
+                        1,
+                        key_name,
+                        current_time,
+                        rate_limit_window,
+                        rate_limit,
+                    )
+            return int(count), rate_limit_script_sha
+        else:
+            async with redis_handler.get_connection() as conn:
+                pipeline = conn.pipeline()
+                pipeline.zadd(key_name, {str(current_time): current_time})
+                pipeline.zremrangebyscore(key_name, 0, window_start)
+                pipeline.zcard(key_name)
+                pipeline.expire(key_name, rate_limit_window * 2)
+                results = await pipeline.execute()
+                return int(results[2]), rate_limit_script_sha
+
+    except RedisError as e:
+        logger.error(f"Redis rate limiting error: {str(e)}")
+        logger.info("Falling back to in-memory rate limiting")
+    except Exception as e:
+        logger.error(f"Unexpected error in rate limiting: {str(e)}")
+
+    return None, rate_limit_script_sha
+
+
+def _in_memory_request_count(
+    request_timestamps: defaultdict[str, deque[float]],
+    client_ip: str,
+    window_start: float,
+    current_time: float,
+    endpoint_path: str = "",
+) -> int:
+    key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
+
+    while request_timestamps[key] and request_timestamps[key][0] <= window_start:
+        request_timestamps[key].popleft()
+
+    request_count = len(request_timestamps[key])
+    request_timestamps[key].append(current_time)
+
+    return request_count
+
+
+async def _feed_rate_limit_autoban(ip: str, config: SecurityConfig) -> None:
+    """Feed a rate-limited call into the shared auto-ban engine.
+
+    Increments a dedicated, per-process, in-memory violation counter keyed by
+    ``ip`` (``_by_ip_autoban_counts`` in this module), separate from and never
+    merged with ``middleware.suspicious_request_counts``: the primitive has no
+    middleware/request, so it cannot share that store. No-ops unless both
+    ``config.enable_rate_limit_auto_ban`` and ``config.enable_ip_banning`` are
+    set, and unless ``config.passive_mode`` is False. It also no-ops when ``ip``
+    is already banned, short-circuiting before the counter increment, so a
+    repeatedly rate-limited banned ip neither refreshes the ban TTL nor grows the
+    counter. Resolution and the actual ``ban_ip`` call are delegated to the same
+    pure helper the middleware auto-ban path uses, so there is one threshold
+    implementation, not two.
+    """
+    if not (config.enable_rate_limit_auto_ban and config.enable_ip_banning):
+        return
+    if config.passive_mode:
+        return
+
+    from guard_core.core.checks.helpers import _resolve_and_apply_threshold_ban
+    from guard_core.handlers.ipban_handler import IPBanManager
+
+    ip_ban_manager = IPBanManager()
+    if await ip_ban_manager.is_ip_banned(ip):
+        return
+
+    _by_ip_autoban_counts[ip] += 1
+    ip_counts = {"rate_limit": _by_ip_autoban_counts[ip]}
+    result = await _resolve_and_apply_threshold_ban(
+        ip_counts,
+        config,
+        ip_ban_manager,
+        ip,
+        ("rate_limit",),
+        "rate_limit_exceeded",
+    )
+    if result is not None:
+        _by_ip_logger.warning(
+            "check_rate_limit_by_ip: auto-banned %s (rate_limit_exceeded)", ip
+        )
+
+
+async def check_rate_limit_by_ip(
+    ip: str,
+    config: SecurityConfig,
+    redis_handler: Any = None,
+    endpoint_path: str = "",
+) -> bool:
+    """Check and record a rate-limit hit for a raw IP, outside the HTTP pipeline.
+
+    Returns True when the call is allowed (under limit), False when rate-limited.
+    Every call records a hit in the sliding window, exactly like the pipeline path,
+    so calling this to "just check" also consumes one slot of the budget. Does not
+    construct or mutate the ``RateLimitManager`` singleton: it calls the same
+    module-level counting functions the pipeline uses, against a store dedicated
+    to this primitive. With ``endpoint_path=""`` (the default) the Redis key
+    collapses to ``{prefix}rate_limit:rate:{ip}``, the same bucket the HTTP
+    pipeline's global rate limit uses for that IP, so the two share one budget by
+    design. Pass a non-empty ``endpoint_path`` (e.g. "ws") for an isolated budget,
+    keyed apart from that default bucket: isolation is guaranteed by the input
+    validation below, since ``ip`` must parse as a canonical IP address and
+    ``endpoint_path`` can never itself contain a ``:``, the joined key can never
+    collide with a different endpoint_path's bucket. The in-memory fallback is
+    process-local and never shares counts with the pipeline singleton's own
+    in-memory store, Redis-backed deployments do.
+
+    When the call is rate-limited (returns False) and both
+    ``config.enable_rate_limit_auto_ban`` and ``config.enable_ip_banning`` are set,
+    the violation feeds the same auto-ban engine ``RateLimitCheck`` uses in the
+    HTTP pipeline (``threat_ban_config["rate_limit"]`` first, then the flat
+    ``auto_ban_threshold``/``auto_ban_duration``), reason ``"rate_limit_exceeded"``.
+    The violation count backing that decision is a dedicated, per-process,
+    in-memory counter private to this primitive: it is never merged with the
+    pipeline's ``middleware.suspicious_request_counts``, so auto-ban here and
+    auto-ban on the HTTP pipeline are counted independently even for the same IP.
+    ``config.passive_mode`` suppresses this counting entirely, matching the
+    pipeline's passive-mode behavior. Once the ip is already banned, further
+    over-limit calls neither count nor re-ban nor refresh the ban TTL: the first
+    threshold-crossing ban fires once and later violations short-circuit.
+
+    Raises:
+        ValueError: if ``ip`` does not parse via ``ipaddress.ip_address``, or if
+            ``endpoint_path`` contains a ``:``. Validation runs before any
+            counting side effect and before the ``enable_rate_limiting`` early
+            return, so rejected input never records a hit and never feeds auto-ban.
+    """
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError as exc:
+        raise ValueError(f"check_rate_limit_by_ip: invalid ip {ip!r}") from exc
+    if ":" in endpoint_path:
+        raise ValueError(
+            f"check_rate_limit_by_ip: endpoint_path must not contain ':' "
+            f"(got {endpoint_path!r})"
+        )
+
+    if not config.enable_rate_limiting:
+        return True
+
+    current_time = time.time()
+    window_start = current_time - config.rate_limit_window
+
+    allowed: bool | None = None
+    if config.enable_redis and redis_handler:
+        count, _ = await _redis_request_count(
+            redis_handler,
+            _by_ip_logger,
+            ip,
+            current_time,
+            window_start,
+            config.rate_limit_window,
+            config.rate_limit,
+            None,
+            None,
+            endpoint_path,
+        )
+        if count is not None:
+            allowed = count <= config.rate_limit
+
+    if allowed is None:
+        request_count = _in_memory_request_count(
+            _by_ip_request_timestamps,
+            ip,
+            window_start,
+            current_time,
+            endpoint_path=endpoint_path,
+        )
+        allowed = request_count < config.rate_limit
+
+    if not allowed:
+        await _feed_rate_limit_autoban(ip, config)
+
+    return allowed
 
 
 class RateLimitManager:
@@ -82,64 +306,19 @@ class RateLimitManager:
         rate_limit_window: int | None = None,
         rate_limit: int | None = None,
     ) -> int | None:
-        if not self.redis_handler:
-            return None
-
-        rate_key = (
-            f"rate:{client_ip}:{endpoint_path}"
-            if endpoint_path
-            else f"rate:{client_ip}"
+        count, self.rate_limit_script_sha = await _redis_request_count(
+            self.redis_handler,
+            self.logger,
+            client_ip,
+            current_time,
+            window_start,
+            rate_limit_window or self.config.rate_limit_window,
+            rate_limit if rate_limit is not None else self.config.rate_limit,
+            self.rate_limit_script_sha,
+            self._emit_script_reloaded_event,
+            endpoint_path,
         )
-        key_name = f"{self.redis_handler.config.redis_prefix}rate_limit:{rate_key}"
-        window = rate_limit_window or self.config.rate_limit_window
-        limit = rate_limit if rate_limit is not None else self.config.rate_limit
-
-        try:
-            if self.rate_limit_script_sha:
-                async with self.redis_handler.get_connection() as conn:
-                    try:
-                        count = await conn.evalsha(
-                            self.rate_limit_script_sha,
-                            1,
-                            key_name,
-                            current_time,
-                            window,
-                            limit,
-                        )
-                    except NoScriptError:
-                        self.rate_limit_script_sha = await conn.script_load(
-                            RATE_LIMIT_SCRIPT
-                        )
-                        self.logger.info(
-                            "Rate limit Lua script reloaded after NOSCRIPT"
-                        )
-                        await self._emit_script_reloaded_event()
-                        count = await conn.evalsha(
-                            self.rate_limit_script_sha,
-                            1,
-                            key_name,
-                            current_time,
-                            window,
-                            limit,
-                        )
-                return int(count)
-            else:
-                async with self.redis_handler.get_connection() as conn:
-                    pipeline = conn.pipeline()
-                    pipeline.zadd(key_name, {str(current_time): current_time})
-                    pipeline.zremrangebyscore(key_name, 0, window_start)
-                    pipeline.zcard(key_name)
-                    pipeline.expire(key_name, window * 2)
-                    results = await pipeline.execute()
-                    return int(results[2])
-
-        except RedisError as e:
-            self.logger.error(f"Redis rate limiting error: {str(e)}")
-            self.logger.info("Falling back to in-memory rate limiting")
-        except Exception as e:
-            self.logger.error(f"Unexpected error in rate limiting: {str(e)}")
-
-        return None
+        return count
 
     async def _handle_rate_limit_exceeded(
         self,
@@ -176,18 +355,13 @@ class RateLimitManager:
         current_time: float,
         endpoint_path: str = "",
     ) -> int:
-        key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
-
-        while (
-            self.request_timestamps[key]
-            and self.request_timestamps[key][0] <= window_start
-        ):
-            self.request_timestamps[key].popleft()
-
-        request_count = len(self.request_timestamps[key])
-        self.request_timestamps[key].append(current_time)
-
-        return request_count
+        return _in_memory_request_count(
+            self.request_timestamps,
+            client_ip,
+            window_start,
+            current_time,
+            endpoint_path=endpoint_path,
+        )
 
     async def check_rate_limit(
         self,
@@ -292,6 +466,8 @@ class RateLimitManager:
                     await self.redis_handler.delete_pattern("rate_limit:rate:*")
             except Exception as e:
                 self.logger.error(f"Failed to reset Redis rate limits: {str(e)}")
+
+        self.redis_handler = None
 
 
 rate_limit_handler = RateLimitManager

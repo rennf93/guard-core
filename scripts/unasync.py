@@ -10,11 +10,16 @@ SYNC_DIR = ROOT / "guard_core" / "sync"
 TEST_DIR = ROOT / "tests"
 TEST_SYNC_DIR = ROOT / "tests" / "test_sync"
 
+CHECK_TMP_PREFIX = ".unasync_check_tmp_"
+
 SKIP_SRC = {
     "models.py",
     "exceptions.py",
     "_pydantic_plugin_mute.py",
     "_security_config_validators.py",
+    "_config_field_revalidators.py",
+    "_security_config_fields.py",
+    "_dynamic_rules.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
@@ -33,13 +38,31 @@ TEMPLATE_FILES = {
 
 HAND_MAINTAINED = {
     SYNC_DIR / "handlers" / "ratelimit_handler.py",
+    TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_autoban.py",
     TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_nonblocking_refresh.py",
     TEST_SYNC_DIR / "test_detection" / "test_builtin_pattern_safety.py",
+    TEST_SYNC_DIR / "test_detection" / "test_builtin_redos_protection.py",
     TEST_SYNC_DIR / "test_core" / "test_suspicious_counts_concurrency.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_azure_redirect_real_sockets.py",
+    TEST_SYNC_DIR / "test_sus_patterns" / "test_concurrent_redos_throughput.py",
+    TEST_SYNC_DIR
+    / "test_sus_patterns"
+    / "test_file_upload_decoded_truncation_body_scan.py",
     TEST_SYNC_DIR / "test_utils" / "test_bounded_thread_body_read.py",
+    SYNC_DIR / "core" / "checks" / "_verifier.py",
+    TEST_SYNC_DIR / "test_core" / "test_verifier_sync_rejection.py",
+    TEST_SYNC_DIR / "test_core" / "test_auth_verifier_sync_async_rejection.py",
+    TEST_SYNC_DIR / "conftest.py",
+    TEST_SYNC_DIR / "test_sus_patterns" / "conftest.py",
+    TEST_SYNC_DIR / "test_sus_patterns" / "test_sus_patterns.py",
+    TEST_SYNC_DIR / "test_otel_handler_provider_lifecycle.py",
+    TEST_SYNC_DIR / "test_logfire_handler_provider_lifecycle.py",
+    TEST_SYNC_DIR / "test_isolation_hooks_ordering.py",
+    TEST_SYNC_DIR / "test_ratelimit_concurrency.py",
+    TEST_SYNC_DIR / "test_sync_bypass_and_threads.py",
+    TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_concurrency.py",
 }
 
 _ASYNC_SAFE_READ_SRC = (
@@ -143,6 +166,8 @@ SUBS: list[tuple[str, str]] = [
         "import SyncCloudIpStoreFactory",
     ),
     (r"from guard_core\.handlers", "from guard_core.sync.handlers"),
+    (r"from guard_core\._utils\.", "from guard_core.sync._utils."),
+    (r"from guard_core\._utils import", "from guard_core.sync._utils import"),
     (r"from guard_core\.utils", "from guard_core.sync.utils"),
     (r"from guard_core import utils\b", "from guard_core.sync import utils"),
     (r"from guard_core\.core\.", "from guard_core.sync.core."),
@@ -220,6 +245,7 @@ SUBS: list[tuple[str, str]] = [
     (r"\.aclose\b", ".close"),
     (r'"guard_core\.handlers\.', '"guard_core.sync.handlers.'),
     (r'"guard_core\.core\.', '"guard_core.sync.core.'),
+    (r'"guard_core\._utils\.', '"guard_core.sync._utils.'),
     (r'"guard_core\.utils', '"guard_core.sync.utils'),
     (r'"guard_core\.detection_engine', '"guard_core.sync.detection_engine'),
     (r'"guard_core\.decorators"', '"guard_core.sync.decorators"'),
@@ -427,10 +453,33 @@ def _skip_async_only_tests(content: str) -> str:
     return "\n".join(result)
 
 
+def _dedupe_redundant_local_unittest_mock_imports(content: str) -> str:
+    module_import_match = re.search(
+        r"^from unittest\.mock import (.+)$", content, flags=re.MULTILINE
+    )
+    if module_import_match is None:
+        return content
+    module_names = {name.strip() for name in module_import_match.group(1).split(",")}
+
+    def _strip_if_redundant(match: re.Match[str]) -> str:
+        local_names = {name.strip() for name in match.group(1).split(",")}
+        if local_names <= module_names:
+            return ""
+        return match.group(0)
+
+    return re.sub(
+        r"^[ \t]+from unittest\.mock import ([^\n]+)\n\n?",
+        _strip_if_redundant,
+        content,
+        flags=re.MULTILINE,
+    )
+
+
 def transform_test(content: str) -> str:
     content = _skip_async_only_tests(content)
     content = apply_subs(content, SUBS)
     content = apply_subs(content, TEST_SUBS)
+    content = _dedupe_redundant_local_unittest_mock_imports(content)
     for pattern, replacement in POST_FIXUPS:
         content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
     return content
@@ -484,6 +533,52 @@ def collect_test_files() -> list[tuple[Path, Path]]:
     return pairs
 
 
+def collect_orphaned_sync_source_files() -> list[Path]:
+    orphans = []
+    for root, dirs, files in os.walk(SYNC_DIR):
+        root_path = Path(root)
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+
+        rel = root_path.relative_to(SYNC_DIR)
+
+        for f in sorted(files):
+            if not f.endswith(".py"):
+                continue
+
+            dst = root_path / f
+            if dst.resolve() in TEMPLATE_FILES:
+                continue
+            if dst.resolve() in HAND_MAINTAINED:
+                continue
+
+            src = SRC_DIR / rel / f
+            if not src.is_file():
+                orphans.append(dst)
+    return orphans
+
+
+def collect_orphaned_sync_test_files() -> list[Path]:
+    orphans = []
+    for root, dirs, files in os.walk(TEST_SYNC_DIR):
+        root_path = Path(root)
+        dirs[:] = [d for d in dirs if d not in TEST_SKIP_DIRS]
+
+        rel = root_path.relative_to(TEST_SYNC_DIR)
+
+        for f in sorted(files):
+            if not f.endswith(".py"):
+                continue
+
+            dst = root_path / f
+            if dst.resolve() in HAND_MAINTAINED:
+                continue
+
+            src = TEST_DIR / rel / f
+            if not src.is_file():
+                orphans.append(dst)
+    return orphans
+
+
 def generate(check: bool = False) -> bool:
     all_match = True
 
@@ -524,7 +619,9 @@ def generate(check: bool = False) -> bool:
     return all_match
 
 
-def format_generated() -> None:
+def format_generated(
+    sync_dir: Path = SYNC_DIR, test_sync_dir: Path = TEST_SYNC_DIR
+) -> None:
     import subprocess
 
     subprocess.run(
@@ -535,63 +632,114 @@ def format_generated() -> None:
             "check",
             "--fix",
             "--quiet",
-            str(SYNC_DIR),
-            str(TEST_SYNC_DIR),
+            str(sync_dir),
+            str(test_sync_dir),
         ],
         cwd=ROOT,
         capture_output=True,
     )
     subprocess.run(
-        ["uv", "run", "ruff", "format", "--quiet", str(SYNC_DIR), str(TEST_SYNC_DIR)],
+        ["uv", "run", "ruff", "format", "--quiet", str(sync_dir), str(test_sync_dir)],
         cwd=ROOT,
         capture_output=True,
     )
+
+
+def _write_generated_tree(
+    tmp_sync: Path, tmp_test: Path
+) -> tuple[list[Path], list[Path]]:
+    source_dsts = []
+    for src, dst in collect_source_files():
+        transformed = transform_source(src.read_text())
+        tmp_dst = tmp_sync / dst.relative_to(SYNC_DIR)
+        tmp_dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dst.write_text(transformed)
+        source_dsts.append(dst)
+
+    test_dsts = []
+    for src, dst in collect_test_files():
+        transformed = transform_test(src.read_text())
+        tmp_dst = tmp_test / dst.relative_to(TEST_SYNC_DIR)
+        tmp_dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dst.write_text(transformed)
+        test_dsts.append(dst)
+
+    return source_dsts, test_dsts
+
+
+def _compare_against_generated(
+    dsts: list[Path], real_root: Path, tmp_root: Path
+) -> bool:
+    ok = True
+    for dst in dsts:
+        tmp_dst = tmp_root / dst.relative_to(real_root)
+        if not dst.exists():
+            print(f"MISSING: {dst}")
+            ok = False
+        elif dst.read_text() != tmp_dst.read_text():
+            print(f"CHANGED: {dst}")
+            ok = False
+    return ok
+
+
+def _sweep_stale_check_tmp_dirs() -> None:
+    import shutil
+
+    for stale in ROOT.glob(f"{CHECK_TMP_PREFIX}*"):
+        if stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+
+
+def _make_check_tmp_dir() -> Path:
+    import tempfile
+
+    try:
+        return Path(tempfile.mkdtemp(prefix=CHECK_TMP_PREFIX, dir=ROOT))
+    except OSError as e:
+        print(f"FAIL: cannot create a temporary directory under {ROOT}: {e}")
+        sys.exit(1)
+
+
+def _report_orphans() -> bool:
+    ok = True
+    for dst in collect_orphaned_sync_source_files():
+        print(f"ORPHAN: {dst}")
+        ok = False
+    for dst in collect_orphaned_sync_test_files():
+        print(f"ORPHAN: {dst}")
+        ok = False
+    return ok
+
+
+def run_check() -> bool:
+    import shutil
+
+    _sweep_stale_check_tmp_dirs()
+    tmpdir = _make_check_tmp_dir()
+    try:
+        tmp_sync = tmpdir / "sync"
+        tmp_test = tmpdir / "test_sync"
+        tmp_sync.mkdir(parents=True)
+        tmp_test.mkdir(parents=True)
+
+        source_dsts, test_dsts = _write_generated_tree(tmp_sync, tmp_test)
+        format_generated(sync_dir=tmp_sync, test_sync_dir=tmp_test)
+
+        source_ok = _compare_against_generated(source_dsts, SYNC_DIR, tmp_sync)
+        test_ok = _compare_against_generated(test_dsts, TEST_SYNC_DIR, tmp_test)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    orphans_ok = _report_orphans()
+
+    return source_ok and test_ok and orphans_ok
 
 
 def main() -> None:
     check = "--check" in sys.argv
 
     if check:
-        import tempfile  # noqa: I001
-        import shutil
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_sync = Path(tmpdir) / "sync"
-            tmp_test = Path(tmpdir) / "test_sync"
-
-            if SYNC_DIR.exists():
-                shutil.copytree(SYNC_DIR, tmp_sync)
-            if TEST_SYNC_DIR.exists():
-                shutil.copytree(TEST_SYNC_DIR, tmp_test)
-
-            generate(check=False)
-            format_generated()
-
-            ok = True
-            for _, dst in collect_source_files():
-                tmp_file = tmp_sync / dst.relative_to(SYNC_DIR)
-                if not tmp_file.exists():
-                    continue
-                if dst.read_text() != tmp_file.read_text():
-                    print(f"CHANGED: {dst}")
-                    ok = False
-
-            for _, dst in collect_test_files():
-                tmp_file = tmp_test / dst.relative_to(TEST_SYNC_DIR)
-                if not tmp_file.exists():
-                    continue
-                if dst.read_text() != tmp_file.read_text():
-                    print(f"CHANGED: {dst}")
-                    ok = False
-
-            if SYNC_DIR.exists():
-                shutil.rmtree(SYNC_DIR)
-            if TEST_SYNC_DIR.exists():
-                shutil.rmtree(TEST_SYNC_DIR)
-            shutil.copytree(tmp_sync, SYNC_DIR)
-            shutil.copytree(tmp_test, TEST_SYNC_DIR)
-
-        if ok:
+        if run_check():
             print("OK: sync code is up to date")
             sys.exit(0)
         else:

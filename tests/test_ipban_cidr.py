@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Generator
 
@@ -122,7 +123,9 @@ async def test_cidr_ban_redis_failure_falls_back_to_local() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cidr_ban_redis_failure_exceeds_cap_raises() -> None:
+async def test_cidr_ban_redis_failure_exceeds_cap_clamps_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from unittest.mock import AsyncMock
 
     manager = IPBanManager()
@@ -132,12 +135,26 @@ async def test_cidr_ban_redis_failure_exceeds_cap_raises() -> None:
     manager.banned_ips.clear()
     manager.banned_networks.clear()
 
-    with pytest.raises(OSError):
-        await manager.ban_ip(
-            "10.0.0.0/24",
-            duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
-            reason="cidr_fallback_cap",
-        )
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip(
+        "10.0.0.0/24",
+        duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
+        reason="cidr_fallback_cap",
+    )
+
+    assert len(manager.banned_networks) == 1
+    network, expiry = manager.banned_networks[0]
+    assert str(network) == "10.0.0.0/24"
+    assert expiry == pytest.approx(
+        time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
+    )
+    assert await manager.is_ip_banned("10.0.0.5") is True
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "request failed" in message
+    assert "3601s to 3600s" in message
 
 
 @pytest.mark.asyncio
@@ -162,15 +179,51 @@ async def test_v4_address_not_in_v6_network() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cidr_ban_no_redis_exceeds_cap_raises() -> None:
+async def test_cidr_ban_no_redis_exceeds_cap_clamps_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     manager = IPBanManager()
     manager.redis_handler = None
     manager.banned_ips.clear()
     manager.banned_networks.clear()
 
-    with pytest.raises(ValueError, match="exceeds local cache capacity"):
-        await manager.ban_ip(
-            "10.0.0.0/24",
-            duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
-            reason="cap_exceeded",
-        )
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip(
+        "10.0.0.0/24",
+        duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
+        reason="cap_exceeded",
+    )
+
+    assert len(manager.banned_networks) == 1
+    network, expiry = manager.banned_networks[0]
+    assert str(network) == "10.0.0.0/24"
+    assert expiry == pytest.approx(
+        time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
+    )
+    assert await manager.is_ip_banned("10.0.0.5") is True
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert "not configured" in message
+    assert "3601s to 3600s" in message
+
+
+@pytest.mark.asyncio
+async def test_cidr_ban_no_redis_at_cap_no_warning() -> None:
+    manager = IPBanManager()
+    manager.redis_handler = None
+    manager.banned_ips.clear()
+    manager.banned_networks.clear()
+
+    await manager.ban_ip(
+        "10.0.0.0/24",
+        duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS,
+        reason="at_cap",
+    )
+
+    assert len(manager.banned_networks) == 1
+    network, expiry = manager.banned_networks[0]
+    assert expiry == pytest.approx(
+        time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
+    )

@@ -1,7 +1,23 @@
 import ast
+import logging
 import re
 from collections import Counter
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_BINARY_CONTENT_RATIO_THRESHOLD = 0.2
+
+
+def looks_like_binary_content(content: str) -> bool:
+    if not content:
+        return False
+    non_text_count = sum(
+        1
+        for ch in content
+        if ch not in "\t\r\n" and (not ch.isprintable() or ch == "�")
+    )
+    return non_text_count / len(content) >= _BINARY_CONTENT_RATIO_THRESHOLD
 
 
 class SemanticAnalyzer:
@@ -78,11 +94,14 @@ class SemanticAnalyzer:
 
         self.attack_structures = {
             "tag_like": r"<[^>]+>",
-            "function_call": r"\w+\s*\([^)]*\)",
+            "function_call": r"\w{1,64}\s*\([^)]{0,256}\)",
             "command_chain": r"[;&|]{1,2}",
-            "path_traversal": r"\.{2,}[/\\]",
-            "url_pattern": r"[a-z]+://",
+            "path_traversal": r"\.{2,20}[/\\]",
+            "url_pattern": r"[a-z]{1,32}://",
         }
+
+    def _tag_scan_window(self, content: str) -> str:
+        return content[: content.rfind(">") + 1]
 
     def extract_tokens(self, content: str) -> list[str]:
         MAX_CONTENT_LENGTH = 50000
@@ -95,20 +114,13 @@ class SemanticAnalyzer:
         tokens = re.findall(r"\b\w+\b", content.lower())[:MAX_TOKENS]
 
         special_patterns = []
-        import concurrent.futures
-
-        for _, pattern in self.attack_structures.items():
-
-            def _find_pattern(p: str, c: str) -> list[str]:
-                return re.findall(p, c, re.IGNORECASE)[:10]
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_find_pattern, pattern, content)
-                try:
-                    matches = future.result(timeout=0.1)
-                    special_patterns.extend(matches)
-                except concurrent.futures.TimeoutError:
-                    continue
+        for name, pattern in self.attack_structures.items():
+            scan_content = (
+                self._tag_scan_window(content) if name == "tag_like" else content
+            )
+            special_patterns.extend(
+                re.findall(pattern, scan_content, re.IGNORECASE)[:10]
+            )
 
             if len(special_patterns) >= 50:
                 break
@@ -169,17 +181,20 @@ class SemanticAnalyzer:
 
     def _get_structural_pattern_boost(self, attack_type: str, content: str) -> float:
         pattern_checks = {
-            "xss": (r"<[^>]+>", 0),
+            "xss": (self.attack_structures["tag_like"], 0),
             "sql": (r"\b(?:union|select|from|where)\b", re.IGNORECASE),
             "command": (r"[;&|]", 0),
-            "path": (r"\.{2,}[/\\]", 0),
+            "path": (self.attack_structures["path_traversal"], 0),
         }
 
         if attack_type not in pattern_checks:
             return 0.0
 
         pattern, flags = pattern_checks[attack_type]
-        if re.search(pattern, content, flags):
+        scan_content = (
+            self._tag_scan_window(content) if attack_type == "xss" else content
+        )
+        if re.search(pattern, scan_content, flags):
             return 0.3
 
         return 0.0
@@ -198,6 +213,9 @@ class SemanticAnalyzer:
         return probabilities
 
     def detect_obfuscation(self, content: str) -> bool:
+        if looks_like_binary_content(content):
+            return False
+
         if self.calculate_entropy(content) > 4.5:
             return True
 
@@ -219,7 +237,10 @@ class SemanticAnalyzer:
         patterns = []
 
         for name, pattern in self.attack_structures.items():
-            for match in re.finditer(pattern, content, re.IGNORECASE):
+            scan_content = (
+                self._tag_scan_window(content) if name == "tag_like" else content
+            )
+            for match in re.finditer(pattern, scan_content, re.IGNORECASE):
                 context_start = max(0, match.start() - 20)
                 context_end = min(len(content), match.end() + 20)
                 patterns.append(
@@ -239,7 +260,7 @@ class SemanticAnalyzer:
         if re.search(r"[\{\}].*[\{\}]", content):
             risk += 0.2
 
-        if re.search(r"\w+\s*\([^)]*\)", content):
+        if re.search(self.attack_structures["function_call"], content):
             risk += 0.2
 
         if re.search(r"[$@]\w+", content):
@@ -277,7 +298,9 @@ class SemanticAnalyzer:
                     return 0.2
 
         except Exception:
-            pass
+            logger.warning(
+                "AST parsing risk check failed and was skipped", exc_info=True
+            )
 
         return 0.0
 

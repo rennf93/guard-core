@@ -211,3 +211,4 @@ manual_testing/
 ZZZ/
 .claude/
 tests/attack_simulation/out/
+.unasync_check_tmp_*/

@@ -6,7 +6,9 @@ import pytest
 from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
+from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
+from guard_core.sync.protocols.geo_ip_protocol import SyncGeoIPHandler
 from guard_core.sync.utils import (
     check_ip_country,
     detect_penetration_attempt,
@@ -37,6 +39,39 @@ def test_is_ip_allowed(security_config: SecurityConfig, mocker: MockerFixture) -
 def test_is_user_agent_allowed(security_config: SecurityConfig) -> None:
     assert is_user_agent_allowed("goodbot", security_config)
     assert not is_user_agent_allowed("badbot", security_config)
+
+
+def test_is_user_agent_allowed_uses_inline_safe_path() -> None:
+    captured: list[bool] = []
+    original = PatternCompiler.create_async_safe_finditer_matcher
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> Any:
+        captured.append(inline_safe)
+        return original(self, pattern, timeout=timeout, inline_safe=inline_safe)
+
+    config = SecurityConfig(blocked_user_agents=["badbot"])
+    with patch.object(PatternCompiler, "create_async_safe_finditer_matcher", _spy):
+        result = is_user_agent_allowed("badbot/1.0", config)
+
+    assert result is False
+    assert captured == [True]
+
+
+def test_is_user_agent_allowed_caps_subject_length_before_matching() -> None:
+    from guard_core.sync.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    marker = "zzq_ua_length_cap_marker_zzq"
+    beyond_cap = "a" * _MAX_USER_AGENT_MATCH_LENGTH + marker
+    within_cap = marker + "a" * 10
+    config = SecurityConfig(blocked_user_agents=[marker])
+
+    assert is_user_agent_allowed(beyond_cap, config) is True
+    assert is_user_agent_allowed(within_cap, config) is False
 
 
 def test_detect_penetration_attempt() -> None:
@@ -148,7 +183,9 @@ def test_get_ip_country(mocker: MockerFixture) -> None:
     mock_db.get_country.return_value = "US"
     mock_db.reader = True
 
-    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
+    config = SecurityConfig(
+        blocked_countries=["CN"], geo_ip_handler=MagicMock(spec=SyncGeoIPHandler)
+    )
 
     country = check_ip_country("1.1.1.1", config, mock_db)
     assert not country
@@ -180,7 +217,7 @@ def test_is_ip_allowed_cloud_providers(
 def test_whitelisted_country(
     security_config: SecurityConfig, mocker: MockerFixture
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
     mock_ipinfo.reader = True
 
@@ -193,7 +230,7 @@ def test_whitelisted_country(
 def test_whitelist_countries_blocks_non_member(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "FR"
 
     config = SecurityConfig(
@@ -206,7 +243,7 @@ def test_whitelist_countries_blocks_non_member(
 def test_whitelist_countries_blocks_unknown_country(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = None
 
     config = SecurityConfig(
@@ -219,7 +256,7 @@ def test_whitelist_countries_blocks_unknown_country(
 def test_whitelist_countries_overrides_blocked_countries(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
 
     with pytest.warns(UserWarning, match="blocked_countries is ignored"):
@@ -235,7 +272,7 @@ def test_whitelist_countries_overrides_blocked_countries(
 def test_whitelist_countries_alone_blocks_non_member_via_is_ip_allowed(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "DE"
 
     config = SecurityConfig(
@@ -248,7 +285,7 @@ def test_whitelist_countries_alone_blocks_non_member_via_is_ip_allowed(
 def test_whitelist_countries_alone_allows_member_via_is_ip_allowed(
     mocker: MockerFixture,
 ) -> None:
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "US"
 
     config = SecurityConfig(
@@ -318,7 +355,7 @@ def test_check_ip_access_country_block_names_country(
 ) -> None:
     from guard_core.sync.utils import check_ip_access
 
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "RU"
 
     config = SecurityConfig(blocked_countries=["RU"], geo_ip_handler=mock_ipinfo)
@@ -402,7 +439,7 @@ def test_is_ip_allowed_regression_bool_outcomes_by_block_type(
     result = is_ip_allowed("8.8.8.8", cloud_config)
     assert result is True
 
-    mock_ipinfo = mocker.Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.get_country.return_value = "RU"
     country_config = SecurityConfig(
         blocked_countries=["RU"], geo_ip_handler=mock_ipinfo
@@ -421,7 +458,7 @@ def test_is_ip_allowed_regression_bool_outcomes_by_block_type(
 
 
 def test_check_ip_country_not_initialized() -> None:
-    mock_ipinfo = Mock()
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
     mock_ipinfo.is_initialized = False
     mock_ipinfo.initialize = MagicMock()
     mock_ipinfo.get_country.return_value = "US"
@@ -532,7 +569,9 @@ def test_is_ip_allowed_general_exception(caplog: Any, mocker: MockerFixture) -> 
     config = SecurityConfig()
 
     mock_error = Exception("Unexpected error")
-    mocker.patch("guard_core.sync.utils.ip_address", side_effect=mock_error)
+    mocker.patch(
+        "guard_core.sync._utils.access_control.ip_address", side_effect=mock_error
+    )
 
     with caplog.at_level(logging.ERROR):
         result = is_ip_allowed("192.168.1.1", config)
@@ -556,7 +595,9 @@ def test_detect_penetration_attempt_body_error() -> None:
 
 
 def test_is_ip_allowed_blocked_country(mocker: MockerFixture) -> None:
-    config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=mocker.Mock())
+    config = SecurityConfig(
+        blocked_countries=["CN"], geo_ip_handler=MagicMock(spec=SyncGeoIPHandler)
+    )
 
     mock_ipinfo = Mock()
     mock_ipinfo.reader = True
@@ -796,7 +837,7 @@ def test_detect_penetration_fallback_pattern_exception() -> None:
         raise RuntimeError("Detection engine failure")
 
     mock_pattern = MagicMock()
-    mock_pattern.search.side_effect = Exception("Pattern error")
+    mock_pattern.search.side_effect = RecursionError("Pattern error")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -869,10 +910,12 @@ def test_detect_penetration_empty_threat_fallback() -> None:
     )
 
     def mock_detect(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "is_threat": True,
-            "threats": [],
-        }
+        if kwargs.get("content") == "suspicious_value":
+            return {
+                "is_threat": True,
+                "threats": [],
+            }
+        return {"is_threat": False, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
         _dpa = detect_penetration_attempt(request)
@@ -895,11 +938,13 @@ def test_detect_penetration_unknown_threat_type() -> None:
         body_content=b"",
     )
 
-    def mock_detect(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "is_threat": True,
-            "threats": [{"type": "unknown_type", "data": "some_data"}],
-        }
+    def mock_detect(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("content") == "test_value":
+            return {
+                "is_threat": True,
+                "threats": [{"type": "unknown_type", "data": "some_data"}],
+            }
+        return {"is_threat": False, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
         _dpa = detect_penetration_attempt(request)

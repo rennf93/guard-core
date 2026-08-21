@@ -36,7 +36,7 @@ class SecurityConfig(BaseModel):
     threat_ban_config: dict[str, ThreatBanConfig] = Field(default_factory=dict)
 ```
 
-Keys must be valid category names from `ALL_DETECTION_CATEGORIES`. The validator rejects unknown keys with a `ValidationError`.
+Keys must be valid category names from `ALL_DETECTION_CATEGORIES`, plus the pseudo-category `rate_limit` (see [Rate-limit auto-ban](#rate-limit-auto-ban), below). The validator rejects unknown keys with a `ValidationError`.
 
 ___
 
@@ -49,6 +49,13 @@ Every regex hit increments `suspicious_request_counts[ip][category]`. After a hi
 2. **Flat-threshold fallback** — if no per-category ban fired, sum all category counts for this IP. If the total has reached `auto_ban_threshold`, ban the IP for `auto_ban_duration` seconds. The audit log carries `reason="penetration_attempt"`.
 
 If neither threshold is met, the request is rejected (status 400) but the IP is not banned.
+
+___
+
+Rate-limit auto-ban
+-------------------
+
+`SecurityConfig.enable_rate_limit_auto_ban` (default `False`, off) feeds rate-limit violations into this same ban policy instead of just penetration detection. When enabled together with `enable_ip_banning`, each active-mode (non-passive) rate-limit violation increments the `rate_limit` category of `suspicious_request_counts` and runs the identical threshold logic described above: `threat_ban_config["rate_limit"]` first if present, otherwise the flat `auto_ban_threshold` / `auto_ban_duration` fallback. The ban lands through `ip_ban_manager.ban_ip` with `reason="rate_limit_exceeded"`, distinct from `"penetration_attempt"` so the two triggers stay separable in telemetry and audit logs. `"rate_limit"` is a valid `threat_ban_config` key alongside the detection categories, but it is a pseudo-category, not a member of `ALL_DETECTION_CATEGORIES`, and only ever populated when `enable_rate_limit_auto_ban` is on. Passive mode never feeds this counter, matching the detection path. `suspicious_request_counts` is in-memory and per-process, so multi-replica deployments do not share rate-limit auto-ban counts across replicas, the same limitation the detection path already has.
 
 ___
 

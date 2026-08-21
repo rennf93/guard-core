@@ -116,7 +116,7 @@ def test_missing_content_length_bounded_reader_error_not_scanned() -> None:
     assert result.is_threat is False
 
 
-def test_at_cap_body_invalid_utf8_is_read_but_not_scanned() -> None:
+def test_at_cap_body_invalid_utf8_is_read_and_scanned_lossily() -> None:
     invalid_utf8_body = b"\xff\xfe not valid utf8"
     request = _BodyRequest(
         body=invalid_utf8_body, content_length=len(invalid_utf8_body)

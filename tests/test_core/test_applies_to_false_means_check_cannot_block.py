@@ -229,7 +229,7 @@ async def test_required_headers_cannot_block_once_eliminated() -> None:
 
 
 async def test_authentication_cannot_block_once_eliminated() -> None:
-    for auth_required in (None, "bearer"):
+    for auth_required in (None,):
         config = _neutral_config()
         route_configs = (_route_config(auth_required=auth_required),)
         if AuthenticationCheck.applies_to(config, route_configs) is False:

@@ -210,3 +210,14 @@ status = await sus_patterns_handler.get_component_status()
 ```
 
 Use these diagnostics to identify patterns that need optimization or replacement.
+
+___
+
+Known Limitations
+------------------
+
+- **NoSQL operator detection.** Numeric range operators (`$gt`, `$gte`, `$lt`, `$lte` with a numeric literal) are not flagged as NoSQL injection: they are indistinguishable from legitimate range queries. Auth-bypass shapes (`$ne` null or boolean, `$gt ""`, `$regex`, `$where`, `$exists`, `$in`) are flagged. Use schema validation or route-level allowlisting for numeric fields.
+- **SSRF via attacker-controlled DNS.** Any hostname can resolve to an internal IP at request time, and no request-body pattern can see a DNS answer. Use an egress-time resolved-IP check (DNS-rebinding-aware) for fields that accept arbitrary hostnames, not pattern matching alone.
+- **Command execution aliases.** Node's `execFile`/`execFileSync`, Ruby's `Kernel#spawn` and backtick literals, Perl's list-form `system`, Go's `os/exec.Command`, PowerShell's `Invoke-Expression`, and any project-local wrapper function around any of these are not covered. Use a language-aware static analyzer or a runtime sandbox for code paths that execute external processes.
+- **Python dynamic dispatch.** `os.__dict__ ['system'](...)`, `globals() ['os'].system(...)`, `operator.attrgetter(...)`, and chained `importlib` indirection are not covered. Avoid resolving dangerous stdlib callables from request-controlled strings; use an explicit allowlist of callable names if dynamic dispatch is required.
+- **Dynamic code execution.** String-concatenated property access such as `window['ev'+'al']`, an alias bound earlier such as `var x = eval; x(...)`, and a non-literal argument such as `Function(atob(encoded))` are not covered. Use a Content-Security-Policy that disallows `unsafe-eval` as the enforcement layer; pattern matching cannot resolve an expression it does not evaluate.

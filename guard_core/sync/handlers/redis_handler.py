@@ -1,5 +1,6 @@
 import logging
 import threading
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -235,6 +236,25 @@ class RedisManager:
                 return int(result[0]) if result else 0
 
         result = self.safe_operation(_incr)
+        return int(result) if result is not None else 0
+
+    def record_sliding_window_hit(
+        self, namespace: str, key: str, timestamp: float, window_start: float, ttl: int
+    ) -> int:
+        if not self.config.enable_redis:
+            return 0
+
+        def _record(conn: Redis) -> int:
+            full_key = f"{self.config.redis_prefix}{namespace}:{key}"
+            with conn.pipeline() as pipe:
+                pipe.zadd(full_key, {uuid.uuid4().hex: timestamp})
+                pipe.zremrangebyscore(full_key, "-inf", f"({window_start}")
+                pipe.zcard(full_key)
+                pipe.expire(full_key, ttl)
+                result = pipe.execute()
+                return int(result[2]) if len(result) > 2 else 0
+
+        result = self.safe_operation(_record)
         return int(result) if result is not None else 0
 
     def exists(self, namespace: str, key: str) -> bool | None:

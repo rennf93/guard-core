@@ -37,17 +37,26 @@ from guard_core.sync.handlers.suspatterns_handler import (
 
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
-REDIS_PREFIX = os.getenv("REDIS_PREFIX") or "test:guard_core:"
+REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
 
-@pytest.fixture(autouse=True)
-def _isolate_detection_singleton() -> Any:
+_DetectionSingletonSnapshot = tuple[Any, Any, Any, Any]
+_detection_singleton_snapshots: dict[int, _DetectionSingletonSnapshot] = {}
+
+
+def _snapshot_detection_singleton() -> _DetectionSingletonSnapshot:
     handler = _suspatterns_module.sus_patterns_handler
-    saved_state = handler._detection_state
-    saved_instance = SusPatternsManager._instance
-    saved_config = SusPatternsManager._config
-    saved_global = _suspatterns_module.sus_patterns_handler
-    yield
+    return (
+        handler._detection_state,
+        SusPatternsManager._instance,
+        SusPatternsManager._config,
+        _suspatterns_module.sus_patterns_handler,
+    )
+
+
+def _restore_detection_singleton(snapshot: _DetectionSingletonSnapshot) -> None:
+    saved_state, saved_instance, saved_config, saved_global = snapshot
+    handler = _suspatterns_module.sus_patterns_handler
     handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
@@ -228,8 +237,12 @@ class MockGuardResponseFactory:
         return MockGuardResponse(f"Redirect to {url}", status_code, {"Location": url})
 
 
-@pytest.fixture(autouse=True)
-def reset_state() -> Generator[None, None]:
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Runs before any fixture setup for the item: pluggy calls this
+    conftest-registered hookimpl before the earlier-registered core
+    _pytest.runner hookimpl that triggers fixture setup."""
+    _detection_singleton_snapshots[id(item)] = _snapshot_detection_singleton()
+
     _reset_ip_ban_manager()
     _reset_cloud_handler()
     _reset_security_headers_manager()
@@ -240,7 +253,11 @@ def reset_state() -> Generator[None, None]:
         IPInfoManager._instance.agent_handler = None
         IPInfoManager._instance = None
 
-    yield
+
+def pytest_runtest_teardown(item: pytest.Item) -> None:
+    """Runs before any fixture finalizer for the item, for the same LIFO
+    reason as pytest_runtest_setup above: this hookimpl runs before the
+    core _pytest.runner hookimpl that triggers fixture teardown."""
     spm = type(sus_patterns_handler)
     spm._instance = sus_patterns_handler
     spm._config = None
@@ -262,6 +279,10 @@ def reset_state() -> Generator[None, None]:
     if dynamic_rule_instance and dynamic_rule_instance.update_task:
         dynamic_rule_instance.stop()
     DynamicRuleManager._instance = None
+
+    snapshot = _detection_singleton_snapshots.pop(id(item), None)
+    if snapshot is not None:
+        _restore_detection_singleton(snapshot)
 
 
 @pytest.fixture
@@ -421,6 +442,11 @@ def pytest_configure(config: pytest.Config) -> None:
     finder = _GuardAgentImportFinder()
     sys.meta_path.insert(0, finder)
     setattr(sys, _GUARD_AGENT_FINDER_ATTR, finder)
+    from guard_core._pydantic_plugin_mute import (
+        _mute_pydantic_plugin_instrumentation,
+    )
+
+    _mute_pydantic_plugin_instrumentation()
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:

@@ -2,14 +2,31 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from guard_core.decorators.base import BaseSecurityMixin, DecoratedFunction
+from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 
 
 class ContentFilteringMixin(BaseSecurityMixin):
+    config: SecurityConfig
+
     def block_user_agents(
         self, patterns: list[str]
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        from guard_core.detection_engine.compiler import PatternCompiler
+
+        compiler = PatternCompiler()
+        for pattern in patterns:
+            is_safe, reason = compiler.validate_pattern_safety(
+                pattern,
+                max_content_length=self.config.detection_max_body_inspect_bytes,
+            )
+            if not is_safe:
+                raise ValueError(
+                    f"block_user_agents pattern rejected by ReDoS validator: "
+                    f"{pattern!r} ({reason})"
+                )
+
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.blocked_user_agents.extend(patterns)

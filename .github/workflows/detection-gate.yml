@@ -65,7 +65,7 @@ jobs:
       - name: Run the two-sided detection benchmarks
         shell: bash
         run: |
-          REDIS_URL='redis://localhost:6379' REDIS_PREFIX='test:guard_core:' \
+          REDIS_URL='redis://localhost:6379' \
           uv run pytest \
             tests/test_sus_patterns/test_detection_benchmark.py \
             tests/test_sus_patterns/test_detect_penetration_attempt_benchmark.py \

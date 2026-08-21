@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from guard_core.handlers.ipinfo_handler import IPInfoManager
     from guard_core.handlers.ratelimit_handler import (
         RateLimitManager,
+        check_rate_limit_by_ip,
         rate_limit_handler,
     )
     from guard_core.handlers.redis_handler import RedisManager, redis_handler
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         GuardResponse,
         GuardResponseFactory,
     )
+    from guard_core.utils import check_ip_access, is_ip_allowed
 
 __all__ = [
     "SecurityConfig",
@@ -59,6 +61,9 @@ __all__ = [
     "GuardRequest",
     "GuardResponse",
     "GuardResponseFactory",
+    "is_ip_allowed",
+    "check_ip_access",
+    "check_rate_limit_by_ip",
 ]
 
 _MODULE_BY_NAME: dict[str, str] = {
@@ -86,6 +91,9 @@ _MODULE_BY_NAME: dict[str, str] = {
     "GuardResponse": "guard_core.protocols.response_protocol",
     "GuardResponseFactory": "guard_core.protocols.response_protocol",
     "BoundedResponseBodyReader": "guard_core.protocols.response_protocol",
+    "is_ip_allowed": "guard_core.utils",
+    "check_ip_access": "guard_core.utils",
+    "check_rate_limit_by_ip": "guard_core.handlers.ratelimit_handler",
     "_mute_pydantic_plugin_instrumentation": "guard_core._pydantic_plugin_mute",
 }
 

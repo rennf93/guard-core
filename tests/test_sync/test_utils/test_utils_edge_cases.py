@@ -55,7 +55,7 @@ def test_extract_client_ip_with_invalid_forwarded_for() -> None:
     config.trusted_proxy_depth = 999
 
     with patch(
-        "guard_core.sync.utils._extract_from_forwarded_header",
+        "guard_core.sync._utils.ip_extraction._extract_from_forwarded_header",
         side_effect=ValueError("Invalid IP"),
     ):
         result = extract_client_ip(request, config, None)
@@ -74,10 +74,10 @@ def test_extract_client_ip_logs_warning_on_error() -> None:
 
     with (
         patch(
-            "guard_core.sync.utils._extract_from_forwarded_header",
+            "guard_core.sync._utils.ip_extraction._extract_from_forwarded_header",
             side_effect=IndexError("Test error"),
         ),
-        patch("guard_core.sync.utils.logger") as mock_logging,
+        patch("guard_core.sync._utils.ip_extraction.logger") as mock_logging,
     ):
         result = extract_client_ip(request, config, None)
 

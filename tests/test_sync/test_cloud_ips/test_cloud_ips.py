@@ -54,7 +54,9 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
 
 @pytest.fixture
 def mock_aiohttp_session() -> Generator[MagicMock, None, None]:
-    with patch("guard_core.sync.handlers.cloud_handler.requests.Session") as mock_cls:
+    with patch(
+        "guard_core.sync.handlers._cloud_provider_fetchers.requests.Session"
+    ) as mock_cls:
         mock_sess = MagicMock()
         mock_sess.__enter__ = MagicMock(return_value=mock_sess)
         mock_sess.__exit__ = MagicMock(return_value=None)
@@ -919,7 +921,7 @@ def test_cloud_ip_redis_error_handling(
         redis_handler.delete("cloud_ip_v2", "AWS")
 
         mock_aws.side_effect = Exception("API Error")
-        cloud_handler.initialize_redis(redis_handler)
+        cloud_handler.initialize_redis(redis_handler, {"AWS"})
 
         cloud_handler.ip_ranges.pop("AWS", None)
         cloud_handler.refresh_async({"AWS"})

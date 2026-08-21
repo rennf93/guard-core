@@ -94,6 +94,153 @@ def test_redis_increment_operations(
     handler.close()
 
 
+def test_record_sliding_window_hit_accumulates_and_trips(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+    handler.initialize()
+
+    with handler.get_connection() as conn:
+        prefix = security_config_redis.redis_prefix
+        conn.delete(f"{prefix}sliding_window_test:accumulate")
+
+    base = 2_000_000_000.0
+    window_start = base - 60
+
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "accumulate", base, window_start, 60
+    )
+    assert count == 1
+
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "accumulate", base + 1, window_start, 60
+    )
+    assert count == 2
+
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "accumulate", base + 2, window_start, 60
+    )
+    assert count == 3
+
+    handler.close()
+
+
+def test_record_sliding_window_hit_identical_timestamps_each_count_separately(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+    handler.initialize()
+
+    with handler.get_connection() as conn:
+        prefix = security_config_redis.redis_prefix
+        conn.delete(f"{prefix}sliding_window_test:frozen_clock")
+
+    frozen_timestamp = 2_000_000_500.0
+    window_start = frozen_timestamp - 60
+
+    count = 0
+    for _ in range(50):
+        count = handler.record_sliding_window_hit(
+            "sliding_window_test",
+            "frozen_clock",
+            frozen_timestamp,
+            window_start,
+            60,
+        )
+    assert count == 50
+
+    handler.close()
+
+
+def test_record_sliding_window_hit_prunes_entries_before_window_start(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+    handler.initialize()
+
+    with handler.get_connection() as conn:
+        prefix = security_config_redis.redis_prefix
+        conn.delete(f"{prefix}sliding_window_test:prune")
+
+    base = 2_000_000_100.0
+
+    handler.record_sliding_window_hit(
+        "sliding_window_test", "prune", base - 200, base - 260, 60
+    )
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "prune", base, base - 60, 60
+    )
+    assert count == 1
+
+    handler.close()
+
+
+def test_record_sliding_window_hit_window_start_boundary_is_inclusive(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+    handler.initialize()
+
+    with handler.get_connection() as conn:
+        prefix = security_config_redis.redis_prefix
+        conn.delete(f"{prefix}sliding_window_test:boundary_at")
+        conn.delete(f"{prefix}sliding_window_test:boundary_before")
+
+    window_start = 2_000_000_200.0
+
+    at_boundary_count = handler.record_sliding_window_hit(
+        "sliding_window_test", "boundary_at", window_start, window_start, 60
+    )
+    assert at_boundary_count == 1
+
+    before_boundary_count = handler.record_sliding_window_hit(
+        "sliding_window_test",
+        "boundary_before",
+        window_start - 0.001,
+        window_start,
+        60,
+    )
+    assert before_boundary_count == 0
+
+    handler.close()
+
+
+def test_record_sliding_window_hit_key_expires_with_ttl(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config_redis)
+    handler.initialize()
+
+    with handler.get_connection() as conn:
+        prefix = security_config_redis.redis_prefix
+        conn.delete(f"{prefix}sliding_window_test:expiry")
+
+    now = time.time()
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "expiry", now, now - 1, 1
+    )
+    assert count == 1
+
+    time.sleep(1.2)
+    exists = handler.exists("sliding_window_test", "expiry")
+    assert not exists
+
+    handler.close()
+
+
+def test_record_sliding_window_hit_disabled_redis_returns_zero(
+    security_config: SecurityConfig,
+) -> None:
+    handler = redis_handler(security_config)
+    handler.initialize()
+
+    assert not security_config.enable_redis
+    count = handler.record_sliding_window_hit(
+        "sliding_window_test", "disabled", 1.0, 0.0, 60
+    )
+    assert count == 0
+
+
 def test_redis_connection_context_get_error(
     security_config_redis: SecurityConfig, monkeypatch: Any
 ) -> None:
@@ -232,8 +379,6 @@ def test_redis_keys_and_delete_pattern_with_redis_disabled() -> None:
 
 
 def test_initialize_logs_warning_when_redis_url_is_none() -> None:
-    from unittest.mock import patch
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.redis_handler import RedisManager
 
@@ -259,8 +404,6 @@ def test_close_noop_when_redis_not_connected() -> None:
 
 
 def test_initialize_when_from_url_returns_none_skips_ping() -> None:
-    from unittest.mock import patch
-
     from guard_core.models import SecurityConfig
     from guard_core.sync.handlers.redis_handler import RedisManager
 

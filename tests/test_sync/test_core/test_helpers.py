@@ -1,5 +1,8 @@
+import logging
 from ipaddress import ip_address
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.checks.helpers import (
@@ -7,16 +10,18 @@ from guard_core.sync.core.checks.helpers import (
     _check_ip_whitelist,
     _get_detection_disabled_reason,
     _get_effective_penetration_setting,
+    _log_exception_safely,
     check_country_access,
     check_route_ip_access,
     check_user_agent_allowed,
     detect_penetration_patterns,
+    extract_credential,
     is_ip_in_blacklist,
     is_ip_in_whitelist,
     is_referrer_domain_allowed,
-    validate_auth_header,
 )
 from guard_core.sync.decorators.base import RouteConfig
+from guard_core.sync.detection_engine.compiler import PatternCompiler
 
 
 def test_is_ip_in_blacklist_exact_match() -> None:
@@ -203,38 +208,41 @@ def test_check_user_agent_allowed_by_route() -> None:
     assert result is True
 
 
-def test_validate_auth_bearer_valid() -> None:
-    valid, msg = validate_auth_header("Bearer token123", "bearer")
-    assert valid is True
-    assert msg == ""
+def test_extract_credential_bearer() -> None:
+    assert extract_credential("Bearer token123", "bearer") == ("token123", "")
 
 
-def test_validate_auth_bearer_invalid() -> None:
-    valid, msg = validate_auth_header("Basic creds", "bearer")
-    assert valid is False
-    assert "Bearer" in msg
+def test_extract_credential_bearer_wrong_scheme() -> None:
+    assert extract_credential("Basic creds", "bearer") == (
+        None,
+        "Missing or invalid Bearer token",
+    )
 
 
-def test_validate_auth_basic_valid() -> None:
-    valid, msg = validate_auth_header("Basic dXNlcjpwYXNz", "basic")
-    assert valid is True
+def test_extract_credential_bearer_missing() -> None:
+    assert extract_credential("", "bearer") == (None, "Missing or invalid Bearer token")
 
 
-def test_validate_auth_basic_invalid() -> None:
-    valid, msg = validate_auth_header("Bearer token", "basic")
-    assert valid is False
-    assert "Basic" in msg
+def test_extract_credential_basic() -> None:
+    assert extract_credential("Basic dXNlcjpwYXNz", "basic") == ("dXNlcjpwYXNz", "")
 
 
-def test_validate_auth_custom_valid() -> None:
-    valid, msg = validate_auth_header("CustomScheme value", "custom")
-    assert valid is True
+def test_extract_credential_basic_wrong_scheme() -> None:
+    assert extract_credential("Bearer token", "basic") == (
+        None,
+        "Missing or invalid Basic authentication",
+    )
 
 
-def test_validate_auth_custom_empty() -> None:
-    valid, msg = validate_auth_header("", "custom")
-    assert valid is False
-    assert "custom" in msg
+def test_extract_credential_custom() -> None:
+    assert extract_credential("CustomScheme value", "custom") == (
+        "CustomScheme value",
+        "",
+    )
+
+
+def test_extract_credential_custom_missing() -> None:
+    assert extract_credential("", "custom") == (None, "Missing custom authentication")
 
 
 def test_referrer_domain_valid() -> None:
@@ -288,8 +296,6 @@ def test_get_detection_disabled_reason_not_enabled() -> None:
 
 
 def test_detect_penetration_patterns_enabled() -> None:
-    from unittest.mock import patch
-
     from guard_core.sync.detection_result import DetectionResult
 
     config = SecurityConfig(enable_redis=False, enable_penetration_detection=True)
@@ -300,7 +306,7 @@ def test_detect_penetration_patterns_enabled() -> None:
         "guard_core.sync.core.checks.helpers.detect_penetration_attempt",
         return_value=DetectionResult(is_threat=False, trigger_info=""),
     ):
-        result = detect_penetration_patterns(req, None, config, lambda *a: False)
+        result = detect_penetration_patterns(req, None, config, lambda *_: False)
     assert result.is_threat is False
 
 
@@ -309,7 +315,7 @@ def test_detect_penetration_patterns_disabled() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result = detect_penetration_patterns(req, None, config, lambda *a: False)
+    result = detect_penetration_patterns(req, None, config, lambda *_: False)
     assert result.is_threat is False
     assert result.trigger_info == "not_enabled"
 
@@ -319,7 +325,7 @@ def test_detect_penetration_patterns_bypassed() -> None:
     from tests.test_sync.conftest import SyncMockGuardRequest
 
     req = SyncMockGuardRequest(path="/test")
-    result = detect_penetration_patterns(req, None, config, lambda *a: True)
+    result = detect_penetration_patterns(req, None, config, lambda *_: True)
     assert result.is_threat is False
 
 
@@ -359,10 +365,80 @@ def test_check_user_agent_allowed_route_blocklist_no_match() -> None:
     config = SecurityConfig(blocked_user_agents=[])
     route_config = RouteConfig()
     route_config.blocked_user_agents = ["badbot"]
-    # User agent doesn't match the route pattern, falls through to global check.
     assert check_user_agent_allowed("Mozilla/5.0", route_config, config) is True
 
 
 def test_check_user_agent_allowed_no_route_config_uses_global() -> None:
     config = SecurityConfig(blocked_user_agents=[])
     assert check_user_agent_allowed("Mozilla/5.0", None, config) is True
+
+
+class _RaisingLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        raise RuntimeError("log sink filter exploded")
+
+
+def test_log_exception_safely_swallows_when_logger_succeeds() -> None:
+    logger = MagicMock()
+
+    _log_exception_safely(logger, "escalation failed for %s", "9.9.9.9")
+
+    logger.exception.assert_called_once_with("escalation failed for %s", "9.9.9.9")
+
+
+def test_log_exception_safely_falls_back_to_module_logger_when_logger_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    broken_logger = logging.getLogger("test.guard_core.broken_logger")
+    broken_logger.addFilter(_RaisingLogFilter())
+    try:
+        with caplog.at_level(
+            logging.ERROR, logger="guard_core.sync.core.checks.helpers"
+        ):
+            _log_exception_safely(broken_logger, "escalation failed for %s", "9.9.9.9")
+    finally:
+        broken_logger.filters.clear()
+
+    fallback_records = [
+        r for r in caplog.records if r.name == "guard_core.sync.core.checks.helpers"
+    ]
+    assert len(fallback_records) == 1
+    assert fallback_records[0].getMessage() == "escalation failed for 9.9.9.9"
+
+
+def test_check_user_agent_allowed_route_blocklist_uses_inline_safe_path() -> None:
+    captured: list[bool] = []
+    original = PatternCompiler.create_async_safe_finditer_matcher
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        timeout: float | None = None,
+        inline_safe: bool = False,
+    ) -> object:
+        captured.append(inline_safe)
+        return original(self, pattern, timeout=timeout, inline_safe=inline_safe)
+
+    rc = RouteConfig()
+    rc.blocked_user_agents = ["badbot"]
+    config = SecurityConfig(blocked_user_agents=[])
+    with patch.object(PatternCompiler, "create_async_safe_finditer_matcher", _spy):
+        result = check_user_agent_allowed("badbot/1.0", rc, config)
+
+    assert result is False
+    assert captured == [True]
+
+
+def test_check_user_agent_allowed_route_blocklist_caps_subject_length() -> None:
+    from guard_core.sync.utils import _MAX_USER_AGENT_MATCH_LENGTH
+
+    marker = "zzq_route_ua_length_cap_marker_zzq"
+    rc = RouteConfig()
+    rc.blocked_user_agents = [marker]
+    config = SecurityConfig(blocked_user_agents=[])
+
+    beyond_cap = "a" * _MAX_USER_AGENT_MATCH_LENGTH + marker
+    within_cap = marker + "a" * 10
+
+    assert check_user_agent_allowed(beyond_cap, rc, config) is True
+    assert check_user_agent_allowed(within_cap, rc, config) is False
