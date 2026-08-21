@@ -202,6 +202,84 @@ def test_xss_style_expression_resists_padding_evasion() -> None:
     assert rx.search(padded), "padded attack evaded detection"
 
 
+def test_xss_style_expression_does_not_cross_into_unrelated_attribute() -> None:
+    rx = _compiled("xss", "expression|behavior|url")
+    benign = '<div style="color:red" title="see url(icon.png) for reference">'
+    assert not rx.search(benign), "matched a url( token in an unrelated attribute"
+
+
+def test_xss_event_handler_still_matches_real_attack() -> None:
+    rx = _compiled("xss", "(?<!=)")
+    assert rx.search('<img src=x onerror="alert(1)">')
+    assert rx.search('<a onclick="alert(1)">')
+    assert rx.search("<img src=x onerror= alert(1)>")
+
+
+def _quadratic_resistant(
+    pat: str, mk_input: Callable[[int], str], sizes: list[int]
+) -> None:
+    times = linear_search_time(pat, mk_input, sizes, timeout=4.0)
+    assert all(t is not None for t in times), (
+        f"adversarial input did not finish: {pat[:80]!r} times={times}"
+    )
+    first, last = times[0], times[-1]
+    assert first is not None and last is not None
+    ratio = last / first if first > 0 else 0.0
+    assert ratio < 8.0, (
+        f"adversarial input grew {ratio:.1f}x over a 4x size increase "
+        f"(quadratic behavior): {pat[:80]!r} times={times}"
+    )
+
+
+def test_xss_event_handler_resists_separator_padding() -> None:
+    rx = _compiled("xss", "(?<!=)")
+    sizes = [4000, 8000, 16000]
+    _quadratic_resistant(rx.pattern, lambda n: "<a" + " " * n, sizes)
+    _quadratic_resistant(rx.pattern, lambda n: "<a" + "/" * n, sizes)
+
+
+def test_xss_href_javascript_resists_separator_padding() -> None:
+    rx = _compiled("xss", "href|src|data|action")
+    sizes = [4000, 8000, 16000]
+    _quadratic_resistant(rx.pattern, lambda n: "<a" + " " * n, sizes)
+
+
+def test_xss_style_expression_resists_separator_padding() -> None:
+    rx = _compiled("xss", "expression|behavior|url")
+    sizes = [4000, 8000, 16000]
+    _quadratic_resistant(rx.pattern, lambda n: '<div style="' + " " * n, sizes)
+
+
+def _file_upload_patterns() -> list[str]:
+    return [
+        pat
+        for pat, _c, cat in SusPatternsManager._pattern_definitions
+        if cat == "file_upload"
+    ]
+
+
+def test_file_upload_patterns_resist_unclosed_filename_padding() -> None:
+    assert len(_file_upload_patterns()) == 4
+    sizes = [4000, 8000, 16000]
+
+    def mk(n: int) -> str:
+        unit = 'filename="AAAAAAAAAA'
+        body = (unit * (n // len(unit) + 1))[: n - 1]
+        return body + '"'
+
+    for pat in _file_upload_patterns():
+        _quadratic_resistant(pat, mk, sizes)
+
+
+def test_file_upload_scan_window_bounds_to_last_quote() -> None:
+    from guard_core.handlers.suspatterns_handler import _file_upload_scan_window
+
+    assert _file_upload_scan_window('filename="a.php"tail') == 'filename="a.php"'
+    assert _file_upload_scan_window("no quotes at all here") == ""
+    assert _file_upload_scan_window("") == ""
+    assert _file_upload_scan_window("filename='a.php'") == "filename='a.php'"
+
+
 def test_recon_secrets_still_matches_bare_filename() -> None:
     rx = _compiled("recon", "secrets?|credentials?")
     assert rx.search("/secrets.json")

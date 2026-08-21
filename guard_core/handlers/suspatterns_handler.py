@@ -119,6 +119,7 @@ CATEGORY_CONTEXT_MAP: dict[str, frozenset[str]] = {
 _SELECT_FROM_RE = r"(?i)\bSELECT\b(?:(?!\bSELECT\b)[\w\s,\*().])*?\bFROM\b"
 _SELECT_STAR_RE = r"(?i)SELECT\s+\*"
 _WHERE_CLAUSE_RE = r'(?i)\bWHERE\s+[\w."]+\s*(?:=|<|>|<=|>=|LIKE|IN)\b'
+_SQLI_TAUTOLOGY_RE = r"(?i)\b(?:OR|AND)\s*(\d+|'[^']*'|\"[^\"]*\")\s*=\s*\1\b"
 
 _PATH_ONLY_CHAR_RE = r"[\w.\-~%]"
 _PATH_ONLY_SEP_RE = r"[/\\]"
@@ -303,25 +304,42 @@ _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION = "|".join(
     )
 )
 _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE = r"(?:%00|\\u0000|\\x00|\\0|\x00|;)"
+_ATTR_EQUALS_WHITESPACE_RE = r"\s{0,20}"
+_FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE = r"\s*"
+_HTML_TAG_OPEN_RE = r"<[A-Za-z/]"
+_FILE_UPLOAD_FILENAME_EQUALS_RE = (
+    r"(?i)filename"
+    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
+    + r"="
+    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
+)
 _FILE_UPLOAD_DOUBLE_EXTENSION_RE = (
-    r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
+    _FILE_UPLOAD_FILENAME_EQUALS_RE
+    + r"[\"'][^\"']*\.(?:"
     + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])(?:[^ \"'][^\"']{0,254})?\.(?:"
+    + r")(?![A-Za-z0-9])(?:[^ \"'][^\"']*)?\.(?:"
     + _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION
     + r")[\"']"
 )
 _FILE_UPLOAD_TRUNCATION_RE = (
-    r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
+    _FILE_UPLOAD_FILENAME_EQUALS_RE
+    + r"[\"'][^\"']*\.(?:"
     + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
     + r")(?![A-Za-z0-9])(?:"
     + _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE
-    + r"[^\"']{0,255}|\.)[\"']"
+    + r"[^\"']*|\.)[\"']"
 )
 _FILE_UPLOAD_DECODED_TRUNCATION_RE = (
-    r"(?i)filename=[\"'][^\"']{0,255}\.(?:"
+    _FILE_UPLOAD_FILENAME_EQUALS_RE
+    + r"[\"'][^\"']*\.(?:"
     + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])(?:(?:\x00|;)[^\"']{0,255}|\.)[\"']"
+    + r")(?![A-Za-z0-9])(?:(?:\x00|;)[^\"']*|\.)[\"']"
 )
+
+
+def _file_upload_scan_window(content: str) -> str:
+    return content[: max(content.rfind('"'), content.rfind("'")) + 1]
+
 
 DETECTION_RAW_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
     {
@@ -915,6 +933,241 @@ def _build_enhanced_detection_state(config: Any) -> _DetectionState:
     )
 
 
+_HTML_EVENT_HANDLER_ATTRS_PROVENANCE = (
+    "re-derived 2026-08-20 as the union of two actively pentested, "
+    "regularly-updated XSS references rather than a one-time reading of "
+    "spec text: every event handler id in PortSwigger's XSS cheat sheet "
+    "(https://portswigger.net/web-security/cross-site-scripting/cheat-"
+    "sheet, 142 names, includes vendor-prefixed and experimental handlers "
+    "such as onwebkitfullscreenchange and onpagereveal, plus "
+    "onafterscriptexecute/onbeforescriptexecute missed by the first "
+    "extraction pass and added in a later adversarial review) union every "
+    "handler in OWASP's XSS Filter Evasion Cheat Sheet (https://"
+    "cheatsheetseries.owasp.org/cheatsheets/XSS_Filter_Evasion_Cheat_"
+    "Sheet.html, 102 names, includes legacy IE/DHTML-only handlers such "
+    "as onbounce and onrowsenter), both extracted verbatim from the live "
+    "page's markup, not summarized; this still goes silently stale every "
+    "time either source adds a handler this list has not re-absorbed, no "
+    "test fails when it does, only recall quietly drops, so it needs "
+    "periodic re-derivation against the then-current sources, not a "
+    "one-time fix. Deliberately excluded despite resembling a handler: "
+    "onpointerlockchange/onpointerlockerror (real Document IDL "
+    "properties per the Pointer Lock spec, but confirmed unreflected as "
+    "an HTML content attribute in a live Chromium build, so an inline "
+    "`<div onpointerlockchange=...>` payload never executes and neither "
+    "cheat sheet lists it); oncustomthing and other invented on*-prefixed "
+    "words are excluded because they are not handlers at all"
+)
+_HTML_EVENT_HANDLER_ATTRS = frozenset(
+    {
+        "onabort",
+        "onactivate",
+        "onafterprint",
+        "onafterscriptexecute",
+        "onafterupdate",
+        "onanimationcancel",
+        "onanimationend",
+        "onanimationiteration",
+        "onanimationstart",
+        "onauxclick",
+        "onbeforeactivate",
+        "onbeforecopy",
+        "onbeforecut",
+        "onbeforedeactivate",
+        "onbeforeeditfocus",
+        "onbeforeinput",
+        "onbeforematch",
+        "onbeforepaste",
+        "onbeforeprint",
+        "onbeforescriptexecute",
+        "onbeforetoggle",
+        "onbeforeunload",
+        "onbeforeupdate",
+        "onbegin",
+        "onblur",
+        "onbounce",
+        "oncancel",
+        "oncanplay",
+        "oncanplaythrough",
+        "oncellchange",
+        "onchange",
+        "onclick",
+        "onclose",
+        "oncommand",
+        "oncontentvisibilityautostatechange",
+        "oncontextlost",
+        "oncontextmenu",
+        "oncontextrestored",
+        "oncontrolselect",
+        "oncopy",
+        "oncuechange",
+        "oncut",
+        "ondataavailable",
+        "ondatasetchanged",
+        "ondatasetcomplete",
+        "ondblclick",
+        "ondeactivate",
+        "ondevicemotion",
+        "ondeviceorientation",
+        "ondrag",
+        "ondragdrop",
+        "ondragend",
+        "ondragenter",
+        "ondragexit",
+        "ondragleave",
+        "ondragover",
+        "ondragstart",
+        "ondrop",
+        "ondurationchange",
+        "onemptied",
+        "onend",
+        "onended",
+        "onerror",
+        "onerrorupdate",
+        "onfilterchange",
+        "onfinish",
+        "onfocus",
+        "onfocusin",
+        "onfocusout",
+        "onformdata",
+        "onfullscreenchange",
+        "ongesturechange",
+        "ongestureend",
+        "ongesturestart",
+        "ongotpointercapture",
+        "onhashchange",
+        "onhelp",
+        "oninput",
+        "oninvalid",
+        "onkeydown",
+        "onkeypress",
+        "onkeyup",
+        "onlanguagechange",
+        "onlayoutcomplete",
+        "onload",
+        "onloadeddata",
+        "onloadedmetadata",
+        "onloadstart",
+        "onlocation",
+        "onlosecapture",
+        "onlostpointercapture",
+        "onmediacomplete",
+        "onmediaerror",
+        "onmessage",
+        "onmessageerror",
+        "onmousedown",
+        "onmouseenter",
+        "onmouseleave",
+        "onmousemove",
+        "onmouseout",
+        "onmouseover",
+        "onmouseup",
+        "onmousewheel",
+        "onmove",
+        "onmoveend",
+        "onmovestart",
+        "onmozfullscreenchange",
+        "onoffline",
+        "ononline",
+        "onoutofsync",
+        "onpagehide",
+        "onpagereveal",
+        "onpageshow",
+        "onpageswap",
+        "onpaste",
+        "onpause",
+        "onplay",
+        "onplaying",
+        "onpointercancel",
+        "onpointerdown",
+        "onpointerenter",
+        "onpointerleave",
+        "onpointermove",
+        "onpointerout",
+        "onpointerover",
+        "onpointerrawupdate",
+        "onpointerup",
+        "onpopstate",
+        "onprogress",
+        "onpromptaction",
+        "onpromptdismiss",
+        "onpropertychange",
+        "onratechange",
+        "onreadystatechange",
+        "onredo",
+        "onrejectionhandled",
+        "onrepeat",
+        "onreset",
+        "onresize",
+        "onresizeend",
+        "onresizestart",
+        "onresume",
+        "onreverse",
+        "onrowdelete",
+        "onrowexit",
+        "onrowinserted",
+        "onrowsenter",
+        "onscroll",
+        "onscrollend",
+        "onscrollsnapchange",
+        "onscrollsnapchanging",
+        "onsearch",
+        "onsecuritypolicyviolation",
+        "onseek",
+        "onseeked",
+        "onseeking",
+        "onselect",
+        "onselectionchange",
+        "onselectstart",
+        "onslotchange",
+        "onstalled",
+        "onstart",
+        "onstop",
+        "onstorage",
+        "onsubmit",
+        "onsuspend",
+        "onsyncrestored",
+        "ontimeerror",
+        "ontimeupdate",
+        "ontoggle",
+        "ontouchcancel",
+        "ontouchend",
+        "ontouchmove",
+        "ontouchstart",
+        "ontrackchange",
+        "ontransitioncancel",
+        "ontransitionend",
+        "ontransitionrun",
+        "ontransitionstart",
+        "onundo",
+        "onunhandledrejection",
+        "onunload",
+        "onurlflip",
+        "onvalidationstatuschange",
+        "onvolumechange",
+        "onwaiting",
+        "onwebkitanimationend",
+        "onwebkitanimationiteration",
+        "onwebkitanimationstart",
+        "onwebkitfullscreenchange",
+        "onwebkitmouseforcechanged",
+        "onwebkitmouseforcedown",
+        "onwebkitmouseforceup",
+        "onwebkitmouseforcewillbegin",
+        "onwebkitneedkey",
+        "onwebkitplaybacktargetavailabilitychanged",
+        "onwebkitpresentationmodechanged",
+        "onwebkittransitionend",
+        "onwebkitwillrevealbottom",
+        "onwheel",
+    }
+)
+_HTML_EVENT_HANDLER_ALTERNATION = "|".join(
+    re.escape(name)
+    for name in sorted(_HTML_EVENT_HANDLER_ATTRS, key=lambda c: (-len(c), c))
+)
+
+
 class SusPatternsManager:
     _instance = None
     _config = None
@@ -923,19 +1176,30 @@ class SusPatternsManager:
         (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS, "xss"),
         (r"javascript:\s*[^\s]+", _CTX_XSS, "xss"),
         (
-            r"(?:<[^<>]*(?<!=)(?<!=\")(?<!=')[\s/]+on\w+\s*="
-            r"(?:[\"'][^\"']*[\"']|[^\s>]+))",
+            r"(?:"
+            + _HTML_TAG_OPEN_RE
+            + r"(?:[^<>]*[^<>\s/])?(?<!=)(?<!=\")(?<!=')[\s/]+(?:"
+            + _HTML_EVENT_HANDLER_ALTERNATION
+            + r")\s*="
+            + _ATTR_EQUALS_WHITESPACE_RE
+            + r"(?:[\"'][^\"']*[\"']|[^\s>]+))",
             _CTX_XSS,
             "xss",
         ),
         (
-            r"(?:<[^<>]*\s+(?:href|src|data|action)\s*=[\s\"\']*(?:javascript|"
-            r"vbscript|data):)",
+            r"(?:"
+            + _HTML_TAG_OPEN_RE
+            + r"(?:[^<>]*[^<>\s])?\s+(?:href|src|data|action)\s*=[\s\"\']*"
+            r"(?:javascript|vbscript|data):)",
             _CTX_XSS,
             "xss",
         ),
         (
-            r"(?:<[^<>]*style\s*=[\s\"\']*[^<>\"\']*(?:expression|behavior|url)\s*\("
+            r"(?:"
+            + _HTML_TAG_OPEN_RE
+            + r"[^<>]*style\s*="
+            + _ATTR_EQUALS_WHITESPACE_RE
+            + r"[\"']?[^<>\"']*(?:expression|behavior|url)\s*\("
             r"[^)]*\))",
             _CTX_XSS,
             "xss",
@@ -946,6 +1210,7 @@ class SusPatternsManager:
         (_SELECT_FROM_RE, _CTX_SQLI, "sqli"),
         (_SELECT_STAR_RE, _CTX_SQLI, "sqli"),
         (_WHERE_CLAUSE_RE, _CTX_SQLI, "sqli"),
+        (_SQLI_TAUTOLOGY_RE, _CTX_SQLI, "sqli"),
         (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
         (
             r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?[\d\w]+\s*(?:=|LIKE|<|>|<=|>=)\s*"
@@ -1147,7 +1412,8 @@ class SusPatternsManager:
             "nosql",
         ),
         (
-            r"(?i)filename=[\"'].*?\.(?:"
+            _FILE_UPLOAD_FILENAME_EQUALS_RE
+            + r"[\"'][^\"']*\.(?:"
             + _FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION
             + r")[\"\']",
             _CTX_FILE_UPLOAD,
@@ -1705,7 +1971,9 @@ class SusPatternsManager:
     )
 
     @staticmethod
-    def _normalize_context(context: str) -> str:
+    def _normalize_context(context: str | None) -> str:
+        if context is None:
+            return "unknown"
         normalized = context.split(":", 1)[0]
         if normalized not in SusPatternsManager._KNOWN_CONTEXTS:
             return "unknown"
@@ -1748,9 +2016,14 @@ class SusPatternsManager:
 
             pattern_start = time.monotonic()
 
+            scan_content = (
+                _file_upload_scan_window(content)
+                if category == "file_upload"
+                else content
+            )
             threat, timeout_occurred = await self._check_regex_pattern(
                 pattern,
-                content,
+                scan_content,
                 ip_address,
                 pattern_start,
                 category,

@@ -26,6 +26,10 @@ def test_normalize_context_unknown_for_unrecognized() -> None:
     assert SusPatternsManager._normalize_context("") == "unknown"
 
 
+def test_normalize_context_unknown_for_none() -> None:
+    assert SusPatternsManager._normalize_context(None) == "unknown"
+
+
 @pytest.mark.asyncio
 async def test_sqli_fires_on_query_param() -> None:
     manager = SusPatternsManager()

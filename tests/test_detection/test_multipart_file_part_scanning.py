@@ -79,6 +79,33 @@ async def test_malicious_upload_filename_detected(filename: str) -> None:
     assert result.threat_categories == ["file_upload"]
 
 
+@pytest.mark.parametrize("pad_len", [254, 255, 256, 320])
+async def test_malicious_upload_long_filename_prefix_still_detected(
+    pad_len: int,
+) -> None:
+    filename = "A" * pad_len + ".php.jpg"
+    request = _body_request(_file_part_body(filename, "harmless-bytes"), _CONTENT_TYPE)
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert result.threat_categories == ["file_upload"]
+
+
+async def test_malicious_upload_realistic_long_filename_detected() -> None:
+    filename = (
+        "invoice_2026_Q1_report_report_client_summary_final_final_v2_"
+        "reviewed_approved_by_finance_manager_signed_document_backup_"
+        "copy_2026_do_not_delete_archived_original_scanned_version_"
+        "notarized_certified_true_copy_of_the_original_final_"
+        "resubmission_requested_by_client_after_audit_review_"
+        "second_pass_correction_applied_before_quarterly_close.php.jpg"
+    )
+    assert len(filename) > 255
+    request = _body_request(_file_part_body(filename, "harmless-bytes"), _CONTENT_TYPE)
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert result.threat_categories == ["file_upload"]
+
+
 @pytest.mark.parametrize(
     ("content", "category"),
     [

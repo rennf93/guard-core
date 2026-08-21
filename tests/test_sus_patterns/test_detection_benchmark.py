@@ -168,6 +168,24 @@ _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON = (
     "arithmetic-probe shape this branch was built to catch"
 )
 
+_FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON = (
+    "the filename= file_upload patterns flag any occurrence of "
+    'filename="...ext" (quotes required, whitespace now tolerated around '
+    "the =) anywhere in scanned content, with no requirement that it sit "
+    "inside an actual multipart Content-Disposition header; a support "
+    "ticket, changelog, or code-review comment that quotes a dangerous "
+    'filename as a worked example (filename = "invoice.php") is '
+    "character-identical to a real upload's filename value and cannot be "
+    "told apart by structure alone; an app that legitimately accepts such "
+    "prose as a request value needs route-level allowlisting, not a "
+    "narrower pattern that would lose recall on the real "
+    'filename="shell.php"-shaped payload this pattern exists to catch. '
+    "This exact shape already matched with no whitespace around the = "
+    'before this round\'s fix (filename="invoice.php"); the whitespace '
+    "tolerance widens which spacing variants reach the same pre-existing, "
+    "unresolved tradeoff, it does not create a new one"
+)
+
 MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("xss_basic_script_alert", "xss", "<script>alert(1)</script>"),
     MaliciousCase(
@@ -188,9 +206,42 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "xss",
         '<div style="background:url(javascript:alert(1))">',
     ),
+    MaliciousCase(
+        "xss_div_style_expression_spaced_equals",
+        "xss",
+        '<div style = "expression(alert(1))">',
+    ),
+    MaliciousCase(
+        "xss_anchor_href_data_uri_spaced_equals",
+        "xss",
+        '<a href = "data:text/html,evil">click</a>',
+    ),
     MaliciousCase("xss_object_tag", "xss", '<object data="evil.html">payload</object>'),
     MaliciousCase("xss_svg_onload", "xss", "<svg onload=alert(1)>"),
     MaliciousCase("xss_embed_tag", "xss", "<embed src=evil.swf>malicious</embed>"),
+    MaliciousCase(
+        "xss_onerror_space_after_equals", "xss", "<img src=x onerror= alert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_space_around_equals", "xss", "<img src=x onerror = alert(1)>"
+    ),
+    MaliciousCase("xss_div_onclick_spaced_equals_quoted", "xss", '<div onclick = "x">'),
+    MaliciousCase(
+        "xss_onerror_tab_after_equals", "xss", "<img src=x onerror=\talert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_newline_after_equals", "xss", "<img src=x onerror=\nalert(1)>"
+    ),
+    MaliciousCase(
+        "xss_onerror_percent_encoded_space_after_equals",
+        "xss",
+        "<img src=x onerror=%20alert(1)>",
+    ),
+    MaliciousCase(
+        "xss_onerror_space_after_equals_quoted_value",
+        "xss",
+        '<img src=x onerror= "alert(1)">',
+    ),
     MaliciousCase(
         "xss_base64_wrapped_script_alert",
         "xss",
@@ -219,6 +270,15 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase(
         "sqli_select_where_password", "sqli", "SELECT password FROM users WHERE id=1"
     ),
+    MaliciousCase("sqli_numeric_tautology_comment", "sqli", "1 OR 1=1--"),
+    MaliciousCase("sqli_numeric_tautology_bare", "sqli", "1 OR 1=1"),
+    MaliciousCase("sqli_numeric_tautology_lower", "sqli", "1 or 1=1"),
+    MaliciousCase("sqli_numeric_tautology_five", "sqli", "5 OR 5=5"),
+    MaliciousCase("sqli_numeric_tautology_and", "sqli", "1 AND 1=1"),
+    MaliciousCase("sqli_numeric_tautology_param", "sqli", "id=1 OR 1=1--"),
+    MaliciousCase("sqli_placeholder_pct_s_tautology", "sqli", "WHERE id = %s;OR1=1--"),
+    MaliciousCase("sqli_placeholder_qmark_tautology", "sqli", "WHERE id = ?;OR1=1--"),
+    MaliciousCase("sqli_placeholder_dollar_tautology", "sqli", "WHERE id = $1;OR1=1--"),
     MaliciousCase("sqli_select_star", "sqli", "SELECT * FROM accounts"),
     MaliciousCase("sqli_union_select_null", "sqli", "' UNION SELECT NULL,NULL,NULL--"),
     MaliciousCase("sqli_or_tautology", "sqli", "1' OR '1'='1"),
@@ -609,6 +669,51 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("nosql_regex_operator_bracket_key", "nosql", "search[$regex]=.*"),
     MaliciousCase("nosql_where_operator_bracket_key", "nosql", "x[$where]=sleep(1)"),
     MaliciousCase("file_upload_php_extension", "file_upload", 'filename="shell.php"'),
+    MaliciousCase(
+        "file_upload_space_around_equals", "file_upload", 'filename = "shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_space_before_equals", "file_upload", 'filename ="shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_space_after_equals", "file_upload", 'filename= "shell.php"'
+    ),
+    MaliciousCase(
+        "file_upload_tab_around_equals",
+        "file_upload",
+        'filename\t=\t"shell.php"',
+    ),
+    MaliciousCase(
+        "file_upload_newline_after_equals",
+        "file_upload",
+        'filename=\n"shell.php"',
+    ),
+    MaliciousCase(
+        "file_upload_percent_encoded_space_around_equals",
+        "file_upload",
+        'filename%20=%20"shell.php"',
+        "encoding_aware",
+    ),
+    MaliciousCase(
+        "file_upload_single_quote_space_around_equals",
+        "file_upload",
+        "filename = 'shell.php'",
+    ),
+    MaliciousCase(
+        "file_upload_double_extension_space_around_equals",
+        "file_upload",
+        'filename = "shell.php.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_truncation_space_around_equals",
+        "file_upload",
+        'filename = "shell.php%00.jpg"',
+    ),
+    MaliciousCase(
+        "file_upload_decoded_truncation_space_around_equals",
+        "file_upload",
+        'filename = "shell.php\x00.jpg"',
+    ),
     MaliciousCase(
         "file_upload_phtml_extension", "file_upload", 'filename="shell.phtml"'
     ),
@@ -1192,6 +1297,29 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase(
         "xss_details_ontoggle_slash_sep", "xss", "<details/ontoggle=alert(1)>"
     ),
+    MaliciousCase("xss_body_onactivate_quoted", "xss", '<body onactivate="alert(1)">'),
+    MaliciousCase("xss_input_onfocusin_quoted", "xss", '<input onfocusin="alert(1)">'),
+    MaliciousCase(
+        "xss_div_onmousewheel_quoted", "xss", '<div onmousewheel="alert(1)">'
+    ),
+    MaliciousCase(
+        "xss_marquee_onbounce_quoted", "xss", '<marquee onbounce="alert(1)">'
+    ),
+    MaliciousCase(
+        "xss_div_onwebkitfullscreenchange_quoted",
+        "xss",
+        '<div onwebkitfullscreenchange="alert(1)">',
+    ),
+    MaliciousCase(
+        "xss_x_onafterscriptexecute_quoted",
+        "xss",
+        '<x onafterscriptexecute="alert(1)">',
+    ),
+    MaliciousCase(
+        "xss_x_onbeforescriptexecute_quoted",
+        "xss",
+        '<x onbeforescriptexecute="alert(1)">',
+    ),
     MaliciousCase("template_ssti_curly_brace_arith_int", "template", "{{7*7}}"),
     MaliciousCase(
         "template_ssti_curly_brace_arith_quoted_right", "template", "{{7*'7'}}"
@@ -1329,6 +1457,50 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "xss_docs_onerror_callback_explainer",
         "The onError callback receives the exception object as its only argument.",
+    ),
+    BenignCase(
+        "xss_custom_element_online_attribute_spaced_equals",
+        '<user-badge online = "true">Online</user-badge>',
+    ),
+    BenignCase(
+        "xss_log_line_online_once_attributes_spaced_equals",
+        "metric check: value < threshold, online = true, once = 1",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onmessage_prose",
+        "value < threshold; onmessage = handler",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onerror_prose",
+        "Set retries < 5 then bind onerror = fallback in the config block.",
+    ),
+    BenignCase(
+        "xss_comparison_operator_onclick_prose",
+        "chat: score < 10, level up! onclick = celebrate();",
+    ),
+    BenignCase(
+        "xss_comparison_operator_style_expression_prose",
+        "value < 5; style = expression(alert(1))",
+    ),
+    BenignCase(
+        "xss_comparison_operator_src_data_uri_prose",
+        "Set threshold < 10 and src = data:text/html,ok",
+    ),
+    BenignCase(
+        "xss_custom_element_oncall_attribute_spaced_equals",
+        '<staff-badge oncall = "true">On call</staff-badge>',
+    ),
+    BenignCase(
+        "xss_custom_element_onboarding_attribute_unspaced",
+        '<div onboarding="true">Welcome</div>',
+    ),
+    BenignCase(
+        "xss_div_oncustomthing_fictional_handler_not_reflected",
+        '<div oncustomthing="alert(1)">',
+    ),
+    BenignCase(
+        "xss_div_onpointerlockchange_non_reflected_handler",
+        '<div onpointerlockchange="alert(1)">',
     ),
     BenignCase(
         "sqli_prose_select_few_items",
@@ -1705,6 +1877,13 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "file_upload_prose_upload_limits",
         "Uploaded files are limited to 10 MB and must be JPEG or PNG.",
+    ),
+    BenignCase(
+        "file_upload_prose_ticket_dangerous_filename_spaced_equals",
+        "Ticket #4821: please confirm the attachment filename = "
+        '"invoice.php" was renamed correctly before closing.',
+        "production",
+        _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
     ),
     BenignCase("file_upload_benign_pptx_filename", 'filename="presentation.pptx"'),
     BenignCase(
@@ -2516,6 +2695,42 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("sqli_benign_semicolon_execute_no_proc", "; execute the plan"),
     BenignCase("sqli_benign_exec_bareword_call_shape", "execute report()"),
     BenignCase("sqli_benign_exec_qualified_proc_name", "EXEC dbo.Proc()"),
+    BenignCase(
+        "sqli_where_equals_question_mark_placeholder",
+        "SELECT id FROM users WHERE id = ?",
+    ),
+    BenignCase(
+        "sqli_where_equals_named_colon_placeholder",
+        "SELECT id FROM users WHERE id = :id",
+    ),
+    BenignCase(
+        "sqli_where_equals_named_at_placeholder",
+        "SELECT id FROM users WHERE id = @id",
+    ),
+    BenignCase(
+        "sqli_where_equals_dbapi_percent_s_placeholder",
+        "SELECT id FROM users WHERE id = %s",
+    ),
+    BenignCase(
+        "sqli_where_equals_dbapi_named_percent_placeholder",
+        "SELECT id FROM users WHERE id = %(id)s",
+    ),
+    BenignCase(
+        "sqli_where_equals_dollar_numbered_placeholder",
+        "SELECT id FROM users WHERE id = $1",
+    ),
+    BenignCase(
+        "sqli_where_equals_mybatis_hash_brace_placeholder",
+        "SELECT id FROM users WHERE id = #{id}",
+    ),
+    BenignCase(
+        "sqli_boolean_two_columns_or",
+        "SELECT id FROM sessions WHERE status = 1 OR verified = 2",
+    ),
+    BenignCase(
+        "sqli_boolean_bare_columns_or",
+        "SELECT id FROM sessions WHERE active OR admin",
+    ),
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
@@ -2524,8 +2739,8 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "code_injection": 3,
     "deserialization": 12,
     "dir_traversal": 9,
-    "file_inclusion": 8,
-    "file_upload": 22,
+    "file_inclusion": 16,
+    "file_upload": 32,
     "http_split": 4,
     "ldap": 12,
     "nosql": 10,
@@ -2533,20 +2748,22 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "proto_pollution": 8,
     "recon": 23,
     "sensitive_file": 11,
-    "sqli": 27,
+    "sqli": 36,
     "ssrf": 28,
     "template": 13,
     "xml": 4,
-    "xss": 19,
+    "xss": 39,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL = 281
+BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 328
+BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 320
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 12,
     "file_inclusion": 6,
+    "file_upload": 1,
     "template": 6,
 }
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 24
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 25
 
 _WALL_TIME_CEILING_SECONDS = 30.0
 
@@ -2712,8 +2929,9 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
             f"{report}"
         )
 
-    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
-        f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
+    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION, (
+        f"overall recall regressed: "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION} "
         f"actual={malicious_detected_total}\n{report}"
     )
 
@@ -2794,9 +3012,9 @@ async def test_detection_benchmark_legacy_smoke() -> None:
         if hit_categories:
             benign_flagged_total += 1
 
-    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
+    assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE, (
         f"legacy singleton recall regressed: "
-        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
+        f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE} "
         f"actual={malicious_detected_total}"
     )
     assert benign_flagged_total <= BASELINE_BENIGN_FALSE_POSITIVE_TOTAL, (
@@ -2924,3 +3142,113 @@ async def test_var_assignment_prefixed_shell_dash_c_disclosed_false_positive_det
     assert "cmd_injection" in hit_categories, (
         f"{case_id} expected to fire cmd_injection specifically, got {hit_categories}"
     )
+
+
+_EVENT_HANDLER_ALLOWLIST_COVERAGE_CLIFF_PAYLOADS = [
+    pytest.param('<body onactivate="alert(1)">', id="onactivate"),
+    pytest.param('<input onfocusin="alert(1)">', id="onfocusin"),
+    pytest.param('<div onmousewheel="alert(1)">', id="onmousewheel"),
+    pytest.param('<marquee onbounce="alert(1)">', id="onbounce"),
+    pytest.param(
+        '<div onwebkitfullscreenchange="alert(1)">', id="onwebkitfullscreenchange"
+    ),
+    pytest.param('<x onafterscriptexecute="alert(1)">', id="onafterscriptexecute"),
+    pytest.param('<x onbeforescriptexecute="alert(1)">', id="onbeforescriptexecute"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", _EVENT_HANDLER_ALLOWLIST_COVERAGE_CLIFF_PAYLOADS)
+async def test_xss_event_handler_detected_when_absent_from_prior_allowlist(
+    payload: str,
+) -> None:
+    result = await _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "xss" in hit_categories
+
+
+_EVENT_HANDLER_ALLOWLIST_STAYS_BOUNDED_PAYLOADS = [
+    pytest.param(
+        '<staff-badge oncall = "true">On call</staff-badge>',
+        id="custom_attribute_oncall_spaced_equals",
+    ),
+    pytest.param(
+        '<div onboarding="true">Welcome</div>',
+        id="custom_attribute_onboarding_unspaced",
+    ),
+    pytest.param(
+        '<div oncustomthing="alert(1)">',
+        id="invented_word_not_a_real_handler",
+    ),
+    pytest.param(
+        '<div onpointerlockchange="alert(1)">',
+        id="real_idl_property_not_html_reflected",
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", _EVENT_HANDLER_ALLOWLIST_STAYS_BOUNDED_PAYLOADS)
+async def test_xss_event_handler_allowlist_does_not_admit_non_handler_names(
+    payload: str,
+) -> None:
+    result = await _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
+
+
+_SQLI_TAUTOLOGY_DETECTED_PAYLOADS = [
+    pytest.param("1 OR 1=1--", id="numeric_tautology_comment"),
+    pytest.param("1 OR 1=1", id="numeric_tautology_bare"),
+    pytest.param("1 or 1=1", id="numeric_tautology_lower"),
+    pytest.param("5 OR 5=5", id="numeric_tautology_five"),
+    pytest.param("1 AND 1=1", id="numeric_tautology_and"),
+    pytest.param("id=1 OR 1=1--", id="numeric_tautology_param"),
+    pytest.param("WHERE id = %s;OR1=1--", id="placeholder_pct_s_tautology"),
+    pytest.param("WHERE id = ?;OR1=1--", id="placeholder_qmark_tautology"),
+    pytest.param("WHERE id = $1;OR1=1--", id="placeholder_dollar_tautology"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", _SQLI_TAUTOLOGY_DETECTED_PAYLOADS)
+async def test_sqli_tautology_detected_regardless_of_placeholder_or_literal(
+    payload: str,
+) -> None:
+    result = await _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is True
+    hit_categories = {threat.get("category") for threat in result["threats"]}
+    assert "sqli" in hit_categories
+
+
+_SQLI_WHERE_CLAUSE_NOT_FLAGGED_PAYLOADS = [
+    pytest.param("SELECT id FROM users WHERE id = 5", id="int_compare"),
+    pytest.param(
+        "SELECT name, email FROM customers WHERE active = 1", id="bool_compare"
+    ),
+    pytest.param(
+        '{"query":"SELECT count(*) FROM events WHERE day = 3"}', id="json_wrapped"
+    ),
+    pytest.param(
+        "SELECT id FROM sessions WHERE status = 1 OR verified = 2",
+        id="two_distinct_columns",
+    ),
+    pytest.param(
+        "SELECT id FROM sessions WHERE active OR admin", id="two_bare_columns"
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", _SQLI_WHERE_CLAUSE_NOT_FLAGGED_PAYLOADS)
+async def test_sqli_where_clause_literal_value_not_flagged(payload: str) -> None:
+    result = await _PRODUCTION_MANAGER.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert result["is_threat"] is False
