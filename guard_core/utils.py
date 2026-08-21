@@ -5,7 +5,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv4Address, IPv6Address, ip_address, ip_network
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from guard_core.detection_result import DetectionResult
@@ -169,6 +169,30 @@ def _is_trusted_proxy(connecting_ip: str, trusted_proxies: list[str]) -> bool:
         return False
 
 
+def _canonical_ip_text(addr: IPv4Address | IPv6Address) -> str:
+    if (
+        isinstance(addr, IPv6Address)
+        and addr.ipv4_mapped is not None
+        and addr.scope_id is None
+    ):
+        return str(addr.ipv4_mapped)
+    return str(addr)
+
+
+def _strip_ip_brackets(value: str) -> str:
+    if value.startswith("[") and value.endswith("]"):
+        return value[1:-1]
+    return value
+
+
+def _canonicalize_ip(value: str) -> str:
+    try:
+        addr = ip_address(_strip_ip_brackets(value))
+    except ValueError:
+        return value
+    return _canonical_ip_text(addr)
+
+
 def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str | None:
     if not forwarded_for:
         return None
@@ -178,19 +202,17 @@ def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str 
     if len(ips) < proxy_depth:
         return None
 
-    candidate = ips[-proxy_depth]
-    if candidate.startswith("[") and candidate.endswith("]"):
-        candidate = candidate[1:-1]
+    candidate = _strip_ip_brackets(ips[-proxy_depth])
 
     try:
-        ip_address(candidate)
+        addr = ip_address(candidate)
     except ValueError:
         return None
 
     if any(metachar in candidate for metachar in ("*", "?", "[", "]", "\\")):
         return None
 
-    return candidate
+    return _canonical_ip_text(addr)
 
 
 def _is_private_or_loopback(ip: str) -> bool:
@@ -252,11 +274,12 @@ async def extract_client_ip(
         return "unknown"
 
     connecting_ip = request.client_host
+    canonical_connecting_ip = _canonicalize_ip(connecting_ip)
     forwarded_for = request.headers.get("X-Forwarded-For")
 
     if not config.trusted_proxies:
         _warn_forwarded_header_preempted(connecting_ip, forwarded_for)
-        return connecting_ip
+        return canonical_connecting_ip
 
     is_trusted = _is_trusted_proxy(connecting_ip, config.trusted_proxies)
 
@@ -276,16 +299,16 @@ async def extract_client_ip(
             await send_agent_event(
                 agent_handler,
                 "suspicious_request",
-                connecting_ip,
+                canonical_connecting_ip,
                 "spoofing_detected",
                 f"Potential IP spoof attempt: X-Forwarded-For header {forwarded_for}",
                 request,
             )
-        return connecting_ip
+        return canonical_connecting_ip
 
     try:
         if not forwarded_for:
-            return connecting_ip
+            return canonical_connecting_ip
 
         client_ip = _extract_from_forwarded_header(
             forwarded_for, config.trusted_proxy_depth
@@ -295,13 +318,13 @@ async def extract_client_ip(
     except (ValueError, IndexError) as e:
         logger.warning(f"Error processing client IP: {str(e)}")
 
-    return connecting_ip
+    return canonical_connecting_ip
 
 
 def _extract_request_context(request: GuardRequest) -> dict[str, Any]:
     client_ip = "unknown"
     if request.client_host:
-        client_ip = request.client_host
+        client_ip = _canonicalize_ip(request.client_host)
 
     return {
         "client_ip": client_ip,
@@ -415,7 +438,7 @@ async def is_user_agent_allowed(user_agent: str, config: Any) -> bool:
 def _extract_ip_from_request(request: str | GuardRequest) -> str:
     if isinstance(request, str):
         return request
-    return request.client_host if request.client_host else "unknown"
+    return _canonicalize_ip(request.client_host) if request.client_host else "unknown"
 
 
 def _has_country_rules(config: Any) -> bool:
@@ -508,17 +531,13 @@ async def check_ip_country(
 def _ip_in_list(ip_addr: Any, ip: str, entries: list[str] | None) -> bool:
     if not entries:
         return False
+    canonical_ip = _canonicalize_ip(ip)
     for entry in entries:
         if "/" in entry:
             if ip_addr in ip_network(entry, strict=False):
                 return True
-        else:
-            try:
-                if ip_addr == ip_address(entry):
-                    return True
-            except ValueError:
-                if ip == entry:
-                    return True
+        elif canonical_ip == _canonicalize_ip(entry):
+            return True
     return False
 
 
@@ -1462,7 +1481,9 @@ async def detect_penetration_attempt(
 ) -> DetectionResult:
     import uuid
 
-    client_ip = request.client_host or "unknown"
+    client_ip = (
+        _canonicalize_ip(request.client_host) if request.client_host else "unknown"
+    )
     correlation_id = str(uuid.uuid4())
 
     excluded_params = _resolve_excluded_params(config, route_config)

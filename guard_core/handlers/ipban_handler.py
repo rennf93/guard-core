@@ -1,3 +1,4 @@
+import contextlib
 import ipaddress
 import logging
 import time
@@ -7,7 +8,20 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.utils import _canonicalize_ip
+
 _Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+_BANNED_IPS_NAMESPACE = "banned_ips"
+
+
+def _close_if_unusable(obj: Any, required_attr: str) -> bool:
+    if hasattr(obj, required_attr):
+        return True
+    with contextlib.suppress(AttributeError):
+        obj.close()
+    return False
+
 
 _LOOPBACK_NETWORKS: tuple[_Network, ...] = (
     ipaddress.ip_network("127.0.0.0/8"),
@@ -69,9 +83,51 @@ class IPBanManager:
 
     async def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
+        await self._migrate_legacy_ban_keys()
 
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
+
+    async def _migrate_legacy_ban_keys(self) -> None:
+        if self.redis_handler is None:
+            return
+        prefix = f"{self.redis_handler.config.redis_prefix}{_BANNED_IPS_NAMESPACE}:"
+        connection_cm = self.redis_handler.get_connection()
+        if not _close_if_unusable(connection_cm, "__aenter__"):
+            self.logger.warning(
+                "Legacy ban-key migration skipped: redis connection unavailable"
+            )
+            return
+        try:
+            async with connection_cm as conn:
+                scan_result = conn.scan_iter(match=f"{prefix}*")
+                if not _close_if_unusable(scan_result, "__aiter__"):
+                    raise TypeError("redis connection did not return an async iterator")
+                async for key in scan_result:
+                    await self._migrate_one_ban_key(conn, key, prefix)
+        except Exception as e:
+            self.logger.warning("Legacy ban-key migration skipped: %s", e)
+
+    async def _migrate_one_ban_key(self, conn: Any, key: str, prefix: str) -> None:
+        raw_ip = key[len(prefix) :]
+        canonical_ip = _canonicalize_ip(raw_ip)
+        if canonical_ip == raw_ip:
+            return
+
+        async with conn.pipeline() as pipe:
+            await pipe.get(key)
+            await pipe.pttl(key)
+            value, old_pttl = await pipe.execute()
+
+        if old_pttl <= 0:
+            await conn.delete(key)
+            return
+
+        canonical_key = f"{prefix}{canonical_ip}"
+        new_pttl = await conn.pttl(canonical_key)
+        if new_pttl < old_pttl:
+            await conn.set(canonical_key, value, px=old_pttl)
+        await conn.delete(key)
 
     def _assert_positive_duration(self, duration: int) -> None:
         if duration <= 0:

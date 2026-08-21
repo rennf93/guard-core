@@ -1,0 +1,282 @@
+import logging
+import warnings
+
+import pytest
+
+from guard_core.handlers.ipban_handler import ip_ban_manager
+from guard_core.handlers.redis_handler import redis_handler as redis_handler_factory
+from guard_core.models import SecurityConfig
+
+LEGACY_MAPPED_FORM = "::ffff:203.0.113.5"
+CANONICAL_FORM = "203.0.113.5"
+
+
+class _NotAnAsyncIterator:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _BadScanConn:
+    def __init__(self) -> None:
+        self.scan_result = _NotAnAsyncIterator()
+
+    def scan_iter(self, match: str | None = None) -> _NotAnAsyncIterator:
+        return self.scan_result
+
+
+class _BadScanConnCM:
+    def __init__(self, conn: _BadScanConn) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> _BadScanConn:
+        return self._conn
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+class _BadScanRedisHandler:
+    class config:
+        redis_prefix = "test:bad-scan:"
+
+    def __init__(self) -> None:
+        self.conn = _BadScanConn()
+
+    def get_connection(self) -> _BadScanConnCM:
+        return _BadScanConnCM(self.conn)
+
+
+class _BadConnectionRedisHandler:
+    class config:
+        redis_prefix = "test:bad-connection:"
+
+    def __init__(self) -> None:
+        self.connection_cm = _NotAnAsyncIterator()
+
+    def get_connection(self) -> _NotAnAsyncIterator:
+        return self.connection_cm
+
+
+async def _seed_legacy_ban(handler: object, duration: int = 60) -> None:
+    await ip_ban_manager.initialize_redis(handler)
+    await ip_ban_manager.ban_ip(LEGACY_MAPPED_FORM, duration, "test_legacy_ban")
+    ip_ban_manager.banned_ips.clear()
+
+
+async def test_migration_blocks_canonical_request_after_restart(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await _seed_legacy_ban(handler)
+
+        await ip_ban_manager.initialize_redis(handler)
+        ip_ban_manager.banned_ips.clear()
+
+        assert await ip_ban_manager.is_ip_banned(CANONICAL_FORM) is True
+    finally:
+        await ip_ban_manager.unban_ip(CANONICAL_FORM)
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_preserves_remaining_ttl_within_one_second(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await _seed_legacy_ban(handler, duration=60)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        prefix = security_config_redis.redis_prefix
+        async with handler.get_connection() as conn:
+            pttl_ms = await conn.pttl(f"{prefix}banned_ips:{CANONICAL_FORM}")
+
+        assert pttl_ms == pytest.approx(60_000, abs=1_000)
+    finally:
+        await ip_ban_manager.unban_ip(CANONICAL_FORM)
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_deletes_the_legacy_key(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await _seed_legacy_ban(handler)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        legacy_value = await handler.get_key("banned_ips", LEGACY_MAPPED_FORM)
+        assert legacy_value is None
+    finally:
+        await ip_ban_manager.unban_ip(CANONICAL_FORM)
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_second_start_is_idempotent(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await _seed_legacy_ban(handler)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        prefix = security_config_redis.redis_prefix
+        canonical_key = f"{prefix}banned_ips:{CANONICAL_FORM}"
+        async with handler.get_connection() as conn:
+            value_before = await conn.get(canonical_key)
+            pttl_before = await conn.pttl(canonical_key)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        async with handler.get_connection() as conn:
+            value_after = await conn.get(canonical_key)
+            pttl_after = await conn.pttl(canonical_key)
+
+        assert value_after == value_before
+        assert pttl_after == pytest.approx(pttl_before, abs=1_000)
+        assert await ip_ban_manager.is_ip_banned(CANONICAL_FORM) is True
+    finally:
+        await ip_ban_manager.unban_ip(CANONICAL_FORM)
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_rate_limit_keys_stay_unmigrated_self_expire_within_60s(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await handler.set_key("rate_limit", f"rate:{LEGACY_MAPPED_FORM}", "1", ttl=60)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        legacy_value = await handler.get_key("rate_limit", f"rate:{LEGACY_MAPPED_FORM}")
+        canonical_value = await handler.get_key("rate_limit", f"rate:{CANONICAL_FORM}")
+        assert legacy_value == "1"
+        assert canonical_value is None
+    finally:
+        await handler.delete("rate_limit", f"rate:{LEGACY_MAPPED_FORM}")
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_skipped_when_redis_handler_is_none() -> None:
+    await ip_ban_manager.initialize_redis(None)
+
+    assert ip_ban_manager.redis_handler is None
+
+
+async def test_migration_warns_and_continues_when_connection_fails(
+    security_config_redis: SecurityConfig,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    await handler.close()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await ip_ban_manager.initialize_redis(handler)
+
+    assert any("Legacy ban-key migration skipped" in r.message for r in caplog.records)
+    ip_ban_manager.redis_handler = None
+
+
+async def test_migration_deletes_a_persistent_legacy_key_without_ttl(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        prefix = security_config_redis.redis_prefix
+        legacy_key = f"{prefix}banned_ips:{LEGACY_MAPPED_FORM}"
+        async with handler.get_connection() as conn:
+            await conn.set(legacy_key, "123456789.0")
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        async with handler.get_connection() as conn:
+            assert await conn.exists(legacy_key) == 0
+        assert await ip_ban_manager.is_ip_banned(CANONICAL_FORM) is False
+    finally:
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_keeps_the_longer_expiry_when_canonical_key_already_exists(
+    security_config_redis: SecurityConfig,
+) -> None:
+    handler = redis_handler_factory(security_config_redis)
+    await handler.initialize()
+    try:
+        await ip_ban_manager.initialize_redis(handler)
+        await ip_ban_manager.ban_ip(CANONICAL_FORM, 120, "test_long_canonical_ban")
+        await ip_ban_manager.ban_ip(LEGACY_MAPPED_FORM, 60, "test_short_legacy_ban")
+        ip_ban_manager.banned_ips.clear()
+
+        prefix = security_config_redis.redis_prefix
+        canonical_key = f"{prefix}banned_ips:{CANONICAL_FORM}"
+        legacy_key = f"{prefix}banned_ips:{LEGACY_MAPPED_FORM}"
+        async with handler.get_connection() as conn:
+            pttl_before = await conn.pttl(canonical_key)
+
+        await ip_ban_manager.initialize_redis(handler)
+
+        async with handler.get_connection() as conn:
+            pttl_after = await conn.pttl(canonical_key)
+            legacy_exists = await conn.exists(legacy_key)
+
+        assert pttl_after == pytest.approx(pttl_before, abs=1_000)
+        assert pttl_after > 100_000
+        assert legacy_exists == 0
+    finally:
+        await ip_ban_manager.unban_ip(CANONICAL_FORM)
+        ip_ban_manager.redis_handler = None
+        await handler.close()
+
+
+async def test_migration_closes_and_skips_non_async_iterable_scan_result(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    handler = _BadScanRedisHandler()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            await ip_ban_manager.initialize_redis(handler)
+
+        assert handler.conn.scan_result.closed is True
+        assert any(
+            "Legacy ban-key migration skipped" in r.message for r in caplog.records
+        )
+    finally:
+        ip_ban_manager.redis_handler = None
+
+
+async def test_migration_closes_and_skips_non_async_context_manager_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    handler = _BadConnectionRedisHandler()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            await ip_ban_manager.initialize_redis(handler)
+
+        assert handler.connection_cm.closed is True
+        assert any("redis connection unavailable" in r.message for r in caplog.records)
+    finally:
+        ip_ban_manager.redis_handler = None

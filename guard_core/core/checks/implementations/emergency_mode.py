@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from ipaddress import ip_address
 
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.core.events.event_types import EVENT_EMERGENCY_MODE_BLOCK
@@ -6,7 +7,7 @@ from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.utils import extract_client_ip, log_activity
+from guard_core.utils import _ip_in_list, extract_client_ip, log_activity
 
 
 class EmergencyModeCheck(SecurityCheck):
@@ -32,7 +33,16 @@ class EmergencyModeCheck(SecurityCheck):
                 request, self.config, self.middleware.agent_handler
             )
 
-        if client_ip not in self.config.emergency_whitelist:
+        try:
+            client_ip_addr = ip_address(client_ip)
+        except ValueError:
+            client_ip_addr = None
+
+        is_whitelisted = client_ip_addr is not None and _ip_in_list(
+            client_ip_addr, client_ip, self.config.emergency_whitelist
+        )
+
+        if not is_whitelisted:
             await log_activity(
                 request,
                 self.logger,
