@@ -61,12 +61,12 @@ def test_full_scan_cap_preserves_tail_payload_when_head_has_no_indicators() -> N
     assert tail_payload in result
 
 
-def test_full_scan_preserve_disabled_blind_truncates_to_max_content_length() -> None:
+def test_full_scan_preserve_disabled_blind_truncates_to_full_scan_cap() -> None:
     pp = ContentPreprocessor(max_content_length=10000, preserve_attack_patterns=False)
     body = "<script>x</script>" + "A" * (pp._MAX_FULL_SCAN_BYTES + 100)
     result = pp.truncate_safely(body)
-    assert len(result) == pp.max_content_length
-    assert result == body[: pp.max_content_length]
+    assert len(result) == pp._MAX_FULL_SCAN_BYTES
+    assert result == body[: pp._MAX_FULL_SCAN_BYTES]
 
 
 def test_full_scan_above_cap_with_attack_regions_exceeding_budget_concatenates() -> (

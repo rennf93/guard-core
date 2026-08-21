@@ -713,7 +713,15 @@ class _SecurityConfigFields(BaseModel):
 
     detection_max_content_length: int = Field(
         default=10000,
-        description="Maximum content length for pattern detection",
+        description=(
+            "Budget for the semantic (ML) analyzer's slice of preprocessed "
+            "content, and the divisor behind how many attack-indicator regions "
+            "extract_attack_regions keeps during truncation. It does NOT bound "
+            "truncate_safely's own output size or the regex-pattern scan window: "
+            "that memory bound is detection_max_body_inspect_bytes alone, so "
+            "raising or lowering this field never changes how much content the "
+            "penetration-detection regex patterns see."
+        ),
         ge=1000,
         le=100000,
     )
@@ -731,10 +739,13 @@ class _SecurityConfigFields(BaseModel):
             "bounded-memory scanning and cannot be closed without reading the "
             "whole body; raise the cap to shrink the blind spot, at the cost of "
             "more memory held per inspected request and more CPU time spent "
-            "pattern-matching it, since the full-body scan window follows "
-            "this same cap. Distinct from "
-            "detection_max_content_length (the regex scan window) and "
-            "max_request_size (the 413 size gate)."
+            "pattern-matching it, since the full-body scan window and "
+            "truncate_safely's own output size both follow this same cap. This "
+            "is the single memory bound for the whole preprocessing path: "
+            "gzip-bomb decompression inside base64 decoding and the short-base64 "
+            "additive view are bounded by it too, not by any separate constant. "
+            "Distinct from detection_max_content_length (the semantic-analyzer "
+            "budget) and max_request_size (the 413 size gate)."
         ),
         ge=1024,
         le=10485760,

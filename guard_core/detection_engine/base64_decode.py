@@ -52,20 +52,24 @@ def replacement_char_ratio(text: str) -> float:
     return text.count("�") / len(text)
 
 
-def bounded_gunzip(raw: bytes) -> bytes | None:
+def bounded_gunzip(
+    raw: bytes, max_output_bytes: int = MAX_GUNZIP_OUTPUT_BYTES
+) -> bytes | None:
     if raw[:2] != GZIP_MAGIC:
         return None
     import zlib
 
     try:
         decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
-        return decompressor.decompress(raw, MAX_GUNZIP_OUTPUT_BYTES)
+        return decompressor.decompress(raw, max_output_bytes)
     except (zlib.error, OSError):
         return None
 
 
 def decode_base64_candidates(
-    content: str, gunzip_attempts_left: list[int] | None = None
+    content: str,
+    gunzip_attempts_left: list[int] | None = None,
+    max_gunzip_output_bytes: int = MAX_GUNZIP_OUTPUT_BYTES,
 ) -> str:
     if gunzip_attempts_left is None:
         gunzip_attempts_left = [MAX_GUNZIP_ATTEMPTS_PER_PASS]
@@ -79,7 +83,7 @@ def decode_base64_candidates(
             return None
         if raw[:2] == GZIP_MAGIC and gunzip_attempts_left[0] > 0:
             gunzip_attempts_left[0] -= 1
-            gunzipped = bounded_gunzip(raw)
+            gunzipped = bounded_gunzip(raw, max_gunzip_output_bytes)
             if gunzipped is not None:
                 raw = gunzipped
         try:

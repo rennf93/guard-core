@@ -229,7 +229,7 @@ def test_truncate_safely_no_truncation_needed() -> None:
 
 def test_truncate_safely_preserve_disabled() -> None:
     preprocessor = ContentPreprocessor(
-        max_content_length=50, preserve_attack_patterns=False
+        max_content_length=50, preserve_attack_patterns=False, max_full_scan_bytes=50
     )
 
     content = "a" * 100

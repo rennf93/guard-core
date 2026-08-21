@@ -1302,6 +1302,21 @@ def _regex_anomaly(regex_threats: list[dict[str, Any]]) -> float:
     return float(sum(t.get("weight", 1.0) for t in regex_threats))
 
 
+_DECODE_BUDGET_EXHAUSTED_PATTERN = "decode_budget_exhausted"
+
+
+def _decode_budget_exhausted_threat() -> dict[str, Any]:
+    return {
+        "type": "regex",
+        "pattern": _DECODE_BUDGET_EXHAUSTED_PATTERN,
+        "match": _DECODE_BUDGET_EXHAUSTED_PATTERN,
+        "position": 0,
+        "execution_time": 0.0,
+        "category": "custom",
+        "weight": _resolve_pattern_weight(_DECODE_BUDGET_EXHAUSTED_PATTERN, "custom"),
+    }
+
+
 def _pattern_excluded_from_view(
     pattern: re.Pattern,
     raw_view_only: bool | None,
@@ -2452,14 +2467,14 @@ class SusPatternsManager:
         correlation_id: str | None,
         *,
         state: _DetectionState | None = None,
-    ) -> str:
+    ) -> tuple[str, bool]:
         state = self._resolve_state(state)
         preprocessor = state.preprocessor
         if not preprocessor:
             max_length = getattr(
                 self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
             )
-            return content[:max_length]
+            return content[:max_length], False
 
         context_preprocessor = ContentPreprocessor(
             max_content_length=preprocessor.max_content_length,
@@ -2468,7 +2483,9 @@ class SusPatternsManager:
             correlation_id=correlation_id,
             max_full_scan_bytes=preprocessor._MAX_FULL_SCAN_BYTES,
         )
-        return context_preprocessor.preprocess(content)
+        decode_budget_exhausted = [False]
+        processed = context_preprocessor.preprocess(content, decode_budget_exhausted)
+        return processed, decode_budget_exhausted[0]
 
     def _check_regex_pattern(
         self,
@@ -2839,15 +2856,18 @@ class SusPatternsManager:
         correlation_id: str | None,
         enabled_categories: set[str] | None,
         state: _DetectionState,
-    ) -> tuple[list[dict], list[str], list[str]]:
+    ) -> tuple[list[dict], list[str], list[str], bool]:
         preprocessor = state.preprocessor
         if not preprocessor:
-            return [], [], []
+            return [], [], [], False
 
+        decode_budget_exhausted: list[bool] = [False]
         url_decoded_view_content = (
-            preprocessor.preprocess_url_decoded_newline_preserving(content)
+            preprocessor.preprocess_url_decoded_newline_preserving(
+                content, decode_budget_exhausted
+            )
         )
-        return self._check_regex_patterns(
+        threats, matched, timeouts = self._check_regex_patterns(
             url_decoded_view_content,
             ip_address,
             correlation_id,
@@ -2856,6 +2876,7 @@ class SusPatternsManager:
             state=state,
             url_decoded_view_only=True,
         )
+        return threats, matched, timeouts, decode_budget_exhausted[0]
 
     def _check_short_base64_additive_view_patterns(
         self,
@@ -2899,7 +2920,7 @@ class SusPatternsManager:
         execution_start = time.monotonic()
         state = self._detection_state
 
-        processed_content = self._preprocess_content(
+        processed_content, decode_budget_exhausted = self._preprocess_content(
             content, correlation_id, state=state
         )
 
@@ -2931,12 +2952,18 @@ class SusPatternsManager:
             url_decoded_threats,
             url_decoded_matched,
             url_decoded_timeouts,
+            url_decoded_budget_exhausted,
         ) = self._check_url_decoded_view_patterns(
             content, ip_address, context, correlation_id, enabled_categories, state
         )
         regex_threats = regex_threats + url_decoded_threats
         matched_patterns = matched_patterns + url_decoded_matched
         timeouts = timeouts + url_decoded_timeouts
+
+        if decode_budget_exhausted or url_decoded_budget_exhausted:
+            exhaustion_threat = _decode_budget_exhausted_threat()
+            regex_threats = regex_threats + [exhaustion_threat]
+            matched_patterns = matched_patterns + [exhaustion_threat["pattern"]]
 
         (
             short_base64_threats,

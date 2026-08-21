@@ -9,7 +9,6 @@ SHORT_BASE64_TOKEN_RE = re.compile(r"[A-Za-z0-9+/]{4,}")
 MAX_SHORT_BASE64_TOKEN_LENGTH = _RUN_FLOOR - 1
 SHORT_BASE64_MARKER_CHARS = frozenset("${}#")
 MAX_SHORT_BASE64_CANDIDATES = 20000
-MAX_SHORT_BASE64_SCAN_BYTES = 2_000_000
 PRINTABLE_RATIO_THRESHOLD = 0.95
 
 
@@ -51,7 +50,6 @@ def build_short_base64_additive_view(preprocessor: Any, content: str) -> str:
     if not content:
         return ""
 
-    content = content[:MAX_SHORT_BASE64_SCAN_BYTES]
     content = preprocessor.normalize_unicode(content)
     content = preprocessor.truncate_safely(content)
 

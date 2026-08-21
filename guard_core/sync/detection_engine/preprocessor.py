@@ -202,12 +202,14 @@ class ContentPreprocessor:
         return base64_decode.replacement_char_ratio(text)
 
     def _bounded_gunzip(self, raw: bytes) -> bytes | None:
-        return base64_decode.bounded_gunzip(raw)
+        return base64_decode.bounded_gunzip(raw, self._MAX_FULL_SCAN_BYTES)
 
     def _decode_base64_candidates(
         self, content: str, gunzip_attempts_left: list[int] | None = None
     ) -> str:
-        return base64_decode.decode_base64_candidates(content, gunzip_attempts_left)
+        return base64_decode.decode_base64_candidates(
+            content, gunzip_attempts_left, self._MAX_FULL_SCAN_BYTES
+        )
 
     def _decode_hex_escapes(self, content: str) -> str:
         return encoding_decoders.decode_hex_escapes(content)
@@ -242,7 +244,9 @@ class ContentPreprocessor:
         content = self._SQL_LINE_COMMENT_MARKER_RE.sub(" ", content)
         return content
 
-    def decode_common_encodings(self, content: str) -> str:
+    def decode_common_encodings(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
         max_decode_iterations = 16
         iterations = 0
         gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
@@ -293,16 +297,21 @@ class ContentPreprocessor:
                 break
 
             iterations += 1
+        else:
+            if decode_budget_exhausted is not None:
+                decode_budget_exhausted[0] = True
 
         content = self._strip_sql_comments(content)
         return content
 
-    def preprocess(self, content: str) -> str:
+    def preprocess(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
         if not content:
             return ""
 
         content = self.normalize_unicode(content)
-        content = self.decode_common_encodings(content)
+        content = self.decode_common_encodings(content, decode_budget_exhausted)
         content = self.remove_null_bytes(content)
         content = self.remove_excessive_whitespace(content)
         content = self.truncate_safely(content)
@@ -316,12 +325,14 @@ class ContentPreprocessor:
         content = self.normalize_unicode(content)
         return self.truncate_safely(content)
 
-    def preprocess_url_decoded_newline_preserving(self, content: str) -> str:
+    def preprocess_url_decoded_newline_preserving(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
         if not content:
             return ""
 
         content = self.normalize_unicode(content)
-        content = self.decode_common_encodings(content)
+        content = self.decode_common_encodings(content, decode_budget_exhausted)
         return self.truncate_safely(content)
 
     def preprocess_short_base64_additive_view(self, content: str) -> str:

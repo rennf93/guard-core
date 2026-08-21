@@ -101,15 +101,13 @@ def cap_with_tail(content: str, max_full_scan_bytes: int) -> str:
 
 
 def truncate_safely(preprocessor: Any, content: str) -> str:
-    if len(content) <= preprocessor.max_content_length:
+    max_full_scan_bytes = preprocessor._MAX_FULL_SCAN_BYTES
+
+    if len(content) <= max_full_scan_bytes:
         return content
 
     if not preprocessor.preserve_attack_patterns:
-        return content[: preprocessor.max_content_length]
-
-    max_full_scan_bytes = preprocessor._MAX_FULL_SCAN_BYTES
-    if len(content) <= max_full_scan_bytes:
-        return content
+        return content[:max_full_scan_bytes]
 
     attack_regions = preprocessor.extract_attack_regions(content)
 
