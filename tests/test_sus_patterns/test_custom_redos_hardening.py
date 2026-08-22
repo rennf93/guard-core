@@ -145,6 +145,18 @@ def test_extract_literal_chars_represents_char_classes_with_escapes() -> None:
     assert _extract_literal_chars(r"abc[") == ["a", "b", "c"]
 
 
+def test_extract_literal_chars_represents_top_level_escape_atoms() -> None:
+    assert "0" in _extract_literal_chars(r"abc\d")
+    assert _extract_literal_chars(r"\w") == ["0"]
+    assert _extract_literal_chars(r"a\sb") == ["a", " ", "b"]
+    assert _extract_literal_chars(r"\d\w") == ["0", "0"]
+
+
+def test_extract_literal_chars_skips_zero_width_escape_atoms() -> None:
+    assert _extract_literal_chars(r"a\bb") == ["a", "b"]
+    assert _extract_literal_chars(r"\b\d") == ["0"]
+
+
 def test_split_top_level_alternations_handles_malformed() -> None:
     assert _split_top_level_alternations("a|b") == ["a", "b"]
     assert _split_top_level_alternations("a[") == ["a["]

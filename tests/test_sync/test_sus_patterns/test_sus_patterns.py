@@ -307,6 +307,55 @@ def test_regex_timeout_fallback() -> None:
     SusPatternsManager._instance = None
 
 
+def test_pattern_timeout_preserves_existing_regex_threat(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    manager = sus_patterns_manager_with_detection
+    custom_pattern = r"timeout_with_existing_threat"
+    manager.add_pattern(custom_pattern, custom=True)
+    existing_threat = {
+        "type": "regex",
+        "pattern": custom_pattern,
+        "match": custom_pattern,
+        "position": 0,
+        "execution_time": 0.01,
+        "category": "custom",
+        "weight": 1,
+    }
+
+    def fake_check(
+        pattern: re.Pattern,
+        content: str,
+        ip_address: str,
+        pattern_start: float,
+        category: str,
+        *,
+        state: object = None,
+        context: str = "unknown",
+    ) -> tuple[dict | None, bool]:
+        if pattern.pattern == custom_pattern:
+            return dict(existing_threat), True
+        return None, False
+
+    with patch.object(manager, "_check_regex_pattern", new=fake_check):
+        threats, matched, timeouts = manager._check_regex_patterns(
+            custom_pattern, "127.0.0.1", None, context="test"
+        )
+
+    assert custom_pattern in timeouts
+    assert custom_pattern in matched
+    preserved = [
+        t
+        for t in threats
+        if t.get("type") == "regex" and t.get("pattern") == custom_pattern
+    ]
+    assert preserved
+    assert preserved[0]["match"] == custom_pattern
+    assert not any(t.get("type") == "pattern_timeout" for t in threats)
+
+    manager.remove_pattern(custom_pattern, custom=True)
+
+
 def test_regex_search_success_fallback() -> None:
     SusPatternsManager._instance = None
     manager = SusPatternsManager()

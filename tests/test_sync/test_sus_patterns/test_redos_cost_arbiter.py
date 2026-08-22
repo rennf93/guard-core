@@ -1,6 +1,9 @@
+import logging
 import re
 import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from guard_core.sync.detection_engine._redos_class_intersection import (
     _class_intersection_fills,
@@ -11,6 +14,7 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _REACH_PROBE_SIZES,
     _median,
     _reach_probe_cost_verdict,
+    _reach_probe_unreachable_reason,
     _reach_probe_verdict_from_samples,
     _time_reach_probes_subprocess,
 )
@@ -209,3 +213,25 @@ def test_event_handler_intersection_fill_measures_super_linear_directly() -> Non
         f"expected super-linear growth from the {fill_char!r} intersection fill, "
         f"measured ratio={ratio:.2f}x, times={times}"
     )
+
+
+def test_reach_probe_unreachable_reason_echoes_structural_violation() -> None:
+    assert (
+        _reach_probe_unreachable_reason("some structural reason")
+        == "some structural reason"
+    )
+
+
+def test_probe_cost_verdict_logs_disagreement_without_candidate_builders(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pattern = r"(\b|\W+)*"
+    with caplog.at_level(
+        logging.WARNING,
+        logger="guard_core.sync.detection_engine.compiler",
+    ):
+        is_safe, reason = _reach_probe_cost_verdict(pattern, None)
+    assert is_safe is True
+    assert reason == "Pattern appears safe"
+    assert "structural rule flagged" in caplog.text
+    assert "no repeatable adversarial trigger" in caplog.text

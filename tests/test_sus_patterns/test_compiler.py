@@ -381,6 +381,15 @@ def test_validate_pattern_safety_custom_test_strings(compiler: PatternCompiler) 
     assert reason == "Pattern appears safe"
 
 
+def test_validate_pattern_safety_rejects_structural_violation_with_test_strings(
+    compiler: PatternCompiler,
+) -> None:
+    pattern = r"(\w+\s?)*$"
+    is_safe, reason = compiler.validate_pattern_safety(pattern, test_strings=["aaa"])
+    assert is_safe is False
+    assert "ambiguous optional tail" in reason.lower()
+
+
 def test_create_safe_matcher(compiler: PatternCompiler) -> None:
     pattern = r"test\d+"
     matcher = compiler.create_safe_matcher(pattern)

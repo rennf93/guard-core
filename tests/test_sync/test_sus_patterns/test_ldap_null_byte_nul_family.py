@@ -1,16 +1,23 @@
+import re
 from collections.abc import Generator
+from unittest.mock import MagicMock
 
 import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.suspatterns_handler import (
+    _LDAP_NULL_BYTE_ATTR_COMPILED_RE,
+    _LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE,
     _LDAP_NULL_BYTE_ATTR_RE,
     _LDAP_NULL_BYTE_BARE_RE,
     _LDAP_NULL_BYTE_DECODED_ATTR_RE,
     _LDAP_NULL_BYTE_DECODED_BARE_RE,
+    _LDAP_NULL_BYTE_TAIL_RE,
     DETECTION_RAW_VIEW_PATTERN_SOURCES,
     DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES,
     SusPatternsManager,
+    _ldap_null_byte_attr_finditer,
+    _ldap_null_byte_attr_name_start,
     sus_patterns_handler,
 )
 from guard_core.sync.utils import detect_penetration_attempt
@@ -202,3 +209,76 @@ def test_literal_text_nul_caught_by_raw_view_pattern(
     ]
     assert threats
     assert threats[0]["pattern"] == _LDAP_NULL_BYTE_ATTR_RE
+
+
+def test_ldap_null_byte_attr_name_start_returns_none_when_no_continuation_chars() -> (
+    None
+):
+    assert _ldap_null_byte_attr_name_start("=x", 0) is None
+
+
+def test_ldap_null_byte_attr_name_start_returns_none_when_lead_char_is_digit() -> None:
+    assert _ldap_null_byte_attr_name_start("1=x", 1) is None
+    assert _LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE.match("1") is None
+
+
+def test_ldap_null_byte_attr_name_start_benign_input_not_detected(
+    manager: SusPatternsManager,
+) -> None:
+    result = _manager_detect("1=x", manager)
+    assert not _null_byte_threats(result)
+    assert result["is_threat"] is False
+
+
+def test_ldap_null_byte_finditer_skips_when_attr_name_lead_fails() -> None:
+    text = "! =a*)" + _NUL_RAW
+    matches = list(
+        _ldap_null_byte_attr_finditer(
+            text, _LDAP_NULL_BYTE_ATTR_COMPILED_RE, _LDAP_NULL_BYTE_TAIL_RE
+        )
+    )
+    assert matches == []
+
+
+def test_ldap_null_byte_finditer_lead_fail_input_not_detected(
+    manager: SusPatternsManager,
+) -> None:
+    result = _manager_detect("! =a*)" + _NUL_RAW, manager)
+    assert not _null_byte_threats(result)
+    assert result["is_threat"] is False
+
+
+def test_ldap_null_byte_finditer_skips_overlapping_tail_after_prior_yield() -> None:
+    text = "uid=a*)" + _NUL_RAW + "uid=b*)" + _NUL_RAW
+    fake_match = MagicMock()
+    fake_match.end.return_value = 9999
+    fake_compiled = MagicMock()
+    fake_compiled.match.return_value = fake_match
+    matches = list(
+        _ldap_null_byte_attr_finditer(text, fake_compiled, _LDAP_NULL_BYTE_TAIL_RE)
+    )
+    assert len(matches) == 1
+    assert matches[0] is fake_match
+    fake_compiled.match.assert_called_once()
+
+
+def test_ldap_null_byte_finditer_overlap_text_is_detected(
+    manager: SusPatternsManager,
+) -> None:
+    result = _manager_detect("uid=a*)" + _NUL_RAW + "uid=b*)" + _NUL_RAW, manager)
+    assert _null_byte_threats(result)
+
+
+def test_ldap_null_byte_finditer_yields_nothing_when_compiled_pattern_misses() -> None:
+    text = "uid=a*)" + _NUL_RAW
+    matches = list(
+        _ldap_null_byte_attr_finditer(text, re.compile(r"ZZZ"), _LDAP_NULL_BYTE_TAIL_RE)
+    )
+    assert matches == []
+
+
+def test_ldap_null_byte_finditer_miss_text_detected_with_real_compiled(
+    manager: SusPatternsManager,
+) -> None:
+    result = _manager_detect("uid=a*)" + _NUL_RAW, manager)
+    assert _null_byte_threats(result)

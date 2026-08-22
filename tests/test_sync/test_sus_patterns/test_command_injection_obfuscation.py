@@ -7,7 +7,9 @@ from guard_core.sync.handlers.suspatterns_handler import (
     _GLOB_WILDCARD_ATOM_RE,
     _QUOTE_SPLICE_CANDIDATE_RE,
     SusPatternsManager,
+    _brace_expansion_is_dangerous_command,
     _glob_wildcard_token_is_dangerous_command,
+    _quote_splice_finditer,
     _quote_splice_token_is_dangerous_command,
 )
 
@@ -232,3 +234,21 @@ def test_glob_wildcard_validator_false_for_short_literal_with_star() -> None:
     match = re.search(_GLOB_WILDCARD_ATOM_RE, "c*")
     assert match is not None
     assert _glob_wildcard_token_is_dangerous_command(match) is False
+
+
+def test_quote_splice_finditer_advances_last_end_when_compiled_misses() -> None:
+    matches = list(_quote_splice_finditer("abc'def", re.compile(r"ZZZ")))
+    assert matches == []
+
+
+def test_quote_splice_finditer_miss_text_not_flagged(
+    manager: SusPatternsManager,
+) -> None:
+    result = manager.detect("abc'def", "127.0.0.1", context="query_param")
+    assert result["is_threat"] is False
+
+
+def test_brace_expansion_is_dangerous_command_false_without_braces() -> None:
+    match = re.search(r".+", "echo hi")
+    assert match is not None
+    assert _brace_expansion_is_dangerous_command(match) is False
