@@ -933,7 +933,8 @@ _CPU_TIME_REPORT_PATTERN = re.compile(r"cpu time: ([\d.]+)s")
 _CHILD_CPU_TIME_SCRIPT = (
     "import sys, time, pytest\n"
     "start = time.process_time()\n"
-    "code = pytest.main(['--no-cov', '-q', '-s', '-W', 'error', '-m', 'redos_timing', sys.argv[1]])\n"
+    "code = pytest.main(['--no-cov', '-q', '-s', '-W', 'error', '-m', 'redos_timing',\n"
+    " sys.argv[1]])\n"
     "print(f'cpu time: {time.process_time() - start:.3f}s')\n"
     "sys.exit(code)\n"
 )

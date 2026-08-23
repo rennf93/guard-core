@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from guard_core.handlers.suspatterns_handler import (
     SusPatternsManager as AsyncSusPatternsManager,
 )
@@ -21,6 +23,7 @@ def test_sync_pattern_table_matches_async_pattern_table() -> None:
     )
 
 
+@pytest.mark.redos_timing
 def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator() -> (
     None
 ):

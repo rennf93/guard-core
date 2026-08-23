@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _PROBE = Path(__file__).parent / "_scan_window_cap_removal_timing_probe.py"
 
 _MAX_CPU_TIME_AT_LARGEST_SIZE_SECONDS = 0.05
@@ -27,6 +29,7 @@ def _assert_doubling_stays_linear(times: list[float], label: str) -> None:
         )
 
 
+@pytest.mark.redos_timing
 def test_the_three_converted_patterns_stay_under_the_cpu_time_budget() -> None:
     result = subprocess.run(
         [sys.executable, str(_PROBE)],

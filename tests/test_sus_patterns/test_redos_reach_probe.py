@@ -46,7 +46,11 @@ def test_reach_brace_quantifier_range_advances_past_lazy_modifier() -> None:
 
 
 def test_reach_symbol_quantifier_range_advances_past_lazy_modifier() -> None:
-    assert _reach_symbol_quantifier_range("a*?", 1, "*") == (0, _PROBE_REACH_STRESS_LEN, 3)
+    assert _reach_symbol_quantifier_range("a*?", 1, "*") == (
+        0,
+        _PROBE_REACH_STRESS_LEN,
+        3,
+    )
 
 
 def test_reach_group_walk_target_strips_named_group_prefix() -> None:
