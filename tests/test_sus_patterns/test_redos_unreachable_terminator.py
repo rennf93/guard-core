@@ -21,3 +21,7 @@ def test_terminator_chars_at_returns_none_past_end() -> None:
 
 def test_terminator_chars_at_returns_singleton_for_literal() -> None:
     assert _terminator_chars_at("x", 0) == {"x"}
+
+
+def test_terminator_chars_at_returns_none_for_non_literal_leader() -> None:
+    assert _terminator_chars_at("(", 0) is None

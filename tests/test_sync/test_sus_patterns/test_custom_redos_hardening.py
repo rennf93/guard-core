@@ -115,6 +115,7 @@ def test_strip_escapes_and_char_classes_handles_malformed() -> None:
     assert _strip_escapes_and_char_classes("abc\\") == "abc\\"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_overlapping_alternation_with_tail() -> None:
     compiler = PatternCompiler()
     for pattern in [r"(b|b)*c", r"(q|q)*r"]:
@@ -122,6 +123,7 @@ def test_validate_pattern_safety_rejects_overlapping_alternation_with_tail() -> 
         assert is_safe is False, f"{pattern} was not rejected: {reason}"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_overlapping_alternation_with_no_tail() -> None:
     compiler = PatternCompiler()
     for pattern in [r"(X|XY)*", r"(a|ab)*"]:
@@ -173,6 +175,7 @@ def test_reach_probe_candidates_are_derived_from_the_patterns_own_literal_chars(
     assert any(unit.count("b") >= 10 for unit in probed_units), probed_units
 
 
+@pytest.mark.redos_timing
 def test_max_content_length_changes_the_verdict_for_the_same_quadratic_pattern() -> (
     None
 ):
@@ -187,6 +190,7 @@ def test_max_content_length_changes_the_verdict_for_the_same_quadratic_pattern()
     assert is_safe_at_body_cap is False
 
 
+@pytest.mark.redos_timing
 def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
     compiler = PatternCompiler()
     rejected = set()
@@ -203,6 +207,7 @@ def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
     assert rejected == _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
 
 
+@pytest.mark.redos_timing
 def test_shipped_xss_script_tag_pattern_flagged_by_hardened_validator() -> None:
     compiler = PatternCompiler()
     is_safe, reason = compiler.validate_pattern_safety(_SHIPPED_XSS_SCRIPT_TAG_PATTERN)
@@ -405,6 +410,10 @@ def test_skip_quantifier_at_rejects_malformed_brace_content() -> None:
     assert _skip_quantifier_at("a{,}", 1) == 0
 
 
+def test_skip_quantifier_at_advances_past_lazy_brace_modifier() -> None:
+    assert _skip_quantifier_at("a{2,3}?", 1) == 6
+
+
 def test_detect_unreachable_terminator_scan_sees_through_transparent_group() -> None:
     assert _detect_unreachable_terminator_scan(r"://(?:[^/@\s]*@)") is None
 
@@ -417,6 +426,7 @@ def test_detect_unreachable_terminator_scan_ignores_tautology_and_semver() -> No
     assert _detect_unreachable_terminator_scan(_SEMVER_REQUIRED_ACCEPT_PATTERN) is None
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_prefixed_broad_scan_with_own_terminator() -> (
     None
 ):
@@ -426,6 +436,7 @@ def test_validate_pattern_safety_rejects_prefixed_broad_scan_with_own_terminator
     assert "terminator" in reason.lower()
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_single_broad_quantifier_with_no_prefix() -> (
     None
 ):
@@ -438,6 +449,7 @@ def test_validate_pattern_safety_rejects_single_broad_quantifier_with_no_prefix(
     )
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_single_broad_quantifier_when_anchored() -> (
     None
 ):
@@ -644,6 +656,7 @@ def test_parse_flat_quantified_atoms_rejects_malformed_brace() -> None:
     assert _parse_flat_quantified_atoms("X{2Y+") is None
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_ambiguous_optional_tail() -> None:
     compiler = PatternCompiler()
     for pattern in (r"(\w+\s?)*$", r"^(\w+\s?)*$", r"(\s*\w+)*$"):
@@ -652,6 +665,7 @@ def test_validate_pattern_safety_rejects_ambiguous_optional_tail() -> None:
         assert "ambiguous optional tail" in reason.lower()
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_bounded_mandatory_optional_pair() -> None:
     compiler = PatternCompiler()
     for pattern in (
@@ -665,6 +679,7 @@ def test_validate_pattern_safety_rejects_bounded_mandatory_optional_pair() -> No
         assert "ambiguous optional tail" in reason.lower(), (pattern, reason)
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_disjoint_and_fixed_length_corpus() -> None:
     compiler = PatternCompiler()
     safe_patterns = [
@@ -678,6 +693,7 @@ def test_validate_pattern_safety_accepts_disjoint_and_fixed_length_corpus() -> N
         assert is_safe is True, f"{pattern} was rejected: {reason}"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_quantifier_before_disjoint_literal() -> None:
     compiler = PatternCompiler()
     for pattern in (r"\d+abc", r"(ab{2})+$"):
@@ -685,6 +701,7 @@ def test_validate_pattern_safety_rejects_quantifier_before_disjoint_literal() ->
         assert is_safe is False, f"{pattern} was accepted: {reason}"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
     compiler = PatternCompiler()
     is_safe, reason = compiler.validate_pattern_safety(_SEMVER_REQUIRED_ACCEPT_PATTERN)
@@ -695,6 +712,7 @@ def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
     assert is_safe is True, reason
 
 
+@pytest.mark.redos_timing
 def test_semver_mandatory_dot_separator_stays_linear_under_non_aligned_fill() -> None:
     unit = "v1."
     probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
@@ -715,6 +733,7 @@ def test_semver_mandatory_dot_separator_stays_linear_under_non_aligned_fill() ->
     )
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_single_bounded_variable_atom() -> None:
     compiler = PatternCompiler()
     for pattern in (
@@ -728,6 +747,7 @@ def test_validate_pattern_safety_rejects_single_bounded_variable_atom() -> None:
         assert "ambiguous optional tail" in reason.lower(), (pattern, reason)
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_nested_and_named_group_wrapping() -> None:
     compiler = PatternCompiler()
     for pattern in (
@@ -740,6 +760,7 @@ def test_validate_pattern_safety_rejects_nested_and_named_group_wrapping() -> No
         assert is_safe is False, f"{pattern} was not rejected"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_non_repeating_and_single_scan_shapes() -> None:
     compiler = PatternCompiler()
     for pattern in (r"(?:foo|bar)", r"foo+$"):
@@ -755,6 +776,7 @@ _CAP_AWARE_CANARIES: tuple[tuple[str, str], ...] = (
 )
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
     compiler = PatternCompiler()
     for pattern, unit in _CAP_AWARE_CANARIES:
@@ -797,6 +819,7 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
         )
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_never_hangs_on_a_structurally_evasive_pattern() -> (
     None
 ):
@@ -835,6 +858,7 @@ def test_windowed_patterns_are_exactly_the_scan_window_converted_four() -> None:
     assert windowed_pattern_sources <= builtin_pattern_sources
 
 
+@pytest.mark.redos_timing
 def test_validator_keeps_benign_custom_corpus_safe() -> None:
     compiler = PatternCompiler()
     benign_custom = [
@@ -852,6 +876,7 @@ def test_validator_keeps_benign_custom_corpus_safe() -> None:
     assert rejected == [], f"benign custom patterns falsely rejected: {rejected}"
 
 
+@pytest.mark.redos_timing
 def test_overlapping_alternation_pattern_rejected_at_registration() -> None:
     ok = SusPatternsManager.add_pattern(r"(b|b)*c", custom=True)
     assert ok is False

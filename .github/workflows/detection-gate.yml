@@ -62,14 +62,11 @@ jobs:
         run: |
           uv run python scripts/unasync.py --check
 
-      - name: Run the two-sided detection benchmarks
+      - name: Run the detection gate suite
         shell: bash
         run: |
           REDIS_URL='redis://localhost:6379' \
-          uv run pytest \
-            tests/test_sus_patterns/test_detection_benchmark.py \
-            tests/test_sus_patterns/test_detect_penetration_attempt_benchmark.py \
-            -s -v --no-cov 2>&1 | tee detection-report.txt
+          uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report.txt
 
       - name: Build the PR comment body
         if: always() && github.event_name == 'pull_request'

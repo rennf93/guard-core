@@ -132,6 +132,7 @@ def test_blocked_user_agents_construction_accepts_safe_pattern() -> None:
 _P0_FIBONACCI_REDOS_USER_AGENT_PATTERN = r"(\d\d?)+$"
 
 
+@pytest.mark.redos_timing
 def test_blocked_user_agents_construction_rejects_fibonacci_redos_pattern() -> None:
     with pytest.raises(ValueError, match="rejected by ReDoS validator"):
         SecurityConfig(blocked_user_agents=[_P0_FIBONACCI_REDOS_USER_AGENT_PATTERN])

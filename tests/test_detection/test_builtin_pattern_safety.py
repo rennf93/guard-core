@@ -858,6 +858,7 @@ def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
     assert rx.search(path), f"multi-dot backup probe regressed: {path}"
 
 
+@pytest.mark.redos_timing
 def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator() -> (
     None
 ):

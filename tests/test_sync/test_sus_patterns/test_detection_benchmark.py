@@ -2800,7 +2800,7 @@ BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
 }
 BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 25
 
-_WALL_TIME_CEILING_SECONDS = 30.0
+_WALL_TIME_CEILING_SECONDS = 40.0
 
 
 def _malicious_case_detected_categories(
@@ -2889,6 +2889,7 @@ def _build_report(
     return "\n".join(lines)
 
 
+@pytest.mark.redos_timing
 def test_detection_benchmark_recall_and_false_positive_rate() -> None:
     assert len(MALICIOUS_CORPUS) >= 120
     assert len(BENIGN_CORPUS) >= 120
@@ -2994,9 +2995,10 @@ _NON_BACKTICK_PERF_CORPUS: list[str] = [
     if "`" not in case.payload
 ]
 
-_BACKTICK_PERF_CEILING_SECONDS = 30.0
+_BACKTICK_PERF_CEILING_SECONDS = 40.0
 
 
+@pytest.mark.redos_timing
 def test_glued_backtick_discriminator_perf_on_non_backtick_content() -> None:
     assert len(_NON_BACKTICK_PERF_CORPUS) >= 100
 

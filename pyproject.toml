@@ -123,10 +123,11 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=guard_core --cov-branch --cov-report=term-missing -m 'not integration'"
+addopts = "--cov=guard_core --cov-branch --cov-report=term-missing -m 'not integration and not redos_timing'"
 markers = [
     "asyncio: mark tests as async",
     "integration: marks tests that require Docker + external services (deselect with '-m \"not integration\"')",
+    "redos_timing: real regex timing via subprocess; slow, run in the detection gate, not the coverage matrix",
 ]
 
 [tool.mypy]

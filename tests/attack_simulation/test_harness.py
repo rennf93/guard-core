@@ -22,6 +22,7 @@ def test_fingerprint_is_stable() -> None:
     assert fingerprint_corpus(CORPUS) == fingerprint_corpus(CORPUS)
 
 
+@pytest.mark.redos_timing
 @pytest.mark.asyncio
 async def test_run_benchmark_produces_report() -> None:
     report = await run_benchmark(CORPUS)

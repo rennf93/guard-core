@@ -191,6 +191,7 @@ def test_validate_pattern_safety_accepts_unanchored_nested_star_group_shapes(
         )
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_nested_unbounded_quantifier_when_anchored(
     compiler: PatternCompiler,
 ) -> None:

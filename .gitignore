@@ -210,5 +210,6 @@ __marimo__/
 manual_testing/
 ZZZ/
 .claude/
+CLAUDE.md
 tests/attack_simulation/out/
 .unasync_check_tmp_*/

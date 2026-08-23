@@ -3,6 +3,7 @@ from guard_core.detection_engine._redos_reach_probe import (
     _reach_brace_quantifier_high,
     _reach_brace_quantifier_range,
     _reach_group_walk_target,
+    _reach_symbol_quantifier_range,
     _synth_char_class_atom,
     _synth_escape_atom,
     _synth_group_atom,
@@ -40,6 +41,14 @@ def test_reach_brace_quantifier_range_rejects_non_digit_upper_bound() -> None:
     assert _reach_brace_quantifier_range("{2,abc}", 0) is None
 
 
+def test_reach_brace_quantifier_range_advances_past_lazy_modifier() -> None:
+    assert _reach_brace_quantifier_range("{2,3}?", 0) == (2, 3, 6)
+
+
+def test_reach_symbol_quantifier_range_advances_past_lazy_modifier() -> None:
+    assert _reach_symbol_quantifier_range("a*?", 1, "*") == (0, _PROBE_REACH_STRESS_LEN, 3)
+
+
 def test_reach_group_walk_target_strips_named_group_prefix() -> None:
     assert _reach_group_walk_target("?P<n>xyz") == ("xyz", False)
 
@@ -54,6 +63,14 @@ def test_reach_group_walk_target_skips_comment_group() -> None:
 
 def test_reach_group_walk_target_rejects_named_backreference() -> None:
     assert _reach_group_walk_target("?P=n") == (None, False)
+
+
+def test_reach_group_walk_target_strips_scoped_inline_flag() -> None:
+    assert _reach_group_walk_target("?i:xyz") == ("xyz", False)
+
+
+def test_reach_group_walk_target_swallows_flag_only_group() -> None:
+    assert _reach_group_walk_target("?i") == (None, True)
 
 
 def test_synth_escape_atom_rejects_trailing_lone_backslash() -> None:

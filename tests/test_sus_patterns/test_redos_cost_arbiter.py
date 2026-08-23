@@ -12,6 +12,7 @@ from guard_core.detection_engine._redos_class_intersection import (
 from guard_core.detection_engine._redos_cost_arbiter import (
     _PATTERN_SAFETY_DEFAULT_CAP,
     _REACH_PROBE_SIZES,
+    _first_over_budget_reason,
     _median,
     _reach_probe_cost_verdict,
     _reach_probe_unreachable_reason,
@@ -185,6 +186,7 @@ def test_reach_probe_cost_verdict_accepts_when_no_candidate_units_exist() -> Non
     assert reason == "Pattern appears safe"
 
 
+@pytest.mark.redos_timing
 def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
     compiler = PatternCompiler()
     is_safe, reason = compiler.validate_pattern_safety(
@@ -196,6 +198,7 @@ def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
     )
 
 
+@pytest.mark.redos_timing
 def test_event_handler_intersection_fill_measures_super_linear_directly() -> None:
     fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
     fill_char = fills[0]
@@ -235,3 +238,32 @@ def test_probe_cost_verdict_logs_disagreement_without_candidate_builders(
     assert reason == "Pattern appears safe"
     assert "structural rule flagged" in caplog.text
     assert "no repeatable adversarial trigger" in caplog.text
+
+
+def test_first_over_budget_reason_returns_structural_violation_when_over_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quadratic_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+
+    def _fake_timing(pattern: str, probes: list[str]) -> list[list[float]]:
+        return quadratic_samples
+
+    builder_calls = [0]
+
+    def _builder(size: int) -> str:
+        builder_calls[0] += 1
+        return "a" * size
+
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        _fake_timing,
+    )
+    reason = _first_over_budget_reason(
+        r"(\w+\s?)*$",
+        [_builder],
+        _PATTERN_SAFETY_DEFAULT_CAP,
+        "ambiguous optional tail",
+    )
+    assert reason is not None
+    assert reason == "ambiguous optional tail"
+    assert builder_calls[0] == len(_REACH_PROBE_SIZES)

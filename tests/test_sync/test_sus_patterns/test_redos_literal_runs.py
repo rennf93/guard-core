@@ -1,6 +1,7 @@
 import pytest
 
 from guard_core.sync.detection_engine._redos_literal_runs import (
+    _adversarial_literal_runs,
     _brace_quantifier_span_allows_zero,
 )
 
@@ -20,3 +21,7 @@ def test_brace_quantifier_span_allows_zero_branches(
     text: str, k: int, expected: tuple[int, bool]
 ) -> None:
     assert _brace_quantifier_span_allows_zero(text, k) == expected
+
+
+def test_adversarial_literal_runs_keeps_escaped_non_alnum_char() -> None:
+    assert _adversarial_literal_runs(r"\.") == ["."]
