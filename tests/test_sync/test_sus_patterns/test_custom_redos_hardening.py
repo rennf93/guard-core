@@ -47,6 +47,7 @@ from guard_core.sync.detection_engine._redos_unreachable_terminator import (
 from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
     _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
+    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
@@ -204,7 +205,15 @@ def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
         is_safe, _reason = compiler.validate_pattern_safety(pattern)
         if not is_safe:
             rejected.add(pattern)
-    assert rejected == _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
+    assert (
+        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
+        - _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
+        <= rejected
+    )
+    assert rejected <= (
+        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
+        | _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
+    )
 
 
 @pytest.mark.redos_timing

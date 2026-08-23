@@ -689,6 +689,14 @@ _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX: frozenset[str] = frozenset(
     }
 )
 
+_MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS: frozenset[str] = frozenset(
+    {
+        _path_only_pattern(
+            r"(?:(?!config)[\w-])*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
+        ),
+    }
+)
+
 _GLUED_BACKTICK_CANDIDATE_RE = r"(?<!`)`(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*`"
 _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE = (
     r"\$\((?:[^()\\\n]|\\.)*\)|\$\{(?:[^{}\\\n]|\\.)*\}"

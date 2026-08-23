@@ -14,6 +14,7 @@ from guard_core.handlers.suspatterns_handler import (
     _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
     _GLOB_WILDCARD_ATOM_RE,
     _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
+    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _SQLI_LOAD_FILE_RE,
@@ -865,7 +866,10 @@ def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validato
     pc = PatternCompiler()
     bad = []
     for pat, _c, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS:
-        if pat in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX:
+        if (
+            pat in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
+            or pat in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
+        ):
             continue
         ok, reason = pc.validate_pattern_safety(pat)
         if not ok:

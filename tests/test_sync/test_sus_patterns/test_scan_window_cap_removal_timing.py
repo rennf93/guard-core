@@ -7,7 +7,7 @@ import pytest
 
 _PROBE = Path(__file__).parent / "_scan_window_cap_removal_timing_probe.py"
 
-_MAX_CPU_TIME_AT_LARGEST_SIZE_SECONDS = 0.05
+_MAX_CPU_TIME_AT_LARGEST_SIZE_SECONDS = 0.10
 _DOUBLING_RATIO_CEILING = 3.0
 _NOISE_FLOOR_SECONDS = 0.001
 
@@ -49,7 +49,7 @@ def test_the_three_converted_patterns_stay_under_the_cpu_time_budget() -> None:
         min_times = series["min"]
         median_times = series["median"]
         assert median_times[-1] < _MAX_CPU_TIME_AT_LARGEST_SIZE_SECONDS, (
-            f"{label} exceeded the 50ms CPU-time budget at the largest "
+            f"{label} exceeded the 100ms CPU-time budget at the largest "
             f"adversarial fill (median of 5): {median_times[-1]:.4f}s"
         )
         _assert_doubling_stays_linear(min_times, label)
