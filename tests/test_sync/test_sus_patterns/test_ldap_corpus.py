@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from guard_core.models import SecurityConfig
@@ -636,7 +638,7 @@ class _WireReq:
         self.client_host = "203.0.113.9"
         self.url_path = "/x"
         self.method = "POST"
-        self.state = _WireState()
+        self.state: Any = _WireState()
         self.query_params: dict[str, str] = {}
         self.headers: dict[str, str] = {"content-type": "text/plain"}
         self._body = body
@@ -644,6 +646,13 @@ class _WireReq:
             self.query_params = {"v": body.decode("utf-8", errors="surrogateescape")}
             self._body = b""
         self.headers["content-length"] = str(len(self._body))
+
+    url_scheme: str = "https"
+    url_full: str = "https://t/"
+    scope: dict[str, Any] = {}
+
+    def url_replace_scheme(self, _scheme: str) -> str:
+        return "https://t/"
 
     def body(self) -> bytes:
         return self._body
