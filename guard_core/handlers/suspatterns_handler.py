@@ -262,6 +262,10 @@ _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
     r"\n[^\S\r\n]*(?:[^=\s;|&]+=[^\s;|&]+\s+)*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
 )
+_CMD_INJECTION_SHELL_DASH_FLAG_RE = (
+    r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+"
+)
 _DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
     _SINGLE_LINE_PREFIX_RE
     + r"etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my\.cnf|ssh/ssh_config)"
@@ -698,6 +702,7 @@ _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS: frozenset[str] = frozenset(
         _path_only_pattern(
             r"(?:(?!config)[\w-])*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
         ),
+        _CMD_INJECTION_SHELL_DASH_FLAG_RE,
     }
 )
 
@@ -1941,8 +1946,7 @@ class SusPatternsManager:
             "cmd_injection",
         ),
         (
-            r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
-            r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+",
+            _CMD_INJECTION_SHELL_DASH_FLAG_RE,
             _CTX_CMD_INJECTION,
             "cmd_injection",
         ),
