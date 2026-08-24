@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +10,12 @@ import pytest
 
 from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
+
+
+def _frozen_datetime(moment: datetime) -> MagicMock:
+    clock = MagicMock()
+    clock.now.return_value = moment
+    return clock
 
 
 @pytest.fixture
@@ -209,6 +215,19 @@ def test_interruptible_sleep_returns_immediately_when_stopped(
     elapsed = time.monotonic() - start
 
     assert elapsed < 1
+
+
+def test_rule_update_loop_exits_when_already_stopped(
+    config: SecurityConfig,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager._stop_event.set()
+
+    manager._rule_update_loop()
+
+    assert manager._stop_event.is_set()
 
 
 def test_update_rules_disabled(
@@ -433,6 +452,404 @@ def test_update_rules_different_rule_id(
 
         mock_apply_rules.assert_called_once_with(sample_rules)
         assert manager.current_rules == sample_rules
+
+
+def test_update_rules_already_expired_rule_never_applies(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    base_threshold = config.auto_ban_threshold
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+
+    with caplog.at_level(logging.WARNING):
+        manager.update_rules()
+        manager.update_rules()
+
+    assert config.auto_ban_threshold == base_threshold
+    assert manager.current_rules is None
+    assert (
+        f"Dynamic rule {sample_rules.rule_id} v{sample_rules.version} already "
+        "expired on receipt; ignoring" in caplog.text
+    )
+    assert caplog.text.count("already expired on receipt; ignoring") == 1
+
+
+def test_update_rules_expiry_in_future_persists_config(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    manager.update_rules()
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == sample_rules
+
+
+def test_update_rules_no_expiry_persists_config(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    assert sample_rules.expires_at is None
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    manager.update_rules()
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == sample_rules
+
+
+def test_update_rules_expiry_same_tick_ordering_new_rule_applies_after_revert(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 8
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    manager.update_rules()
+    assert config.auto_ban_threshold == 8
+
+    next_rules = sample_rules.model_copy()
+    next_rules.rule_id = "next-rule"
+    next_rules.version = 1
+    next_rules.auto_ban_threshold = None
+    next_rules.expires_at = None
+    next_rules.emergency_mode = True
+    next_rules.emergency_whitelist = []
+
+    mock_agent_handler.get_dynamic_rules.return_value = next_rules
+
+    frozen_now = sample_rules.expires_at + timedelta(seconds=1)
+    with (
+        patch(
+            "guard_core.sync.handlers.dynamic_rule_handler.datetime",
+            _frozen_datetime(frozen_now),
+        ),
+        patch.object(manager, "_send_emergency_event", MagicMock()),
+    ):
+        manager.update_rules()
+
+    assert config.auto_ban_threshold == 2
+    assert manager.current_rules == next_rules
+
+
+def test_update_rules_superseding_push_then_expiry_restores_pre_a_base(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    pre_a_threshold = config.auto_ban_threshold
+
+    rule_a = sample_rules.model_copy()
+    rule_a.rule_id = "rule-a"
+    rule_a.version = 1
+    rule_a.auto_ban_threshold = 7
+
+    mock_agent_handler.get_dynamic_rules.return_value = rule_a
+    manager.update_rules()
+    assert config.auto_ban_threshold == 7
+    base_after_a = manager._active_base_snapshot
+
+    rule_b = sample_rules.model_copy()
+    rule_b.rule_id = "rule-b"
+    rule_b.version = 1
+    rule_b.auto_ban_threshold = 9
+    rule_b.expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+    mock_agent_handler.get_dynamic_rules.return_value = rule_b
+    manager.update_rules()
+    assert config.auto_ban_threshold == 9
+    assert manager._active_base_snapshot == base_after_a
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    frozen_now = rule_b.expires_at + timedelta(seconds=1)
+    with patch(
+        "guard_core.sync.handlers.dynamic_rule_handler.datetime",
+        _frozen_datetime(frozen_now),
+    ):
+        manager.update_rules()
+
+    assert config.auto_ban_threshold == pre_a_threshold
+    assert manager.current_rules is None
+    assert manager._active_base_snapshot is None
+
+
+def test_update_rules_expiry_undoes_emergency_halving(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    base_threshold = config.auto_ban_threshold
+    sample_rules.emergency_mode = True
+    sample_rules.emergency_whitelist = []
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    with patch.object(manager, "_send_emergency_event", MagicMock()):
+        manager.update_rules()
+
+    emergency_mode_after_apply: bool = config.emergency_mode
+    assert emergency_mode_after_apply is True
+    assert config.auto_ban_threshold == max(1, base_threshold // 2)
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    frozen_now = sample_rules.expires_at + timedelta(seconds=1)
+    with patch(
+        "guard_core.sync.handlers.dynamic_rule_handler.datetime",
+        _frozen_datetime(frozen_now),
+    ):
+        manager.update_rules()
+
+    emergency_mode_after_expiry: bool = config.emergency_mode
+    assert emergency_mode_after_expiry is False
+    assert config.auto_ban_threshold == base_threshold
+    assert manager.current_rules is None
+
+
+def test_update_rules_expired_active_rule_stale_agent_settles_at_base_no_flap(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    base_threshold = config.auto_ban_threshold
+    expiry_moment = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    sample_rules.auto_ban_threshold = 8
+    sample_rules.expires_at = expiry_moment
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+
+    before_expiry = _frozen_datetime(expiry_moment - timedelta(minutes=1))
+    with patch("guard_core.sync.handlers.dynamic_rule_handler.datetime", before_expiry):
+        manager.update_rules()
+
+    applied_rules = manager.current_rules
+    assert config.auto_ban_threshold == 8
+    assert applied_rules == sample_rules
+    events_after_apply = mock_agent_handler.send_event.call_count
+
+    after_expiry = _frozen_datetime(expiry_moment + timedelta(minutes=1))
+    with (
+        patch("guard_core.sync.handlers.dynamic_rule_handler.datetime", after_expiry),
+        caplog.at_level(logging.INFO),
+    ):
+        for _ in range(4):
+            manager.update_rules()
+            assert manager.current_rules is None
+            assert config.auto_ban_threshold == base_threshold
+
+    assert mock_agent_handler.send_event.call_count == events_after_apply
+    assert caplog.text.count("restored base config") == 1
+    assert caplog.text.count("already expired on receipt; ignoring") == 1
+
+
+def test_update_rules_expiry_restores_deepcopy_independent_mutable_field(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    config.emergency_whitelist = ["base-entry"]
+    original_whitelist = list(config.emergency_whitelist)
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    rule_a = sample_rules.model_copy()
+    rule_a.rule_id = "rule-a"
+    rule_a.version = 1
+    rule_a.auto_ban_threshold = 7
+    rule_a.emergency_mode = False
+    rule_a.expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+    mock_agent_handler.get_dynamic_rules.return_value = rule_a
+    manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert config.emergency_whitelist == ["base-entry"]
+
+    config.emergency_whitelist.append("corruption")
+
+    mock_agent_handler.get_dynamic_rules.return_value = None
+    frozen_now = rule_a.expires_at + timedelta(seconds=1)
+    with patch(
+        "guard_core.sync.handlers.dynamic_rule_handler.datetime",
+        _frozen_datetime(frozen_now),
+    ):
+        manager.update_rules()
+
+    assert config.emergency_whitelist == original_whitelist
+    assert "corruption" not in config.emergency_whitelist
+    assert manager.current_rules is None
+
+
+def test_update_rules_expiry_exact_boundary_not_expired(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    boundary_moment = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    sample_rules.auto_ban_threshold = 8
+    sample_rules.expires_at = boundary_moment
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+
+    with patch(
+        "guard_core.sync.handlers.dynamic_rule_handler.datetime",
+        _frozen_datetime(boundary_moment),
+    ):
+        manager.update_rules()
+
+    assert config.auto_ban_threshold == 8
+    assert manager.current_rules == sample_rules
+
+
+def test_update_rules_stale_rule_warn_suppressed_after_valid_apply(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    stale_x = sample_rules.model_copy()
+    stale_x.rule_id = "stale-x"
+    stale_x.version = 1
+    stale_x.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    valid_y = sample_rules.model_copy()
+    valid_y.rule_id = "valid-y"
+    valid_y.version = 1
+    valid_y.auto_ban_threshold = 7
+    valid_y.expires_at = None
+
+    with caplog.at_level(logging.WARNING):
+        mock_agent_handler.get_dynamic_rules.return_value = stale_x
+        manager.update_rules()
+        rules_after_stale_x = manager.current_rules
+        assert rules_after_stale_x is None
+
+        mock_agent_handler.get_dynamic_rules.return_value = valid_y
+        manager.update_rules()
+        rules_after_valid_y = manager.current_rules
+        assert rules_after_valid_y == valid_y
+        assert config.auto_ban_threshold == 7
+
+        mock_agent_handler.get_dynamic_rules.return_value = stale_x
+        manager.update_rules()
+
+    rules_after_second_stale_x = manager.current_rules
+    assert rules_after_second_stale_x == valid_y
+    assert config.auto_ban_threshold == 7
+    assert caplog.text.count("already expired on receipt; ignoring") == 1
+
+
+def test_update_rules_alternating_stale_rules_warn_on_each_alternation(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    stale_x = sample_rules.model_copy()
+    stale_x.rule_id = "stale-x"
+    stale_x.version = 1
+    stale_x.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    stale_y = sample_rules.model_copy()
+    stale_y.rule_id = "stale-y"
+    stale_y.version = 1
+    stale_y.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    with caplog.at_level(logging.WARNING):
+        mock_agent_handler.get_dynamic_rules.return_value = stale_x
+        manager.update_rules()
+
+        mock_agent_handler.get_dynamic_rules.return_value = stale_y
+        manager.update_rules()
+
+        mock_agent_handler.get_dynamic_rules.return_value = stale_x
+        manager.update_rules()
+
+    assert manager.current_rules is None
+    assert (
+        caplog.text.count(
+            "Dynamic rule stale-x v1 already expired on receipt; ignoring"
+        )
+        == 2
+    )
+    assert (
+        caplog.text.count(
+            "Dynamic rule stale-y v1 already expired on receipt; ignoring"
+        )
+        == 1
+    )
 
 
 def test_apply_rules_all_types(
@@ -936,6 +1353,91 @@ def test_apply_user_agent_rules(
     )
 
 
+def test_apply_user_agent_rules_rejects_catastrophic_pattern(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    user_agents = [r"(?:a+)+$", "badbot"]
+
+    with caplog.at_level(logging.WARNING):
+        manager._apply_user_agent_rules(user_agents)
+
+    assert manager.config.blocked_user_agents == ["badbot"]
+    assert "rejected blocked_user_agents patterns" in caplog.text
+    assert r"(?:a+)+$" in caplog.text
+
+
+def test_apply_user_agent_rules_validates_each_pattern_exactly_once(
+    config: SecurityConfig,
+) -> None:
+    from guard_core.sync.detection_engine.compiler import PatternCompiler
+
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    calls: list[str] = []
+    original = PatternCompiler.validate_pattern_safety
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        test_strings: list[str] | None = None,
+        max_content_length: int | None = None,
+    ) -> tuple[bool, str]:
+        calls.append(pattern)
+        return original(self, pattern, test_strings, max_content_length)
+
+    with patch.object(PatternCompiler, "validate_pattern_safety", _spy):
+        manager._apply_user_agent_rules(["badbot", "scanner"])
+
+    assert calls.count("badbot") == 1
+    assert calls.count("scanner") == 1
+
+
+def test_update_rules_expiry_restore_does_not_revalidate_patterns(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    from guard_core.sync.detection_engine.compiler import PatternCompiler
+
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.blocked_user_agents = ["scanner-bot"]
+    sample_rules.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    mock_agent_handler.get_dynamic_rules.return_value = sample_rules
+    manager.update_rules()
+
+    sample_rules.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    mock_agent_handler.get_dynamic_rules.return_value = None
+
+    calls: list[str] = []
+    original = PatternCompiler.validate_pattern_safety
+
+    def _spy(
+        self: PatternCompiler,
+        pattern: str,
+        test_strings: list[str] | None = None,
+        max_content_length: int | None = None,
+    ) -> tuple[bool, str]:
+        calls.append(pattern)
+        return original(self, pattern, test_strings, max_content_length)
+
+    with patch.object(PatternCompiler, "validate_pattern_safety", _spy):
+        manager.update_rules()
+
+    assert calls == []
+    assert config.blocked_user_agents != ["scanner-bot"]
+
+
 def test_apply_pattern_rules(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1133,6 +1635,139 @@ def test_apply_feature_toggles_none_values(
     assert "Dynamic rule: Rate limiting" not in caplog.text
 
 
+def test_apply_feature_toggles_auto_ban_overrides(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=7,
+        auto_ban_duration=1800,
+        enable_rate_limit_auto_ban=True,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.auto_ban_threshold == 7
+    assert manager.config.auto_ban_duration == 1800
+    assert manager.config.enable_rate_limit_auto_ban is True
+
+    assert "Dynamic rule: Auto-ban threshold 7" in caplog.text
+    assert "Dynamic rule: Auto-ban duration 1800" in caplog.text
+    assert "Dynamic rule: Rate-limit auto-ban True" in caplog.text
+
+
+def test_apply_feature_toggles_auto_ban_none_values(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    orig_threshold = config.auto_ban_threshold
+    orig_duration = config.auto_ban_duration
+    orig_rate_auto_ban = config.enable_rate_limit_auto_ban
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=None,
+        auto_ban_duration=None,
+        enable_rate_limit_auto_ban=None,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.auto_ban_threshold == orig_threshold
+    assert manager.config.auto_ban_duration == orig_duration
+    assert manager.config.enable_rate_limit_auto_ban == orig_rate_auto_ban
+
+    assert "Dynamic rule: Auto-ban threshold" not in caplog.text
+    assert "Dynamic rule: Auto-ban duration" not in caplog.text
+    assert "Dynamic rule: Rate-limit auto-ban" not in caplog.text
+
+
+def test_apply_feature_toggles_rate_limit_auto_ban_false_override(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    config.enable_rate_limit_auto_ban = True
+    manager = DynamicRuleManager(config)
+
+    rules = DynamicRules(
+        rule_id="toggle-123",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        ip_blacklist=[],
+        ip_whitelist=[],
+        blocked_countries=[],
+        whitelist_countries=[],
+        global_rate_limit=None,
+        global_rate_window=None,
+        endpoint_rate_limits={},
+        blocked_cloud_providers=set(),
+        blocked_user_agents=[],
+        suspicious_patterns=[],
+        enable_penetration_detection=None,
+        enable_ip_banning=None,
+        enable_rate_limiting=None,
+        auto_ban_threshold=None,
+        auto_ban_duration=None,
+        enable_rate_limit_auto_ban=False,
+        emergency_mode=False,
+        emergency_whitelist=[],
+        ip_ban_duration=3600,
+    )
+
+    with caplog.at_level(logging.INFO):
+        manager._apply_feature_toggles(rules)
+
+    assert manager.config.enable_rate_limit_auto_ban is False
+
+    assert "Dynamic rule: Rate-limit auto-ban False" in caplog.text
+
+
 def test_activate_emergency_mode_with_agent(
     config: SecurityConfig,
     mock_agent_handler: MagicMock,
@@ -1201,6 +1836,26 @@ def test_activate_emergency_mode_minimum_threshold(
     assert manager.config.auto_ban_threshold == 1
 
     assert "[EMERGENCY MODE] Reduced auto-ban threshold from 1 to 1" in caplog.text
+
+
+def test_apply_rules_emergency_mode_halves_overridden_auto_ban_threshold(
+    config: SecurityConfig,
+    mock_agent_handler: MagicMock,
+    sample_rules: DynamicRules,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    sample_rules.auto_ban_threshold = 7
+    sample_rules.emergency_mode = True
+    sample_rules.emergency_whitelist = []
+
+    with patch.object(manager, "_send_emergency_event", MagicMock()):
+        manager._apply_rules(sample_rules)
+
+    assert manager.config.auto_ban_threshold == 3
 
 
 def test_send_rule_applied_event_success(
@@ -1371,7 +2026,6 @@ def test_stop_without_task(
 
 def test_apply_ip_rules_whitelist_only() -> None:
     from datetime import datetime, timezone
-    from unittest.mock import MagicMock, patch
 
     from guard_core.models import DynamicRules, SecurityConfig
     from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager

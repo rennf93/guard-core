@@ -1,5 +1,6 @@
 import builtins
 import logging
+import sys
 from collections.abc import Mapping, Sequence
 from types import ModuleType
 from typing import Any
@@ -8,6 +9,37 @@ import pytest
 
 import guard_core
 from guard_core import _pydantic_plugin_mute
+
+
+def test_pytest_configure_eagerly_mutes_pydantic_plugin_instrumentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.conftest import (
+        _GUARD_AGENT_FINDER_ATTR,
+        pytest_configure,
+    )
+
+    saved_finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
+    monkeypatch.delattr(sys, _GUARD_AGENT_FINDER_ATTR, raising=False)
+    spy_calls: list[bool] = []
+    monkeypatch.setattr(
+        _pydantic_plugin_mute,
+        "_mute_pydantic_plugin_instrumentation",
+        lambda: spy_calls.append(True),
+    )
+
+    try:
+        pytest_configure(pytest.Config.__new__(pytest.Config))
+    finally:
+        new_finder = getattr(sys, _GUARD_AGENT_FINDER_ATTR, None)
+        if new_finder is not None and new_finder in sys.meta_path:
+            sys.meta_path.remove(new_finder)
+        if saved_finder is not None:
+            setattr(sys, _GUARD_AGENT_FINDER_ATTR, saved_finder)
+        else:
+            monkeypatch.delattr(sys, _GUARD_AGENT_FINDER_ATTR, raising=False)
+
+    assert spy_calls == [True]
 
 
 def test_mute_pydantic_instrumentation_is_noop_without_agent_extra(

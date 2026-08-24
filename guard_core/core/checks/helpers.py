@@ -1,7 +1,6 @@
 import logging
-import re
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
@@ -14,7 +13,12 @@ from guard_core.decorators.base import RouteConfig
 from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
-from guard_core.utils import _ip_in_list, detect_penetration_attempt, log_activity
+from guard_core.utils import (
+    _ip_in_list,
+    _user_agent_matches_blocked_pattern,
+    detect_penetration_attempt,
+    log_activity,
+)
 
 if TYPE_CHECKING:
     from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
@@ -115,25 +119,26 @@ async def check_user_agent_allowed(
     from guard_core.utils import is_user_agent_allowed as global_user_agent_check
 
     if route_config and route_config.blocked_user_agents:
-        for pattern in route_config.blocked_user_agents:
-            if re.search(pattern, user_agent, re.IGNORECASE):
-                return False
+        if await _user_agent_matches_blocked_pattern(
+            user_agent, route_config.blocked_user_agents
+        ):
+            return False
 
     return await global_user_agent_check(user_agent, config)
 
 
-def validate_auth_header(auth_header: str, auth_type: str) -> tuple[bool, str]:
+def extract_credential(auth_header: str, auth_type: str) -> tuple[str | None, str]:
     if auth_type == "bearer":
         if not auth_header.startswith("Bearer "):
-            return False, "Missing or invalid Bearer token"
-    elif auth_type == "basic":
+            return None, "Missing or invalid Bearer token"
+        return auth_header[len("Bearer ") :], ""
+    if auth_type == "basic":
         if not auth_header.startswith("Basic "):
-            return False, "Missing or invalid Basic authentication"
-    else:
-        if not auth_header:
-            return False, f"Missing {auth_type} authentication"
-
-    return True, ""
+            return None, "Missing or invalid Basic authentication"
+        return auth_header[len("Basic ") :], ""
+    if not auth_header:
+        return None, f"Missing {auth_type} authentication"
+    return auth_header, ""
 
 
 def is_referrer_domain_allowed(referrer: str, allowed_domains: list[str]) -> bool:
@@ -229,7 +234,41 @@ def _increment_suspicious_counts(
         counts[client_ip] = ip_counts
 
 
-async def _try_escalation_flat_ban(
+async def _resolve_and_apply_threshold_ban(
+    ip_counts: Mapping[str, int],
+    config: SecurityConfig,
+    ip_ban_manager: Any,
+    client_ip: str,
+    threat_categories: Collection[str],
+    reason: str,
+) -> tuple[int, str, str | None] | None:
+    """Pure threshold resolution against ``ip_counts`` plus the ``ban_ip`` call.
+
+    Tries ``threat_ban_config`` per-category entries first (in ``threat_categories``
+    order), then the flat ``auto_ban_threshold``/``auto_ban_duration`` against the
+    total of all categories in ``ip_counts``. Returns ``(duration, ban_reason,
+    category)`` when a ban was applied (``category`` is ``None`` for the flat
+    fallback), or ``None`` when banning is disabled or no threshold crossed. Callers
+    own their own logging: the middleware path logs via ``log_activity``, the
+    request-free ``check_rate_limit_by_ip`` primitive logs via the module logger.
+    """
+    if not config.enable_ip_banning:
+        return None
+    for category in threat_categories:
+        entry = config.threat_ban_config.get(category)
+        if entry is None or ip_counts.get(category, 0) < entry.threshold:
+            continue
+        ban_reason = f"{reason}:{category}"
+        await ip_ban_manager.ban_ip(client_ip, entry.duration, ban_reason)
+        return entry.duration, ban_reason, category
+    total = sum(ip_counts.values())
+    if total < config.auto_ban_threshold:
+        return None
+    await ip_ban_manager.ban_ip(client_ip, config.auto_ban_duration, reason)
+    return config.auto_ban_duration, reason, None
+
+
+async def _try_threshold_ban(
     request: GuardRequest,
     config: SecurityConfig,
     ip_ban_manager: Any,
@@ -239,98 +278,31 @@ async def _try_escalation_flat_ban(
     logger: logging.Logger,
     check_name: str,
     muted_check_logs: frozenset[str],
+    threat_categories: Collection[str],
+    reason: str = "penetration_attempt",
 ) -> bool:
-    total = sum(middleware.suspicious_request_counts.get(client_ip, {}).values())
-    if total < config.auto_ban_threshold:
+    ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
+    result = await _resolve_and_apply_threshold_ban(
+        ip_counts, config, ip_ban_manager, client_ip, threat_categories, reason
+    )
+    if result is None:
         return False
-    await ip_ban_manager.ban_ip(
-        client_ip, config.auto_ban_duration, "penetration_attempt"
+    _, _, category = result
+    log_reason = (
+        f"IP banned due to {category} threshold: {client_ip} - {trigger_info}"
+        if category is not None
+        else f"IP banned due to suspicious activity: {client_ip} - {trigger_info}"
     )
     await log_activity(
         request,
         logger,
         log_type="suspicious",
-        reason=f"IP banned due to suspicious activity: {client_ip} - {trigger_info}",
+        reason=log_reason,
         level=config.log_suspicious_level,
         check_name=check_name,
         muted_check_logs=muted_check_logs,
     )
     return True
-
-
-async def _try_escalation_per_category_ban(
-    request: GuardRequest,
-    config: SecurityConfig,
-    ip_ban_manager: Any,
-    middleware: "GuardMiddlewareProtocol",
-    client_ip: str,
-    trigger_info: str,
-    logger: logging.Logger,
-    check_name: str,
-    muted_check_logs: frozenset[str],
-    threat_categories: Collection[str],
-) -> bool:
-    ip_counts = middleware.suspicious_request_counts.get(client_ip, {})
-    for category in threat_categories:
-        entry = config.threat_ban_config.get(category)
-        if entry is None or ip_counts.get(category, 0) < entry.threshold:
-            continue
-        await ip_ban_manager.ban_ip(
-            client_ip, entry.duration, f"penetration_attempt:{category}"
-        )
-        sus_specs = f"{client_ip} - {trigger_info}"
-        await log_activity(
-            request,
-            logger,
-            log_type="suspicious",
-            reason=f"IP banned due to {category} threshold: {sus_specs}",
-            level=config.log_suspicious_level,
-            check_name=check_name,
-            muted_check_logs=muted_check_logs,
-        )
-        return True
-    return False
-
-
-async def _try_escalation_bans(
-    request: GuardRequest,
-    config: SecurityConfig,
-    ip_ban_manager: Any,
-    middleware: "GuardMiddlewareProtocol",
-    client_ip: str,
-    trigger_info: str,
-    logger: logging.Logger,
-    check_name: str,
-    muted_check_logs: frozenset[str],
-    threat_categories: Collection[str],
-) -> bool:
-    if not config.enable_ip_banning:
-        return False
-    banned = await _try_escalation_per_category_ban(
-        request,
-        config,
-        ip_ban_manager,
-        middleware,
-        client_ip,
-        trigger_info,
-        logger,
-        check_name,
-        muted_check_logs,
-        threat_categories,
-    )
-    if banned:
-        return True
-    return await _try_escalation_flat_ban(
-        request,
-        config,
-        ip_ban_manager,
-        middleware,
-        client_ip,
-        trigger_info,
-        logger,
-        check_name,
-        muted_check_logs,
-    )
 
 
 async def _emit_ban_escalation_failed(
@@ -352,7 +324,7 @@ def _log_exception_safely(logger: logging.Logger, message: str, *args: Any) -> N
     try:
         logger.exception(message, *args)
     except Exception:
-        pass
+        logging.getLogger(__name__).exception(message, *args)
 
 
 async def escalate_identity_violation(
@@ -387,7 +359,7 @@ async def escalate_identity_violation(
         threat_categories = list(result.threat_categories) or ["uncategorized"]
         _increment_suspicious_counts(middleware, client_ip, threat_categories)
 
-        banned = await _try_escalation_bans(
+        banned = await _try_threshold_ban(
             request,
             config,
             ip_ban_manager,

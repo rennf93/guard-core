@@ -1,6 +1,8 @@
 import re
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.events.middleware_events import SecurityEventBus
 from guard_core.sync.handlers.dynamic_rule_handler import DynamicRuleManager
@@ -88,21 +90,51 @@ def test_remove_default_pattern_invalid_index() -> None:
         handler.compiled_patterns = original_compiled
 
 
-def test_fallback_pattern_check_with_exception() -> None:
+def test_fallback_pattern_check_recursion_error_is_logged_and_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
     from guard_core.sync.utils import _fallback_pattern_check
 
     with patch(
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_pattern = Mock()
-        mock_pattern.search = Mock(side_effect=Exception("Pattern error"))
+        mock_pattern.pattern = "(evil){1,100}"
+        mock_pattern.search = Mock(
+            side_effect=RecursionError("maximum recursion depth")
+        )
         mock_handler.get_all_compiled_patterns = MagicMock(
             return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
         )
 
-        result = _fallback_pattern_check("test_value")
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            result = _fallback_pattern_check("test_value")
 
         assert result == (False, "")
+        assert "recursion" in caplog.text.lower()
+        assert "(evil){1,100}" in caplog.text
+
+
+def test_fallback_pattern_check_unexpected_exception_propagates() -> None:
+    from guard_core.sync.utils import _fallback_pattern_check
+
+    with patch(
+        "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+    ) as mock_handler:
+        mock_pattern = Mock()
+        mock_pattern.search = Mock(side_effect=ValueError("not a recursion error"))
+        mock_handler.get_all_compiled_patterns = MagicMock(
+            return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
+        )
+
+        try:
+            _fallback_pattern_check("test_value")
+        except ValueError as exc:
+            assert str(exc) == "not a recursion error"
+        else:
+            raise AssertionError("expected ValueError to propagate")
 
 
 def test_check_value_enhanced_empty_threats_list() -> None:

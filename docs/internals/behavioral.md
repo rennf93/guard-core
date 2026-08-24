@@ -65,7 +65,7 @@ BehaviorTracker
 
 **In-memory**: `defaultdict(lambda: defaultdict(list))` mapping `endpoint_id -> client_ip -> list[timestamp]`.
 
-**Redis**: Keys like `behavior:usage:{endpoint_id}:{client_ip}:{timestamp}` with TTL equal to the rule window.
+**Redis**: One sorted set per `(endpoint_id, client_ip)` pair (`usage`/`frequency` rules) or per `(endpoint_id, client_ip, rule.pattern)` triple (`return_pattern` rules), keyed as `behavior:usage:{sha256(endpoint_id)}:{sha256(client_ip)}` or `behavior:return:{sha256(endpoint_id)}:{sha256(client_ip)}:{sha256(rule.pattern)}`. Each hit is `ZADD`-ed as a member scored by the event timestamp; the member itself is `uuid.uuid4().hex`, not the timestamp, since a sorted set stores one entry per unique member and two hits sharing a timestamp -- routine under a coarse clock or a concurrent burst -- would otherwise collapse into one counted entry. Entries scored below the window start are pruned with `ZREMRANGEBYSCORE`, and the remaining `ZCARD` is the count compared against the threshold, all in one pipelined round trip (`RedisManager.record_sliding_window_hit`). The key's TTL is refreshed to the rule window on every hit. Hashing each segment keeps `endpoint_id`, `client_ip`, and `rule.pattern` -- all three attacker- or operator-influenced and none validated by this layer -- from ever reaching a Redis key or pattern verbatim, and the design needs no `KEYS`/glob scan at all: counting reads and writes a single addressed key.
 
 ### Key Methods
 

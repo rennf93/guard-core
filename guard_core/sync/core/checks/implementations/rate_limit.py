@@ -1,16 +1,25 @@
 from collections.abc import Collection
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import route_config_applies
+from guard_core.sync.core.checks.helpers import (
+    _increment_suspicious_counts,
+    _try_threshold_ban,
+    route_config_applies,
+)
 from guard_core.sync.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_DYNAMIC_RULE_VIOLATION,
 )
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+
+if TYPE_CHECKING:
+    from guard_core.sync.protocols.middleware_protocol import (
+        SyncGuardMiddlewareProtocol,
+    )
 
 
 def _route_rate_limit_configured(route_config: RouteConfig) -> bool:
@@ -32,6 +41,12 @@ def _rate_limit_applies(
 class RateLimitCheck(SecurityCheck):
     container_fields: ClassVar[tuple[str, ...]] = ("endpoint_rate_limits",)
     enforced_on_excluded_paths = True
+
+    def __init__(self, middleware: "SyncGuardMiddlewareProtocol") -> None:
+        super().__init__(middleware)
+        from guard_core.sync.handlers.ipban_handler import ip_ban_manager
+
+        self.ip_ban_manager = ip_ban_manager
 
     @property
     def check_name(self) -> str:
@@ -60,6 +75,26 @@ class RateLimitCheck(SecurityCheck):
             **event_kwargs,
         )
 
+    def _record_rate_limit_autoban(
+        self, request: SyncGuardRequest, client_ip: str, trigger_info: str
+    ) -> None:
+        if not self.config.enable_rate_limit_auto_ban:
+            return
+        _increment_suspicious_counts(self.middleware, client_ip, "rate_limit")
+        _try_threshold_ban(
+            request,
+            self.config,
+            self.ip_ban_manager,
+            self.middleware,
+            client_ip,
+            trigger_info,
+            self.logger,
+            self.check_name,
+            self.config.muted_check_logs,
+            ("rate_limit",),
+            reason="rate_limit_exceeded",
+        )
+
     def _apply_rate_limit_check(
         self,
         request: SyncGuardRequest,
@@ -85,6 +120,9 @@ class RateLimitCheck(SecurityCheck):
             self._send_rate_limit_event(request, event_type, event_kwargs)
             if self.config.passive_mode:
                 return None
+            self._record_rate_limit_autoban(
+                request, client_ip, str(event_kwargs.get("reason", ""))
+            )
 
         return result
 
@@ -188,9 +226,15 @@ class RateLimitCheck(SecurityCheck):
             )
         )
 
-        if result is not None and self.config.passive_mode:
+        if result is None:
             return None
 
+        if self.config.passive_mode:
+            return None
+
+        self._record_rate_limit_autoban(
+            request, client_ip, "Global rate limit exceeded"
+        )
         return result
 
     def check(self, request: SyncGuardRequest) -> GuardResponse | None:

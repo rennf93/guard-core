@@ -5,14 +5,21 @@ import pytest
 from guard_core.models import VALID_CLOUD_PROVIDERS, SecurityConfig
 
 
-def test_block_cloud_providers_none_becomes_empty_frozenset() -> None:
+def test_block_cloud_providers_none_construction_stays_none() -> None:
     config = SecurityConfig(block_cloud_providers=None)
-    assert config.block_cloud_providers == frozenset()
-    assert isinstance(config.block_cloud_providers, frozenset)
+    assert config.block_cloud_providers is None
 
 
 def test_block_cloud_providers_unset_default_is_none() -> None:
     assert SecurityConfig().block_cloud_providers is None
+
+
+def test_block_cloud_providers_reassignment_to_none_stores_none() -> None:
+    config = SecurityConfig(block_cloud_providers={"AWS"})
+
+    config.block_cloud_providers = None
+
+    assert config.block_cloud_providers is None
 
 
 def test_block_cloud_providers_rejects_invalid_entry() -> None:
@@ -32,7 +39,9 @@ def test_block_cloud_providers_accepts_region_carve_out() -> None:
 
 
 def test_block_cloud_providers_validator_uses_module_constant() -> None:
-    assert VALID_CLOUD_PROVIDERS == frozenset({"AWS", "GCP", "Azure"})
+    assert VALID_CLOUD_PROVIDERS == frozenset(
+        {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}
+    )
 
 
 def test_block_cloud_providers_rejects_all_invalid_entries() -> None:
@@ -82,3 +91,20 @@ def test_block_cloud_providers_model_copy_update_accepts_valid_entries() -> None
 
     assert copied.block_cloud_providers == frozenset({"GCP"})
     assert isinstance(copied.block_cloud_providers, frozenset)
+
+
+def test_block_cloud_providers_accepts_digitalocean_linode_vultr() -> None:
+    config = SecurityConfig(block_cloud_providers={"DigitalOcean", "Linode", "Vultr"})
+    assert config.block_cloud_providers == frozenset(
+        {"DigitalOcean", "Linode", "Vultr"}
+    )
+
+
+def test_block_cloud_providers_accepts_expanded_provider_carve_out() -> None:
+    config = SecurityConfig(block_cloud_providers={"DigitalOcean:!nyc3"})
+    assert config.block_cloud_providers == frozenset({"DigitalOcean:!nyc3"})
+
+
+def test_block_cloud_providers_rejects_lowercase_expanded_names() -> None:
+    with pytest.raises(ValueError, match="digitalocean"):
+        SecurityConfig(block_cloud_providers={"digitalocean"})

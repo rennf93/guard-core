@@ -221,10 +221,16 @@ async def test_utils_check_json_data_other_threat() -> None:
         "is_threat": True,
         "threats": [{"type": "heuristic"}],
     }
+
+    async def _detect_only_value(*_a: object, **kw: object) -> dict[str, object]:
+        if kw.get("content") == "payload":
+            return mock_result
+        return {"is_threat": False, "threats": []}
+
     with patch(
         "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
-        mock_handler.detect = AsyncMock(return_value=mock_result)
+        mock_handler.detect = AsyncMock(side_effect=_detect_only_value)
         detected, info = await _check_json_fields(
             {"field": "payload"}, "body", "1.2.3.4", "corr-1"
         )
@@ -236,10 +242,16 @@ async def test_utils_check_json_data_no_threats_list() -> None:
     from guard_core.utils import _check_json_fields
 
     mock_result = {"is_threat": True, "threats": []}
+
+    async def _detect_only_value(*_a: object, **kw: object) -> dict[str, object]:
+        if kw.get("content") == "val":
+            return mock_result
+        return {"is_threat": False, "threats": []}
+
     with patch(
         "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
-        mock_handler.detect = AsyncMock(return_value=mock_result)
+        mock_handler.detect = AsyncMock(side_effect=_detect_only_value)
         detected, info = await _check_json_fields(
             {"field": "val"}, "body", "1.2.3.4", "corr-1"
         )
@@ -265,7 +277,7 @@ async def test_utils_detect_header_threat() -> None:
     from guard_core.utils import _check_request_component
 
     with patch(
-        "guard_core.utils._check_value_enhanced",
+        "guard_core._utils.detection_scan._check_value_enhanced",
         new_callable=AsyncMock,
         return_value=(True, "XSS detected", []),
     ):
@@ -285,9 +297,17 @@ async def test_utils_detect_header_threat() -> None:
 async def test_utils_detect_penetration_header_match() -> None:
     from guard_core.utils import detect_penetration_attempt
 
-    with patch(
-        "guard_core.utils._check_request_component", new_callable=AsyncMock
-    ) as mock_check:
+    mock_check = AsyncMock()
+
+    with (
+        patch(
+            "guard_core._utils.body_content_scan._check_request_component", mock_check
+        ),
+        patch(
+            "guard_core._utils.penetration_detection._check_request_component",
+            mock_check,
+        ),
+    ):
         call_count = 0
 
         async def side_effect(
@@ -298,6 +318,7 @@ async def test_utils_detect_penetration_header_match() -> None:
             correlation_id: str,
             enabled_categories: set[str] | None = None,
             log_level: str | None = "WARNING",
+            scan_embedded_json: bool = True,
         ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1
@@ -510,7 +531,10 @@ async def test_fetch_gcp_ignores_prefixes_lacking_both_ipv4_and_ipv6() -> None:
             )
             return response
 
-    with patch("guard_core.handlers.cloud_handler.aiohttp.ClientSession", _FakeSession):
+    with patch(
+        "guard_core.handlers._cloud_provider_fetchers.aiohttp.ClientSession",
+        _FakeSession,
+    ):
         networks, _ = await fetch_gcp_ip_ranges()
 
     assert len(networks) == 1

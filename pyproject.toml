@@ -1,6 +1,6 @@
 [project]
 name = "guard-core"
-version = "3.12.0"
+version = "3.13.0"
 description = "Framework-agnostic security engine for the Guard ecosystem."
 authors = [
     {name = "Renzo Franceschini", email = "rennf93@users.noreply.github.com"}
@@ -107,7 +107,7 @@ allow-direct-references = true
 
 [tool.ruff]
 target-version = "py310"
-exclude = ["vulture_whitelist.py", ".venv"]
+exclude = ["vulture_whitelist.py", ".venv", "CLAUDE.md"]
 
 [tool.ruff.lint]
 select = [
@@ -123,10 +123,11 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=guard_core --cov-branch --cov-report=term-missing -m 'not integration'"
+addopts = "--cov=guard_core --cov-branch --cov-report=term-missing -m 'not integration and not redos_timing'"
 markers = [
     "asyncio: mark tests as async",
     "integration: marks tests that require Docker + external services (deselect with '-m \"not integration\"')",
+    "redos_timing: real regex timing via subprocess; slow, run in the detection gate, not the coverage matrix",
 ]
 
 [tool.mypy]
@@ -144,7 +145,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
-exclude = ["vulture_whitelist.py", ".venv"]
+exclude = ["vulture_whitelist.py", ".venv", "\\.unasync_check_tmp_"]
 
 [[tool.mypy.overrides]]
 module = "redis.*"
@@ -170,10 +171,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "logfire"
 follow_imports = "skip"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "testcontainers.*"
 ignore_missing_imports = true
 
 [tool.pymarkdown.system]

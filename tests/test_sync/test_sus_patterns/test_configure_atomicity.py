@@ -9,10 +9,13 @@ _PAYLOAD = "A" * 1400 + " UNION SELECT 1"
 
 
 class _RaceConfig:
-    def __init__(self, max_length: int, preserve: bool, threshold: float) -> None:
+    def __init__(
+        self, max_length: int, preserve: bool, threshold: float, inspect_bytes: int
+    ) -> None:
         self.detection_compiler_timeout = 1.0
         self.detection_max_tracked_patterns = 500
         self.detection_max_content_length = max_length
+        self.detection_max_body_inspect_bytes = inspect_bytes
         self.detection_preserve_attack_patterns = preserve
         self.detection_anomaly_threshold = 3.0
         self.detection_slow_pattern_threshold = 0.1
@@ -24,13 +27,20 @@ class _RaceConfig:
 
 
 # Config A truncates the payload (blind slice, preserve_attack_patterns=False)
-# below the "UNION SELECT" substring at position 1401, so the sqli pattern
-# never matches: anomaly=0.0, and 0.0 >= A's own threshold (0.5) is False.
-_CONFIG_A = _RaceConfig(max_length=1000, preserve=False, threshold=0.5)
-# Config B keeps the whole payload (max_content_length=2000 > len(payload)),
-# so "UNION SELECT" matches: anomaly=1.0, but 1.0 >= B's own threshold (1.5)
-# is also False.
-_CONFIG_B = _RaceConfig(max_length=2000, preserve=True, threshold=1.5)
+# below the "UNION SELECT" substring at position 1401 -- truncate_safely's
+# single memory bound is detection_max_body_inspect_bytes, not
+# detection_max_content_length, so THAT is what must be small here -- so the
+# sqli pattern never matches: anomaly=0.0, and 0.0 >= A's own threshold (0.5)
+# is False.
+_CONFIG_A = _RaceConfig(
+    max_length=1000, preserve=False, threshold=0.5, inspect_bytes=1000
+)
+# Config B keeps the whole payload (inspect_bytes=262144 > len(payload)), so
+# "UNION SELECT" matches: anomaly=1.0, but 1.0 >= B's own threshold (1.5) is
+# also False.
+_CONFIG_B = _RaceConfig(
+    max_length=2000, preserve=True, threshold=1.5, inspect_bytes=262144
+)
 
 # Neither pure A nor pure B can ever report is_threat=True for this payload.
 # The only way to get True is a torn read that combines B's preprocessor

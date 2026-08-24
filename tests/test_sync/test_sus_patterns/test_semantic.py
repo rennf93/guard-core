@@ -1,10 +1,37 @@
 import concurrent.futures
+import multiprocessing as mp
 import random
 import re
 import string
+import time
 from unittest.mock import MagicMock, patch
 
-from guard_core.sync.detection_engine.semantic import SemanticAnalyzer
+from guard_core.sync.detection_engine.semantic import (
+    SemanticAnalyzer,
+    looks_like_binary_content,
+)
+from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+
+def test_looks_like_binary_content_true_for_random_bytes() -> None:
+    binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+    assert looks_like_binary_content(binary_blob) is True
+
+
+def test_looks_like_binary_content_false_for_plain_text() -> None:
+    assert looks_like_binary_content("hello world, this is normal text") is False
+
+
+def test_looks_like_binary_content_false_for_empty_string() -> None:
+    assert looks_like_binary_content("") is False
+
+
+def test_detect_obfuscation_skips_high_entropy_check_for_binary_content() -> None:
+    analyzer = SemanticAnalyzer()
+    binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+
+    assert looks_like_binary_content(binary_blob) is True
+    assert analyzer.detect_obfuscation(binary_blob) is False
 
 
 def test_initialization() -> None:
@@ -37,19 +64,12 @@ def test_extract_tokens_max_content_length() -> None:
     assert len(tokens) <= 1000
 
 
-def test_extract_tokens_timeout() -> None:
-    analyzer = SemanticAnalyzer()
+def test_extract_tokens_has_no_thread_pool_executor() -> None:
+    import inspect
 
-    with patch("concurrent.futures.ThreadPoolExecutor") as mock_executor:
-        mock_future = MagicMock()
-        mock_future.result.side_effect = concurrent.futures.TimeoutError()
-        mock_submit = mock_executor.return_value.__enter__.return_value.submit
-        mock_submit.return_value = mock_future
+    source = inspect.getsource(SemanticAnalyzer.extract_tokens)
 
-        content = "<script>alert(1)</script>"
-        tokens = analyzer.extract_tokens(content)
-
-        assert isinstance(tokens, list)
+    assert "ThreadPoolExecutor" not in source
 
 
 def test_extract_tokens_special_patterns_limit() -> None:
@@ -256,6 +276,88 @@ def test_extract_suspicious_patterns() -> None:
         assert "pattern" in pattern
         assert "position" in pattern
         assert "context" in pattern
+
+
+def test_extract_suspicious_patterns_tag_like_has_no_length_cap() -> None:
+    analyzer = SemanticAnalyzer()
+
+    long_attr = "A" * 600
+    content = f'<img src=x onerror=alert(1) data-p="{long_attr}">'
+
+    patterns = analyzer.extract_suspicious_patterns(content)
+    tag_matches = [p for p in patterns if p["type"] == "tag_like"]
+
+    assert tag_matches
+    assert len(tag_matches[0]["pattern"]) > 512
+
+
+def test_extract_suspicious_patterns_tag_like_unterminated_finds_nothing() -> None:
+    analyzer = SemanticAnalyzer()
+
+    patterns = analyzer.extract_suspicious_patterns("<" * 5000)
+
+    assert not [p for p in patterns if p["type"] == "tag_like"]
+
+
+def test_tag_scan_window_excludes_content_after_last_closing_bracket() -> None:
+    analyzer = SemanticAnalyzer()
+
+    window = analyzer._tag_scan_window("<div>" + "<" * 5000)
+
+    assert window == "<div>"
+
+
+def test_function_call_name_bound_rejects_match_past_64_chars() -> None:
+    analyzer = SemanticAnalyzer()
+    pattern = analyzer.attack_structures["function_call"]
+
+    assert re.match(pattern, "a" * 64 + "(x)") is not None
+    assert re.match(pattern, "a" * 65 + "(x)") is None
+
+
+def test_function_call_args_bound_rejects_match_past_256_chars() -> None:
+    analyzer = SemanticAnalyzer()
+    pattern = analyzer.attack_structures["function_call"]
+
+    assert re.match(pattern, "f(" + "a" * 256 + ")") is not None
+    assert re.match(pattern, "f(" + "a" * 257 + ")") is None
+
+
+def test_path_traversal_bound_rejects_match_past_20_dots() -> None:
+    analyzer = SemanticAnalyzer()
+    pattern = analyzer.attack_structures["path_traversal"]
+
+    assert re.match(pattern, "." * 20 + "/") is not None
+    assert re.match(pattern, "." * 21 + "/") is None
+
+
+def test_url_pattern_bound_rejects_match_past_32_char_scheme() -> None:
+    analyzer = SemanticAnalyzer()
+    pattern = analyzer.attack_structures["url_pattern"]
+
+    assert re.match(pattern, "a" * 32 + "://") is not None
+    assert re.match(pattern, "a" * 33 + "://") is None
+
+
+def test_get_structural_pattern_boost_xss_recovers_past_old_cap() -> None:
+    analyzer = SemanticAnalyzer()
+
+    long_attr = "A" * 600
+    content = f'<img src=x onerror=alert(1) data-p="{long_attr}">'
+
+    boost = analyzer._get_structural_pattern_boost("xss", content)
+
+    assert boost == 0.3
+
+
+def test_analyze_code_injection_risk_drops_past_function_call_args_cap() -> None:
+    analyzer = SemanticAnalyzer()
+
+    at_cap = analyzer.analyze_code_injection_risk("eval(" + "a" * 256 + ")")
+    past_cap = analyzer.analyze_code_injection_risk("eval(" + "a" * 257 + ")")
+
+    assert at_cap == 0.7
+    assert past_cap == 0.5
 
 
 def test_analyze_comprehensive() -> None:
@@ -483,3 +585,157 @@ def test_detect_encoding_layers_no_base64_run_skips_that_layer() -> None:
     analyzer = SemanticAnalyzer()
     layers = analyzer.detect_encoding_layers("%2A")
     assert layers >= 1
+
+
+def _wire_detect(manager: SusPatternsManager, content: str) -> tuple[bool, set[str]]:
+    result = manager.detect(content, "203.0.113.7", context="unknown")
+    return result["is_threat"], {t["type"] for t in result["threats"]}
+
+
+def test_tag_like_long_attribute_detected_at_2x_and_10x_old_cap(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (2, 10):
+        long_attr = "A" * (512 * multiplier)
+        content = f'<img src=x onerror=alert(document.cookie) data-p="{long_attr}">'
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is True
+        assert threat_types == {"regex", "semantic"}
+
+
+def test_function_call_name_past_cap_undetected_matches_base(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (1, 2, 10):
+        content = "a" * (64 * multiplier + 1) + "(x)"
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is False
+        assert threat_types == set()
+
+
+def test_function_call_args_past_cap_dangerous_keyword_still_detected(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (1, 2, 10):
+        content = "eval(" + "a" * (256 * multiplier + 1) + ")"
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is True
+        assert threat_types == {"regex"}
+
+
+def test_function_call_args_past_cap_generic_name_undetected_matches_base(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (1, 2, 10):
+        content = "foo(" + "a" * (256 * multiplier + 1) + ")"
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is False
+        assert threat_types == set()
+
+
+def test_path_traversal_past_cap_with_target_still_detected(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (1, 2, 10):
+        content = "." * (20 * multiplier + 1) + "/etc/passwd"
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is True
+        assert threat_types == {"regex"}
+
+
+def test_path_traversal_past_cap_bare_dots_undetected_matches_base(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (2, 10):
+        content = "." * (20 * multiplier)
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is False
+        assert threat_types == set()
+
+
+def test_url_pattern_past_cap_undetected_matches_base(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    for multiplier in (2, 10):
+        content = "a" * (32 * multiplier) + "://evil.example/x"
+
+        is_threat, threat_types = _wire_detect(
+            sus_patterns_manager_with_detection, content
+        )
+
+        assert is_threat is False
+        assert threat_types == set()
+
+
+_ANALYZE_GROWTH_SIZES = [2500, 5000, 10000, 20000]
+_ANALYZE_GROWTH_DEADLINE_SECONDS = 10.0
+_ANALYZE_GROWTH_MAX_RATIO = 3.0
+
+
+def _analyze_min_duration_child(size: int, q: "mp.Queue[float]") -> None:
+    analyzer = SemanticAnalyzer()
+    content = "a" * size
+    durations = [_time_one_analyze(analyzer, content) for _ in range(3)]
+    q.put(min(durations))
+
+
+def _time_one_analyze(analyzer: SemanticAnalyzer, content: str) -> float:
+    start = time.process_time()
+    analyzer.analyze(content)
+    return time.process_time() - start
+
+
+def _measure_analyze_min_duration(size: int) -> float | None:
+    ctx = mp.get_context("forkserver")
+    q: mp.Queue[float] = ctx.Queue()
+    proc = ctx.Process(target=_analyze_min_duration_child, args=(size, q))
+    proc.start()
+    proc.join(_ANALYZE_GROWTH_DEADLINE_SECONDS)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join()
+        return None
+    return q.get() if not q.empty() else None
+
+
+def test_analyze_growth_is_linear_on_adversarial_char_fill() -> None:
+    samples: dict[int, float] = {}
+    for size in _ANALYZE_GROWTH_SIZES:
+        duration = _measure_analyze_min_duration(size)
+        assert duration is not None, (
+            f"analyze did not return within "
+            f"{_ANALYZE_GROWTH_DEADLINE_SECONDS}s at size={size}"
+        )
+        samples[size] = duration
+
+    assert samples[_ANALYZE_GROWTH_SIZES[0]] > 0.001
+
+    for smaller, larger in zip(
+        _ANALYZE_GROWTH_SIZES, _ANALYZE_GROWTH_SIZES[1:], strict=False
+    ):
+        ratio = samples[larger] / samples[smaller]
+        assert ratio < _ANALYZE_GROWTH_MAX_RATIO

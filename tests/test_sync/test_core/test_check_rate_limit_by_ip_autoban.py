@@ -1,0 +1,323 @@
+import time
+from unittest.mock import MagicMock, Mock
+
+import pytest
+
+from guard_core.models import SecurityConfig, ThreatBanConfig
+from guard_core.sync.core.checks.implementations.rate_limit import RateLimitCheck
+from guard_core.sync.handlers.ipban_handler import IPBanManager
+from guard_core.sync.handlers.ratelimit_handler import (
+    _by_ip_autoban_counts,
+    check_rate_limit_by_ip,
+)
+
+BanCalls = list[tuple[str, int, str]]
+
+
+def _install_recording_ban_manager(
+    config: SecurityConfig,
+) -> tuple[IPBanManager, BanCalls]:
+    IPBanManager._instance = None
+    manager = IPBanManager()
+    manager.redis_handler = None
+    manager.config = config
+    ban_calls: BanCalls = []
+
+    def fake_ban(ip: str, duration: int, reason: str = "threshold_exceeded") -> None:
+        ban_calls.append((ip, duration, reason))
+
+    manager.ban_ip = fake_ban  # type: ignore[method-assign]
+    return manager, ban_calls
+
+
+def test_knob_off_default_never_bans_on_repeated_violations() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    assert config.enable_rate_limit_auto_ban is False
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+        ip = "192.0.2.101"
+        check_rate_limit_by_ip(ip, config)
+        check_rate_limit_by_ip(ip, config)
+        check_rate_limit_by_ip(ip, config)
+
+        assert ban_calls == []
+    finally:
+        IPBanManager._instance = None
+
+
+def test_threshold_crossing_bans_with_configured_duration_and_reason() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=2,
+        auto_ban_duration=1234,
+    )
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+        ip = "192.0.2.102"
+
+        assert check_rate_limit_by_ip(ip, config) is True
+        assert check_rate_limit_by_ip(ip, config) is False
+        assert ban_calls == []
+
+        assert check_rate_limit_by_ip(ip, config) is False
+        assert ban_calls == [(ip, 1234, "rate_limit_exceeded")]
+    finally:
+        IPBanManager._instance = None
+
+
+def test_per_category_threat_ban_config_override_honored() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1000,
+        auto_ban_duration=60,
+        threat_ban_config={"rate_limit": ThreatBanConfig(threshold=1, duration=999)},
+    )
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+        ip = "192.0.2.103"
+
+        assert check_rate_limit_by_ip(ip, config) is True
+        assert check_rate_limit_by_ip(ip, config) is False
+
+        assert ban_calls == [(ip, 999, "rate_limit_exceeded:rate_limit")]
+    finally:
+        IPBanManager._instance = None
+
+
+def test_passive_mode_suppresses_counting_and_ban() -> None:
+    config = SecurityConfig(
+        passive_mode=True,
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+        ip = "192.0.2.104"
+
+        assert check_rate_limit_by_ip(ip, config) is True
+        assert check_rate_limit_by_ip(ip, config) is False
+
+        assert ban_calls == []
+        assert ip not in _by_ip_autoban_counts
+    finally:
+        IPBanManager._instance = None
+
+
+def test_enable_ip_banning_false_suppresses_ban() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=False,
+        auto_ban_threshold=1,
+    )
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+        ip = "192.0.2.105"
+        check_rate_limit_by_ip(ip, config)
+        check_rate_limit_by_ip(ip, config)
+
+        assert ban_calls == []
+    finally:
+        IPBanManager._instance = None
+
+
+def test_loopback_ip_not_banned_despite_threshold_crossing() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    IPBanManager._instance = None
+    try:
+        real_manager = IPBanManager()
+        real_manager.redis_handler = None
+        real_manager.config = config
+
+        assert check_rate_limit_by_ip("127.0.0.1", config) is True
+        assert check_rate_limit_by_ip("127.0.0.1", config) is False
+
+        assert "127.0.0.1" not in real_manager.banned_ips
+    finally:
+        IPBanManager._instance = None
+
+
+def test_rejected_ip_input_records_no_autoban_count() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    bad_ip = "not-an-ip-192.0.2.106"
+
+    try:
+        check_rate_limit_by_ip(bad_ip, config)
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+    assert bad_ip not in _by_ip_autoban_counts
+
+
+def test_redis_backed_over_limit_feeds_autoban_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        enable_redis=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        auto_ban_duration=111,
+    )
+    _, ban_calls = _install_recording_ban_manager(config)
+    try:
+
+        def fake_redis_count(*_args: object, **_kwargs: object) -> tuple[int, None]:
+            return 5, None
+
+        monkeypatch.setattr(
+            "guard_core.sync.handlers.ratelimit_handler._redis_request_count",
+            fake_redis_count,
+        )
+
+        ip = "192.0.2.107"
+        result = check_rate_limit_by_ip(ip, config, redis_handler=Mock())
+
+        assert result is False
+        assert ban_calls == [(ip, 111, "rate_limit_exceeded")]
+    finally:
+        IPBanManager._instance = None
+
+
+def test_already_banned_ip_makes_zero_additional_ban_calls() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=2,
+        auto_ban_duration=1234,
+    )
+    IPBanManager._instance = None
+    try:
+        manager = IPBanManager()
+        manager.redis_handler = None
+        manager.config = config
+        ban_calls: BanCalls = []
+
+        def fake_ban(
+            ip: str, duration: int, reason: str = "threshold_exceeded"
+        ) -> None:
+            ban_calls.append((ip, duration, reason))
+            manager.banned_ips[ip] = time.time() + duration
+
+        manager.ban_ip = fake_ban  # type: ignore[method-assign]
+
+        ip = "192.0.2.110"
+
+        assert check_rate_limit_by_ip(ip, config) is True
+        assert check_rate_limit_by_ip(ip, config) is False
+        assert ban_calls == []
+
+        assert check_rate_limit_by_ip(ip, config) is False
+        assert ban_calls == [(ip, 1234, "rate_limit_exceeded")]
+        assert _by_ip_autoban_counts[ip] == 2
+
+        for _ in range(3):
+            assert check_rate_limit_by_ip(ip, config) is False
+
+        assert ban_calls == [(ip, 1234, "rate_limit_exceeded")]
+        assert _by_ip_autoban_counts[ip] == 2
+    finally:
+        IPBanManager._instance = None
+
+
+def _make_middleware(config: SecurityConfig) -> Mock:
+    middleware = Mock()
+    middleware.config = config
+    middleware.logger = Mock()
+    middleware.event_bus = Mock()
+    middleware.event_bus.send_middleware_event = MagicMock()
+    middleware.create_error_response = MagicMock(return_value=Mock(status_code=429))
+    middleware.route_resolver = Mock()
+    middleware.route_resolver.should_bypass_check = Mock(return_value=False)
+    middleware.geo_ip_handler = None
+    middleware.suspicious_request_counts = {}
+    middleware.rate_limit_handler = Mock()
+    middleware.rate_limit_handler.check_rate_limit = MagicMock(
+        return_value=Mock(status_code=429)
+    )
+    return middleware
+
+
+def _make_request(client_ip: str) -> MagicMock:
+    request = MagicMock()
+    request.state.client_ip = client_ip
+    request.state.route_config = None
+    request.state.is_whitelisted = False
+    request.url_path = "/api/test"
+    return request
+
+
+def test_dedicated_counter_isolated_from_middleware_suspicious_counts() -> None:
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1000,
+    )
+    IPBanManager._instance = None
+    try:
+        real_manager = IPBanManager()
+        real_manager.redis_handler = None
+        real_manager.config = config
+
+        middleware = _make_middleware(config)
+        check = RateLimitCheck(middleware)
+        check.ip_ban_manager = Mock()
+        check.ip_ban_manager.ban_ip = MagicMock()
+
+        check.check(_make_request("192.0.2.108"))
+
+        primitive_ip = "192.0.2.109"
+        check_rate_limit_by_ip(primitive_ip, config)
+        check_rate_limit_by_ip(primitive_ip, config)
+
+        assert middleware.suspicious_request_counts == {
+            "192.0.2.108": {"rate_limit": 1}
+        }
+        assert primitive_ip not in middleware.suspicious_request_counts
+        assert _by_ip_autoban_counts[primitive_ip] == 1
+        assert "192.0.2.108" not in _by_ip_autoban_counts
+    finally:
+        IPBanManager._instance = None

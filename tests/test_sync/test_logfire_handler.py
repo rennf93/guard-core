@@ -83,14 +83,158 @@ def test_send_metric_records(config: MagicMock) -> None:
         assert call_args.kwargs["method"] == "GET"
 
 
-def test_start_configures_logfire(config: MagicMock) -> None:
+def test_start_configures_logfire_when_not_already_initialized(
+    config: MagicMock,
+) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        handler = LogfireHandler(config)
+        handler.start()
+        mock_lf.configure.assert_called_once_with(service_name="guard-core-test")
+        assert handler._configured_by_guard is True
+
+
+def test_start_does_not_get_stuck_after_a_failed_configure_call(
+    config: MagicMock,
+) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        mock_lf.configure.side_effect = RuntimeError("simulated configure failure")
+        handler = LogfireHandler(config)
+
+        with pytest.raises(RuntimeError, match="simulated configure failure"):
+            handler.start()
+
+        assert handler._started is False
+        assert handler._configured_by_guard is False
+
+
+def test_start_retries_after_a_failed_configure_call(
+    config: MagicMock,
+) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        mock_lf.configure.side_effect = [
+            RuntimeError("simulated transient configure failure"),
+            None,
+        ]
+        handler = LogfireHandler(config)
+
+        with pytest.raises(RuntimeError, match="simulated transient configure"):
+            handler.start()
+
+        handler.start()
+
+        assert mock_lf.configure.call_count == 2
+        assert handler._started is True
+        assert handler._configured_by_guard is True
+
+
+def test_start_does_not_reconfigure_when_already_initialized(
+    config: MagicMock,
+) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = True
+        handler = LogfireHandler(config)
+        handler.start()
+        mock_lf.configure.assert_not_called()
+        assert handler._configured_by_guard is False
+
+
+def test_start_already_initialized_logs_warning_naming_ignored_service_name(
+    config: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = True
+        handler = LogfireHandler(config)
+        with caplog.at_level(logging.WARNING, logger="guard_core"):
+            handler.start()
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("already configured" in m and "guard-core-test" in m for m in messages)
+
+
+def test_start_is_idempotent_on_repeated_calls(config: MagicMock) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        handler = LogfireHandler(config)
+        handler.start()
+        handler.start()
+        mock_lf.configure.assert_called_once_with(service_name="guard-core-test")
+
+
+def test_stop_shuts_down_only_when_configured_by_guard(
+    config: MagicMock,
+) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        handler = LogfireHandler(config)
+        handler.start()
+        handler.stop()
+        mock_lf.shutdown.assert_called_once()
+        assert handler._configured_by_guard is False
+        assert handler._started is False
+
+
+def test_stop_does_not_shut_down_when_borrowed(config: MagicMock) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = True
+        handler = LogfireHandler(config)
+        handler.start()
+        handler.stop()
+        mock_lf.shutdown.assert_not_called()
+        assert handler._started is False
+
+
+def test_stop_is_idempotent(config: MagicMock) -> None:
+    with (
+        patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
+        patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
+    ):
+        mock_lf.DEFAULT_LOGFIRE_INSTANCE.config._initialized = False
+        handler = LogfireHandler(config)
+        handler.start()
+        handler.stop()
+        handler.stop()
+        mock_lf.shutdown.assert_called_once()
+
+
+def test_stop_before_start_is_safe(config: MagicMock) -> None:
     with (
         patch("guard_core.sync.core.events.logfire_handler._logfire_available", True),
         patch("guard_core.sync.core.events.logfire_handler.logfire") as mock_lf,
     ):
         handler = LogfireHandler(config)
-        handler.start()
-        mock_lf.configure.assert_called_once_with(service_name="guard-core-test")
+        handler.stop()
+        mock_lf.shutdown.assert_not_called()
+        assert handler._started is False
 
 
 def test_flush_buffer_and_initialize_redis_and_stop_noop(

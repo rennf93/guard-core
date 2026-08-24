@@ -9,8 +9,11 @@ import pytest
 
 import guard_core
 import guard_core.handlers
+import guard_core.handlers.ratelimit_handler
 import guard_core.sync
 import guard_core.sync.handlers
+import guard_core.sync.handlers.ratelimit_handler
+import guard_core.utils
 
 _HANDLERS_SUBMODULES = (
     "behavior_handler",
@@ -236,6 +239,60 @@ def _public_callables(obj: object) -> list[tuple[str, object]]:
     ]
 
 
+def test_is_ip_allowed_and_check_ip_access_import_from_top_level() -> None:
+    from guard_core import check_ip_access, is_ip_allowed
+
+    assert is_ip_allowed is guard_core.utils.is_ip_allowed
+    assert check_ip_access is guard_core.utils.check_ip_access
+
+
+def test_is_ip_allowed_and_check_ip_access_listed_in_guard_core_all() -> None:
+    assert "is_ip_allowed" in guard_core.__all__
+    assert "check_ip_access" in guard_core.__all__
+
+
+def test_is_ip_allowed_and_check_ip_access_appear_in_dir_guard_core() -> None:
+    listed = dir(guard_core)
+    assert "is_ip_allowed" in listed
+    assert "check_ip_access" in listed
+
+
+def test_check_rate_limit_by_ip_imports_from_top_level() -> None:
+    from guard_core import check_rate_limit_by_ip
+
+    assert (
+        check_rate_limit_by_ip
+        is guard_core.handlers.ratelimit_handler.check_rate_limit_by_ip
+    )
+
+
+def test_check_rate_limit_by_ip_listed_in_guard_core_all() -> None:
+    assert "check_rate_limit_by_ip" in guard_core.__all__
+
+
+def test_check_rate_limit_by_ip_appears_in_dir_guard_core() -> None:
+    listed = dir(guard_core)
+    assert "check_rate_limit_by_ip" in listed
+
+
+def test_check_rate_limit_by_ip_imports_from_guard_core_sync_top_level() -> None:
+    from guard_core.sync import check_rate_limit_by_ip
+
+    assert (
+        check_rate_limit_by_ip
+        is guard_core.sync.handlers.ratelimit_handler.check_rate_limit_by_ip
+    )
+
+
+def test_check_rate_limit_by_ip_listed_in_guard_core_sync_all() -> None:
+    assert "check_rate_limit_by_ip" in guard_core.sync.__all__
+
+
+def test_check_rate_limit_by_ip_appears_in_dir_guard_core_sync() -> None:
+    listed = dir(guard_core.sync)
+    assert "check_rate_limit_by_ip" in listed
+
+
 def test_guard_core_sync_exports_have_no_coroutine_function_callables() -> None:
     for name in guard_core.sync.__all__:
         obj = getattr(guard_core.sync, name)
@@ -243,3 +300,108 @@ def test_guard_core_sync_exports_have_no_coroutine_function_callables() -> None:
             assert not inspect.iscoroutinefunction(member), (
                 f"{name}.{member_name} is a coroutine function"
             )
+
+
+def _mock_import_line(indent: str, names: str) -> str:
+    """
+    Assembles the line from fragments instead of a single literal because this
+    file's own sync mirror is produced by scripts/unasync.py, and the function
+    under test in these cases below scans raw file text for this exact phrase
+    at the start of a line; a literal occurrence here would risk the generator
+    silently stripping it out of the fixture data while producing that mirror.
+    """
+    return indent + "from unittest." + "mock import " + names
+
+
+def test_dedupe_local_mock_imports_unchanged_without_module_import() -> None:
+    """
+    Covers the early-return branch: no module-level unittest.mock import line
+    means there is nothing to compare a local import against, so the content
+    passes through untouched even though it does contain a local import line.
+    """
+    unasync = _load_unasync_generator()
+    content = "\n".join(
+        [
+            "def test_example():",
+            _mock_import_line("    ", "MagicMock"),
+            "    return MagicMock()",
+            "",
+        ]
+    )
+    result = unasync._dedupe_redundant_local_unittest_mock_imports(content)
+    assert result == content
+
+
+def test_dedupe_local_mock_imports_strips_a_subset_local_import() -> None:
+    """
+    A local import whose names are a subset of the module-level import's names
+    is redundant and gets stripped from the generated sync mirror.
+    """
+    unasync = _load_unasync_generator()
+    content = "\n".join(
+        [
+            _mock_import_line("", "MagicMock, patch"),
+            "",
+            "def test_example():",
+            _mock_import_line("    ", "MagicMock"),
+            "    return MagicMock()",
+            "",
+        ]
+    )
+    expected = "\n".join(
+        [
+            _mock_import_line("", "MagicMock, patch"),
+            "",
+            "def test_example():",
+            "    return MagicMock()",
+            "",
+        ]
+    )
+    result = unasync._dedupe_redundant_local_unittest_mock_imports(content)
+    assert result == expected
+
+
+def test_dedupe_local_mock_imports_keeps_a_non_subset_local_import() -> None:
+    """
+    A local import naming something the module-level import does not is not
+    redundant and must be kept; an earlier implementation stripped it anyway
+    and broke three ipban test files, so this case is pinned deliberately.
+    """
+    unasync = _load_unasync_generator()
+    content = "\n".join(
+        [
+            _mock_import_line("", "MagicMock"),
+            "",
+            "def test_example():",
+            _mock_import_line("    ", "patch"),
+            "    return patch",
+            "",
+        ]
+    )
+    result = unasync._dedupe_redundant_local_unittest_mock_imports(content)
+    assert result == content
+
+
+def test_dedupe_local_mock_imports_does_not_strip_a_mid_line_occurrence() -> None:
+    """
+    Pins the anchoring fix in scripts/unasync.py: the phrase can appear with
+    leading whitespace on a line, such as inside a docstring, without sitting
+    at the start of that line. The fixture is assembled from fragments, and
+    the docstring line specifically is built to have other content ahead of
+    the phrase, for the same reason documented on `_mock_import_line` above.
+    """
+    unasync = _load_unasync_generator()
+    docstring_line = "    " + '"""Example usage: ' + _mock_import_line("", "patch")
+    content = "\n".join(
+        [
+            _mock_import_line("", "MagicMock, patch"),
+            "",
+            "def test_example():",
+            docstring_line,
+            '    """',
+            "    return MagicMock()",
+            "",
+        ]
+    )
+    result = unasync._dedupe_redundant_local_unittest_mock_imports(content)
+    assert result == content

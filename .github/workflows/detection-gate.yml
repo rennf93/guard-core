@@ -1,0 +1,164 @@
+name: Detection Gate
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'guard_core/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - '.github/workflows/detection-gate.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'guard_core/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - '.github/workflows/detection-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  detection-gate:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Install dependencies (same extras as the Dockerfile)
+        run: |
+          uv sync --extra dev --extra otel --extra logfire
+
+      - name: Fail on generated sync-tree drift
+        run: |
+          uv run python scripts/unasync.py --check
+
+      - name: Run the detection gate suite
+        shell: bash
+        run: |
+          REDIS_URL='redis://localhost:6379' \
+          uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report.txt
+
+      - name: Build the PR comment body
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          touch detection-report.txt
+          {
+            echo '## Detection gate report'
+            echo
+            echo 'Per-category recall and false-positive movement for this PR.'
+            echo 'A red gate means a category regressed against its committed baseline'
+            echo 'or a benign string is newly flagged; the numbers below name it.'
+            echo 'Long documented-gap annotations are elided here; the job log has them.'
+            echo
+            echo '```'
+            awk 'length($0) <= 160' detection-report.txt | tail -n 150 | head -c 55000
+            echo '```'
+          } > detection-comment.md
+
+      - name: Post the report on the PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file detection-comment.md
+
+  detection-corpus:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Check out base tree at merge-base
+        run: |
+          git fetch origin master
+          base_sha=$(git merge-base HEAD origin/master)
+          echo "base_sha=$base_sha"
+          git worktree add /tmp/base-tree "$base_sha"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev --extra otel --extra logfire
+
+      - name: Print guard_core.__file__ (candidate)
+        run: |
+          uv run python -c "import guard_core; print(guard_core.__file__)"
+
+      - name: Measure candidate corpus
+        run: |
+          uv run python tests/detection_gate/defect_corpus.py "$PWD" "/tmp/base-tree" > dc_cand.json
+
+      - name: Measure base corpus
+        run: |
+          uv run python tests/detection_gate/defect_corpus.py "/tmp/base-tree" "/tmp/base-tree" > dc_base.json
+
+      - name: Run the detection corpus gate
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python tests/detection_gate/gate.py dc_base.json dc_cand.json "$PWD" 2>&1 | tee gate-output.txt
+
+      - name: Upload gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detection-corpus-gate
+          path: |
+            dc_base.json
+            dc_cand.json
+            gate-output.txt

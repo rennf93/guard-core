@@ -146,7 +146,7 @@ def test_shadow_warning_points_at_constructor_call_site(tmp_path: Path) -> None:
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert line_before < matches[0].lineno <= line_after
 
 
@@ -166,7 +166,7 @@ def test_shadow_warning_on_runtime_assignment_points_at_assignment_site(
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
 
 
@@ -269,17 +269,59 @@ def test_raising_bool_on_blocked_countries_without_geo_handler_propagates() -> N
     assert config.revision == revision_before
 
 
-def test_shadow_dedup_compares_non_collection_new_value_without_crashing(
+def test_whitelist_countries_reassignment_rejects_non_collection_value(
     tmp_path: Path,
 ) -> None:
     geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn7.mmdb")
     config = SecurityConfig(blocked_countries=["CN"], geo_ip_handler=geo_ip_handler)
     non_collection = object()
 
-    with pytest.warns(UserWarning, match="blocked_countries is ignored"):
+    with pytest.raises(ValueError, match="Country list must be"):
         config.whitelist_countries = cast(frozenset[str], non_collection)
 
-    assert config.whitelist_countries is non_collection
+    assert config.whitelist_countries == frozenset()
+
+
+def test_blocked_countries_reassignment_rejects_invalid_type(tmp_path: Path) -> None:
+    geo_ip_handler = IPInfoManager(
+        token="dummy", db_path=tmp_path / "asn_invalid1.mmdb"
+    )
+    config = SecurityConfig(geo_ip_handler=geo_ip_handler)
+
+    with pytest.raises(ValueError, match="Country list must be"):
+        config.blocked_countries = cast(frozenset[str], {"key": "value"})
+
+    assert config.blocked_countries == frozenset()
+
+
+def test_whitelist_countries_reassignment_rejects_invalid_type(tmp_path: Path) -> None:
+    geo_ip_handler = IPInfoManager(
+        token="dummy", db_path=tmp_path / "asn_invalid2.mmdb"
+    )
+    config = SecurityConfig(geo_ip_handler=geo_ip_handler)
+
+    with pytest.raises(ValueError, match="Country list must be"):
+        config.whitelist_countries = cast(frozenset[str], {"key": "value"})
+
+    assert config.whitelist_countries == frozenset()
+
+
+def test_blocked_countries_reassignment_accepts_valid_list(tmp_path: Path) -> None:
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn_valid1.mmdb")
+    config = SecurityConfig(geo_ip_handler=geo_ip_handler)
+
+    config.blocked_countries = cast(frozenset[str], ["fr", "de"])
+
+    assert config.blocked_countries == frozenset({"FR", "DE"})
+
+
+def test_whitelist_countries_reassignment_accepts_valid_list(tmp_path: Path) -> None:
+    geo_ip_handler = IPInfoManager(token="dummy", db_path=tmp_path / "asn_valid2.mmdb")
+    config = SecurityConfig(geo_ip_handler=geo_ip_handler)
+
+    config.whitelist_countries = cast(frozenset[str], ["fr", "de"])
+
+    assert config.whitelist_countries == frozenset({"FR", "DE"})
 
 
 def test_model_copy_update_touching_blocked_countries_warns_on_shadow(
@@ -359,5 +401,5 @@ def test_model_copy_update_country_shadow_warning_points_at_call_site(
 
     matches = [w for w in caught if "blocked_countries is ignored" in str(w.message)]
     assert len(matches) == 1
-    assert matches[0].filename == __file__
+    assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno

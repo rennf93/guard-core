@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -237,6 +238,25 @@ class RedisManager:
                 return int(result[0]) if result else 0
 
         result = await self.safe_operation(_incr)
+        return int(result) if result is not None else 0
+
+    async def record_sliding_window_hit(
+        self, namespace: str, key: str, timestamp: float, window_start: float, ttl: int
+    ) -> int:
+        if not self.config.enable_redis:
+            return 0
+
+        async def _record(conn: Redis) -> int:
+            full_key = f"{self.config.redis_prefix}{namespace}:{key}"
+            async with conn.pipeline() as pipe:
+                await pipe.zadd(full_key, {uuid.uuid4().hex: timestamp})
+                await pipe.zremrangebyscore(full_key, "-inf", f"({window_start}")
+                await pipe.zcard(full_key)
+                await pipe.expire(full_key, ttl)
+                result = await pipe.execute()
+                return int(result[2]) if len(result) > 2 else 0
+
+        result = await self.safe_operation(_record)
         return int(result) if result is not None else 0
 
     async def exists(self, namespace: str, key: str) -> bool | None:

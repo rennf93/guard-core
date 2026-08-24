@@ -35,7 +35,7 @@ def test_safe_pattern_is_added_to_custom_patterns(
     fresh_legacy_singleton: SusPatternsManager,
 ) -> None:
     manager = fresh_legacy_singleton
-    pattern = r"foo.*bar"
+    pattern = r"attackterm\d+"
 
     manager.add_pattern(pattern, custom=True)
 

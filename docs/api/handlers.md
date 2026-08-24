@@ -105,7 +105,9 @@ class RateLimitManager:
 
     async def reset(self) -> None:
         """
-        Clear all in-memory timestamps and Redis rate-limit keys.
+        Clear all in-memory timestamps and Redis rate-limit keys, and
+        detach the Redis handler. Call initialize_redis() again before
+        Redis-backed rate limiting resumes.
         """
 ```
 
@@ -114,7 +116,7 @@ ___
 CloudManager
 ------------
 
-Fetches and caches IP ranges for six cloud providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr); only AWS, GCP, and Azure are user-blockable through `SecurityConfig.block_cloud_providers`. `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the module-level default used below.
+Fetches and caches IP ranges for six cloud providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), all six user-blockable through `SecurityConfig.block_cloud_providers`. `_ALL_PROVIDERS = {"AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"}` is the module-level default used below.
 
 ```python
 class CloudManager:

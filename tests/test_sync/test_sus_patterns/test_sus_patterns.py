@@ -1,6 +1,7 @@
 import concurrent.futures
 import logging
 import re
+import time
 from collections.abc import Callable
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
     SusPatternsManager,
     sus_patterns_handler,
 )
+from tests.test_sync.test_sus_patterns.conftest import with_detection_manager
 
 
 def test_add_pattern() -> None:
@@ -289,12 +291,12 @@ def test_regex_timeout_fallback() -> None:
         with patch(
             "guard_core.sync.handlers.suspatterns_handler.logger"
         ) as mock_logger:
-            matched, pattern = manager.detect_pattern_match(
-                evil_content, "127.0.0.1", "test_timeout"
-            )
+            result = manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
-            assert not matched
-            assert pattern is None
+            assert result["is_threat"] is True
+            assert any(
+                threat["type"] == "pattern_timeout" for threat in result["threats"]
+            )
 
             mock_logger.warning.assert_called()
             warning_msg = mock_logger.warning.call_args[0][0]
@@ -303,6 +305,55 @@ def test_regex_timeout_fallback() -> None:
     manager._compiler = original_compiler
     manager.remove_pattern(evil_pattern, custom=True)
     SusPatternsManager._instance = None
+
+
+def test_pattern_timeout_preserves_existing_regex_threat(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    manager = sus_patterns_manager_with_detection
+    custom_pattern = r"timeout_with_existing_threat"
+    manager.add_pattern(custom_pattern, custom=True)
+    existing_threat = {
+        "type": "regex",
+        "pattern": custom_pattern,
+        "match": custom_pattern,
+        "position": 0,
+        "execution_time": 0.01,
+        "category": "custom",
+        "weight": 1,
+    }
+
+    def fake_check(
+        pattern: re.Pattern,
+        content: str,
+        ip_address: str,
+        pattern_start: float,
+        category: str,
+        *,
+        state: object = None,
+        context: str = "unknown",
+    ) -> tuple[dict | None, bool]:
+        if pattern.pattern == custom_pattern:
+            return dict(existing_threat), True
+        return None, False
+
+    with patch.object(manager, "_check_regex_pattern", new=fake_check):
+        threats, matched, timeouts = manager._check_regex_patterns(
+            custom_pattern, "127.0.0.1", None, context="test"
+        )
+
+    assert custom_pattern in timeouts
+    assert custom_pattern in matched
+    preserved = [
+        t
+        for t in threats
+        if t.get("type") == "regex" and t.get("pattern") == custom_pattern
+    ]
+    assert preserved
+    assert preserved[0]["match"] == custom_pattern
+    assert not any(t.get("type") == "pattern_timeout" for t in threats)
+
+    manager.remove_pattern(custom_pattern, custom=True)
 
 
 def test_regex_search_success_fallback() -> None:
@@ -344,20 +395,14 @@ def test_get_performance_stats_none() -> None:
     SusPatternsManager._instance = None
 
 
-def test_get_performance_stats_with_monitor(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_get_performance_stats_with_monitor(manager: SusPatternsManager) -> None:
     stats = manager.get_performance_stats()
     assert stats is not None
 
 
-def test_pattern_timeout_with_compiler(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_pattern_timeout_with_compiler(manager: SusPatternsManager) -> None:
     custom_pattern = r"timeout_sim_pattern"
     manager.add_pattern(custom_pattern, custom=True)
 
@@ -492,11 +537,8 @@ def test_regex_search_exception_fallback() -> None:
     SusPatternsManager._instance = None
 
 
-def test_semantic_threat_detection(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_semantic_threat_detection(manager: SusPatternsManager) -> None:
     assert manager._semantic_analyzer is not None
 
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
@@ -529,11 +571,8 @@ def test_semantic_threat_detection(
             assert "sql_injection" in attack_types
 
 
-def test_semantic_threat_suspicious_fallback(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_semantic_threat_suspicious_fallback(manager: SusPatternsManager) -> None:
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
         with patch.object(manager._semantic_analyzer, "get_threat_score") as mock_score:
             semantic_analysis = {
@@ -564,11 +603,22 @@ def test_semantic_threat_suspicious_fallback(
             assert semantic_threats[0]["threat_score"] == 0.75
 
 
-def test_legacy_detect_semantic_threat(
-    sus_patterns_manager_with_detection: SusPatternsManager,
+@with_detection_manager
+def test_semantic_analysis_skipped_for_binary_content(
+    manager: SusPatternsManager,
 ) -> None:
-    manager = sus_patterns_manager_with_detection
+    with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
+        binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
 
+        result = manager.detect(binary_blob, "127.0.0.1", "test_binary")
+
+        mock_analyze.assert_not_called()
+        semantic_threats = [t for t in result["threats"] if t["type"] == "semantic"]
+        assert semantic_threats == []
+
+
+@with_detection_manager
+def test_legacy_detect_semantic_threat(manager: SusPatternsManager) -> None:
     with patch.object(manager, "detect") as mock_detect:
         mock_detect.return_value = {
             "is_threat": True,
@@ -585,11 +635,8 @@ def test_legacy_detect_semantic_threat(
         assert pattern == "semantic:sql_injection"
 
 
-def test_legacy_detect_unknown_threat(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_legacy_detect_unknown_threat(manager: SusPatternsManager) -> None:
     with patch.object(manager, "detect") as mock_detect:
         mock_detect.return_value = {
             "is_threat": True,
@@ -604,11 +651,10 @@ def test_legacy_detect_unknown_threat(
         assert pattern == "unknown"
 
 
+@with_detection_manager
 def test_compiler_cache_clearing_on_pattern_operations(
-    sus_patterns_manager_with_detection: SusPatternsManager,
+    manager: SusPatternsManager,
 ) -> None:
-    manager = sus_patterns_manager_with_detection
-
     assert manager._compiler is not None
 
     with patch.object(manager._compiler, "clear_cache") as mock_clear:
@@ -634,11 +680,8 @@ def test_compiler_cache_clearing_on_pattern_operations(
             mock_remove.assert_called_once_with(pattern_to_remove)
 
 
-def test_detect_semantic_only_pattern_info(
-    sus_patterns_manager_with_detection: SusPatternsManager,
-) -> None:
-    manager = sus_patterns_manager_with_detection
-
+@with_detection_manager
+def test_detect_semantic_only_pattern_info(manager: SusPatternsManager) -> None:
     with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
         with patch.object(manager._semantic_analyzer, "get_threat_score") as mock_score:
             mock_analyze.return_value = {"attack_probabilities": {"xss": 0.9}}
@@ -910,8 +953,6 @@ def test_send_threat_event_with_no_patterns_uses_unknown_label() -> None:
 
 
 def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -925,8 +966,6 @@ def test_add_custom_pattern_writes_to_redis_when_configured() -> None:
 
 
 def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -942,8 +981,6 @@ def test_remove_custom_pattern_writes_to_redis_when_configured() -> None:
 
 
 def test_initialize_redis_with_cached_patterns_empty() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -955,8 +992,6 @@ def test_initialize_redis_with_cached_patterns_empty() -> None:
 
 
 def test_initialize_redis_skips_patterns_already_in_custom() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -971,8 +1006,6 @@ def test_initialize_redis_skips_patterns_already_in_custom() -> None:
 def test_initialize_redis_warns_on_rejected_persisted_pattern(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -988,8 +1021,6 @@ def test_initialize_redis_warns_on_rejected_persisted_pattern(
 
 
 def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -1003,8 +1034,6 @@ def test_detect_pattern_match_with_unknown_threat_type_returns_unknown() -> None
 
 
 def test_detect_pattern_match_empty_threats_list_returns_unknown() -> None:
-    from unittest.mock import MagicMock
-
     from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
 
     SusPatternsManager._instance = None
@@ -1025,3 +1054,99 @@ def test_reset_noop_when_instance_is_none() -> None:
     SusPatternsManager._instance = None
     SusPatternsManager.reset()
     SusPatternsManager._instance = original
+
+
+@with_detection_manager
+def test_custom_pattern_match_rejected_by_validator_falls_through(
+    manager: SusPatternsManager,
+) -> None:
+    from guard_core.sync.handlers.suspatterns_handler import (
+        _GLUED_BACKTICK_CANDIDATE_RE,
+    )
+
+    pattern = re.compile(_GLUED_BACKTICK_CANDIDATE_RE, re.IGNORECASE)
+
+    threat, timed_out = manager._check_regex_pattern(
+        pattern, "`whoami`", "1.2.3.4", time.monotonic(), "custom"
+    )
+
+    assert threat is None
+    assert timed_out is False
+
+
+def test_configure_with_unsupported_config_is_a_noop() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    state_before = manager._detection_state
+
+    manager.configure(object())
+
+    assert manager._detection_state is state_before
+    SusPatternsManager._instance = None
+
+
+def test_initialize_agent_sets_agent_handler() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    agent = object()
+
+    manager.initialize_agent(agent)
+
+    assert manager.agent_handler is agent
+    SusPatternsManager._instance = None
+
+
+def test_add_pattern_sends_event_when_agent_handler_set() -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = MagicMock()
+    sus_patterns_handler.agent_handler = mock_agent
+    pattern = r"agent_event_add_pattern_xyz"
+
+    try:
+        sus_patterns_handler.add_pattern(pattern, custom=True)
+
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+        sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+
+def test_remove_pattern_sends_event_when_agent_handler_set() -> None:
+    pattern = r"agent_event_remove_pattern_xyz"
+    sus_patterns_handler.add_pattern(pattern, custom=True)
+    mock_agent = MagicMock()
+    mock_agent.send_event = MagicMock()
+    sus_patterns_handler.agent_handler = mock_agent
+
+    try:
+        result = sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+        assert result is True
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+
+
+def test_remove_default_pattern_returns_false_when_not_found() -> None:
+    result = sus_patterns_handler.remove_pattern(
+        "nonexistent_default_pattern_xyz", custom=False
+    )
+    assert result is False
+
+
+def test_remove_default_pattern_returns_false_when_compiled_index_missing() -> None:
+    handler = sus_patterns_handler
+    original_patterns = handler.patterns.copy()
+    original_compiled = handler.compiled_patterns.copy()
+
+    try:
+        test_pattern = "test_pattern_compiled_index_missing_xyz"
+        handler.patterns.append(test_pattern)
+        handler.compiled_patterns = []
+
+        result = handler._remove_default_pattern(test_pattern)
+
+        assert result is False
+    finally:
+        handler.patterns = original_patterns
+        handler.compiled_patterns = original_compiled

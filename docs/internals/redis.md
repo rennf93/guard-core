@@ -94,7 +94,7 @@ All keys are prefixed with `config.redis_prefix` (default: `"guard_core:"`) and 
 | Cloud IP cache                     | `guard_core:cloud_ranges:AWS`          |
 | Custom patterns                    | `guard_core:patterns:custom`           |
 | Security headers config            | `guard_core:security_headers:csp_config` |
-| Behavioral tracking                | `guard_core:behavior_usage:{key}:{ts}` |
+| Behavioral tracking                | `guard_core:behavior_usage:behavior:usage:{sha256(endpoint_id)}:{sha256(client_ip)}` (a sorted set, one key per identity pair) |
 
 ### Key Operations
 
@@ -103,6 +103,7 @@ All keys are prefixed with `config.redis_prefix` (default: `"guard_core:"`) and 
 | `get_key(namespace, key)`           | Get a namespaced key value                    |
 | `set_key(namespace, key, value, ttl)` | Set with optional TTL (uses `SETEX` if TTL provided) |
 | `incr(namespace, key, ttl)`         | Atomic increment with optional TTL            |
+| `record_sliding_window_hit(namespace, key, timestamp, window_start, ttl)` | Add a timestamped hit to a sorted-set sliding window, prune entries scored before `window_start`, refresh the TTL, and return the remaining count, all in one pipeline |
 | `exists(namespace, key)`            | Check key existence                           |
 | `delete(namespace, key)`            | Delete a single key                           |
 | `keys(pattern)`                     | Find keys matching a pattern (auto-prefixed)  |

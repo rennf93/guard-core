@@ -42,6 +42,12 @@ PROTOCOL_RELATIVE_RFI_STILL_FLAGGED = [
     ),
 ]
 
+BARE_DOUBLE_SLASH_WITHOUT_HOST_SHAPE_NOT_FLAGGED = [
+    pytest.param("//abc", id="bare_single_label_no_dot"),
+    pytest.param("//shellcode", id="bare_word_no_dot"),
+    pytest.param("path=//internalservice", id="param_single_label_no_dot"),
+]
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", ORDINARY_URLS_NOT_FLAGGED)
@@ -64,3 +70,14 @@ async def test_protocol_relative_url_still_flagged_as_file_inclusion(
     assert any(
         threat.get("category") == "file_inclusion" for threat in result["threats"]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", BARE_DOUBLE_SLASH_WITHOUT_HOST_SHAPE_NOT_FLAGGED)
+async def test_bare_double_slash_without_host_shape_not_flagged(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is False

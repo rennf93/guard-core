@@ -100,47 +100,33 @@ def test_validate_pattern_safety_invalid_regex() -> None:
     assert "Pattern validation failed" in msg
 
 
-def test_validate_pattern_safety_elapsed_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import time as time_mod
-
-    call_count = 0
-
-    def fake_time() -> float:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return 0.0
-        return 1.0
-
-    monkeypatch.setattr(time_mod, "monotonic", fake_time)
+def test_validate_pattern_safety_reports_timeout_for_a_genuinely_slow_match() -> None:
     compiler = PatternCompiler()
-    safe, msg = compiler.validate_pattern_safety("safe", test_strings=["x"])
+    subject = "START#" + "a" * 16000
+
+    safe, msg = compiler.validate_pattern_safety(
+        r"START#(?:[a-z]+[a-z]*)Z$", test_strings=[subject]
+    )
+
     assert safe is False
     assert "timed out" in msg
 
 
-def test_validate_pattern_safety_concurrent_timeout(
+def test_validate_pattern_safety_reports_the_subprocess_timeout_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import concurrent.futures
+    import subprocess as subprocess_mod
 
-    from guard_core.detection_engine import compiler as compiler_module
+    from guard_core.detection_engine import _redos_cost_arbiter as arbiter_module
 
-    class FakeExecutor:
-        def submit(self, _fn: object) -> "FakeFuture":
-            return FakeFuture()
+    def _raise_timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess_mod.TimeoutExpired(cmd=["python"], timeout=2.0)
 
-    class FakeFuture:
-        def result(self, timeout: float = 0) -> None:
-            raise concurrent.futures.TimeoutError()
-
-    monkeypatch.setattr(compiler_module, "validation_regex_executor", FakeExecutor)
+    monkeypatch.setattr(arbiter_module.subprocess, "run", _raise_timeout)
     compiler = PatternCompiler()
     safe, msg = compiler.validate_pattern_safety("safe", test_strings=["x"])
     assert safe is False
-    assert "timed out" in msg
+    assert "killable-subprocess timeout" in msg
 
 
 def test_create_safe_matcher_returns_match() -> None:

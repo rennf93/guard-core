@@ -1,21 +1,37 @@
-import binascii
 import re
 import unicodedata
 from typing import Any
 
+from guard_core.sync.detection_engine import (
+    base64_decode,
+    encoding_decoders,
+    truncation,
+)
+from guard_core.sync.detection_engine.base64_view import (
+    build_short_base64_additive_view,
+)
+
 
 class ContentPreprocessor:
+    _DEFAULT_MAX_FULL_SCAN_BYTES = 262144
+
     def __init__(
         self,
         max_content_length: int = 10000,
         preserve_attack_patterns: bool = True,
         agent_handler: Any = None,
         correlation_id: str | None = None,
+        max_full_scan_bytes: int | None = None,
     ):
         self.max_content_length = max_content_length
         self.preserve_attack_patterns = preserve_attack_patterns
         self.agent_handler = agent_handler
         self.correlation_id = correlation_id
+        self._MAX_FULL_SCAN_BYTES = (
+            max_full_scan_bytes
+            if max_full_scan_bytes is not None
+            else self._DEFAULT_MAX_FULL_SCAN_BYTES
+        )
 
         self.attack_indicators = [
             r"<script",
@@ -49,12 +65,10 @@ class ContentPreprocessor:
             re.compile(pattern, re.IGNORECASE) for pattern in self.attack_indicators
         ]
 
-    _BASE64_RE = re.compile(
-        r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{20,}={0,2}(?![A-Za-z0-9+/=])"
-    )
-    _HEX_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
-    _HEX_LITERAL_RE = re.compile(r"0[xX][0-9a-fA-F]+")
-    _UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+    _BASE64_RE = base64_decode.BASE64_RE
+    _GZIP_MAGIC = base64_decode.GZIP_MAGIC
+    _MAX_GUNZIP_ATTEMPTS_PER_PASS = base64_decode.MAX_GUNZIP_ATTEMPTS_PER_PASS
+    _LDAP_HEX_ESCAPE_RE = re.compile(r"\\([0-9a-fA-F]{2})")
     _SQL_BLOCK_COMMENT_STRIP_RE = re.compile(
         r"(?<!\w)/\*(?!!)(.*?)\*/|/\*(?!!)(.*?)\*/(?!\w)", re.DOTALL
     )
@@ -139,109 +153,37 @@ class ContentPreprocessor:
         return content
 
     def extract_attack_regions(self, content: str) -> list[tuple[int, int]]:
-        max_regions = min(100, self.max_content_length // 100)
-        regions = []
-
-        for indicator in self.compiled_indicators:
-            import concurrent.futures
-
-            def _find_all(pattern: re.Pattern, text: str) -> list[tuple[int, int]]:
-                found: list[tuple[int, int]] = []
-                for match in pattern.finditer(text):
-                    if len(found) >= max_regions:
-                        break
-                    start = max(0, match.start() - 100)
-                    end = min(len(text), match.end() + 100)
-                    found.append((start, end))
-                return found
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_find_all, indicator, content)
-                try:
-                    indicator_regions = future.result(timeout=0.5)
-                    regions.extend(indicator_regions)
-                except concurrent.futures.TimeoutError:
-                    continue
-
-            if len(regions) >= max_regions:
-                break
-
-        if regions:
-            regions.sort()
-            merged = [regions[0]]
-            for start, end in regions[1:]:
-                if start <= merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-                else:
-                    merged.append((start, end))
-            return merged[:max_regions]
-
-        return []
+        return truncation.extract_attack_regions(self, content)
 
     def _extract_and_concatenate_attack_regions(
-        self, content: str, attack_regions: list[tuple[int, int]]
+        self,
+        content: str,
+        attack_regions: list[tuple[int, int]],
+        budget: int | None = None,
     ) -> str:
-        result = ""
-        remaining = self.max_content_length
-
-        for start, end in attack_regions:
-            chunk_len = min(end - start, remaining)
-            result += content[start : start + chunk_len]
-            remaining -= chunk_len
-            if remaining <= 0:
-                break
-
-        return result
+        if budget is None:
+            budget = self.max_content_length
+        return truncation.extract_and_concatenate_attack_regions(
+            content, attack_regions, budget
+        )
 
     def _build_result_with_attack_regions_and_context(
-        self, content: str, attack_regions: list[tuple[int, int]]
+        self,
+        content: str,
+        attack_regions: list[tuple[int, int]],
+        budget: int | None = None,
     ) -> str:
-        attack_length = sum(end - start for start, end in attack_regions)
-        gap_budget = self.max_content_length - attack_length
-        result_parts: list[str] = []
-        last_end = 0
+        if budget is None:
+            budget = self.max_content_length
+        return truncation.build_result_with_attack_regions_and_context(
+            content, attack_regions, budget
+        )
 
-        for start, end in attack_regions:
-            if last_end < start and gap_budget > 0:
-                gap_len = start - last_end
-                if gap_len <= gap_budget:
-                    result_parts.append(content[last_end:start])
-                    gap_budget -= gap_len
-                else:
-                    chunk_len = gap_budget - 1
-                    if chunk_len > 0:
-                        result_parts.append(content[last_end : last_end + chunk_len])
-                    result_parts.append(" ")
-                    gap_budget = 0
-            result_parts.append(content[start:end])
-            last_end = end
-
-        if last_end < len(content) and gap_budget > 0:
-            tail_len = min(len(content) - last_end, gap_budget)
-            result_parts.append(content[last_end : last_end + tail_len])
-
-        return "".join(result_parts)
+    def _cap_with_tail(self, content: str) -> str:
+        return truncation.cap_with_tail(content, self._MAX_FULL_SCAN_BYTES)
 
     def truncate_safely(self, content: str) -> str:
-        if len(content) <= self.max_content_length:
-            return content
-
-        if not self.preserve_attack_patterns:
-            return content[: self.max_content_length]
-
-        attack_regions = self.extract_attack_regions(content)
-
-        if not attack_regions:
-            return content[: self.max_content_length]
-
-        attack_length = sum(end - start for start, end in attack_regions)
-
-        if attack_length >= self.max_content_length:
-            return self._extract_and_concatenate_attack_regions(content, attack_regions)
-
-        return self._build_result_with_attack_regions_and_context(
-            content, attack_regions
-        )
+        return truncation.truncate_safely(self, content)
 
     def remove_null_bytes(self, content: str) -> str:
         content = content.replace("\x00", "")
@@ -250,71 +192,48 @@ class ContentPreprocessor:
         translator = str.maketrans("", "", control_chars)
         return content.translate(translator)
 
-    _PRINTABLE_ASCII_RATIO_THRESHOLD = 0.5
-    _MAX_REPLACEMENT_CHAR_RATIO = 0.2
-
     def _is_hex_literal(self, token: str) -> bool:
-        return bool(self._HEX_LITERAL_RE.fullmatch(token))
+        return base64_decode.is_hex_literal(token)
 
-    def _printable_ascii_ratio(self, text: str) -> float:
-        if not text:
-            return 0.0
-        printable_count = sum(1 for char in text if 0x20 <= ord(char) <= 0x7E)
-        return printable_count / len(text)
+    def _printable_ratio(self, text: str) -> float:
+        return base64_decode.printable_ratio(text)
 
     def _replacement_char_ratio(self, text: str) -> float:
-        if not text:
-            return 0.0
-        return text.count("�") / len(text)
+        return base64_decode.replacement_char_ratio(text)
 
-    def _decode_base64_candidates(self, content: str) -> str:
-        import base64
+    def _bounded_gunzip(self, raw: bytes) -> bytes | None:
+        return base64_decode.bounded_gunzip(raw, self._MAX_FULL_SCAN_BYTES)
 
-        def _replace(match: re.Match[str]) -> str:
-            token = match.group(0)
-            if self._is_hex_literal(token):
-                return token
-            padding = (4 - len(token) % 4) % 4
-            padded = token + "=" * padding
-            try:
-                raw = base64.b64decode(padded, validate=True)
-            except (ValueError, binascii.Error):
-                return token
-            try:
-                decoded = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                decoded = raw.decode("utf-8", errors="replace")
-                if (
-                    self._replacement_char_ratio(decoded)
-                    > self._MAX_REPLACEMENT_CHAR_RATIO
-                ):
-                    return token
-            if (
-                self._printable_ascii_ratio(decoded)
-                >= self._PRINTABLE_ASCII_RATIO_THRESHOLD
-            ):
-                return decoded
-            return token
-
-        return self._BASE64_RE.sub(_replace, content)
+    def _decode_base64_candidates(
+        self, content: str, gunzip_attempts_left: list[int] | None = None
+    ) -> str:
+        return base64_decode.decode_base64_candidates(
+            content, gunzip_attempts_left, self._MAX_FULL_SCAN_BYTES
+        )
 
     def _decode_hex_escapes(self, content: str) -> str:
+        return encoding_decoders.decode_hex_escapes(content)
+
+    def _decode_ldap_hex_escapes(self, content: str) -> str:
         def _replace(match: re.Match[str]) -> str:
             try:
                 return chr(int(match.group(1), 16))
             except ValueError:
                 return match.group(0)
 
-        return self._HEX_ESCAPE_RE.sub(_replace, content)
+        return self._LDAP_HEX_ESCAPE_RE.sub(_replace, content)
 
     def _decode_unicode_escapes(self, content: str) -> str:
-        def _replace(match: re.Match[str]) -> str:
-            try:
-                return chr(int(match.group(1), 16))
-            except ValueError:
-                return match.group(0)
+        return encoding_decoders.decode_unicode_escapes(content)
 
-        return self._UNICODE_ESCAPE_RE.sub(_replace, content)
+    def _decode_percent_u_escapes(self, content: str) -> str:
+        return encoding_decoders.decode_percent_u_escapes(content)
+
+    def _lenient_overlong_utf8_decode(self, raw: bytes) -> str:
+        return encoding_decoders.lenient_overlong_utf8_decode(raw)
+
+    def _decode_overlong_utf8_percent_runs(self, content: str) -> str:
+        return encoding_decoders.decode_overlong_utf8_percent_runs(content)
 
     def _strip_sql_comments(self, content: str) -> str:
         def _replace_block_comment(match: re.Match[str]) -> str:
@@ -325,12 +244,17 @@ class ContentPreprocessor:
         content = self._SQL_LINE_COMMENT_MARKER_RE.sub(" ", content)
         return content
 
-    def decode_common_encodings(self, content: str) -> str:
-        max_decode_iterations = 7
+    def decode_common_encodings(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
+        max_decode_iterations = 16
         iterations = 0
+        gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
 
         while iterations < max_decode_iterations:
             original = content
+
+            content = self._decode_overlong_utf8_percent_runs(content)
 
             try:
                 import urllib.parse
@@ -362,29 +286,57 @@ class ContentPreprocessor:
                     error_type="html_decode",
                 )
 
+            content = self._decode_percent_u_escapes(content)
             content = self._decode_hex_escapes(content)
+            content = self._decode_ldap_hex_escapes(content)
             content = self._decode_unicode_escapes(content)
-            content = self._decode_base64_candidates(content)
+            content = self.normalize_unicode(content)
+            content = self._decode_base64_candidates(content, gunzip_attempts_left)
 
             if content == original:
                 break
 
             iterations += 1
+        else:
+            if decode_budget_exhausted is not None:
+                decode_budget_exhausted[0] = True
 
         content = self._strip_sql_comments(content)
         return content
 
-    def preprocess(self, content: str) -> str:
+    def preprocess(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
         if not content:
             return ""
 
         content = self.normalize_unicode(content)
-        content = self.decode_common_encodings(content)
+        content = self.decode_common_encodings(content, decode_budget_exhausted)
         content = self.remove_null_bytes(content)
         content = self.remove_excessive_whitespace(content)
         content = self.truncate_safely(content)
 
         return content
+
+    def preprocess_signal_preserving(self, content: str) -> str:
+        if not content:
+            return ""
+
+        content = self.normalize_unicode(content)
+        return self.truncate_safely(content)
+
+    def preprocess_url_decoded_newline_preserving(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> str:
+        if not content:
+            return ""
+
+        content = self.normalize_unicode(content)
+        content = self.decode_common_encodings(content, decode_budget_exhausted)
+        return self.truncate_safely(content)
+
+    def preprocess_short_base64_additive_view(self, content: str) -> str:
+        return build_short_base64_additive_view(self, content)
 
     def preprocess_batch(self, contents: list[str]) -> list[str]:
         return [self.preprocess(content) for content in contents]

@@ -247,8 +247,8 @@ async def test_excluded_form_field_suppresses_decoded_match() -> None:
     assert _result.is_threat is False
 
 
-async def test_multipart_file_part_not_scanned() -> None:
-    config = SecurityConfig(excluded_detection_body_fields={"unused"})
+async def test_multipart_file_part_excluded_suppressed() -> None:
+    config = SecurityConfig(excluded_detection_body_fields={"file"})
     body, headers = _multipart(
         "B0",
         'Content-Disposition: form-data; name="file"; filename="a.txt"\r\n'
@@ -257,6 +257,18 @@ async def test_multipart_file_part_not_scanned() -> None:
     request = _FakeRequest(body_bytes=body, headers=headers)
     _result = await detect_penetration_attempt(request, config)
     assert _result.is_threat is False
+
+
+async def test_multipart_file_part_non_excluded_matches() -> None:
+    config = SecurityConfig(excluded_detection_body_fields={"unused"})
+    body, headers = _multipart(
+        "B0",
+        'Content-Disposition: form-data; name="file"; filename="a.txt"\r\n'
+        "Content-Type: text/plain\r\n\r\n<script>alert(1)</script>",
+    )
+    request = _FakeRequest(body_bytes=body, headers=headers)
+    _result = await detect_penetration_attempt(request, config)
+    assert _result.is_threat is True
 
 
 async def test_multipart_text_part_excluded_suppressed() -> None:
@@ -291,14 +303,24 @@ async def test_multipart_unparseable_body_falls_back_to_blob() -> None:
     assert _result.is_threat is True
 
 
-async def test_multipart_part_without_name_is_skipped() -> None:
+async def test_multipart_part_without_name_is_scanned() -> None:
     config = SecurityConfig(excluded_detection_body_fields={"unused"})
     body, headers = _multipart(
         "B0", "Content-Disposition: form-data\r\n\r\n<script>alert(1)</script>"
     )
     request = _FakeRequest(body_bytes=body, headers=headers)
     _result = await detect_penetration_attempt(request, config)
-    assert _result.is_threat is False
+    assert _result.is_threat is True
+
+
+async def test_multipart_part_without_name_not_suppressed_by_fallback_label() -> None:
+    config = SecurityConfig(excluded_detection_body_fields={"file"})
+    body, headers = _multipart(
+        "B0", "Content-Disposition: form-data\r\n\r\n<script>alert(1)</script>"
+    )
+    request = _FakeRequest(body_bytes=body, headers=headers)
+    _result = await detect_penetration_attempt(request, config)
+    assert _result.is_threat is True
 
 
 async def test_multipart_scans_second_text_part_when_first_is_clean() -> None:

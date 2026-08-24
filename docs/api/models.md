@@ -39,8 +39,8 @@ class SecurityConfig(BaseModel):
     blocked_countries: frozenset[str] = Field(default_factory=frozenset)
     blocked_user_agents: list[str] = Field(default_factory=list)
 
-    auto_ban_threshold: int = Field(default=10)
-    auto_ban_duration: int = Field(default=3600)
+    auto_ban_threshold: int = Field(default=10, ge=1)
+    auto_ban_duration: int = Field(default=3600, ge=1)
 
     threat_ban_config: MappingProxyType[str, ThreatBanConfig] = Field(
         default_factory=lambda: MappingProxyType({})
@@ -225,10 +225,10 @@ These fields tune how guard-core bootstraps geo-IP and cloud-IP data. They are i
 
 | Symbol                  | Type                       | Description                                                                 |
 |-------------------------|----------------------------|-----------------------------------------------------------------------------|
-| `CloudProvider`         | `Literal["AWS", "GCP", "Azure"]` | Type alias naming the three user-blockable providers. `block_cloud_providers` itself is typed `frozenset[str] \| None` (not `frozenset[CloudProvider]`), since a validated entry can carry a `:!region` carve-out suffix that isn't a bare `CloudProvider` value. |
+| `CloudProvider`         | `Literal["AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"]` | Type alias naming the six user-blockable providers. `block_cloud_providers` itself is typed `frozenset[str] \| None` (not `frozenset[CloudProvider]`), since a validated entry can carry a `:!region` carve-out suffix that isn't a bare `CloudProvider` value. |
 | `VALID_CLOUD_PROVIDERS` | `frozenset[str]`           | Runtime guard set derived from `typing.get_args(CloudProvider)`. Used by `validate_cloud_providers`, `DynamicRules.blocked_cloud_providers` filtering, and the `@block_clouds` decorator. |
 
-Adding a new provider is a one-line edit to the `CloudProvider` Literal — every consumer picks up the change automatically.
+Adding a new provider is a one-line edit to the `CloudProvider` Literal, every consumer picks up the change automatically.
 
 See [Cloud IP Store](cloud-ip-store.md) for the protocol contract and the in-memory / Redis implementations.
 
@@ -313,7 +313,32 @@ class DynamicRules(BaseModel):
     enable_penetration_detection: bool | None = Field(default=None)
     enable_ip_banning: bool | None = Field(default=None)
     enable_rate_limiting: bool | None = Field(default=None)
+    auto_ban_threshold: int | None = Field(default=None, ge=1)
+    auto_ban_duration: int | None = Field(default=None, ge=1)
+    enable_rate_limit_auto_ban: bool | None = Field(default=None)
 
     emergency_mode: bool = Field(default=False)
     emergency_whitelist: list[str] = Field(default_factory=list)
 ```
+
+| Field                         | Type            | Default | Description                                                                 |
+|-------------------------------|------------------|---------|-------------------------------------------------------------------------------|
+| `expires_at`                  | `datetime \| None` | `None`  | Rule expiration time. `None` means the rule never expires (unchanged default). When set, see [Expiration](#expiration-expires_at) below. |
+| `ttl`                         | `int`            | `300`   | Cache TTL in seconds for the agent-side fetch, unrelated to `expires_at`; it does not drive expiry. |
+| `auto_ban_threshold`          | `int \| None`    | `None`  | Runtime override for `SecurityConfig.auto_ban_threshold` (`>= 1`). |
+| `auto_ban_duration`           | `int \| None`    | `None`  | Runtime override for `SecurityConfig.auto_ban_duration` (`>= 1`). |
+| `enable_rate_limit_auto_ban`  | `bool \| None`   | `None`  | Runtime override for `SecurityConfig.enable_rate_limit_auto_ban`. See [Rate-limit auto-ban](ban-config.md#rate-limit-auto-ban). |
+
+### Runtime overrides
+
+`enable_penetration_detection`, `enable_ip_banning`, `enable_rate_limiting`, `auto_ban_threshold`, `auto_ban_duration`, and `enable_rate_limit_auto_ban` are all applied by `DynamicRuleManager._apply_feature_toggles` on the same if-not-`None` convention: each field defaults to `None`, and a push only overwrites the matching `SecurityConfig` field when the pushed value is not `None`. A push that sets `auto_ban_threshold` mutates `SecurityConfig.auto_ban_threshold` directly, the same field the flat auto-ban fallback reads (see [Ban Configuration](ban-config.md)); there is no separate ban-engine tier for dynamic-rule overrides.
+
+### Expiration (`expires_at`)
+
+`expires_at` is live: `DynamicRuleManager._check_rule_expiry` evaluates it once per poll tick, under the apply lock, before the manager fetches a new rule. A naive `expires_at` (no `tzinfo`) is treated as UTC. Expiry is keyed on `expires_at` alone; `ttl` plays no part in it.
+
+On the first no-rule-to-active-rule transition, `_apply_rules` captures a base snapshot of `DynamicRuleManager._SNAPSHOT_FIELDS` (the same `SecurityConfig` fields dynamic-rule overrides can touch: country, cloud-provider, user-agent, rate-limit, feature-toggle, and emergency-mode settings) and retains it across every superseding push while a rule stays active. When the active rule's `expires_at` passes, `_check_rule_expiry` restores that retained base snapshot, reverting to the original pre-any-rule config rather than to whatever an intermediate push left behind (this also undoes the auto-ban-threshold halving `_activate_emergency_mode` applies). After the revert, both the current rule and the retained snapshot are cleared, so the next fetched rule starts a fresh snapshot cycle.
+
+This retained base snapshot is a distinct mechanism from the local rollback snapshot `_apply_rules` takes at the start of every individual apply: the rollback snapshot exists only to undo that one call if it raises, and is discarded once the call succeeds, except on the transition apply, where the same snapshot is promoted into the retained base snapshot instead of being discarded. From then on the two diverge: later applies (superseding pushes while a rule is already active) still take and discard their own per-call rollback snapshot, but leave the retained base snapshot untouched, so only expiry ever consumes it.
+
+A rule whose `expires_at` is already past when `update_rules` receives it never activates: `_reject_if_already_expired` runs right after the fetch, before the version check, and rejects it outright rather than applying it and reverting on the next tick. This closes the gap where an agent that keeps serving the same already-expired rule caused a revert-then-reapply loop on every poll (config never settling at base, an event pair per tick, and a repeated `[EMERGENCY MODE]` log for a rule carrying `emergency_mode`). The rejection is silent to the caller, `update_rules` simply returns, but logs a warning naming the rule and version, once per distinct `(rule_id, version)`, so a stale agent polling with the same expired rule cannot spam the log. Expiry enforcement lives entirely in `DynamicRuleManager`; the `get_dynamic_rules` agent protocol places no obligation on the agent to withhold an expired rule, so this guard is what makes expiry hold regardless of agent behavior.

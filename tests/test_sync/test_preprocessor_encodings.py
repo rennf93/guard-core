@@ -98,8 +98,18 @@ def test_hex_escape_all_valid_chars(pp: ContentPreprocessor) -> None:
     assert "abc" in result.lower()
 
 
+def test_ldap_hex_escape_decoded_in_preprocess(pp: ContentPreprocessor) -> None:
+    payload = r"admin\29\28cn=\2a"
+    result = pp.preprocess(payload)
+    assert "admin)(cn=*" in result
+
+
 def test_decode_hex_escapes_directly(pp: ContentPreprocessor) -> None:
     assert pp._decode_hex_escapes(r"\x41\x42") == "AB"
+
+
+def test_decode_ldap_hex_escapes_directly(pp: ContentPreprocessor) -> None:
+    assert pp._decode_ldap_hex_escapes(r"\29\28cn=\2a") == ")(cn=*"
 
 
 def test_decode_unicode_escapes_directly(pp: ContentPreprocessor) -> None:
@@ -191,20 +201,32 @@ def test_decode_base64_candidates_returns_token_when_decode_fails(
     assert result == payload
 
 
-def test_printable_ascii_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
-    assert pp._printable_ascii_ratio("") == 0.0
+def test_printable_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
+    assert pp._printable_ratio("") == 0.0
 
 
-def test_printable_ascii_ratio_of_all_printable_ascii_is_one(
+def test_printable_ratio_of_all_printable_ascii_is_one(
     pp: ContentPreprocessor,
 ) -> None:
-    assert pp._printable_ascii_ratio("hello world 123") == 1.0
+    assert pp._printable_ratio("hello world 123") == 1.0
 
 
-def test_printable_ascii_ratio_counts_only_ascii_printable_range(
+def test_printable_ratio_excludes_control_characters(
     pp: ContentPreprocessor,
 ) -> None:
-    assert pp._printable_ascii_ratio("ab\x01\x02") == 0.5
+    assert pp._printable_ratio("ab\x01\x02") == 0.5
+
+
+def test_printable_ratio_counts_non_ascii_letters_as_printable(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ratio("你好世界") == 1.0
+
+
+def test_printable_ratio_of_mixed_ascii_and_cjk_is_one(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._printable_ratio("'; EXEC xp_cmdshell('whoami'); -- 你好") == 1.0
 
 
 def test_replacement_char_ratio_of_empty_text_is_zero(pp: ContentPreprocessor) -> None:
@@ -282,6 +304,14 @@ def test_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:
     assert result == "\\x41"
 
 
+def test_ldap_hex_escape_value_error_path(pp: ContentPreprocessor) -> None:
+    from unittest.mock import patch
+
+    with patch("builtins.chr", side_effect=ValueError("invalid")):
+        result = pp._decode_ldap_hex_escapes("\\29")
+    assert result == "\\29"
+
+
 def test_unicode_escape_value_error_path(pp: ContentPreprocessor) -> None:
     from unittest.mock import patch
 
@@ -326,7 +356,6 @@ def test_truncate_preserves_tail_content_after_attack_region(
     payload = attack + safe_tail
     result = pp2.preprocess(payload)
     assert "<script" in result.lower()
-    assert len(result) <= 300
     assert len(result) > len(attack)
 
 
@@ -412,3 +441,104 @@ def test_block_comment_in_prose_preserves_interior_words(
     result = pp.preprocess("the file has a /* TODO */ marker inside it")
     for word in ("TODO", "marker", "inside"):
         assert word in result
+
+
+def test_decode_percent_u_escapes_directly(pp: ContentPreprocessor) -> None:
+    assert pp._decode_percent_u_escapes("%u002e%u002e") == ".."
+
+
+def test_decode_percent_u_escapes_value_error_path(pp: ContentPreprocessor) -> None:
+    from unittest.mock import patch
+
+    with patch("builtins.chr", side_effect=ValueError("invalid")):
+        result = pp._decode_percent_u_escapes("%u002e")
+    assert result == "%u002e"
+
+
+def test_lenient_overlong_utf8_decode_passes_through_ascii(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(b"A") == "A"
+
+
+def test_lenient_overlong_utf8_decode_two_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0, 0xAF])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_truncated_lead_byte_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0])) == ""
+
+
+def test_lenient_overlong_utf8_decode_bad_first_continuation_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xC0, 0x2F])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_three_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xE0, 0x80, 0xAF])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_bad_trailing_continuation_is_dropped(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xE0, 0x80, 0x2F])) == "/"
+
+
+def test_lenient_overlong_utf8_decode_four_byte_overlong_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._lenient_overlong_utf8_decode(bytes([0xF0, 0x80, 0x80, 0xAF])) == "/"
+
+
+def test_decode_overlong_utf8_percent_runs_leaves_valid_utf8_untouched(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._decode_overlong_utf8_percent_runs("%c3%a9") == "%c3%a9"
+
+
+def test_decode_overlong_utf8_percent_runs_decodes_invalid_overlong_run(
+    pp: ContentPreprocessor,
+) -> None:
+    assert pp._decode_overlong_utf8_percent_runs("%c0%af") == "/"
+
+
+def test_percent_u_iis_unicode_dot_pair_decodes_to_literal_dots(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp.preprocess("%u002e%u002e%2f")
+    assert result == "../"
+
+
+def test_percent_u_division_slash_renormalizes_to_ascii_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp.preprocess("%u002e%u002e%u2215")
+    assert result == "../"
+
+
+def test_percent_u_fullwidth_solidus_renormalizes_to_ascii_slash(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp.preprocess("..%uff0f")
+    assert result == "../"
+
+
+def test_four_byte_overlong_utf8_slash_decodes_through_preprocess(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp.preprocess("..%f0%80%80%af")
+    assert result == "../"
+
+
+def test_valid_multibyte_percent_encoded_utf8_is_unaffected(
+    pp: ContentPreprocessor,
+) -> None:
+    result = pp.preprocess("caf%c3%a9")
+    assert result == "café"

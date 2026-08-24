@@ -1,8 +1,9 @@
 import concurrent.futures
 import logging
 import re
+import time
 from collections.abc import Callable
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -306,12 +307,12 @@ async def test_regex_timeout_fallback() -> None:
         mock_shared_executor.return_value.submit.return_value = mock_future
 
         with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
-            matched, pattern = await manager.detect_pattern_match(
-                evil_content, "127.0.0.1", "test_timeout"
-            )
+            result = await manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
-            assert not matched
-            assert pattern is None
+            assert result["is_threat"] is True
+            assert any(
+                threat["type"] == "pattern_timeout" for threat in result["threats"]
+            )
 
             mock_logger.warning.assert_called()
             warning_msg = mock_logger.warning.call_args[0][0]
@@ -408,6 +409,56 @@ async def test_pattern_timeout_with_compiler(
                 assert len(timeout_warnings) > 0
 
                 assert len(result["timeouts"]) > 0
+
+    await manager.remove_pattern(custom_pattern, custom=True)
+
+
+@pytest.mark.asyncio
+async def test_pattern_timeout_preserves_existing_regex_threat(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    manager = sus_patterns_manager_with_detection
+    custom_pattern = r"timeout_with_existing_threat"
+    await manager.add_pattern(custom_pattern, custom=True)
+    existing_threat = {
+        "type": "regex",
+        "pattern": custom_pattern,
+        "match": custom_pattern,
+        "position": 0,
+        "execution_time": 0.01,
+        "category": "custom",
+        "weight": 1,
+    }
+
+    async def fake_check(
+        pattern: re.Pattern,
+        content: str,
+        ip_address: str,
+        pattern_start: float,
+        category: str,
+        *,
+        state: object = None,
+        context: str = "unknown",
+    ) -> tuple[dict | None, bool]:
+        if pattern.pattern == custom_pattern:
+            return dict(existing_threat), True
+        return None, False
+
+    with patch.object(manager, "_check_regex_pattern", new=fake_check):
+        threats, matched, timeouts = await manager._check_regex_patterns(
+            custom_pattern, "127.0.0.1", None, context="test"
+        )
+
+    assert custom_pattern in timeouts
+    assert custom_pattern in matched
+    preserved = [
+        t
+        for t in threats
+        if t.get("type") == "regex" and t.get("pattern") == custom_pattern
+    ]
+    assert preserved
+    assert preserved[0]["match"] == custom_pattern
+    assert not any(t.get("type") == "pattern_timeout" for t in threats)
 
     await manager.remove_pattern(custom_pattern, custom=True)
 
@@ -584,6 +635,22 @@ async def test_semantic_threat_suspicious_fallback(
 
             assert semantic_threats[0]["attack_type"] == "suspicious"
             assert semantic_threats[0]["threat_score"] == 0.75
+
+
+@pytest.mark.asyncio
+async def test_semantic_analysis_skipped_for_binary_content(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    manager = sus_patterns_manager_with_detection
+
+    with patch.object(manager._semantic_analyzer, "analyze") as mock_analyze:
+        binary_blob = (bytes(range(256)) * 20).decode("utf-8", errors="replace")
+
+        result = await manager.detect(binary_blob, "127.0.0.1", "test_binary")
+
+        mock_analyze.assert_not_called()
+        semantic_threats = [t for t in result["threats"] if t["type"] == "semantic"]
+        assert semantic_threats == []
 
 
 @pytest.mark.asyncio
@@ -1052,3 +1119,106 @@ async def test_reset_noop_when_instance_is_none() -> None:
     SusPatternsManager._instance = None
     await SusPatternsManager.reset()
     SusPatternsManager._instance = original
+
+
+@pytest.mark.asyncio
+async def test_custom_pattern_match_rejected_by_validator_falls_through(
+    sus_patterns_manager_with_detection: SusPatternsManager,
+) -> None:
+    from guard_core.handlers.suspatterns_handler import _GLUED_BACKTICK_CANDIDATE_RE
+
+    manager = sus_patterns_manager_with_detection
+    pattern = re.compile(_GLUED_BACKTICK_CANDIDATE_RE, re.IGNORECASE)
+
+    threat, timed_out = await manager._check_regex_pattern(
+        pattern, "`whoami`", "1.2.3.4", time.monotonic(), "custom"
+    )
+
+    assert threat is None
+    assert timed_out is False
+
+
+@pytest.mark.asyncio
+async def test_configure_with_unsupported_config_is_a_noop() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    state_before = manager._detection_state
+
+    manager.configure(object())
+
+    assert manager._detection_state is state_before
+    SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_initialize_agent_sets_agent_handler() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    agent = object()
+
+    await manager.initialize_agent(agent)
+
+    assert manager.agent_handler is agent
+    SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_add_pattern_sends_event_when_agent_handler_set() -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    sus_patterns_handler.agent_handler = mock_agent
+    pattern = r"agent_event_add_pattern_xyz"
+
+    try:
+        await sus_patterns_handler.add_pattern(pattern, custom=True)
+
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+        await sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+
+@pytest.mark.asyncio
+async def test_remove_pattern_sends_event_when_agent_handler_set() -> None:
+    pattern = r"agent_event_remove_pattern_xyz"
+    await sus_patterns_handler.add_pattern(pattern, custom=True)
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    sus_patterns_handler.agent_handler = mock_agent
+
+    try:
+        result = await sus_patterns_handler.remove_pattern(pattern, custom=True)
+
+        assert result is True
+        mock_agent.send_event.assert_called_once()
+    finally:
+        sus_patterns_handler.agent_handler = None
+
+
+@pytest.mark.asyncio
+async def test_remove_default_pattern_returns_false_when_not_found() -> None:
+    result = await sus_patterns_handler.remove_pattern(
+        "nonexistent_default_pattern_xyz", custom=False
+    )
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_remove_default_pattern_returns_false_when_compiled_index_missing() -> (
+    None
+):
+    handler = sus_patterns_handler
+    original_patterns = handler.patterns.copy()
+    original_compiled = handler.compiled_patterns.copy()
+
+    try:
+        test_pattern = "test_pattern_compiled_index_missing_xyz"
+        handler.patterns.append(test_pattern)
+        handler.compiled_patterns = []
+
+        result = await handler._remove_default_pattern(test_pattern)
+
+        assert result is False
+    finally:
+        handler.patterns = original_patterns
+        handler.compiled_patterns = original_compiled

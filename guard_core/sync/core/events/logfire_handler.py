@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger("guard_core")
@@ -14,18 +15,43 @@ except ImportError:
     _logfire_available = False
 
 
+_configure_lock = threading.Lock()
+
+
 class LogfireHandler:
     def __init__(self, config: Any) -> None:
         self._config = config
+        self._started = False
+        self._configured_by_guard = False
 
     def start(self) -> None:
         if not _logfire_available:
             logger.warning("logfire not installed, Logfire handler disabled")
             return
-        logfire.configure(service_name=self._config.logfire_service_name)
+        with _configure_lock:
+            if self._started:
+                return
+            if logfire.DEFAULT_LOGFIRE_INSTANCE.config._initialized:
+                self._started = True
+                logger.warning(
+                    "logfire is already configured for this process (by a host "
+                    "application or an earlier guard_core instance); guard_core "
+                    "will not apply its logfire_service_name %s",
+                    self._config.logfire_service_name,
+                )
+                return
+            logfire.configure(service_name=self._config.logfire_service_name)
+            self._configured_by_guard = True
+            self._started = True
 
     def stop(self) -> None:
-        pass
+        if not _logfire_available:
+            return
+        with _configure_lock:
+            if self._configured_by_guard:
+                logfire.shutdown()
+                self._configured_by_guard = False
+            self._started = False
 
     def send_event(self, event: Any) -> None:
         if not _logfire_available:

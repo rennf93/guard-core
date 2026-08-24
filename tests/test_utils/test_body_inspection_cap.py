@@ -160,7 +160,7 @@ async def test_content_length_present_stall_degrades() -> None:  # async-only
     assert result.is_threat is False
 
 
-async def test_at_cap_body_invalid_utf8_is_read_but_not_scanned() -> None:
+async def test_at_cap_body_invalid_utf8_is_read_and_scanned_lossily() -> None:
     invalid_utf8_body = b"\xff\xfe not valid utf8"
     request = _BodyRequest(
         body=invalid_utf8_body, content_length=len(invalid_utf8_body)

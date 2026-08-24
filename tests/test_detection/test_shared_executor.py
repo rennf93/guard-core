@@ -60,22 +60,6 @@ def test_shared_executor_is_singleton_under_concurrent_first_call(
     assert len(set(seen)) == 1
 
 
-def test_validation_executor_skips_reinit_when_set_during_lock_wait(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(compiler, "_validation_executor", None)
-    sentinel = object()
-    monkeypatch.setattr(
-        compiler,
-        "_validation_executor_lock",
-        _RaceWinnerLock(monkeypatch, "_validation_executor", sentinel),
-    )
-
-    result = compiler.validation_regex_executor()
-
-    assert result is sentinel
-
-
 def test_report_scan_timeout_swaps_pool_with_no_prior_executor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

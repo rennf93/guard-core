@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from guard_core.models import SecurityConfig
+from guard_core.models import VALID_CLOUD_PROVIDERS, SecurityConfig
 from guard_core.sync.decorators.access_control import AccessControlMixin
 from guard_core.sync.decorators.access_control import (
     AccessControlMixin as SyncAccessControlMixin,
@@ -88,7 +88,7 @@ def test_async_block_clouds_default_uses_all_supported() -> None:
     decorated = d.block_clouds()(_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None
-    assert rc.block_cloud_providers == {"AWS", "GCP", "Azure"}
+    assert rc.block_cloud_providers == set(VALID_CLOUD_PROVIDERS)
 
 
 def test_async_block_clouds_with_valid_list() -> None:
@@ -117,7 +117,7 @@ def test_sync_block_clouds_default_uses_all_supported() -> None:
     decorated = d.block_clouds()(_fourth_sample_func)
     rc = d.get_route_config(decorated._guard_route_id)
     assert rc is not None
-    assert rc.block_cloud_providers == {"AWS", "GCP", "Azure"}
+    assert rc.block_cloud_providers == set(VALID_CLOUD_PROVIDERS)
 
 
 def test_sync_block_clouds_filters_unknown_and_warns(

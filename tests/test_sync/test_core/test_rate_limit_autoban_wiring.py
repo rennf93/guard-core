@@ -1,0 +1,188 @@
+from unittest.mock import MagicMock, Mock
+
+import pytest
+from pydantic import ValidationError
+
+from guard_core.models import SecurityConfig, ThreatBanConfig
+from guard_core.sync.core.checks.implementations.rate_limit import RateLimitCheck
+from guard_core.sync.handlers.ipban_handler import IPBanManager
+
+BanCalls = list[tuple[str, int, str]]
+
+
+def _make_middleware(config: SecurityConfig) -> Mock:
+    middleware = Mock()
+    middleware.config = config
+    middleware.logger = Mock()
+    middleware.event_bus = Mock()
+    middleware.event_bus.send_middleware_event = MagicMock()
+    middleware.create_error_response = MagicMock(return_value=Mock(status_code=429))
+    middleware.route_resolver = Mock()
+    middleware.route_resolver.should_bypass_check = Mock(return_value=False)
+    middleware.geo_ip_handler = None
+    middleware.suspicious_request_counts = {}
+    middleware.rate_limit_handler = Mock()
+    middleware.rate_limit_handler.check_rate_limit = MagicMock(
+        return_value=Mock(status_code=429)
+    )
+    return middleware
+
+
+def _make_request(client_ip: str) -> MagicMock:
+    request = MagicMock()
+    request.state.client_ip = client_ip
+    request.state.route_config = None
+    request.state.is_whitelisted = False
+    request.url_path = "/api/test"
+    return request
+
+
+def _make_check_with_recording_ban(
+    config: SecurityConfig,
+) -> tuple[RateLimitCheck, BanCalls]:
+    middleware = _make_middleware(config)
+    check = RateLimitCheck(middleware)
+    ban_calls: BanCalls = []
+
+    def fake_ban(ip: str, duration: int, reason: str) -> None:
+        ban_calls.append((ip, duration, reason))
+
+    check.ip_ban_manager = Mock()
+    check.ip_ban_manager.ban_ip = fake_ban
+    return check, ban_calls
+
+
+def test_knob_off_default_never_bans_on_violation() -> None:
+    config = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    assert config.enable_rate_limit_auto_ban is False
+    check, ban_calls = _make_check_with_recording_ban(config)
+
+    check.check(_make_request("1.1.1.1"))
+    check.check(_make_request("1.1.1.1"))
+
+    assert ban_calls == []
+
+
+def test_threshold_crossing_bans_with_configured_duration_and_reason() -> None:
+    config = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=2,
+        auto_ban_duration=1234,
+    )
+    check, ban_calls = _make_check_with_recording_ban(config)
+    request = _make_request("2.2.2.2")
+
+    check.check(request)
+    assert ban_calls == []
+
+    check.check(request)
+    assert len(ban_calls) == 1
+    ip, duration, reason = ban_calls[0]
+    assert ip == "2.2.2.2"
+    assert duration == 1234
+    assert reason == "rate_limit_exceeded"
+
+
+def test_per_category_threat_ban_config_override_honored() -> None:
+    config = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1000,
+        auto_ban_duration=60,
+        threat_ban_config={"rate_limit": ThreatBanConfig(threshold=1, duration=999)},
+    )
+    check, ban_calls = _make_check_with_recording_ban(config)
+
+    check.check(_make_request("3.3.3.3"))
+
+    assert len(ban_calls) == 1
+    ip, duration, reason = ban_calls[0]
+    assert ip == "3.3.3.3"
+    assert duration == 999
+    assert reason == "rate_limit_exceeded:rate_limit"
+
+
+def test_threat_ban_config_accepts_rate_limit_pseudo_category() -> None:
+    config = SecurityConfig(
+        threat_ban_config={"rate_limit": ThreatBanConfig(threshold=1, duration=60)}
+    )
+
+    assert config.threat_ban_config["rate_limit"].threshold == 1
+
+
+def test_enabled_detection_categories_rejects_rate_limit_pseudo_category() -> None:
+    with pytest.raises(ValidationError, match="Unknown detection categor"):
+        SecurityConfig(enabled_detection_categories=["rate_limit"])
+
+
+def test_passive_mode_does_not_feed_counter_or_ban() -> None:
+    config = SecurityConfig(
+        passive_mode=True,
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+    )
+    check, ban_calls = _make_check_with_recording_ban(config)
+
+    result = check.check(_make_request("4.4.4.4"))
+
+    assert result is None
+    assert ban_calls == []
+    assert check.middleware.suspicious_request_counts == {}
+
+
+def test_loopback_ip_not_banned_despite_threshold_crossing() -> None:
+    IPBanManager._instance = None
+    try:
+        config = SecurityConfig(
+            enable_rate_limiting=True,
+            rate_limit=1,
+            rate_limit_window=60,
+            enable_rate_limit_auto_ban=True,
+            enable_ip_banning=True,
+            auto_ban_threshold=1,
+        )
+        middleware = _make_middleware(config)
+        check = RateLimitCheck(middleware)
+        real_manager = IPBanManager()
+        real_manager.redis_handler = None
+        real_manager.config = config
+        check.ip_ban_manager = real_manager
+
+        check.check(_make_request("127.0.0.1"))
+
+        assert "127.0.0.1" not in real_manager.banned_ips
+    finally:
+        IPBanManager._instance = None
+
+
+def test_enable_ip_banning_false_suppresses_ban() -> None:
+    config = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=False,
+        auto_ban_threshold=1,
+    )
+    check, ban_calls = _make_check_with_recording_ban(config)
+
+    check.check(_make_request("5.5.5.5"))
+
+    assert ban_calls == []

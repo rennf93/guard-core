@@ -8,7 +8,7 @@ keywords: cloud providers, AWS, GCP, Azure, IP ranges, cloud blocking, guard-cor
 Cloud Providers
 ===============
 
-Guard-core can block requests originating from cloud provider IP ranges. The `CloudManager` handler fetches the official IP range lists for six providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline. Only AWS, GCP, and Azure are user-blockable via `SecurityConfig.block_cloud_providers` (typed `set[str] | None`, validated against `{"AWS", "GCP", "Azure"}`); an entry is kept only if the part before an optional `:!region` suffix is one of those three, so a region carve-out like `"GCP:!us-central1"` (block the provider except that region; supported for GCP and AWS) survives the filter alongside a bare provider name.
+Guard-core can block requests originating from cloud provider IP ranges. The `CloudManager` handler fetches the official IP range lists for six providers (AWS, GCP, Azure, DigitalOcean, Linode, Vultr), caches them as `ipaddress` network objects, and exposes a fast membership check used by the security pipeline. All six providers are user-blockable via `SecurityConfig.block_cloud_providers` (typed `frozenset[str] | None`); an entry is valid when the part before an optional `:!region` suffix is one of the six provider names, so a region carve-out like `"GCP:!us-central1"` (block the provider except that region) is accepted alongside a bare provider name. Region metadata exists for AWS and GCP only; Azure, DigitalOcean, Linode and Vultr expose no region data through their fetchers, so a carve-out on them exempts nothing and the whole provider stays blocked.
 
 CloudManager
 ------------

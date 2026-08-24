@@ -6,13 +6,21 @@ from datetime import datetime, timezone
 from typing import Any
 
 from guard_core.models import (
-    VALID_CLOUD_PROVIDERS,
     DynamicRules,
     SecurityConfig,
 )
+from guard_core.sync.handlers._dynamic_rule_application import (
+    DynamicRuleApplicationMixin,
+)
 
 
-class DynamicRuleManager:
+def _coerce_naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+class DynamicRuleManager(DynamicRuleApplicationMixin):
     _instance = None
     config: SecurityConfig
     agent_handler: Any = None
@@ -23,6 +31,8 @@ class DynamicRuleManager:
     update_task: threading.Thread | None = None
     _lock: threading.Lock
     _stop_event: threading.Event
+    _active_base_snapshot: dict[str, object] | None = None
+    _last_skipped_expired_rule: tuple[str, int] | None = None
 
     _SNAPSHOT_FIELDS = (
         "blocked_countries",
@@ -38,6 +48,8 @@ class DynamicRuleManager:
         "emergency_mode",
         "emergency_whitelist",
         "auto_ban_threshold",
+        "auto_ban_duration",
+        "enable_rate_limit_auto_ban",
     )
 
     def __new__(
@@ -54,6 +66,8 @@ class DynamicRuleManager:
             cls._instance.update_task = None
             cls._instance._lock = threading.Lock()
             cls._instance._stop_event = threading.Event()
+            cls._instance._active_base_snapshot = None
+            cls._instance._last_skipped_expired_rule = None
         return cls._instance
 
     def initialize_agent(self, agent_handler: Any) -> None:
@@ -125,44 +139,50 @@ class DynamicRuleManager:
             and rules.version <= self.current_rules.version
         )
 
-    def _send_rule_received_event(self, rules: DynamicRules) -> None:
-        from guard_core.sync.core.events.event_types import EVENT_DYNAMIC_RULE_UPDATED
+    def _check_rule_expiry(self) -> None:
+        with self._lock:
+            rules = self.current_rules
+            if rules is None or rules.expires_at is None:
+                return
+            if datetime.now(timezone.utc) <= _coerce_naive_utc(rules.expires_at):
+                return
 
-        if not self.agent_handler:
-            return
-
-        try:
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            reason = f"Received updated rules {rules.rule_id} v{rules.version}"
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=EVENT_DYNAMIC_RULE_UPDATED,
-                ip_address="system",
-                action_taken="rules_received",
-                reason=reason,
-                metadata={
-                    "rule_id": rules.rule_id,
-                    "version": rules.version,
-                    "previous_version": self.current_rules.version
-                    if self.current_rules
-                    else 0,
-                },
+            if self._active_base_snapshot is not None:
+                self._restore_config(self._active_base_snapshot)
+            self.current_rules = None
+            self._active_base_snapshot = None
+            self.logger.info(
+                f"Dynamic rule {rules.rule_id} v{rules.version} expired; "
+                "restored base config"
             )
-            self.agent_handler.send_event(event)
-        except Exception as e:
-            self.logger.error(f"Failed to send rule updated event: {e}")
+
+    def _reject_if_already_expired(self, rules: DynamicRules) -> bool:
+        if rules.expires_at is None:
+            return False
+        if datetime.now(timezone.utc) <= _coerce_naive_utc(rules.expires_at):
+            return False
+
+        key = (rules.rule_id, rules.version)
+        if self._last_skipped_expired_rule != key:
+            self._last_skipped_expired_rule = key
+            self.logger.warning(
+                f"Dynamic rule {rules.rule_id} v{rules.version} already "
+                "expired on receipt; ignoring"
+            )
+        return True
 
     def update_rules(self) -> None:
         if not self.config.enable_dynamic_rules or not self.agent_handler:
             return
 
         try:
+            self._check_rule_expiry()
+
             rules = self.agent_handler.get_dynamic_rules()
             if not rules:
+                return
+
+            if self._reject_if_already_expired(rules):
                 return
 
             if not self._should_update_rules(rules):
@@ -183,28 +203,6 @@ class DynamicRuleManager:
         except Exception as e:
             self.logger.error(f"Failed to update dynamic rules: {e}")
 
-    def _apply_ip_rules(self, rules: DynamicRules) -> None:
-        if rules.ip_blacklist:
-            self._apply_ip_bans(rules.ip_blacklist, rules.ip_ban_duration)
-
-        if rules.ip_whitelist:
-            self._apply_ip_whitelist(rules.ip_whitelist)
-
-    def _apply_blocking_rules(self, rules: DynamicRules) -> None:
-        if rules.blocked_countries or rules.whitelist_countries:
-            self._apply_country_rules(
-                rules.blocked_countries, rules.whitelist_countries
-            )
-
-        if rules.blocked_cloud_providers:
-            self._apply_cloud_provider_rules(rules.blocked_cloud_providers)
-
-        if rules.blocked_user_agents:
-            self._apply_user_agent_rules(rules.blocked_user_agents)
-
-        if rules.suspicious_patterns:
-            self._apply_pattern_rules(rules.suspicious_patterns)
-
     def _snapshot_config(self) -> dict[str, object]:
         return {
             field: deepcopy(getattr(self.config, field))
@@ -214,7 +212,11 @@ class DynamicRuleManager:
 
     def _restore_config(self, snapshot: dict[str, object]) -> None:
         for field, value in snapshot.items():
-            setattr(self.config, field, value)
+            self.config._set_prevalidated(field, value)
+
+    def _capture_active_base_snapshot(self, snapshot: dict[str, object]) -> None:
+        if self.current_rules is None and self._active_base_snapshot is None:
+            self._active_base_snapshot = snapshot
 
     def _apply_rules(self, rules: DynamicRules) -> None:
         with self._lock:
@@ -237,186 +239,7 @@ class DynamicRuleManager:
                 self.logger.error(f"Failed to apply dynamic rules: {e}")
                 raise
 
-    def _apply_ip_bans(self, ip_list: list[str], duration: int) -> None:
-        from guard_core.sync.handlers.ipban_handler import ip_ban_manager
-
-        for ip in ip_list:
-            try:
-                ip_ban_manager.ban_ip(ip, duration, "dynamic_rule")
-                self.logger.info(f"Dynamic rule: Banned IP {ip} for {duration}s")
-            except Exception as e:
-                self.logger.error(f"Failed to ban IP {ip}: {e}")
-
-    def _apply_ip_whitelist(self, ip_list: list[str]) -> None:
-        from guard_core.sync.handlers.ipban_handler import ip_ban_manager
-
-        for ip in ip_list:
-            try:
-                ip_ban_manager.unban_ip(ip)
-                self.logger.info(f"Dynamic rule: Whitelisted IP {ip}")
-            except Exception as e:
-                self.logger.error(f"Failed to whitelist IP {ip}: {e}")
-
-    def _apply_country_rules(self, blocked: list[str], allowed: list[str]) -> None:
-        if (
-            (blocked or allowed)
-            and self.config.geo_ip_handler is None
-            and not self.config.ipinfo_token
-        ):
-            self.logger.warning(
-                "Dynamic rule: country rules cannot take effect (blocked="
-                f"{blocked}, allowed={allowed}); no geo_ip_handler or "
-                "ipinfo_token is configured to resolve IPs to countries"
-            )
-            return
-
-        if blocked:
-            normalized_blocked = frozenset(c.upper() for c in blocked)
-            self.config.blocked_countries = normalized_blocked
-            self.logger.info(
-                f"Dynamic rule: Blocked countries {sorted(normalized_blocked)}"
-            )
-
-        if allowed:
-            normalized_allowed = frozenset(c.upper() for c in allowed)
-            self.config.whitelist_countries = normalized_allowed
-            self.logger.info(
-                f"Dynamic rule: Whitelisted countries {sorted(normalized_allowed)}"
-            )
-
-    def _apply_rate_limit_rules(self, rules: DynamicRules) -> None:
-        if rules.global_rate_limit:
-            self.config.rate_limit = rules.global_rate_limit
-            if rules.global_rate_window:
-                self.config.rate_limit_window = rules.global_rate_window
-            message = f"Global rate limit {rules.global_rate_limit}"
-            details = f"per {rules.global_rate_window}s"
-            self.logger.info(f"Dynamic rule: {message} {details}")
-
-        if rules.endpoint_rate_limits:
-            self.config.endpoint_rate_limits = rules.endpoint_rate_limits.copy()
-            self.logger.info(
-                f"Dynamic rule: Applied endpoint-specific rate limits for "
-                f"{len(rules.endpoint_rate_limits)} endpoints: "
-                f"{list(rules.endpoint_rate_limits.keys())}"
-            )
-
-    def _apply_cloud_provider_rules(self, providers: set[str]) -> None:
-        valid = frozenset(
-            p for p in providers if p.partition(":!")[0] in VALID_CLOUD_PROVIDERS
-        )
-        self.config.block_cloud_providers = valid
-        invalid = providers - valid
-        if invalid:
-            self.logger.warning(
-                f"Dynamic rule: ignored unknown cloud providers {sorted(invalid)}"
-            )
-        self.logger.info(f"Dynamic rule: Blocked cloud providers {valid}")
-
-    def _apply_user_agent_rules(self, user_agents: list[str]) -> None:
-        self.config.blocked_user_agents = user_agents
-        self.logger.info(f"Dynamic rule: Blocked user agents {user_agents}")
-
-    def _apply_pattern_rules(self, patterns: list[str]) -> None:
-        from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
-
-        added = [p for p in patterns if sus_patterns_handler.add_pattern(p)]
-        if added:
-            self.logger.info(f"Dynamic rule: Added suspicious patterns {added}")
-
-        rejected = [p for p in patterns if p not in added]
-        if rejected:
-            self.logger.warning(f"Dynamic rule: rejected patterns {rejected}")
-
-    def _apply_feature_toggles(self, rules: DynamicRules) -> None:
-        if rules.enable_penetration_detection is not None:
-            self.config.enable_penetration_detection = (
-                rules.enable_penetration_detection
-            )
-            details = f"Penetration detection {rules.enable_penetration_detection}"
-            self.logger.info(f"Dynamic rule: {details}")
-
-        if rules.enable_ip_banning is not None:
-            self.config.enable_ip_banning = rules.enable_ip_banning
-            self.logger.info(f"Dynamic rule: IP banning {rules.enable_ip_banning}")
-
-        if rules.enable_rate_limiting is not None:
-            self.config.enable_rate_limiting = rules.enable_rate_limiting
-            self.logger.info(
-                f"Dynamic rule: Rate limiting {rules.enable_rate_limiting}"
-            )
-
-    def _activate_emergency_mode(self, emergency_whitelist: list[str]) -> None:
-        self.logger.critical(
-            "[EMERGENCY MODE] ACTIVATED - Enhanced security posture enabled"
-        )
-
-        self.config.emergency_mode = True
-        self.config.emergency_whitelist = emergency_whitelist
-
-        original_threshold = self.config.auto_ban_threshold
-        self.config.auto_ban_threshold = max(1, original_threshold // 2)
-        message = "Reduced auto-ban threshold"
-        details = f"from {original_threshold} to {self.config.auto_ban_threshold}"
-        self.logger.warning(f"[EMERGENCY MODE] {message} {details}")
-
-        if self.agent_handler:
-            self._send_emergency_event(emergency_whitelist)
-
-    def _send_rule_applied_event(self, rules: DynamicRules) -> None:
-        from guard_core.sync.core.events.event_types import EVENT_DYNAMIC_RULE_APPLIED
-
-        if not self.agent_handler:
-            return
-
-        try:
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=EVENT_DYNAMIC_RULE_APPLIED,
-                ip_address="system",
-                action_taken="rules_updated",
-                reason=f"Applied dynamic rules {rules.rule_id} v{rules.version}",
-                metadata={
-                    "rule_id": rules.rule_id,
-                    "version": rules.version,
-                    "ip_bans": len(rules.ip_blacklist),
-                    "country_blocks": len(rules.blocked_countries),
-                    "emergency_mode": rules.emergency_mode,
-                },
-            )
-            self.agent_handler.send_event(event)
-        except Exception as e:
-            self.logger.error(f"Failed to send rule applied event: {e}")
-
-    def _send_emergency_event(self, whitelist: list[str]) -> None:
-        from guard_core.sync.core.events.event_types import EVENT_EMERGENCY_MODE
-
-        if not self.agent_handler:
-            return
-
-        try:
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=EVENT_EMERGENCY_MODE,
-                ip_address="system",
-                action_taken="emergency_lockdown",
-                reason="[EMERGENCY MODE] activated via dynamic rules",
-                metadata={
-                    "whitelist_count": len(whitelist),
-                    "whitelist": whitelist[:10],
-                },
-            )
-            self.agent_handler.send_event(event)
-        except Exception as e:
-            self.logger.error(f"Failed to send emergency event: {e}")
+            self._capture_active_base_snapshot(snapshot)
 
     def get_current_rules(self) -> DynamicRules | None:
         return self.current_rules

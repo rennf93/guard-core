@@ -66,7 +66,7 @@ class RouteConfig:
                 self._revision.bump()
 ```
 
-`block_cloud_providers` is `set[str]`, not `set[Literal["AWS", "GCP", "Azure"]]`: a route-level entry can carry a `":!region"` carve-out suffix the same way `SecurityConfig.block_cloud_providers` can.
+`block_cloud_providers` is `set[str]`, not `set[CloudProvider]`: a route-level entry can carry a `":!region"` carve-out suffix the same way `SecurityConfig.block_cloud_providers` can.
 
 When a decorator is applied to a route function, it creates or updates a `RouteConfig` and associates it with that function's route ID. `RouteConfig` is not a passive data holder: its `__setattr__` bumps a `RouteConfigRevision` counter owned by `BaseSecurityDecorator` on every attribute assignment made after construction (the `_initialized` flag keeps the constructor's own ~25 field defaults from bumping it), and wraps every mutable-container field a pipeline predicate reads (`custom_validators`, `require_referrer`, `allowed_content_types`, `blocked_user_agents`, `required_headers`, `time_restrictions`, `geo_rate_limits`, `block_cloud_providers`) in a tracked subclass so in-place mutation (`route_config.custom_validators.append(...)`) bumps the counter too. `SecurityCheckPipeline` compares this counter to detect when a route's configuration changed since the pipeline was last built, and rebuilds; see [Config-Revision Rebuild](../architecture/pipeline.md#config-revision-rebuild).
 

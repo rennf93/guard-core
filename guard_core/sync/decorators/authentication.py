@@ -1,7 +1,11 @@
 from collections.abc import Callable
 from typing import Any
 
-from guard_core.sync.decorators.base import BaseSecurityMixin, DecoratedFunction
+from guard_core.sync.decorators.base import (
+    AuthVerifier,
+    BaseSecurityMixin,
+    DecoratedFunction,
+)
 
 
 class AuthenticationMixin(BaseSecurityMixin):
@@ -14,22 +18,58 @@ class AuthenticationMixin(BaseSecurityMixin):
         return decorator
 
     def require_auth(
-        self, type: str = "bearer"
+        self,
+        type: str = "bearer",
+        verifier: AuthVerifier | None = None,
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.auth_required = type
+            route_config.auth_verifier = verifier
+            if route_config.authorization_header_required is not None:
+                raise ValueError(
+                    "require_auth cannot be combined with require_authorization_header;"
+                    " the latter is presence-only and mutually exclusive with"
+                    " authenticated routes"
+                )
             return self._apply_route_config(func)
 
         return decorator
 
     def api_key_auth(
-        self, header_name: str = "X-API-Key"
+        self,
+        header_name: str = "X-API-Key",
+        verifier: AuthVerifier | None = None,
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
             route_config.api_key_required = True
             route_config.required_headers[header_name] = "required"
+            route_config.api_key_header = header_name
+            route_config.api_key_verifier = verifier
+            if route_config.authorization_header_required is not None:
+                raise ValueError(
+                    "api_key_auth cannot be combined with require_authorization_header;"
+                    " the latter is presence-only and mutually exclusive with"
+                    " authenticated routes"
+                )
+            return self._apply_route_config(func)
+
+        return decorator
+
+    def require_authorization_header(
+        self,
+        scheme: str = "bearer",
+    ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
+        def decorator(func: Callable[..., Any]) -> DecoratedFunction:
+            route_config = self._ensure_route_config(func)
+            route_config.authorization_header_required = scheme
+            if route_config.auth_required is not None or route_config.api_key_required:
+                raise ValueError(
+                    "require_authorization_header cannot be combined with"
+                    " require_auth or api_key_auth; it is presence-only and"
+                    " mutually exclusive with authenticated routes"
+                )
             return self._apply_route_config(func)
 
         return decorator

@@ -4,6 +4,7 @@ from typing import cast
 import pytest
 
 from guard_core import utils
+from guard_core._utils import body_reader, detection_scan
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
@@ -37,6 +38,7 @@ async def _fake_component_check(
     client_ip: str,
     correlation_id: str,
     enabled_categories: set[str] | None = None,
+    scan_embedded_json: bool = True,
 ) -> tuple[bool, str, list[dict]]:
     if _MAGIC in value:
         return (
@@ -55,7 +57,7 @@ def _straddling_body(cap: int) -> bytes:
 async def test_a_signature_split_across_the_cap_boundary_is_missed_with_no_overlap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(utils, "_check_value_enhanced", _fake_component_check)
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", _fake_component_check)
     request = _PrefixOnlyRequest(body=_straddling_body(1024))
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
@@ -68,12 +70,12 @@ async def test_a_signature_split_across_the_cap_boundary_is_missed_with_no_overl
 async def test_the_same_straddling_signature_is_matched_once_the_overlap_covers_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(utils, "_check_value_enhanced", _fake_component_check)
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", _fake_component_check)
 
     async def _fixed_overlap() -> int:
         return len(_MAGIC)
 
-    monkeypatch.setattr(utils, "_straddle_overlap_bytes", _fixed_overlap)
+    monkeypatch.setattr(body_reader, "_straddle_overlap_bytes", _fixed_overlap)
     request = _PrefixOnlyRequest(body=_straddling_body(1024))
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
@@ -86,12 +88,12 @@ async def test_the_same_straddling_signature_is_matched_once_the_overlap_covers_
 async def test_a_payload_placed_entirely_past_the_cap_is_still_not_detected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(utils, "_check_value_enhanced", _fake_component_check)
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", _fake_component_check)
 
     async def _fixed_overlap() -> int:
         return len(_MAGIC)
 
-    monkeypatch.setattr(utils, "_straddle_overlap_bytes", _fixed_overlap)
+    monkeypatch.setattr(body_reader, "_straddle_overlap_bytes", _fixed_overlap)
     body = ("A" * 2048 + _MAGIC).encode()
     request = _PrefixOnlyRequest(body=body)
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)

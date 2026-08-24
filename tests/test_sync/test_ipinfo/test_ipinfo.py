@@ -138,7 +138,10 @@ def test_database_retry_success(tmp_path: Path) -> None:
 def test_db_age_check(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
 
-    with patch("pathlib.Path.stat") as mock_stat:
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.stat") as mock_stat,
+    ):
         mock_stat.return_value.st_mtime = time.time() - 86401
         assert db._is_db_outdated() is True
 
@@ -366,8 +369,6 @@ def test_get_country_without_init_returns_none_and_warns(
 def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
     tmp_path: Path,
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 
     IPInfoManager._instance = None
@@ -388,8 +389,6 @@ def test_initialize_sets_reader_none_when_download_fails_and_db_missing(
 def test_initialize_leaves_reader_unset_when_download_silently_no_file(
     tmp_path: Path,
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 
     IPInfoManager._instance = None
@@ -410,8 +409,6 @@ def test_initialize_leaves_reader_unset_when_download_silently_no_file(
 def test_initialize_redis_cache_miss_falls_through_to_download(
     tmp_path: Path,
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 
     IPInfoManager._instance = None
@@ -427,8 +424,6 @@ def test_initialize_redis_cache_miss_falls_through_to_download(
 def test_initialize_skips_download_when_db_exists_and_fresh(
     tmp_path: Path,
 ) -> None:
-    from unittest.mock import MagicMock, patch
-
     import maxminddb
 
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
@@ -454,8 +449,6 @@ def test_initialize_skips_download_when_db_exists_and_fresh(
 
 
 def test_initialize_redis_delegates_to_initialize() -> None:
-    from unittest.mock import MagicMock, patch
-
     from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
 
     IPInfoManager._instance = None

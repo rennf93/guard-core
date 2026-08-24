@@ -45,6 +45,17 @@ jobs:
       - run: uv sync --extra dev --extra otel --extra logfire
       - run: uv run pre-commit run --all-files
 
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - run: pip install uv
+      - run: uv sync --extra dev --extra otel --extra logfire
+      - run: make quality
+
   test:
     runs-on: ubuntu-latest
 
@@ -114,7 +125,7 @@ jobs:
 
       - name: Run tests
         run: |
-          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' REDIS_PREFIX='test:guard_core:' uv run pytest -v --cov=guard_core
+          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' uv run pytest -v --cov=guard_core --cov-fail-under=100 -W error
 
       - name: Notify Success on Slack Channel
         uses: rennf93/good-comms@master

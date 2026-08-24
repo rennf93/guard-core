@@ -35,7 +35,7 @@ from guard_core.models import SecurityConfig
 
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
-REDIS_PREFIX = os.getenv("REDIS_PREFIX") or "test:guard_core:"
+REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
 
 @pytest.fixture(autouse=True)
@@ -245,7 +245,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     _suspatterns_module.sus_patterns_handler = sus_patterns_handler
     sus_patterns_handler.patterns = [p[0] for p in spm._pattern_definitions]
     sus_patterns_handler.compiled_patterns = [
-        (re.compile(pattern, re.IGNORECASE | re.MULTILINE), contexts, category)
+        (re.compile(pattern, re.IGNORECASE), contexts, category)
         for pattern, contexts, category in spm._pattern_definitions
     ]
     sus_patterns_handler.custom_patterns = set()
@@ -419,6 +419,11 @@ def pytest_configure(config: pytest.Config) -> None:
     finder = _GuardAgentImportFinder()
     sys.meta_path.insert(0, finder)
     setattr(sys, _GUARD_AGENT_FINDER_ATTR, finder)
+    from guard_core._pydantic_plugin_mute import (
+        _mute_pydantic_plugin_instrumentation,
+    )
+
+    _mute_pydantic_plugin_instrumentation()
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
