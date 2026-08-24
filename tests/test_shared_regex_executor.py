@@ -91,7 +91,7 @@ def test_safe_matcher_times_out_on_catastrophic_pattern() -> None:
 def test_timeout_does_not_bound_a_gil_holding_catastrophic_match() -> None:
     compiler = PatternCompiler()
     matcher = compiler.create_safe_matcher(r"(?:a+)+$", timeout=0.3)
-    subject = "a" * 25 + "!"
+    subject = "a" * 27 + "!"
 
     start = time.monotonic()
     result = matcher(subject)
