@@ -304,7 +304,7 @@ TEST_SUBS: list[tuple[str, str]] = [
     (r"^\s+loop_task\s*$", ""),
 ]
 
-TEST_SKIP_DIRS = {"__pycache__", "test_sync", "attack_simulation"}
+TEST_SKIP_DIRS = {"__pycache__", "test_sync", "attack_simulation", "detection_gate"}
 
 
 def apply_subs(content: str, subs: list[tuple[str, str]]) -> str:
