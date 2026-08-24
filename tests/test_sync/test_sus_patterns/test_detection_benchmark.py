@@ -590,6 +590,63 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     MaliciousCase("ldap_double_paren_wildcard_breakout", "ldap", "*)((objectClass=*"),
     MaliciousCase("ldap_null_byte_truncation_breakout", "ldap", "*))%00"),
     MaliciousCase(
+        "ldap_wildcard_no_attr_extensible_match", "ldap", "*)(:caseExactMatch:=admin"
+    ),
+    MaliciousCase(
+        "ldap_wildcard_no_attr_oid_rule", "ldap", "*)(:1.2.840.113556.1.4.804:=admin"
+    ),
+    MaliciousCase(
+        "ldap_wildcard_no_attr_dn_oid_rule",
+        "ldap",
+        "*)(:dn:1.2.840.113556.1.4.804:=admin",
+    ),
+    MaliciousCase(
+        "ldap_wildcard_numericoid_attr_equality", "ldap", "*)(1.3.6.1.4.1.1466.0=admin"
+    ),
+    MaliciousCase(
+        "ldap_wildcard_numericoid_attr_wildcard_extraction",
+        "ldap",
+        "*)(1.3.6.1.4.1.1466.0=*)",
+    ),
+    MaliciousCase(
+        "ldap_wildcard_numericoid_attr_extensible_match",
+        "ldap",
+        "*)(1.2.840.113556.1.4.804:=admin",
+    ),
+    MaliciousCase(
+        "ldap_wildcard_attr_options_extensible_match", "ldap", "*)(cn;lang-en:=admin"
+    ),
+    MaliciousCase(
+        "ldap_wildcard_attr_multi_options_extensible_match",
+        "ldap",
+        "*)(cn;lang-en;binary:=admin",
+    ),
+    MaliciousCase(
+        "ldap_numericoid_attr_approximate_comparator_breakout",
+        "ldap",
+        "uid=foo)(1.2.840~=admin",
+    ),
+    MaliciousCase(
+        "ldap_no_attr_extensible_match_approximate_comparator_breakout",
+        "ldap",
+        "uid=foo)(:caseExactMatch~=admin",
+    ),
+    MaliciousCase(
+        "ldap_attr_options_approximate_comparator_breakout",
+        "ldap",
+        "uid=foo)(cn;lang-en~=admin",
+    ),
+    MaliciousCase(
+        "ldap_query_surface_wildcard_no_attr_extensible_match",
+        "ldap",
+        "q=*)(:caseExactMatch:=admin",
+    ),
+    MaliciousCase(
+        "ldap_query_surface_wildcard_numericoid_attr_wildcard_extraction",
+        "ldap",
+        "q=*)(1.3.6.1.4.1.1466.0=*)",
+    ),
+    MaliciousCase(
         "xml_external_entity_file",
         "xml",
         '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>',
@@ -2777,7 +2834,7 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "file_inclusion": 16,
     "file_upload": 32,
     "http_split": 4,
-    "ldap": 12,
+    "ldap": 25,
     "nosql": 10,
     "path_traversal": 13,
     "proto_pollution": 8,
@@ -2789,8 +2846,8 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "xml": 4,
     "xss": 39,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 320
-BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 318
+BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 339
+BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 331
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
     "cmd_injection": 12,

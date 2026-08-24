@@ -2,6 +2,7 @@ import pytest
 
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.models import SecurityConfig
+from guard_core.utils import detect_penetration_attempt
 
 
 @pytest.fixture(autouse=True)
@@ -448,6 +449,82 @@ LDAP_PAREN_BREAKOUT_COMPARATOR_FLAGGED = [
     ),
 ]
 
+LDAP_WILDCARD_BREAKOUT_EXTENDED_ATTR_DESC_FLAGGED = [
+    pytest.param(
+        "*)(:caseExactMatch:=admin",
+        id="wildcard_no_attr_extensible_match_caseexact",
+    ),
+    pytest.param(
+        "*)(:1.2.840.113556.1.4.804:=admin",
+        id="wildcard_no_attr_extensible_match_oid_rule",
+    ),
+    pytest.param(
+        "*)(:dn:1.2.840.113556.1.4.804:=admin",
+        id="wildcard_no_attr_dn_oid_rule",
+    ),
+    pytest.param(
+        "*)(1.3.6.1.4.1.1466.0=admin",
+        id="wildcard_numericoid_attr_equality",
+    ),
+    pytest.param(
+        "*)(1.3.6.1.4.1.1466.0=*)",
+        id="wildcard_numericoid_attr_wildcard_extraction",
+    ),
+    pytest.param(
+        "*)(1.2.840.113556.1.4.804:=admin",
+        id="wildcard_numericoid_attr_extensible_match",
+    ),
+    pytest.param(
+        "*)(cn;lang-en:=admin",
+        id="wildcard_attr_options_single_extensible_match",
+    ),
+    pytest.param(
+        "*)(cn;lang-en;binary:=admin",
+        id="wildcard_attr_multi_options_extensible_match",
+    ),
+]
+
+LDAP_PAREN_BREAKOUT_COMPARATOR_EXTENDED_ATTR_DESC_FLAGGED = [
+    pytest.param(
+        "uid=foo)(1.2.840~=admin",
+        id="numericoid_attr_approximate_match_comparator_breakout",
+    ),
+    pytest.param(
+        "uid=foo)(:caseExactMatch~=admin",
+        id="no_attr_extensible_match_approximate_comparator_breakout",
+    ),
+    pytest.param(
+        "uid=foo)(cn;lang-en~=admin",
+        id="attr_options_approximate_match_comparator_breakout",
+    ),
+]
+
+LDAP_WILDCARD_BREAKOUT_QUERY_SURFACE_EXTENDED_ATTR_DESC_FLAGGED = [
+    pytest.param(
+        "q=*)(:caseExactMatch:=admin",
+        id="query_surface_wildcard_no_attr_extensible_match",
+    ),
+    pytest.param(
+        "q=*)(1.3.6.1.4.1.1466.0=*)",
+        id="query_surface_wildcard_numericoid_attr_wildcard_extraction",
+    ),
+]
+
+LDAP_PAREN_BREAKOUT_INERT_EXTENDED_BARE_ATTRIBUTE_NOT_FLAGGED = [
+    pytest.param(
+        "admin)(:caseExactMatch:=admin",
+        id="inert_no_attr_bare_equality_only_adds_constraint_parity_with_admin_cn_x",
+    ),
+    pytest.param(
+        "admin)(1.3.6.1.4.1.1466.0=admin",
+        id="inert_numericoid_bare_equality_only_adds_constraint_parity_with_admin_cn_x",
+    ),
+    pytest.param(
+        "admin)(cn;lang-en:=admin",
+        id="inert_attr_options_bare_equality_only_adds_constraint_parity_with_admin_cn_x",
+    ),
+]
+
 LDAP_RFC4515_HEX_ESCAPE_FLAGGED = [
     pytest.param(
         r"admin\29\28cn=\2a", id="rfc4515_hex_escaped_paren_breakout_wildcard"
@@ -487,3 +564,135 @@ async def test_ldap_rfc4515_hex_escape_flagged(payload: str) -> None:
     )
     assert result["is_threat"] is True
     assert any(threat.get("category") == "ldap" for threat in result["threats"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", LDAP_WILDCARD_BREAKOUT_EXTENDED_ATTR_DESC_FLAGGED)
+async def test_ldap_wildcard_breakout_extended_attr_desc_flagged(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(threat.get("category") == "ldap" for threat in result["threats"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", LDAP_PAREN_BREAKOUT_COMPARATOR_EXTENDED_ATTR_DESC_FLAGGED
+)
+async def test_ldap_paren_breakout_comparator_extended_attr_desc_flagged(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(threat.get("category") == "ldap" for threat in result["threats"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", LDAP_WILDCARD_BREAKOUT_QUERY_SURFACE_EXTENDED_ATTR_DESC_FLAGGED
+)
+async def test_ldap_wildcard_breakout_query_surface_extended_attr_desc_flagged(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(threat.get("category") == "ldap" for threat in result["threats"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload", LDAP_PAREN_BREAKOUT_INERT_EXTENDED_BARE_ATTRIBUTE_NOT_FLAGGED
+)
+async def test_ldap_paren_breakout_inert_extended_bare_attribute_not_flagged(
+    payload: str,
+) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="198.51.100.4", context="request_body"
+    )
+    assert not any(threat.get("category") == "ldap" for threat in result["threats"])
+
+
+_LDAP_OID_34 = "1" + ".2" * 33
+_LDAP_OPT_17 = "cn" + ";opt" * 17
+_LDAP_WIRE_MECHANISMS = ("raw_body", "query_param")
+
+LDAP_CAP_REMOVAL_OID_BREAKOUT_WIRE_FLAGGED = [
+    pytest.param(
+        f"admin)({_LDAP_OID_34}~=admin",
+        id="wire_34_component_oid_paren_breakout_approximate",
+    ),
+    pytest.param(
+        f"*)({_LDAP_OID_34}:=admin",
+        id="wire_34_component_oid_no_attr_extensible_match",
+    ),
+    pytest.param(
+        f"*))(({_LDAP_OID_34}:=admin",
+        id="wire_34_component_oid_wildcard_equals_extensible_match",
+    ),
+]
+
+LDAP_CAP_REMOVAL_OPTION_BREAKOUT_WIRE_FLAGGED = [
+    pytest.param(
+        f"admin)({_LDAP_OPT_17}~=admin",
+        id="wire_17_option_attr_approximate_match_breakout",
+    ),
+    pytest.param(
+        f"*)({_LDAP_OPT_17}:=admin",
+        id="wire_17_option_attr_extensible_match_wildcard_chain",
+    ),
+]
+
+
+class _WireState:
+    pass
+
+
+class _WireReq:
+    def __init__(self, body: bytes, mechanism: str) -> None:
+        self.client_host = "203.0.113.9"
+        self.url_path = "/x"
+        self.method = "POST"
+        self.state = _WireState()
+        self.query_params: dict[str, str] = {}
+        self.headers: dict[str, str] = {"content-type": "text/plain"}
+        self._body = body
+        if mechanism == "query_param":
+            self.query_params = {"v": body.decode("utf-8", errors="surrogateescape")}
+            self._body = b""
+        self.headers["content-length"] = str(len(self._body))
+
+    async def body(self) -> bytes:
+        return self._body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mechanism", _LDAP_WIRE_MECHANISMS)
+@pytest.mark.parametrize("payload", LDAP_CAP_REMOVAL_OID_BREAKOUT_WIRE_FLAGGED)
+async def test_ldap_cap_removal_oid_breakout_wire_flagged(
+    payload: str, mechanism: str
+) -> None:
+    result = await detect_penetration_attempt(
+        _WireReq(payload.encode("utf-8"), mechanism), SecurityConfig()
+    )
+    assert result.is_threat is True
+    assert "ldap" in result.threat_categories
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mechanism", _LDAP_WIRE_MECHANISMS)
+@pytest.mark.parametrize("payload", LDAP_CAP_REMOVAL_OPTION_BREAKOUT_WIRE_FLAGGED)
+async def test_ldap_cap_removal_option_breakout_wire_flagged(
+    payload: str, mechanism: str
+) -> None:
+    result = await detect_penetration_attempt(
+        _WireReq(payload.encode("utf-8"), mechanism), SecurityConfig()
+    )
+    assert result.is_threat is True
+    assert "ldap" in result.threat_categories
