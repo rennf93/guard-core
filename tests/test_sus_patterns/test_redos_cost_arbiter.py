@@ -267,3 +267,91 @@ def test_first_over_budget_reason_returns_structural_violation_when_over_budget(
     assert reason is not None
     assert reason == "ambiguous optional tail"
     assert builder_calls[0] == len(_REACH_PROBE_SIZES)
+
+
+def test_first_over_budget_reason_rejects_when_timing_probe_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        lambda _pattern, _probes: None,
+    )
+
+    def _builder(size: int) -> str:
+        return "a" * size
+
+    reason = _first_over_budget_reason(
+        r"(\w+)*$",
+        [_builder],
+        _PATTERN_SAFETY_DEFAULT_CAP,
+        None,
+    )
+    assert reason is not None
+    assert "killable-subprocess timeout" in reason
+
+
+def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    calls = iter([over_samples, under_samples])
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        lambda _pattern, _probes: next(calls),
+    )
+
+    def _builder(size: int) -> str:
+        return "a" * size
+
+    reason = _first_over_budget_reason(
+        r"(\w+)*$",
+        [_builder],
+        _PATTERN_SAFETY_DEFAULT_CAP,
+        None,
+    )
+    assert reason is None
+
+
+def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+    calls = iter([over_samples, None])
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        lambda _pattern, _probes: next(calls),
+    )
+
+    def _builder(size: int) -> str:
+        return "a" * size
+
+    reason = _first_over_budget_reason(
+        r"(\w+)*$",
+        [_builder],
+        _PATTERN_SAFETY_DEFAULT_CAP,
+        None,
+    )
+    assert reason is not None
+    assert "extrapolated CPU cost" in reason
+
+
+def test_first_over_budget_reason_returns_none_when_under_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        lambda _pattern, _probes: under_samples,
+    )
+
+    def _builder(size: int) -> str:
+        return "a" * size
+
+    reason = _first_over_budget_reason(
+        r"(\w+)*$",
+        [_builder],
+        _PATTERN_SAFETY_DEFAULT_CAP,
+        None,
+    )
+    assert reason is None

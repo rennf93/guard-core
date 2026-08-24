@@ -209,9 +209,15 @@ def _first_over_budget_reason(
             _reach_probe_verdict_from_samples(samples_by_size, cap)
         )
         if over:
-            return _reach_probe_cost_reason(
-                structural_violation, extrapolated, ratio, cap, min_32, median_32
-            )
+            retry = _time_reach_probes_subprocess(pattern, probes)
+            if retry is not None:
+                over, extrapolated, ratio, min_32, median_32 = (
+                    _reach_probe_verdict_from_samples(retry, cap)
+                )
+            if over:
+                return _reach_probe_cost_reason(
+                    structural_violation, extrapolated, ratio, cap, min_32, median_32
+                )
     return None
 
 
