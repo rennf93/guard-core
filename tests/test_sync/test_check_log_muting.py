@@ -11,6 +11,7 @@ from guard_core.sync.utils import log_activity
 
 def _make_request() -> MagicMock:
     request = MagicMock()
+    request.state.client_ip = None
     request.client_host = "1.2.3.4"
     request.method = "GET"
     request.url_path = "/x"

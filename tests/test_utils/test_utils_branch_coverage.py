@@ -22,12 +22,35 @@ def test_is_trusted_proxy_cidr_not_matching() -> None:
 
 def test_extract_request_context_missing_client_host() -> None:
     request = MagicMock()
+    request.state.client_ip = None
     request.client_host = None
     request.method = "GET"
     request.url_full = "http://test/"
     request.headers = {}
     ctx = _extract_request_context(request)
     assert ctx["client_ip"] == "unknown"
+
+
+def test_extract_request_context_uses_resolved_client_ip_from_state() -> None:
+    request = MagicMock()
+    request.state.client_ip = "203.0.113.7"
+    request.client_host = "10.0.0.1"
+    request.method = "GET"
+    request.url_full = "http://test/"
+    request.headers = {}
+    ctx = _extract_request_context(request)
+    assert ctx["client_ip"] == "203.0.113.7"
+
+
+def test_extract_request_context_falls_back_to_client_host_without_state_ip() -> None:
+    request = MagicMock()
+    request.state.client_ip = None
+    request.client_host = "10.0.0.1"
+    request.method = "GET"
+    request.url_full = "http://test/"
+    request.headers = {}
+    ctx = _extract_request_context(request)
+    assert ctx["client_ip"] == "10.0.0.1"
 
 
 def test_build_log_message_for_suspicious_passive_mode_no_trigger() -> None:

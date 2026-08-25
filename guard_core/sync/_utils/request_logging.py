@@ -7,9 +7,13 @@ from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
 def _extract_request_context(request: SyncGuardRequest) -> dict[str, Any]:
-    client_ip = "unknown"
-    if request.client_host:
+    cached_ip = getattr(request.state, "client_ip", None)
+    if cached_ip:
+        client_ip = cached_ip
+    elif request.client_host:
         client_ip = _canonicalize_ip(request.client_host)
+    else:
+        client_ip = "unknown"
 
     return {
         "client_ip": client_ip,

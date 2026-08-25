@@ -85,6 +85,62 @@ async def test_detected_component_with_lone_surrogate_writes_intact_log_line(
     assert "\udc88" not in log_content
 
 
+async def test_detect_penetration_attempt_attributes_real_client_ip_behind_proxy(
+    tmp_path: Any,
+) -> None:
+    log_file = tmp_path / "audit.log"
+    setup_custom_logging(str(log_file))
+
+    request = MockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "203.0.113.7", "user-agent": "test-agent"},
+        client_host="10.0.0.1",
+        query_params={"q": "<script>alert(1)</script>"},
+    )
+
+    config = SecurityConfig(trusted_proxies=["10.0.0.1"], trusted_proxy_depth=1)
+    result = await detect_penetration_attempt(request, config)
+    assert result.is_threat is True
+
+    with open(log_file, encoding="utf-8") as f:
+        log_content = f.read()
+    detection_lines = [
+        line for line in log_content.splitlines() if "Potential attack detected" in line
+    ]
+    assert detection_lines, "no detection log line written"
+    for line in detection_lines:
+        assert "Potential attack detected from 203.0.113.7" in line
+        assert "from 10.0.0.1" not in line
+
+
+async def test_detect_penetration_attempt_falls_back_to_connecting_ip_without_config(
+    tmp_path: Any,
+) -> None:
+    log_file = tmp_path / "audit.log"
+    setup_custom_logging(str(log_file))
+
+    request = MockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"user-agent": "test-agent"},
+        client_host="198.51.100.5",
+        query_params={"q": "<script>alert(1)</script>"},
+    )
+
+    result = await detect_penetration_attempt(request, None)
+    assert result.is_threat is True
+
+    with open(log_file, encoding="utf-8") as f:
+        log_content = f.read()
+    detection_lines = [
+        line for line in log_content.splitlines() if "Potential attack detected" in line
+    ]
+    assert detection_lines, "no detection log line written"
+    for line in detection_lines:
+        assert "Potential attack detected from 198.51.100.5" in line
+
+
 async def test_log_request(caplog: pytest.LogCaptureFixture) -> None:
     request = MockGuardRequest(
         path="/",
