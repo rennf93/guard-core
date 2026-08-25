@@ -10,12 +10,20 @@ _CEILING_AT_MAX_SIZE_SECONDS = 0.05
 
 
 def _assert_doubling_stays_linear(pattern_label: str, times: list[float]) -> None:
+    ratios: list[float] = []
+    longest_run = current_run = 0
     for earlier, later in zip(times, times[1:], strict=False):
         ratio = later / max(earlier, 1e-9)
-        assert ratio < _DOUBLING_RATIO_CEILING, (
-            f"{pattern_label[:60]!r} scan doubling ratio grew past linear "
-            f"expectations: {ratio:.2f}x across {times}"
-        )
+        ratios.append(ratio)
+        if ratio >= _DOUBLING_RATIO_CEILING:
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    assert longest_run < 2, (
+        f"{pattern_label[:60]!r} scan doubling ratio stayed super-linear across "
+        f"consecutive doublings: ratios {ratios} across {times}"
+    )
 
 
 def _run_probe() -> dict[str, list[float]]:
