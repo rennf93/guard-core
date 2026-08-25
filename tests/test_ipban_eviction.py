@@ -35,15 +35,15 @@ async def test_banned_ips_overflow_increments_eviction_counter_and_logs_at_thres
 
     caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
 
-    await manager.ban_ip("10.0.0.1", duration=300, reason="t")
-    await manager.ban_ip("10.0.0.2", duration=300, reason="t")
-    await manager.ban_ip("10.0.0.3", duration=300, reason="t")
+    await manager.ban_ip("8.8.0.1", duration=300, reason="t")
+    await manager.ban_ip("8.8.0.2", duration=300, reason="t")
+    await manager.ban_ip("8.8.0.3", duration=300, reason="t")
 
     assert manager.evictions_count == 1
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
     for i in range(4, 103):
-        await manager.ban_ip(f"10.0.{i // 256}.{i % 256}", duration=300, reason="t")
+        await manager.ban_ip(f"8.8.{i // 256}.{i % 256}", duration=300, reason="t")
 
     assert manager.evictions_count == 100
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]

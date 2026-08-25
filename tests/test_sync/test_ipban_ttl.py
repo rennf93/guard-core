@@ -22,10 +22,10 @@ def test_ban_short_duration_succeeds_when_redis_unavailable(
     manager.banned_ips.clear()
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
-    manager.ban_ip("10.0.0.5", duration=300, reason="test")
+    manager.ban_ip("8.8.8.5", duration=300, reason="test")
 
-    assert "10.0.0.5" in manager.banned_ips
-    expiry = manager.banned_ips["10.0.0.5"]
+    assert "8.8.8.5" in manager.banned_ips
+    expiry = manager.banned_ips["8.8.8.5"]
     assert expiry == pytest.approx(time.time() + 300, abs=2)
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
@@ -39,10 +39,10 @@ def test_ban_at_cap_succeeds_when_redis_unavailable(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.6", duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS, reason="test"
+        "8.8.8.6", duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS, reason="test"
     )
 
-    assert "10.0.0.6" in manager.banned_ips
+    assert "8.8.8.6" in manager.banned_ips
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
 
@@ -55,17 +55,17 @@ def test_ban_longer_than_cap_clamps_and_warns_when_redis_unavailable(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.7",
+        "8.8.8.7",
         duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
         reason="test",
     )
 
-    assert "10.0.0.7" in manager.banned_ips
-    expiry = manager.banned_ips["10.0.0.7"]
+    assert "8.8.8.7" in manager.banned_ips
+    expiry = manager.banned_ips["8.8.8.7"]
     assert expiry == pytest.approx(
         time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
     )
-    assert manager.is_ip_banned("10.0.0.7") is True
+    assert manager.is_ip_banned("8.8.8.7") is True
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
@@ -114,13 +114,13 @@ def test_ban_exact_ip_longer_than_cap_clamps_and_warns_when_redis_set_key_fails(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.11",
+        "8.8.8.11",
         duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
         reason="test",
     )
 
-    assert "10.0.0.11" in manager.banned_ips
-    expiry = manager.banned_ips["10.0.0.11"]
+    assert "8.8.8.11" in manager.banned_ips
+    expiry = manager.banned_ips["8.8.8.11"]
     assert expiry == pytest.approx(
         time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
     )
@@ -141,13 +141,13 @@ def test_ban_exact_ip_at_cap_succeeds_when_redis_set_key_fails(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.12",
+        "8.8.8.12",
         duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS,
         reason="test",
     )
 
-    assert "10.0.0.12" in manager.banned_ips
-    expiry = manager.banned_ips["10.0.0.12"]
+    assert "8.8.8.12" in manager.banned_ips
+    expiry = manager.banned_ips["8.8.8.12"]
     assert expiry == pytest.approx(
         time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
     )

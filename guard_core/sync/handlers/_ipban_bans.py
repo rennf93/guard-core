@@ -126,6 +126,20 @@ class IpBanOperationsMixin(IpBanEventMixin):
             space,
         )
 
+    def _warn_if_private_target(self, ip: str) -> None:
+        target = self._target_network(ip)
+        if target is None:
+            return
+        if not target.is_private:
+            return
+        self.logger.warning(
+            "Banning private IP range %s: if requests reach this service through "
+            "a reverse proxy, this IP may be the proxy and the ban will block ALL "
+            "users. Verify config.trusted_proxies lists the proxy IP(s); see "
+            "docs/configuration/security-config.md",
+            ip,
+        )
+
     def ban_ip(
         self, ip: str, duration: int, reason: str = "threshold_exceeded"
     ) -> None:
@@ -134,6 +148,7 @@ class IpBanOperationsMixin(IpBanEventMixin):
         if refusal is not None:
             self._log_refused_ban(ip, refusal)
             return
+        self._warn_if_private_target(ip)
         if "/" in ip:
             self._ban_cidr(ip, duration)
         else:

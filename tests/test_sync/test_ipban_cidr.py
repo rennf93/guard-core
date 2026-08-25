@@ -128,18 +128,18 @@ def test_cidr_ban_redis_failure_exceeds_cap_clamps_and_warns(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.0/24",
+        "8.8.8.0/24",
         duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
         reason="cidr_fallback_cap",
     )
 
     assert len(manager.banned_networks) == 1
     network, expiry = manager.banned_networks[0]
-    assert str(network) == "10.0.0.0/24"
+    assert str(network) == "8.8.8.0/24"
     assert expiry == pytest.approx(
         time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
     )
-    assert manager.is_ip_banned("10.0.0.5") is True
+    assert manager.is_ip_banned("8.8.8.5") is True
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
@@ -177,18 +177,18 @@ def test_cidr_ban_no_redis_exceeds_cap_clamps_and_warns(
 
     caplog.set_level(logging.WARNING, logger="guard_core.sync.handlers.ipban")
     manager.ban_ip(
-        "10.0.0.0/24",
+        "8.8.8.0/24",
         duration=manager.LOCAL_CACHE_TTL_CAP_SECONDS + 1,
         reason="cap_exceeded",
     )
 
     assert len(manager.banned_networks) == 1
     network, expiry = manager.banned_networks[0]
-    assert str(network) == "10.0.0.0/24"
+    assert str(network) == "8.8.8.0/24"
     assert expiry == pytest.approx(
         time.time() + manager.LOCAL_CACHE_TTL_CAP_SECONDS, abs=2
     )
-    assert manager.is_ip_banned("10.0.0.5") is True
+    assert manager.is_ip_banned("8.8.8.5") is True
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1

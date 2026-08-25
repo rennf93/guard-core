@@ -208,3 +208,96 @@ async def test_ban_loopback_over_cap_duration_is_refused_not_clamped(
     assert "loopback" in message
     assert "clamped" not in message
     assert "shortened" not in message
+
+
+@pytest.mark.asyncio
+async def test_ban_private_ipv4_warns_but_still_bans(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip("10.0.0.5", duration=300, reason="threshold_exceeded")
+
+    assert await manager.is_ip_banned("10.0.0.5") is True
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "Banning private IP range" in r.getMessage() and "10.0.0.5" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_ban_private_cidr_warns_but_still_bans(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip("192.168.0.0/24", duration=300, reason="threshold_exceeded")
+
+    assert await manager.is_ip_banned("192.168.0.10") is True
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "Banning private IP range" in r.getMessage()
+        and "192.168.0.0/24" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_ban_private_ipv6_ula_warns_but_still_bans(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip("fd00::1", duration=300, reason="threshold_exceeded")
+
+    assert await manager.is_ip_banned("fd00::1") is True
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "Banning private IP range" in r.getMessage() and "fd00::1" in r.getMessage()
+        for r in warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_ban_public_ip_emits_no_private_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip("8.8.8.8", duration=300, reason="threshold_exceeded")
+
+    assert await manager.is_ip_banned("8.8.8.8") is True
+    assert not any("Banning private IP range" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_ban_loopback_does_not_emit_private_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    await manager.ban_ip("127.0.0.1", duration=300, reason="threshold_exceeded")
+
+    assert await manager.is_ip_banned("127.0.0.1") is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("127.0.0.1" in r.getMessage() for r in warnings)
+    assert not any("Banning private IP range" in r.getMessage() for r in warnings)
+
+
+@pytest.mark.asyncio
+async def test_ban_invalid_ip_emits_no_private_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = _manager_with_config()
+
+    caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
+    with pytest.raises(ValueError):
+        await manager.ban_ip("not-an-ip", duration=300, reason="threshold_exceeded")
+
+    assert not any("Banning private IP range" in r.getMessage() for r in caplog.records)
