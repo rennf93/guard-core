@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -130,6 +131,24 @@ def test_validate_trusted_proxies_accepts_unix_token() -> None:
     config = SecurityConfig(trusted_proxies=["unix", "127.0.0.1"])
     assert "unix" in config.trusted_proxies
     assert "127.0.0.1" in config.trusted_proxies
+
+
+def test_trusted_proxies_prefix_zero_warns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(trusted_proxies=["0.0.0.0/0"])
+
+    assert any("every peer is trusted" in record.message for record in caplog.records)
+
+
+def test_trusted_proxies_without_prefix_zero_does_not_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(trusted_proxies=["127.0.0.1", "unix"])
+
+    assert not any(
+        "every peer is trusted" in record.message for record in caplog.records
+    )
 
 
 def test_validate_whitelist_rejects_unix_token() -> None:

@@ -19,6 +19,7 @@ from guard_core._security_config_validators import (
     _apply_geo_ip_handler_assignment,
     _country_shadow_should_warn,
     _extra_installed,
+    _is_prefix_zero_trusted_proxy_entry,
     _resolve_geo_ip_handler,
     _revalidate_copied_config,
     _validate_block_cloud_providers_value,
@@ -34,6 +35,8 @@ from guard_core._security_config_validators import (
     _validate_return_pattern_body_scan,
     _validate_threat_ban_config_value,
     _warn_country_allowlist_shadows_blocklist,
+    _warn_empty_enabled_detection_categories,
+    _warn_trusted_proxies_prefix_zero,
     cloud_blocking_enabled,
 )
 from guard_core._security_config_validators import (
@@ -248,6 +251,20 @@ class SecurityConfig(_SecurityConfigFields):
                 DeprecationWarning,
                 stacklevel=2,
             )
+        return self
+
+    @model_validator(mode="after")
+    def warn_trusted_proxies_prefix_zero(self) -> Self:
+        if any(
+            _is_prefix_zero_trusted_proxy_entry(entry) for entry in self.trusted_proxies
+        ):
+            _warn_trusted_proxies_prefix_zero()
+        return self
+
+    @model_validator(mode="after")
+    def warn_empty_enabled_detection_categories(self) -> Self:
+        if self.enable_penetration_detection and not self.enabled_detection_categories:
+            _warn_empty_enabled_detection_categories()
         return self
 
     @field_validator("muted_event_types", mode="before")

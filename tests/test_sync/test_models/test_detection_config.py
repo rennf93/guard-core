@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from guard_core.models import SecurityConfig
@@ -48,3 +50,27 @@ def test_enabled_detection_categories_rejects_unknown_category() -> None:
 def test_enabled_detection_categories_empty_set_is_valid() -> None:
     config = SecurityConfig(enabled_detection_categories=set())
     assert config.enabled_detection_categories == set()
+
+
+def test_empty_enabled_detection_categories_warns_when_detection_enabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(enabled_detection_categories=set())
+
+    assert any(
+        "will never match any category" in record.message for record in caplog.records
+    )
+
+
+def test_empty_enabled_detection_categories_does_not_warn_when_detection_disabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(
+            enabled_detection_categories=set(), enable_penetration_detection=False
+        )
+
+    assert not any(
+        "will never match any category" in record.message for record in caplog.records
+    )
