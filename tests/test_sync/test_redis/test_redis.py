@@ -3,6 +3,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from redis import Redis
 from redis.exceptions import ConnectionError
 
 from guard_core.exceptions import GuardRedisError
@@ -416,3 +417,142 @@ def test_initialize_when_from_url_returns_none_skips_ping() -> None:
         manager.initialize()
     assert manager._redis is None
     RedisManager._instance = None
+
+
+def test_initialize_twice_closes_previous_client_exactly_once() -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.redis_handler import RedisManager
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+
+    first_client = MagicMock()
+    first_client.ping = MagicMock(return_value=True)
+    first_client.close = MagicMock()
+
+    second_client = MagicMock()
+    second_client.ping = MagicMock(return_value=True)
+    second_client.close = MagicMock()
+
+    with patch(
+        "guard_core.sync.handlers.redis_handler.Redis.from_url",
+        side_effect=[first_client, second_client],
+    ):
+        manager.initialize()
+        manager.initialize()
+
+    first_client.close.assert_called_once()
+    second_client.close.assert_not_called()
+    assert manager._redis is second_client
+    RedisManager._instance = None
+
+
+def test_initialize_disabled_redis_closes_existing_client() -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.redis_handler import RedisManager
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+
+    existing_client = MagicMock()
+    existing_client.close = MagicMock()
+    redis_or_none: Redis | None = existing_client
+    manager._redis = redis_or_none
+
+    config.enable_redis = False
+    manager.initialize()
+
+    existing_client.close.assert_called_once()
+    assert manager._redis is None
+    RedisManager._instance = None
+
+
+def test_initialize_ping_failure_closes_new_client_before_raising() -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.redis_handler import RedisManager
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+
+    failing_client = MagicMock()
+    failing_client.ping = MagicMock(side_effect=ConnectionError("ping failed"))
+    failing_client.close = MagicMock()
+
+    with patch(
+        "guard_core.sync.handlers.redis_handler.Redis.from_url",
+        return_value=failing_client,
+    ):
+        with pytest.raises(GuardRedisError):
+            manager.initialize()
+
+    failing_client.close.assert_called_once()
+    assert manager._redis is None
+    RedisManager._instance = None
+
+
+def test_close_twice_does_not_raise() -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.redis_handler import RedisManager
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+
+    client = MagicMock()
+    client.close = MagicMock()
+    redis_or_none: Redis | None = client
+    manager._redis = redis_or_none
+
+    manager.close()
+    manager.close()
+
+    client.close.assert_called_once()
+    assert manager._closed is True
+    RedisManager._instance = None
+
+
+def test_close_stale_client_failure_is_logged_and_swallowed() -> None:
+    from guard_core.models import SecurityConfig
+    from guard_core.sync.handlers.redis_handler import RedisManager
+
+    RedisManager._instance = None
+    config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    manager = RedisManager(config)
+
+    stale_client = MagicMock()
+    stale_client.close = MagicMock(
+        side_effect=RuntimeError("Future attached to a different loop")
+    )
+    redis_or_none: Redis | None = stale_client
+    manager._redis = redis_or_none
+
+    with patch.object(manager.logger, "warning") as mock_warning:
+        manager.close()
+
+    stale_client.close.assert_called_once()
+    mock_warning.assert_called_once()
+    assert manager._redis is None
+    assert manager._closed is True
+    RedisManager._instance = None
+
+
+def test_initialize_twice_against_real_redis_does_not_warn(
+    security_config_redis: SecurityConfig,
+) -> None:
+    import gc
+    import warnings
+
+    handler = redis_handler(security_config_redis)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        handler.initialize()
+        handler.initialize()
+        handler.close()
+        gc.collect()
+
+    resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert resource_warnings == []
