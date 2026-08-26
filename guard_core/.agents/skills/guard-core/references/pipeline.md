@@ -2,6 +2,15 @@
 
 `SecurityCheckPipeline` (`guard_core/core/checks/pipeline.py`) is a chain of responsibility. Checks run sequentially in insertion order; the first returning a non-`None` `GuardResponse` short-circuits and blocks.
 
+## Pre-pipeline: missing client address
+
+Before `SecurityCheckPipeline.execute` runs at all, `BypassHandler.handle_passthrough` (`guard_core/core/bypass/handler.py`) runs two gates in order:
+
+1. **`exclude_paths` matching.** If the request path matches, `request.state.guard_exclusion_scoped = True` is set and the request proceeds into the pipeline (only `route_config`, `ip_security`, and `rate_limit` still run for it -- see "Which checks get built" below); this happens before the client address is resolved, so an excluded health/readiness endpoint is unaffected by the next gate.
+2. **Missing client address.** If `request.client_host` is falsy, the handler resolves an identity via `extract_client_ip(request, config)`. When that resolves to `"unknown"` (`UNKNOWN_CLIENT_IDENTITY`, `guard_core/_utils/ip_extraction.py`), `fail_secure=True` (the default) makes `handle_passthrough` return a 403 `GuardResponse` directly, before any pipeline check runs; `fail_secure=False` lets the request continue into the pipeline with `request.state.client_ip` already set to `"unknown"`. Either outcome logs a one-time warning naming the fix (add the literal `"unix"` token to `trusted_proxies` for a Unix-socket deployment, so `X-Forwarded-For` can still resolve the real client instead of every request presenting as clientless).
+
+The `"unknown"` identity is not automatically blocked once inside the pipeline: `IpSecurityCheck` (via `check_ip_access`/`check_route_ip_access`) allows it through unless a global `whitelist`, `whitelist_countries`, a route `ip_whitelist`, or a route `whitelist_countries` is configured, in which case it is blocked as if it failed that allowlist (`guard_core/_utils/access_control.py`, `guard_core/core/checks/helpers.py`).
+
 ## Execution semantics
 
 * `check.check(request) -> GuardResponse | None`: `None` passes, a `GuardResponse` blocks.
@@ -29,6 +38,8 @@
 15. `rate_limit` - sliding window (memory or Redis).
 16. `suspicious_activity` - detection engine integration.
 17. `custom_request` - user-supplied request-level check.
+
+`rate_limit`'s in-memory stores (`RateLimitManager.request_timestamps`, and the module-level `_by_ip_request_timestamps`/`_by_ip_autoban_counts` in `guard_core/handlers/ratelimit_handler.py`) are LRU-bounded at 10,000 tracked IPs (`_lru_pop_or_create`, `guard_core/_utils/lru_store.py`): once the bound is hit, adding a new IP evicts the least-recently-touched one. Every 429 response the check returns carries a `Retry-After` header set to the effective rate-limit window, whether the store is in-memory or Redis-backed.
 
 ## Which checks get built
 
