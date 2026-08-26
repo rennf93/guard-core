@@ -712,6 +712,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         _TRUNCATION_FILLER + "http://169.254.169.254/latest/meta-data/",
         "encoding_aware",
     ),
+    MaliciousCase(
+        "ssrf_ipv4_mapped_ipv6_loopback_bracket",
+        "ssrf",
+        "http://[::ffff:127.0.0.1]/",
+    ),
+    MaliciousCase("ssrf_localhost_trailing_dot", "ssrf", "http://localhost./"),
     MaliciousCase("nosql_gt_operator_quoted", "nosql", '{"$gt":""}'),
     MaliciousCase("nosql_ne_operator_quoted", "nosql", '{"$ne":null}'),
     MaliciousCase(
@@ -1890,6 +1896,7 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("ssrf_public_dns_google", "http://8.8.8.8/"),
     BenignCase("ssrf_localhost_lookalike_domain", "localhost.example.com/callback"),
     BenignCase("ssrf_notlocalhost_domain", "https://notlocalhost.io/status"),
+    BenignCase("ssrf_ipv4_mapped_ipv6_public_bracket", "http://[::ffff:8.8.8.8]/"),
     BenignCase("ssrf_private_ip_lookalike_domain", "https://192-168-1-1.nip.io/"),
     BenignCase(
         "ssrf_aws_apigateway_url",

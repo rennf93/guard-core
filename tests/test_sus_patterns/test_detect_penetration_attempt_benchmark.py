@@ -807,6 +807,45 @@ _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[TargetedCase] = [
     ),
 ]
 
+_SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_loopback_query_param",
+        _query_param_request("http://[::ffff:127.0.0.1]/"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_loopback_json_body",
+        _body_request(
+            '{"url":"http://[::ffff:127.0.0.1]/"}',
+            "application/json",
+        ),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_localhost_trailing_dot_query_param",
+        _query_param_request("http://localhost./"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_localhost_trailing_dot_json_body",
+        _body_request('{"url":"http://localhost./"}', "application/json"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_public_query_param_not_flagged",
+        _query_param_request("http://[::ffff:8.8.8.8]/"),
+        False,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_public_json_body_not_flagged",
+        _body_request(
+            '{"url":"http://[::ffff:8.8.8.8]/"}',
+            "application/json",
+        ),
+        False,
+    ),
+]
+
 
 async def _mechanism_for_case_id(mechanisms: tuple[str, ...], case_id: str) -> str:
     return mechanisms[zlib.crc32(case_id.encode()) % len(mechanisms)]
@@ -1073,6 +1112,12 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate(
         if result.is_threat != targeted.expect_detected:
             dollar_fp_and_log4shell_bonus_failures.append(targeted.case_id)
 
+    ssrf_ipv4_mapped_and_trailing_dot_failures: list[str] = []
+    for targeted in _SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES:
+        result = await detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            ssrf_ipv4_mapped_and_trailing_dot_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
@@ -1137,6 +1182,14 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate(
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted ssrf ipv4-mapped-ipv6-loopback and trailing-dot-localhost cases:"
+    )
+    for targeted in _SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for pin_key, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {pin_key}: {reason}")
@@ -1148,6 +1201,9 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate(
     assert not round6_targeted_failures, f"{round6_targeted_failures}\n{report}"
     assert not dollar_fp_and_log4shell_bonus_failures, (
         f"{dollar_fp_and_log4shell_bonus_failures}\n{report}"
+    )
+    assert not ssrf_ipv4_mapped_and_trailing_dot_failures, (
+        f"{ssrf_ipv4_mapped_and_trailing_dot_failures}\n{report}"
     )
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (

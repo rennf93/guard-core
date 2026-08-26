@@ -24,6 +24,8 @@ PRIVATE_TARGET_URLS_FLAGGED = [
     pytest.param("http://172.31.255.255/admin", id="private_class_b_high"),
     pytest.param("connect to 127.0.0.1/status now", id="loopback_in_prose"),
     pytest.param("reset via 0.0.0.0:9999 first", id="unspecified_with_port"),
+    pytest.param("http://[::ffff:127.0.0.1]/", id="ipv4_mapped_ipv6_loopback_bracket"),
+    pytest.param("http://localhost./", id="localhost_trailing_dot"),
 ]
 
 VERSION_LIKE_TEXT_NOT_FLAGGED = [
@@ -107,6 +109,7 @@ PUBLIC_ADDRESSES_NOT_FLAGGED = [
     pytest.param("localhost.example.com/callback", id="localhost_lookalike_domain"),
     pytest.param("http://999.999.999.999/", id="malformed_octets_out_of_range"),
     pytest.param("http://08.0.0.1/", id="invalid_octal_digit_rejected"),
+    pytest.param("http://[::ffff:8.8.8.8]/", id="ipv4_mapped_ipv6_public_bracket"),
     pytest.param("http://0x.0.0.1/", id="empty_hex_digits_rejected"),
 ]
 
