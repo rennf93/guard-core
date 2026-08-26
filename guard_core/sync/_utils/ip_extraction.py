@@ -190,6 +190,11 @@ def extract_client_ip(
         return cached_ip
 
     if not request.client_host:
+        if "unix" in config.trusted_proxies:
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            return _resolve_trusted_proxy_client_ip(
+                "unknown", forwarded_for, config.trusted_proxy_depth
+            )
         return "unknown"
 
     connecting_ip = request.client_host

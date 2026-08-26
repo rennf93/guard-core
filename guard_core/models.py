@@ -144,7 +144,7 @@ class SecurityConfig(_SecurityConfigFields):
     @field_validator("trusted_proxies", mode="before")
     def validate_trusted_proxies(cls, v: Any) -> Any:
         return _validate_ip_or_cidr_list(
-            v, invalid_message="Invalid proxy IP or CIDR range"
+            v, invalid_message="Invalid proxy IP or CIDR range", allow_unix=True
         )
 
     @field_validator("trusted_proxy_depth")

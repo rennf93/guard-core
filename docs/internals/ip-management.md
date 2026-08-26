@@ -176,7 +176,7 @@ async def extract_client_ip(
 
 ### Logic
 
-1. If `request.client_host` is `None`, return `"unknown"`.
+1. If `request.client_host` is `None`: return the address resolved from `X-Forwarded-For` when `"unix"` is in `trusted_proxies` (same depth logic as step 6 below, falling back to `"unknown"` if the header is absent or the chain is too short); otherwise return `"unknown"`. The adapter's passthrough step (see [Middleware Integration](../adapters/middleware-integration.md)) only reaches this resolution for a non-excluded path -- an excluded path (a health or readiness endpoint, for example) passes through unaffected, before identity is resolved at all. For a non-excluded path, the passthrough step rejects the request with 403 before this point when the resolved identity is `"unknown"` and `fail_secure=True` (the default); with `fail_secure=False` the pipeline still runs with that identity.
 2. Get the connecting IP from `request.client_host`.
 3. Get `X-Forwarded-For` header value.
 4. If no trusted proxies are configured, log a spoofing warning (if `X-Forwarded-For` is present) and return the connecting IP.

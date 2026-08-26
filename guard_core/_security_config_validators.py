@@ -258,11 +258,16 @@ def _revalidate_global_behavior_rules(config: "SecurityConfig") -> None:
         _validate_return_pattern_body_scan(rule.pattern, config)
 
 
-def _validate_ip_or_cidr_list(v: Any, *, invalid_message: str) -> Any:
+def _validate_ip_or_cidr_list(
+    v: Any, *, invalid_message: str, allow_unix: bool = False
+) -> Any:
     if v is None:
         return None
     validated: list[str] = []
     for entry in v:
+        if allow_unix and entry == "unix":
+            validated.append("unix")
+            continue
         try:
             if "/" in entry:
                 validated.append(str(ip_network(entry, strict=False)))
@@ -283,7 +288,7 @@ def _validate_blacklist_value(v: Any) -> Any:
 
 def _validate_trusted_proxies_value(v: Any) -> Any:
     return _validate_ip_or_cidr_list(
-        v, invalid_message="Invalid proxy IP or CIDR range"
+        v, invalid_message="Invalid proxy IP or CIDR range", allow_unix=True
     )
 
 

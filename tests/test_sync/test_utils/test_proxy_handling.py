@@ -134,6 +134,34 @@ def test_extract_client_ip_no_client() -> None:
     assert ip == "unknown"
 
 
+def test_extract_client_ip_unix_socket_resolves_from_forwarded_header() -> None:
+    config = SecurityConfig(trusted_proxies=["unix"])
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "1.2.3.4"},
+        client_host=None,
+    )
+
+    ip = extract_client_ip(request, config)
+    assert ip == "1.2.3.4"
+
+
+def test_extract_client_ip_unix_socket_without_header_stays_unknown() -> None:
+    config = SecurityConfig(trusted_proxies=["unix"])
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={},
+        client_host=None,
+    )
+
+    ip = extract_client_ip(request, config)
+    assert ip == "unknown"
+
+
 def test_extract_client_ip_fallback_to_connecting_ip() -> None:
     config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=3)
 

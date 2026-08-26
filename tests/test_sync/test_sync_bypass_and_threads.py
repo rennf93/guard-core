@@ -1,4 +1,5 @@
 import threading
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -26,22 +27,35 @@ def _make_bypass_handler() -> BypassHandler:
         response_factory=MagicMock(),
         validator=MagicMock(),
     )
+    context.validator.is_path_excluded = MagicMock(return_value=False)
     return BypassHandler(context)
 
 
-def test_bypass_passthrough_no_client_with_call_next() -> None:
+def test_bypass_passthrough_no_client_fail_secure_rejects() -> None:
     handler = _make_bypass_handler()
     mock_request = MagicMock()
     mock_request.client_host = None
+    mock_request.state = SimpleNamespace()
     mock_call_next = MagicMock(return_value=MagicMock())
-
-    cast(Any, handler.context.response_factory).apply_modifier = MagicMock(
-        side_effect=lambda r: r
-    )
 
     result = handler.handle_passthrough(mock_request, call_next=mock_call_next)
     assert result is not None
-    mock_call_next.assert_called_once_with(mock_request)
+    assert mock_request.state.client_ip == "unknown"
+    mock_call_next.assert_not_called()
+
+
+def test_bypass_passthrough_no_client_fail_open_runs_pipeline_as_unknown() -> None:
+    handler = _make_bypass_handler()
+    handler.context.config.fail_secure = False
+    mock_request = MagicMock()
+    mock_request.client_host = None
+    mock_request.state = SimpleNamespace()
+    mock_call_next = MagicMock(return_value=MagicMock())
+
+    result = handler.handle_passthrough(mock_request, call_next=mock_call_next)
+    assert result is None
+    assert mock_request.state.client_ip == "unknown"
+    mock_call_next.assert_not_called()
 
 
 def test_bypass_passthrough_excluded_path_falls_through_and_marks_request() -> None:

@@ -126,6 +126,22 @@ def test_validate_trusted_proxies() -> None:
     assert config.trusted_proxies == ()
 
 
+def test_validate_trusted_proxies_accepts_unix_token() -> None:
+    config = SecurityConfig(trusted_proxies=["unix", "127.0.0.1"])
+    assert "unix" in config.trusted_proxies
+    assert "127.0.0.1" in config.trusted_proxies
+
+
+def test_validate_whitelist_rejects_unix_token() -> None:
+    with pytest.raises(ValueError, match="Invalid IP or CIDR range"):
+        SecurityConfig(whitelist=["unix"])
+
+
+def test_validate_blacklist_rejects_unix_token() -> None:
+    with pytest.raises(ValueError, match="Invalid IP or CIDR range"):
+        SecurityConfig(blacklist=["unix"])
+
+
 def test_validate_proxy_depth() -> None:
     config = SecurityConfig(trusted_proxy_depth=2)
     assert config.trusted_proxy_depth == 2

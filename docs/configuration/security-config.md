@@ -42,7 +42,7 @@ Proxy Configuration
 
 **Validators**:
 
-- `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range.
+- `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range, or the literal string `"unix"`, which marks a peer-less connection (no `request.client_host`, e.g. a Unix domain socket) as a trusted hop so `X-Forwarded-For` still resolves the real client. `whitelist` and `blacklist` do not accept `"unix"`.
 - `trusted_proxy_depth`: Must be >= 1.
 
 !!! warning "Your app server must not pre-resolve the client itself"
@@ -461,7 +461,7 @@ Validators
 | Validator | Fields | Behavior |
 |-----------|--------|----------|
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
-| `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges. Raises `ValueError` on invalid entries. |
+| `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges, plus the literal `"unix"` token. Raises `ValueError` on invalid entries. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
 | `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction. |

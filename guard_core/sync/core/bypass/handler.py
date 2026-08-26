@@ -1,9 +1,31 @@
 from collections.abc import Callable
+from logging import Logger
 
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.bypass.context import BypassContext
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
+from guard_core.sync.utils import extract_client_ip
+
+_no_client_address_warned = False
+
+
+def _warn_no_client_address(logger: Logger, *, rejected: bool) -> None:
+    global _no_client_address_warned
+    if _no_client_address_warned:
+        return
+    _no_client_address_warned = True
+    outcome = (
+        "the request is rejected with 403 (fail_secure=True)"
+        if rejected
+        else 'the pipeline runs with identity "unknown" (fail_secure=False)'
+    )
+    logger.warning(
+        "no client address on the connection; if the app is served over a "
+        'Unix socket add "unix" to trusted_proxies; %s. This warning is '
+        "logged once.",
+        outcome,
+    )
 
 
 class BypassHandler:
@@ -15,12 +37,21 @@ class BypassHandler:
         request: SyncGuardRequest,
         call_next: Callable[[SyncGuardRequest], GuardResponse],
     ) -> GuardResponse | None:
-        if not request.client_host:
-            response = call_next(request)
-            return self.context.response_factory.apply_modifier(response)
-
         if self.context.validator.is_path_excluded(request):
             request.state.guard_exclusion_scoped = True
+            return None
+
+        if not request.client_host:
+            client_ip = extract_client_ip(request, self.context.config)
+            request.state.client_ip = client_ip
+            if client_ip == "unknown":
+                _warn_no_client_address(
+                    self.context.logger, rejected=self.context.config.fail_secure
+                )
+                if self.context.config.fail_secure:
+                    return self.context.response_factory.create_error_response(
+                        403, "Client address could not be determined"
+                    )
 
         return None
 
