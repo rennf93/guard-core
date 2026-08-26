@@ -10,6 +10,13 @@ from guard_core.models import SecurityConfig
 from tests.conftest import MockGuardRequest
 
 
+class _FakeErrorResponse:
+    def __init__(self, status_code: int, message: str) -> None:
+        self.status_code = status_code
+        self.message = message
+        self.headers: dict[str, str] = {}
+
+
 @pytest.fixture(autouse=True)
 def cleanup_ratelimit_singleton() -> Generator[Any, Any, Any]:
     RateLimitManager._instance = None
@@ -132,7 +139,7 @@ async def test_check_rate_limit_agent_event_called() -> None:
     mock_request = MockGuardRequest(path="/api/endpoint", method="GET")
 
     async def mock_error_response(status_code: int, message: str) -> Any:
-        return f"Error: {status_code} - {message}"
+        return _FakeErrorResponse(status_code, message)
 
     with (
         patch(
@@ -155,7 +162,9 @@ async def test_check_rate_limit_agent_event_called() -> None:
             create_error_response=mock_error_response,
         )
 
-        assert result2 == "Error: 429 - Too many requests"
+        assert result2.status_code == 429
+        assert result2.message == "Too many requests"
+        assert result2.headers["Retry-After"] == "60"
 
         mock_send_event.assert_called_once_with(mock_request, "192.168.1.100", 2)
 
@@ -194,7 +203,7 @@ async def test_check_rate_limit_redis_path_with_agent() -> None:
     mock_request = MockGuardRequest(path="/api/test", method="POST")
 
     async def mock_error_response(status_code: int, message: str) -> Any:
-        return {"status": status_code, "message": message}
+        return _FakeErrorResponse(status_code, message)
 
     with patch(
         "guard_core.handlers.ratelimit_handler.log_activity", new_callable=AsyncMock
@@ -205,7 +214,9 @@ async def test_check_rate_limit_redis_path_with_agent() -> None:
             create_error_response=mock_error_response,
         )
 
-        assert result == {"status": 429, "message": "Too many requests"}
+        assert result.status_code == 429
+        assert result.message == "Too many requests"
+        assert result.headers["Retry-After"] == "60"
 
         mock_agent.send_event.assert_called_once()
         sent_event = mock_agent.send_event.call_args[0][0]
