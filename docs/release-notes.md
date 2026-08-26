@@ -10,6 +10,32 @@ Release Notes
 
 ___
 
+v3.14.0 (2026-08-26)
+--------------------
+
+Post-3.13.0 hardening: identity and proxy-trust warnings, bounded in-memory stores, resilient Redis/GeoIP/Azure startup, telemetry secret redaction, and detection scan-cap and SSRF hardening (v3.14.0)
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+### Highlights
+
+- **Missing-client requests rejected; new `unix` trusted-proxy token.** A request with no client address (`request.client_host` is `None`) is now rejected instead of skipping the entire security pipeline; a new `"unix"` token in `trusted_proxies` resolves `X-Forwarded-For` behind Unix-socket deployments (GHSA-634g-4wr8-xwxv).
+- **X-Forwarded-For chain warnings.** guard-core now warns once when a forwarded-for chain cannot satisfy `trusted_proxy_depth`, and once when the depth-selected entry is itself a listed trusted proxy; resolved identity is unchanged in both cases (GHSA-8xvm-856x-7hwp).
+- **Prefix-0 trusted-proxy and empty-detection-category startup warnings.** `SecurityConfig` now warns at construction on a `/0` trusted-proxy network (`0.0.0.0/0`, `::/0`) and on an empty `enabled_detection_categories` with detection enabled, two previously silent misconfigurations (#79).
+- **Ban canonicalisation.** `ban_ip`, `is_ip_banned`, and `unban_ip` canonicalise the address before storing, querying, or deleting it, closing a silent no-op when the same IP is banned and unbanned under different spellings (#81).
+- **Redis-outage startup degrade.** A Redis outage at startup no longer crashes the app; `redis_fail_open=True` degrades to in-memory backends, `redis_fail_open=False` re-raises so the adapter returns a clean error (#76).
+- **GeoIP last-known-good.** `IPInfoManager` keeps the last known good GeoIP database on a failed refresh or download instead of deleting it, and downloads to a temporary file that swaps in atomically (#78).
+- **AzureCloud service tag.** Azure cloud-IP fetch now loads the `AzureCloud` service tag by name instead of whichever tag sorts first (#77).
+- **Rate-limit stores bounded; `Retry-After` on 429s.** In-memory rate-limit stores are now LRU-bounded at 10,000 IPs; every 429 response now carries `Retry-After` (GHSA-g53w-gmp9-9ch3, #81).
+- **Behavior-tracker stores bounded.** `BehaviorTracker.usage_counts`/`return_patterns` per-client stores are now LRU-bounded at 10,000 clients per key, the same pattern applied to the rate-limit stores above (GHSA-g53w-gmp9-9ch3).
+- **Float anomaly statistics.** `PerformanceMonitor`'s statistical-anomaly check replaces exact-Fraction arithmetic with `math.fsum`-based float mean/variance, removing an unbounded per-value CPU tax (advisory pending).
+- **Per-request scan cap.** `SecurityConfig.detection_max_scan_values` bounds the number of request values scanned per request, replacing an unbounded scan an attacker could exhaust with padding (GHSA-3hfx-8m47-5f9h).
+- **Telemetry secret redaction.** The IPInfo token and Redis password no longer reach telemetry: the token moves to an `Authorization` header, and `RedisManager.initialize` strips userinfo from `redis_url` before it reaches agent events (#80).
+- **Header-name validation.** Custom security-header names, including Redis-loaded ones, are now validated against RFC 9110 token grammar and rejected on CRLF or other non-token characters (#81).
+- **SSRF form coverage.** `ssrf` now detects the IPv4-mapped IPv6 loopback bracket form and a trailing-dot `localhost` (#81).
+
+___
+
 v3.13.0 (2026-08-22)
 --------------------
 
