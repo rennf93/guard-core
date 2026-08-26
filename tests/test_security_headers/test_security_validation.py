@@ -28,6 +28,30 @@ async def test_header_value_with_newline_rejected() -> None:
 
 
 @pytest.mark.asyncio
+async def test_header_name_with_newline_rejected() -> None:
+    manager = SecurityHeadersManager()
+
+    with pytest.raises(ValueError, match="Invalid header name"):
+        manager.configure(custom_headers={"X-Evil\r\nSet-Cookie: x=1": "1"})
+
+
+@pytest.mark.asyncio
+async def test_header_name_token_characters_accepted() -> None:
+    manager = SecurityHeadersManager()
+
+    manager.configure(
+        custom_headers={
+            "X-Custom-Header123": "value",
+            "X!#$%&'*+.^_`|~-Y": "value",
+        }
+    )
+
+    headers = await manager.get_headers()
+    assert headers["X-Custom-Header123"] == "value"
+    assert headers["X!#$%&'*+.^_`|~-Y"] == "value"
+
+
+@pytest.mark.asyncio
 async def test_header_value_too_long_rejected() -> None:
     manager = SecurityHeadersManager()
 

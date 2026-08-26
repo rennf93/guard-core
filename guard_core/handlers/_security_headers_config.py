@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 
@@ -10,6 +11,13 @@ class SecurityHeadersConfigMixin:
     hsts_config: dict[str, Any] | None
     cors_config: dict[str, Any] | None
     default_headers: dict[str, str]
+
+    _HEADER_NAME_TOKEN_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+
+    def _validate_header_name(self, name: str) -> str:
+        if not self._HEADER_NAME_TOKEN_RE.fullmatch(name):
+            raise ValueError(f"Invalid header name: {name}")
+        return name
 
     def _validate_header_value(self, value: str) -> str:
         if "\r" in value or "\n" in value:
@@ -113,7 +121,8 @@ class SecurityHeadersConfigMixin:
             return
 
         for name, value in custom_headers.items():
-            self.custom_headers[name] = self._validate_header_value(value)
+            validated_name = self._validate_header_name(name)
+            self.custom_headers[validated_name] = self._validate_header_value(value)
 
     def configure(
         self,
