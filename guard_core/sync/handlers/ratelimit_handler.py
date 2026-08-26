@@ -12,7 +12,7 @@ from redis.exceptions import NoScriptError, RedisError
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
-from guard_core.sync.core.checks.helpers import _lru_pop_or_create
+from guard_core.sync._utils.lru_store import _lru_pop_or_create
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 

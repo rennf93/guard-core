@@ -9,7 +9,7 @@ from cachetools import TTLCache
 
 from guard_core.models import BehaviorRuleConfig, SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.sync.core.checks.helpers import _lru_pop_or_create
+from guard_core.sync._utils.lru_store import _lru_pop_or_create
 from guard_core.sync.handlers._behavior_action_dispatch import (
     BehaviorActionDispatchMixin,
 )

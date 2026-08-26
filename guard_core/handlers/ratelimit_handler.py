@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from redis.exceptions import NoScriptError, RedisError
 
-from guard_core.core.checks.helpers import _lru_pop_or_create
+from guard_core._utils.lru_store import _lru_pop_or_create
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse

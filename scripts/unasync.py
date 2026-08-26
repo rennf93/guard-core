@@ -63,6 +63,7 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_ratelimit_concurrency.py",
     TEST_SYNC_DIR / "test_sync_bypass_and_threads.py",
     TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_concurrency.py",
+    TEST_SYNC_DIR / "test_module_imports_standalone.py",
 }
 
 _ASYNC_SAFE_READ_SRC = (

@@ -1,10 +1,11 @@
 import logging
 import threading
-from collections.abc import Callable, Collection, Mapping, MutableMapping
+from collections.abc import Callable, Collection, Mapping
 from ipaddress import ip_address
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
+from guard_core._utils.lru_store import _lru_pop_or_create
 from guard_core.core.events.event_types import (
     EVENT_IP_BAN_FAILED,
     EVENT_PENETRATION_ATTEMPT,
@@ -22,6 +23,8 @@ from guard_core.utils import (
 
 if TYPE_CHECKING:
     from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
+
+__all__ = ["_lru_pop_or_create"]
 
 _MAX_TRACKED_SUSPICIOUS_IPS = 10_000
 _DETECTION_RESULT_STATE_ATTR = "_guard_detection_result_cache"
@@ -209,21 +212,6 @@ async def get_cached_detection_result(
         request.state, _DETECTION_RESULT_STATE_ATTR, (request, route_config, result)
     )
     return result
-
-
-_V = TypeVar("_V")
-
-
-def _lru_pop_or_create(
-    store: MutableMapping[str, _V], key: str, max_size: int, default: Callable[[], _V]
-) -> _V:
-    value = store.pop(key, None)
-    if value is not None:
-        return value
-    if len(store) >= max_size:
-        oldest_key = next(iter(store))
-        del store[oldest_key]
-    return default()
 
 
 def _increment_suspicious_counts(

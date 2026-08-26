@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from cachetools import TTLCache
 
-from guard_core.core.checks.helpers import _lru_pop_or_create
+from guard_core._utils.lru_store import _lru_pop_or_create
 from guard_core.handlers._behavior_action_dispatch import BehaviorActionDispatchMixin
 from guard_core.handlers._behavior_response_pattern import (
     BehaviorResponsePatternMixin,
