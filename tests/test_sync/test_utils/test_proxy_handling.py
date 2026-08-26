@@ -314,7 +314,7 @@ def test_chain_too_short_warning_fires_on_depth_exceeding_chain_length(
 
     assert ip == "127.0.0.1"
     assert CHAIN_TOO_SHORT_WARNING_TEXT in caplog.text
-    assert "trusted_proxy_depth is 3" in caplog.text
+    assert "configured trusted_proxy_depth" in caplog.text
 
 
 def test_chain_too_short_warning_absent_when_chain_meets_depth(

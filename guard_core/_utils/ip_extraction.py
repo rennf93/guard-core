@@ -168,17 +168,16 @@ _forwarded_header_chain_too_short_warned = False
 
 
 def _warn_forwarded_header_chain_too_short(
-    forwarded_for: str, proxy_depth: int, chain_length: int
+    forwarded_for: str, chain_length: int
 ) -> None:
     global _forwarded_header_chain_too_short_warned
     if _forwarded_header_chain_too_short_warned:
         return
     _forwarded_header_chain_too_short_warned = True
     logger.warning(
-        "trusted_proxy_depth is %d but the X-Forwarded-For chain has only "
-        "%d entries (%s); falling back to the connecting peer as the "
-        "client. This warning is logged once.",
-        proxy_depth,
+        "The X-Forwarded-For chain has only %d entries, fewer than the "
+        "configured trusted_proxy_depth (%s); falling back to the "
+        "connecting peer as the client. This warning is logged once.",
         chain_length,
         _sanitize_for_log(forwarded_for),
     )
@@ -201,7 +200,7 @@ def _warn_forwarded_header_selected_entry_trusted_proxy(entry: str) -> None:
     )
 
 
-def _resolve_trusted_proxy_client_ip(
+def _resolve_client_ip_from_forwarded_chain(
     canonical_connecting_ip: str,
     forwarded_for: str | None,
     proxy_depth: int,
@@ -219,9 +218,7 @@ def _resolve_trusted_proxy_client_ip(
 
         chain_length = len(forwarded_for.split(","))
         if chain_length < proxy_depth:
-            _warn_forwarded_header_chain_too_short(
-                forwarded_for, proxy_depth, chain_length
-            )
+            _warn_forwarded_header_chain_too_short(forwarded_for, chain_length)
     except (ValueError, IndexError) as e:
         logger.warning(f"Error processing client IP: {str(e)}")
 
@@ -240,7 +237,7 @@ async def extract_client_ip(
     if not request.client_host:
         if "unix" in config.trusted_proxies:
             forwarded_for = request.headers.get("X-Forwarded-For")
-            return _resolve_trusted_proxy_client_ip(
+            return _resolve_client_ip_from_forwarded_chain(
                 "unknown",
                 forwarded_for,
                 config.trusted_proxy_depth,
@@ -267,7 +264,7 @@ async def extract_client_ip(
             agent_handler,
         )
 
-    return _resolve_trusted_proxy_client_ip(
+    return _resolve_client_ip_from_forwarded_chain(
         canonical_connecting_ip,
         forwarded_for,
         config.trusted_proxy_depth,
