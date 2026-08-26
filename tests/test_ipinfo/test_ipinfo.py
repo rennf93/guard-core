@@ -110,25 +110,17 @@ async def test_database_retry_success(tmp_path: Path) -> None:
     mock_session.__aexit__ = AsyncMock(return_value=None)
     mock_session.get = AsyncMock(side_effect=get_side_effect)
 
-    mock_file = Mock()
-    mock_file_context = Mock()
-    mock_file_context.__enter__ = Mock(return_value=mock_file)
-    mock_file_context.__exit__ = Mock(return_value=None)
-    mock_open = Mock(return_value=mock_file_context)
-
     with (
         patch(
             "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
             return_value=mock_session,
         ),
-        patch("builtins.open", mock_open),
-        patch("os.makedirs"),
         patch("asyncio.sleep") as mock_sleep,
     ):
         await db._download_database()
 
         assert call_count == 2
-        mock_file.write.assert_called_with(b"test data")
+        assert db.db_path.read_bytes() == b"test data"
         # Membership, not assert_called_once_with: patching sleep replaces the
         # attribute on the shared module, so this mock records every sleep in
         # the process, including background handler threads left running by
@@ -358,6 +350,51 @@ async def test_redirect_handling(tmp_path: Path) -> None:
             assert f.read() == b"valid_db_content"
 
         mock_session.get.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_download_database_atomic_replace_leaves_no_temp_file(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "test.mmdb"
+    db = IPInfoManager(token="test", db_path=db_path)
+    mock_session = _mock_aiohttp(content=b"fresh bytes")
+
+    with patch(
+        "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+        return_value=mock_session,
+    ):
+        await db._download_database()
+
+    assert db_path.read_bytes() == b"fresh bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_database_removes_temp_file_when_replace_fails(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db._download_retries = 1
+    mock_session = _mock_aiohttp(content=b"new bytes")
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch(
+            "guard_core.handlers.ipinfo_handler.os.replace",
+            side_effect=OSError("cross-device link"),
+        ),
+    ):
+        with pytest.raises(OSError, match="cross-device link"):
+            await db._download_database()
+
+    assert db_path.read_bytes() == b"good db bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
 
 
 def test_file_operations(tmp_path: Path) -> None:
@@ -858,6 +895,43 @@ async def test_refresh_keeps_previous_reader_when_reopened_db_is_corrupt(
 
     assert db.reader is working_reader
     assert not db.db_path.exists()
+    assert db.get_country("1.1.1.1") == "US"
+    IPInfoManager._instance = None
+
+
+async def test_refresh_keeps_previous_database_when_temp_write_fails(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db._download_retries = 1
+    working_reader = Mock()
+    working_reader.get.return_value = {"country": "US"}
+    db.reader = working_reader
+
+    mock_session = _mock_aiohttp(content=b"new bytes")
+    real_open = open
+
+    def fake_open(path: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if str(path).endswith(".tmp") and "w" in mode:
+            raise OSError("disk full")
+        return real_open(path, mode, *args, **kwargs)
+
+    with (
+        patch(
+            "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ),
+        patch("builtins.open", side_effect=fake_open),
+    ):
+        await db.refresh()
+
+    assert db.reader is working_reader
+    assert db_path.read_bytes() == b"good db bytes"
+    assert db.get_country("1.1.1.1") == "US"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
     IPInfoManager._instance = None
 
 

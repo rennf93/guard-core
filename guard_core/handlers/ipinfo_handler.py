@@ -167,8 +167,15 @@ class IPInfoManager:
                     response = await session.get(url)
                     response.raise_for_status()
                     content = await response.read()
-                    with open(self.db_path, "wb") as f:
-                        f.write(content)
+                    tmp_path = self.db_path.with_name(self.db_path.name + ".tmp")
+                    try:
+                        with open(tmp_path, "wb") as f:
+                            f.write(content)
+                        os.replace(tmp_path, self.db_path)
+                    except Exception:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                        raise
 
                     if self.redis_handler is not None:
                         with open(self.db_path, "rb") as f:
