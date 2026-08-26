@@ -3409,8 +3409,7 @@ class SusPatternsManager:
                 hasattr(cls._instance, "_performance_monitor")
                 and cls._instance._performance_monitor
             ):
-                cls._instance._performance_monitor.pattern_stats.clear()
-                cls._instance._performance_monitor.recent_metrics.clear()
+                await cls._instance._performance_monitor.clear_stats()
 
             cls._config = None
 
