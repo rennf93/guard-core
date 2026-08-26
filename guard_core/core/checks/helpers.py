@@ -5,7 +5,6 @@ from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
-from guard_core._utils.lru_store import _lru_pop_or_create
 from guard_core.core.events.event_types import (
     EVENT_IP_BAN_FAILED,
     EVENT_PENETRATION_ATTEMPT,
@@ -23,8 +22,6 @@ from guard_core.utils import (
 
 if TYPE_CHECKING:
     from guard_core.protocols.middleware_protocol import GuardMiddlewareProtocol
-
-__all__ = ["_lru_pop_or_create"]
 
 _MAX_TRACKED_SUSPICIOUS_IPS = 10_000
 _DETECTION_RESULT_STATE_ATTR = "_guard_detection_result_cache"

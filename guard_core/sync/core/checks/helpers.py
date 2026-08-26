@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 from guard_core.models import SecurityConfig
-from guard_core.sync._utils.lru_store import _lru_pop_or_create
 from guard_core.sync.core.events.event_types import (
     EVENT_IP_BAN_FAILED,
     EVENT_PENETRATION_ATTEMPT,
@@ -25,8 +24,6 @@ if TYPE_CHECKING:
     from guard_core.sync.protocols.middleware_protocol import (
         SyncGuardMiddlewareProtocol,
     )
-
-__all__ = ["_lru_pop_or_create"]
 
 _MAX_TRACKED_SUSPICIOUS_IPS = 10_000
 _DETECTION_RESULT_STATE_ATTR = "_guard_detection_result_cache"

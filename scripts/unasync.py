@@ -22,6 +22,10 @@ SKIP_SRC = {
     "_dynamic_rules.py",
 }
 
+SKIP_TESTS = {
+    "test_module_imports_standalone.py",
+}
+
 SKIP_DIRS = {"__pycache__", "sync"}
 
 TEMPLATE_FILES = {
@@ -63,7 +67,6 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_ratelimit_concurrency.py",
     TEST_SYNC_DIR / "test_sync_bypass_and_threads.py",
     TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_concurrency.py",
-    TEST_SYNC_DIR / "test_module_imports_standalone.py",
 }
 
 _ASYNC_SAFE_READ_SRC = (
@@ -524,6 +527,8 @@ def collect_test_files() -> list[tuple[Path, Path]]:
 
         for f in sorted(files):
             if not f.endswith(".py"):
+                continue
+            if rel == Path(".") and f in SKIP_TESTS:
                 continue
 
             src = root_path / f
