@@ -1,8 +1,11 @@
+import json
 import logging
+from typing import Any
 
 import pytest
 
 from guard_core.models import SecurityConfig
+from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.sync.utils import detect_penetration_attempt
 from tests.test_sync.conftest import SyncMockGuardRequest
 
@@ -13,6 +16,19 @@ def _query_request(
     params: dict[str, str], client_host: str = "127.0.0.1"
 ) -> SyncMockGuardRequest:
     return SyncMockGuardRequest(query_params=params, client_host=client_host)
+
+
+def _header_request(
+    headers: dict[str, str], client_host: str = "127.0.0.1"
+) -> SyncMockGuardRequest:
+    return SyncMockGuardRequest(headers=headers, client_host=client_host)
+
+
+def _padded_json(payload_key: str | None = None) -> str:
+    fields = {f"field{i}": "benign" for i in range(20)}
+    if payload_key is not None:
+        fields = {payload_key: _SQLI_PAYLOAD, **fields}
+    return json.dumps(fields)
 
 
 def test_payload_within_the_cap_is_still_detected() -> None:
@@ -88,3 +104,59 @@ def test_config_none_still_uses_the_default_cap(
 
     assert result.is_threat is False
     assert "detection_max_scan_values" in caplog.text
+
+
+def test_json_embedded_in_a_query_param_value_trips_the_cap(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(detection_max_scan_values=2)
+    request = _query_request({"q": _padded_json()})
+
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = detect_penetration_attempt(request, config)
+
+    assert result.is_threat is False
+    assert caplog.text.count("detection_max_scan_values") == 1
+
+
+def test_json_embedded_in_a_header_value_trips_the_cap(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(detection_max_scan_values=2)
+    request = _header_request({"X-Custom-Data": _padded_json()})
+
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = detect_penetration_attempt(request, config)
+
+    assert result.is_threat is False
+    assert caplog.text.count("detection_max_scan_values") == 1
+
+
+def test_json_embedded_payload_placed_before_the_cap_is_still_detected() -> None:
+    config = SecurityConfig(detection_max_scan_values=5)
+    request = _query_request({"q": _padded_json(payload_key="payload")})
+
+    result = detect_penetration_attempt(request, config)
+
+    assert result.is_threat is True
+
+
+def test_json_embedded_scan_calls_detect_no_more_than_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(detection_max_scan_values=2)
+    request = _query_request({"q": _padded_json()})
+
+    call_count = 0
+    original_detect = sus_patterns_handler.detect
+
+    def counting_detect(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        return original_detect(*args, **kwargs)
+
+    monkeypatch.setattr(sus_patterns_handler, "detect", counting_detect)
+
+    detect_penetration_attempt(request, config)
+
+    assert call_count == 2

@@ -36,7 +36,7 @@ Post-3.13.0 hardening: identity and proxy-trust warnings, bounded in-memory stor
 
 ### Added
 
-- **New `SecurityConfig.detection_max_scan_values` bounds the number of request values scanned per request.** Default `512`. Once reached, remaining query-parameter, header, and body values are not scanned, and a one-time `logger.warning` names the client IP, replacing an unbounded per-request scan an attacker could exhaust with padding (GHSA-3hfx-8m47-5f9h).
+- **New `SecurityConfig.detection_max_scan_values` bounds the number of request values scanned per request, including JSON embedded within a single query-parameter, header, or body value.** Default `512`. Once reached, remaining query-parameter, header, and body values are not scanned, and a one-time `logger.warning` names the client IP, replacing an unbounded per-request scan an attacker could exhaust with padding (GHSA-3hfx-8m47-5f9h).
 
 ### Fixed
 

@@ -66,6 +66,8 @@ async def _check_json_fields(
         if name_detected:
             return True, f"JSON field name '{k}': {name_trigger}"
         if isinstance(v, str):
+            if _scan_value_budget_exhausted(client_ip):
+                continue
             result = await sus_patterns_handler.detect(
                 content=v,
                 ip_address=client_ip,
