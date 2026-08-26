@@ -24,6 +24,7 @@ _AZURE_SERVICE_TAGS_URL_PATTERN = (
 )
 _AZURE_SERVICE_TAGS_DATE_PATTERN = re.compile(r"ServiceTags_Public_(\d{8})")
 _AZURE_SERVICE_TAGS_STALE_WARNING_DAYS = 90
+_AZURE_CLOUD_SERVICE_TAG_NAME = "AzureCloud"
 
 
 def _download_azure_service_tags(
@@ -146,6 +147,16 @@ def _extract_azure_download_url(decoded_html: str) -> str | None:
     )
 
 
+def _select_azure_cloud_prefixes(data: Any) -> list[str]:
+    for entry in data.get("values", []):
+        if entry.get("name") == _AZURE_CLOUD_SERVICE_TAG_NAME:
+            return list(entry.get("properties", {}).get("addressPrefixes", []))
+    logger.error(
+        f"Azure ServiceTags document has no {_AZURE_CLOUD_SERVICE_TAG_NAME!r} tag"
+    )
+    return []
+
+
 def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     try:
         deadline = time.monotonic() + _AZURE_DOWNLOAD_MAX_ELAPSED_SECONDS
@@ -179,7 +190,7 @@ def fetch_azure_ip_ranges() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network
 
         return {
             ipaddress.ip_network(ip_range)
-            for ip_range in data["values"][0]["properties"]["addressPrefixes"]
+            for ip_range in _select_azure_cloud_prefixes(data)
         }
     except Exception as e:
         logger.error(f"Failed to fetch Azure IP ranges: {str(e)}")

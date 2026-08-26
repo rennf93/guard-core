@@ -3,6 +3,7 @@ import itertools
 import logging
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,6 +52,14 @@ def _mock_session(*responses: MagicMock) -> MagicMock:
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=None)
     return mock_session
+
+
+def _azure_cloud_tag(prefixes: list[str]) -> dict[str, Any]:
+    return {
+        "name": "AzureCloud",
+        "id": "AzureCloud",
+        "properties": {"addressPrefixes": prefixes},
+    }
 
 
 @pytest.fixture
@@ -116,11 +125,7 @@ async def test_fetch_azure_ip_ranges(mock_aiohttp_session: MagicMock) -> None:
         """
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={
-            "values": [
-                {"properties": {"addressPrefixes": ["192.168.1.0/24", "2001:db8::/32"]}}
-            ]
-        }
+        json_data={"values": [_azure_cloud_tag(["192.168.1.0/24", "2001:db8::/32"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -137,7 +142,7 @@ async def test_fetch_azure_ip_ranges_url_in_plain_text(
         text_data='var url = "https://download.microsoft.com/x/ServiceTags_Public.json";'
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -164,7 +169,7 @@ async def test_fetch_azure_ip_ranges_preserves_query_string(
         text_data='<a href="https://download.microsoft.com/x/ServiceTags.json?v=2">'
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -190,7 +195,7 @@ async def test_fetch_azure_ip_ranges_prefers_servicetags_link_over_unrelated_jso
         """
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -226,7 +231,7 @@ async def test_fetch_azure_ip_ranges_ignores_stale_url_mentioned_before_download
         """
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["20.20.0.0/16"]}}]}
+        json_data={"values": [_azure_cloud_tag(["20.20.0.0/16"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -253,7 +258,7 @@ async def test_fetch_azure_ip_ranges_falls_back_to_newest_when_no_failover_link(
         """
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["30.30.0.0/16"]}}]}
+        json_data={"values": [_azure_cloud_tag(["30.30.0.0/16"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -292,7 +297,7 @@ async def test_download_azure_service_tags_defaults_to_a_full_budget_with_no_dea
     mock_aiohttp_session: MagicMock,
 ) -> None:
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(return_value=mock_json_resp)
 
@@ -347,7 +352,7 @@ async def test_fetch_azure_ip_ranges_falls_back_when_failover_link_is_untrusted(
         """
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["40.40.0.0/16"]}}]}
+        json_data={"values": [_azure_cloud_tag(["40.40.0.0/16"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -356,6 +361,69 @@ async def test_fetch_azure_ip_ranges_falls_back_when_failover_link_is_untrusted(
     assert ipaddress.IPv4Network("40.40.0.0/16") in result
     download_call = mock_aiohttp_session.get.call_args_list[1]
     assert download_call.args[0] == legit_url
+
+
+async def test_fetch_azure_ip_ranges_selects_azurecloud_tag_when_not_first(
+    mock_aiohttp_session: MagicMock,
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/x/ServiceTags_Public_20250116.json">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={
+            "values": [
+                {
+                    "name": "ActionGroup",
+                    "id": "ActionGroup",
+                    "properties": {"addressPrefixes": ["40.40.0.0/16"]},
+                },
+                {
+                    "name": "AzureCloud",
+                    "id": "AzureCloud",
+                    "properties": {"addressPrefixes": ["10.0.0.0/8", "2001:db8::/32"]},
+                },
+                {
+                    "name": "Storage",
+                    "id": "Storage",
+                    "properties": {"addressPrefixes": ["50.50.0.0/16"]},
+                },
+            ]
+        }
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    result = await fetch_azure_ip_ranges()
+
+    assert result == {
+        ipaddress.IPv4Network("10.0.0.0/8"),
+        ipaddress.IPv6Network("2001:db8::/32"),
+    }
+
+
+async def test_fetch_azure_ip_ranges_returns_empty_set_without_azurecloud_tag(
+    mock_aiohttp_session: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    mock_html_resp = _mock_aiohttp_response(
+        text_data='<a href="https://download.microsoft.com/x/ServiceTags_Public_20250116.json">'
+    )
+    mock_json_resp = _mock_aiohttp_response(
+        json_data={
+            "values": [
+                {
+                    "name": "ActionGroup",
+                    "id": "ActionGroup",
+                    "properties": {"addressPrefixes": ["40.40.0.0/16"]},
+                },
+            ]
+        }
+    )
+    mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
+
+    with caplog.at_level(logging.ERROR, logger="guard_core.handlers.cloud"):
+        result = await fetch_azure_ip_ranges()
+
+    assert result == set()
+    assert any("AzureCloud" in r.getMessage() for r in caplog.records)
 
 
 def test_extract_newest_service_tags_url_rejects_an_impossible_calendar_date() -> None:
@@ -464,7 +532,7 @@ async def test_azure_page_fetch_shares_the_download_deadline(  # async-only
         text_data='<a href="https://download.microsoft.com/valid.json">'
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(side_effect=[mock_html_resp, mock_json_resp])
 
@@ -758,7 +826,7 @@ async def test_fetch_azure_ip_ranges_retries_then_succeeds(
         text_data='<a href="https://download.microsoft.com/valid.json">'
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["192.168.1.0/24"]}}]}
+        json_data={"values": [_azure_cloud_tag(["192.168.1.0/24"])]}
     )
     mock_aiohttp_session.get = AsyncMock(
         side_effect=[
@@ -860,7 +928,7 @@ async def test_fetch_azure_ip_ranges_sizes_timeout_from_remaining_budget(  # asy
         text_data='<a href="https://download.microsoft.com/valid.json">'
     )
     mock_json_resp = _mock_aiohttp_response(
-        json_data={"values": [{"properties": {"addressPrefixes": ["10.0.0.0/8"]}}]}
+        json_data={"values": [_azure_cloud_tag(["10.0.0.0/8"])]}
     )
     mock_aiohttp_session.get = AsyncMock(
         side_effect=[
