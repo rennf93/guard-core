@@ -751,6 +751,23 @@ class _SecurityConfigFields(BaseModel):
         le=10485760,
     )
 
+    detection_max_scan_values: int = Field(
+        default=512,
+        description=(
+            "Maximum number of individual values (query parameters, header "
+            "values, JSON keys and leaf values, form fields, multipart parts) "
+            "scanned per request across the whole penetration-detection pass. "
+            "Once reached, remaining values in the request are not scanned "
+            "and a one-time warning is logged naming the client IP, so the "
+            "fail-open stays visible instead of silent. Bounds worst-case CPU "
+            "on a request padded with many benign values ahead of a real "
+            "payload; the standard detection benchmarks never approach this "
+            "cap."
+        ),
+        ge=1,
+        le=100_000,
+    )
+
     detection_preserve_attack_patterns: bool = Field(
         default=True,
         description="Preserve attack patterns during content truncation",

@@ -12,13 +12,17 @@ from guard_core._utils.detection_config import (
     _resolve_excluded_headers,
     _resolve_excluded_params,
     _resolve_log_level,
+    _resolve_max_scan_values,
     _resolve_scan_body,
 )
 from guard_core._utils.detection_result_builders import (
     _build_detection_hit,
     _build_detection_miss,
 )
-from guard_core._utils.detection_scan import _check_request_component
+from guard_core._utils.detection_scan import (
+    _check_request_component,
+    _scan_value_budget,
+)
 from guard_core._utils.ip_extraction import _canonicalize_ip, extract_client_ip
 from guard_core.detection_result import DetectionResult
 from guard_core.protocols.request_protocol import GuardRequest
@@ -128,26 +132,28 @@ async def detect_penetration_attempt(
     enabled_categories = _resolve_enabled_categories(config, route_config)
     excluded_headers = _resolve_excluded_headers(config, route_config)
     log_level = _resolve_log_level(config)
+    max_scan_values = _resolve_max_scan_values(config)
 
-    surface_hit = await _scan_request_surface(
-        request,
-        excluded_params,
-        excluded_headers,
-        enabled_categories,
-        client_ip,
-        correlation_id,
-        log_level,
-    )
-    if surface_hit is not None:
-        return surface_hit
+    with _scan_value_budget(max_scan_values):
+        surface_hit = await _scan_request_surface(
+            request,
+            excluded_params,
+            excluded_headers,
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )
+        if surface_hit is not None:
+            return surface_hit
 
-    return await _scan_body_surface(
-        request,
-        config,
-        route_config,
-        excluded_body_fields,
-        enabled_categories,
-        client_ip,
-        correlation_id,
-        log_level,
-    )
+        return await _scan_body_surface(
+            request,
+            config,
+            route_config,
+            excluded_body_fields,
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+        )

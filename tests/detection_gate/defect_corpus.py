@@ -235,6 +235,10 @@ ATTACKS: list[tuple[str, bytes]] = [
         "xml_xxe_public_no_system",
         b'<!DOCTYPE foo PUBLIC "-//X//Y" "http://evil.example.com/evil.dtd">',
     ),
+    (
+        "scan_value_cap_regression_ordinary_sqli_still_detected",
+        b"1 OR 1=1 UNION SELECT password_hash FROM admin_users--",
+    ),
 ]
 
 BENIGN: list[tuple[str, bytes]] = [

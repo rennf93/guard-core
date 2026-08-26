@@ -83,3 +83,14 @@ def _resolve_excluded_headers(
 
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
     return config.log_suspicious_level if config is not None else "WARNING"
+
+
+_DEFAULT_MAX_SCAN_VALUES = 512
+
+
+def _resolve_max_scan_values(config: "SecurityConfig | None") -> int:
+    return (
+        config.detection_max_scan_values
+        if config is not None
+        else _DEFAULT_MAX_SCAN_VALUES
+    )

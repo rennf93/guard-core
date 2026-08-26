@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -131,6 +132,16 @@ class TargetedCase(NamedTuple):
     request: MockGuardRequest
     expect_detected: bool
     known_gap_reason: str = ""
+
+
+_SCAN_VALUE_CAP_KNOWN_GAP_REASON = (
+    "detection_max_scan_values bounds the number of values scanned per "
+    "request (default 512); a payload padded behind more benign values than "
+    "the configured cap is a documented, visible limitation, not a silent "
+    "bypass -- a logger.warning names the client IP the moment the cap is "
+    "hit -- and is the deliberate tradeoff GHSA-3hfx-8m47-5f9h ships in "
+    "place of an unbounded, unlogged scan"
+)
 
 
 _TARGETED_CASES: list[TargetedCase] = [
@@ -533,6 +544,27 @@ _TARGETED_CASES: list[TargetedCase] = [
         "rest_path_k8s_default_namespace_url_path_benign",
         _url_path_request("/api/v1/namespaces/default"),
         False,
+    ),
+    TargetedCase(
+        "scan_value_cap_payload_before_cap_still_detected",
+        MockGuardRequest(
+            query_params={
+                "payload": "1 OR 1=1 UNION SELECT password FROM users--",
+                **{f"pad{i}": "benign" for i in range(50)},
+            }
+        ),
+        True,
+    ),
+    TargetedCase(
+        "scan_value_cap_payload_past_default_cap",
+        MockGuardRequest(
+            query_params={
+                **{f"pad{i}": "benign" for i in range(520)},
+                "payload": "1 OR 1=1 UNION SELECT password FROM users--",
+            }
+        ),
+        False,
+        _SCAN_VALUE_CAP_KNOWN_GAP_REASON,
     ),
 ]
 
@@ -966,7 +998,9 @@ def _reset_singleton_to_legacy() -> None:
 
 @pytest.mark.redos_timing
 @pytest.mark.asyncio
-async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
+async def test_detect_penetration_attempt_recall_and_false_positive_rate(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     assert len(_PRODUCTION_MALICIOUS_CASES) >= 100
     assert len(_PRODUCTION_BENIGN_CASES) >= 100
 
@@ -977,33 +1011,43 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     undetected_case_ids: list[str] = []
     detected_by_mechanism: dict[str, int] = {}
     total_by_mechanism: dict[str, int] = {}
-    for case in _PRODUCTION_MALICIOUS_CASES:
-        mechanism = await _mechanism_for_case_id(
-            _valid_mechanisms_for_category(case.category), case.case_id
-        )
-        mechanisms_exercised.add(mechanism)
-        total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
-        if await _detected_via(mechanism, case.payload):
-            malicious_detected += 1
-            detected_by_mechanism[mechanism] = (
-                detected_by_mechanism.get(mechanism, 0) + 1
-            )
-        else:
-            undetected_case_ids.append(f"{case.case_id}[{mechanism}]")
-
     benign_flagged = 0
     known_false_positive_case_ids: list[str] = []
     unexpected_false_positive_case_ids: list[str] = []
-    for benign_case in _PRODUCTION_BENIGN_CASES:
-        mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
-        mechanisms_exercised.add(mechanism)
-        if await _detected_via(mechanism, benign_case.payload):
-            benign_flagged += 1
-            pin_key = f"{benign_case.case_id}[{mechanism}]"
-            if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
-                known_false_positive_case_ids.append(pin_key)
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        for case in _PRODUCTION_MALICIOUS_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _valid_mechanisms_for_category(case.category), case.case_id
+            )
+            mechanisms_exercised.add(mechanism)
+            total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
+            if await _detected_via(mechanism, case.payload):
+                malicious_detected += 1
+                detected_by_mechanism[mechanism] = (
+                    detected_by_mechanism.get(mechanism, 0) + 1
+                )
             else:
-                unexpected_false_positive_case_ids.append(pin_key)
+                undetected_case_ids.append(f"{case.case_id}[{mechanism}]")
+
+        for benign_case in _PRODUCTION_BENIGN_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _ALL_MECHANISMS, benign_case.case_id
+            )
+            mechanisms_exercised.add(mechanism)
+            if await _detected_via(mechanism, benign_case.payload):
+                benign_flagged += 1
+                pin_key = f"{benign_case.case_id}[{mechanism}]"
+                if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
+                    known_false_positive_case_ids.append(pin_key)
+                else:
+                    unexpected_false_positive_case_ids.append(pin_key)
+
+    assert "detection_max_scan_values" not in caplog.text, (
+        "the standard malicious/benign corpora tripped the scan-value cap; "
+        "this must never happen at the default 512 cap -- either a corpus "
+        "case grew an unexpectedly wide payload or the cap default needs "
+        "reconsidering, not silently accepting a newly-capped corpus case"
+    )
 
     targeted_failures: list[str] = []
     for targeted in _TARGETED_CASES:

@@ -1,9 +1,47 @@
+import contextvars
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
+from guard_core.sync._utils.detection_config import _DEFAULT_MAX_SCAN_VALUES
 from guard_core.sync._utils.logging_utils import _log_at_level, _sanitize_for_reporting
 
 logger = logging.getLogger("guard_core")
+
+_scanned_value_count: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_scanned_value_count", default=0
+)
+_scan_value_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_scan_value_cap", default=_DEFAULT_MAX_SCAN_VALUES
+)
+
+
+@contextmanager
+def _scan_value_budget(max_values: int) -> Iterator[None]:
+    count_token = _scanned_value_count.set(0)
+    cap_token = _scan_value_cap.set(max_values)
+    try:
+        yield
+    finally:
+        _scanned_value_count.reset(count_token)
+        _scan_value_cap.reset(cap_token)
+
+
+def _scan_value_budget_exhausted(client_ip: str) -> bool:
+    count = _scanned_value_count.get() + 1
+    _scanned_value_count.set(count)
+    cap = _scan_value_cap.get()
+    if count <= cap:
+        return False
+    if count == cap + 1:
+        logger.warning(
+            "detection_max_scan_values (%d) reached for client %s; remaining "
+            "request values are not scanned",
+            cap,
+            client_ip,
+        )
+    return True
 
 
 def _check_json_fields(
@@ -122,6 +160,9 @@ def _check_value_enhanced(
     scan_embedded_json: bool = True,
 ) -> tuple[bool, str, list[dict]]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
+
+    if _scan_value_budget_exhausted(client_ip):
+        return False, "", []
 
     if scan_embedded_json and context != "request_body":
         json_result = _try_check_json_value(
