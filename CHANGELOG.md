@@ -19,6 +19,7 @@ Post-3.13.0 hardening: identity and proxy-trust warnings, bounded in-memory stor
 
 ### Highlights
 
+- **Breaking: `PerformanceMonitor.get_summary_stats`/`get_slow_patterns`/`get_problematic_patterns` are now coroutines, and `detection_max_scan_values` has a floor.** All three reporting methods are `async def` in the async tree and must now be awaited; the `guard_core.sync` mirror keeps them synchronous. `SecurityConfig.detection_max_scan_values` now requires at least `2` (each named value costs two scan units, so `1` could never scan a value) (GHSA-3hfx-8m47-5f9h).
 - **Missing-client requests rejected; new `unix` trusted-proxy token.** A request with no client address (`request.client_host` is `None`) is now rejected instead of skipping the entire security pipeline; a new `"unix"` token in `trusted_proxies` resolves `X-Forwarded-For` behind Unix-socket deployments (GHSA-634g-4wr8-xwxv).
 - **X-Forwarded-For chain warnings.** guard-core now warns once when a forwarded-for chain cannot satisfy `trusted_proxy_depth`, and once when the depth-selected entry is itself a listed trusted proxy; resolved identity is unchanged in both cases (GHSA-8xvm-856x-7hwp).
 - **Prefix-0 trusted-proxy and empty-detection-category startup warnings.** `SecurityConfig` now warns at construction on a `/0` trusted-proxy network (`0.0.0.0/0`, `::/0`) and on an empty `enabled_detection_categories` with detection enabled, two previously silent misconfigurations (#79).
