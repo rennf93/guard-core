@@ -120,7 +120,11 @@ class PerformanceMonitor:
                     else stats.avg_execution_time
                 )
 
-        await self._check_anomalies(metric, agent_handler, correlation_id)
+            statistical_anomaly = self._detect_statistical_anomaly(metric)
+
+        await self._check_anomalies(
+            metric, statistical_anomaly, agent_handler, correlation_id
+        )
 
     def _detect_timeout_anomaly(
         self, metric: PerformanceMetric
@@ -207,6 +211,7 @@ class PerformanceMonitor:
     async def _check_anomalies(
         self,
         metric: PerformanceMetric,
+        statistical_anomaly: dict[str, Any] | None,
         agent_handler: Any = None,
         correlation_id: str | None = None,
     ) -> None:
@@ -220,7 +225,6 @@ class PerformanceMonitor:
             if slow_anomaly:
                 anomalies.append(slow_anomaly)
 
-        statistical_anomaly = self._detect_statistical_anomaly(metric)
         if statistical_anomaly:
             anomalies.append(statistical_anomaly)
 

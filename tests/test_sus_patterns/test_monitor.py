@@ -794,6 +794,25 @@ async def test_concurrent_access() -> None:
             assert stats.avg_execution_time > 0
 
 
+async def test_record_metric_concurrent_gather_does_not_raise() -> None:  # async-only
+    import asyncio
+
+    monitor = PerformanceMonitor(min_samples_for_anomaly=10, anomaly_threshold=1.0)
+
+    async def hammer() -> None:
+        for i in range(200):
+            await monitor.record_metric(
+                pattern="gather_pattern",
+                execution_time=0.001 + (i % 5) * 1e-4,
+                content_length=100,
+                matched=False,
+            )
+
+    await asyncio.gather(*(hammer() for _ in range(20)))
+
+    assert monitor.pattern_stats["gather_pattern"].total_executions == 4000
+
+
 async def test_record_metric_timeout_skips_recent_times_update() -> None:
     monitor = PerformanceMonitor()
     await monitor.record_metric(
