@@ -14,6 +14,16 @@ from guard_core.protocols.agent_protocol import AgentHandlerProtocol
 from guard_core.protocols.redis_protocol import RedisHandlerProtocol
 
 
+def _describe_download_error(exc: BaseException) -> str:
+    status = getattr(exc, "status", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return f"{type(exc).__name__} (HTTP {status})"
+    return type(exc).__name__
+
+
 class IPInfoManager:
     _instance = None
     _download_retries: int = 3
@@ -90,6 +100,17 @@ class IPInfoManager:
             self.reader = reader
             self.last_refreshed = datetime.now(timezone.utc)
 
+    def _write_database_atomically(self, content: bytes) -> None:
+        tmp_path = self.db_path.with_name(self.db_path.name + ".tmp")
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(content)
+            os.replace(tmp_path, self.db_path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+
     async def initialize(self) -> None:
         try:
             os.makedirs(self.db_path.parent, exist_ok=True)
@@ -97,12 +118,11 @@ class IPInfoManager:
             if self.redis_handler:
                 cached_db = await self.redis_handler.get_key("ipinfo", "database")
                 if cached_db:
-                    with open(self.db_path, "wb") as f:
-                        f.write(
-                            cached_db
-                            if isinstance(cached_db, bytes)
-                            else cached_db.encode("latin-1")
-                        )
+                    self._write_database_atomically(
+                        cached_db
+                        if isinstance(cached_db, bytes)
+                        else cached_db.encode("latin-1")
+                    )
                     self._apply_opened_reader(self._open_database_or_none())
                     return
 
@@ -118,7 +138,10 @@ class IPInfoManager:
                         event_type="geo_lookup_failed",
                         ip_address="system",
                         action_taken="database_download_failed",
-                        reason=f"Failed to download IPInfo database: {str(e)}",
+                        reason=(
+                            "Failed to download IPInfo database: "
+                            f"{_describe_download_error(e)}"
+                        ),
                     )
                 return
 
@@ -157,25 +180,17 @@ class IPInfoManager:
 
     async def _download_database(self) -> None:
         base_url = "https://ipinfo.io/data/free/country_asn.mmdb"
-        url = f"{base_url}?token={self.token}"
+        headers = {"Authorization": f"Bearer {self.token}"}
         retries = self._download_retries
         backoff = 1
 
         async with aiohttp.ClientSession() as session:
             for attempt in range(retries):
                 try:
-                    response = await session.get(url)
+                    response = await session.get(base_url, headers=headers)
                     response.raise_for_status()
                     content = await response.read()
-                    tmp_path = self.db_path.with_name(self.db_path.name + ".tmp")
-                    try:
-                        with open(tmp_path, "wb") as f:
-                            f.write(content)
-                        os.replace(tmp_path, self.db_path)
-                    except Exception:
-                        if tmp_path.exists():
-                            tmp_path.unlink()
-                        raise
+                    self._write_database_atomically(content)
 
                     if self.redis_handler is not None:
                         with open(self.db_path, "rb") as f:
@@ -232,7 +247,7 @@ class IPInfoManager:
                     event_type="geo_lookup_failed",
                     ip_address=ip,
                     action_taken="lookup_failed",
-                    reason=f"Geographic lookup failed: {str(e)}",
+                    reason=f"Geographic lookup failed: {type(e).__name__}",
                 )
                 try:
                     asyncio.create_task(coro)

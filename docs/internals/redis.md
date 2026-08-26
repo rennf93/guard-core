@@ -165,3 +165,4 @@ Configuration
 - Set `redis_prefix` to a unique value per application to avoid key collisions when sharing a Redis instance.
 - When `enable_redis` is `False`, all `RedisManager` methods return `None` without attempting connections.
 - The `redis_url` can include authentication: `"redis://user:password@host:port/db"`.
+- Any userinfo in `redis_url` is stripped before the value reaches the `redis_connection`/`redis_error` agent telemetry events; only `scheme://host[:port]` is sent. The real connection still uses the unredacted `redis_url`.

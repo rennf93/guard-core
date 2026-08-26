@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
@@ -14,6 +15,16 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
+
+
+def _redact_redis_url(url: str | None) -> str | None:
+    if url is None:
+        return None
+    parts = urlsplit(url)
+    netloc = parts.hostname or ""
+    if parts.port is not None:
+        netloc = f"{netloc}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 class RedisManager:
@@ -103,7 +114,7 @@ class RedisManager:
                             event_type="redis_connection",
                             action_taken="connection_established",
                             reason="Redis connection successfully established",
-                            redis_url=self.config.redis_url,
+                            redis_url=_redact_redis_url(self.config.redis_url),
                         )
                 else:
                     self.logger.warning("Redis URL is None, skipping connection")
@@ -115,7 +126,7 @@ class RedisManager:
                     event_type="redis_error",
                     action_taken="connection_failed",
                     reason=f"Redis connection failed: {str(e)}",
-                    redis_url=self.config.redis_url,
+                    redis_url=_redact_redis_url(self.config.redis_url),
                     error_type="connection_error",
                 )
 

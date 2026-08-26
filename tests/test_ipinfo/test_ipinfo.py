@@ -1,12 +1,13 @@
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import maxminddb
 import pytest
 
-from guard_core.handlers.ipinfo_handler import IPInfoManager
+from guard_core.handlers.ipinfo_handler import IPInfoManager, _describe_download_error
 
 
 def _mock_aiohttp(
@@ -55,6 +56,35 @@ def test_ipinfo_missing_token() -> None:
         IPInfoManager(token="")
 
 
+class _StatusOnlyError(Exception):
+    status = 401
+
+
+class _ResponseStatusCodeError(Exception):
+    def __init__(self) -> None:
+        super().__init__("boom")
+        self.response = SimpleNamespace(status_code=403)
+
+
+class _NoStatusError(Exception):
+    pass
+
+
+def test_describe_download_error_uses_status_attribute() -> None:
+    assert _describe_download_error(_StatusOnlyError()) == "_StatusOnlyError (HTTP 401)"
+
+
+def test_describe_download_error_uses_response_status_code() -> None:
+    assert (
+        _describe_download_error(_ResponseStatusCodeError())
+        == "_ResponseStatusCodeError (HTTP 403)"
+    )
+
+
+def test_describe_download_error_falls_back_to_class_name() -> None:
+    assert _describe_download_error(_NoStatusError()) == "_NoStatusError"
+
+
 async def test_ipinfo_download_failure(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
@@ -69,6 +99,25 @@ async def test_ipinfo_download_failure(tmp_path: Path) -> None:
         await db.initialize()
         assert db.reader is None
         assert not db.db_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_database_sends_bearer_header_without_url_token(
+    tmp_path: Path,
+) -> None:
+    token = "SECRET_IPINFO_TOKEN_abc123"
+    db = IPInfoManager(token=token, db_path=tmp_path / "test.mmdb")
+    mock_session = _mock_aiohttp(content=b"test data")
+
+    with patch(
+        "guard_core.handlers.ipinfo_handler.aiohttp.ClientSession",
+        return_value=mock_session,
+    ):
+        await db._download_database()
+
+    requested_args, requested_kwargs = mock_session.get.call_args
+    assert token not in requested_args[0]
+    assert requested_kwargs["headers"] == {"Authorization": f"Bearer {token}"}
 
 
 @pytest.mark.asyncio
@@ -246,6 +295,23 @@ async def test_redis_cache_hit_with_corrupt_database(tmp_path: Path) -> None:
 
     assert db.reader is None
     assert not db.db_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_redis_cache_hit_atomic_replace_leaves_no_temp_file(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "test.mmdb"
+    db_path.write_bytes(b"stale bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db.redis_handler = AsyncMock()
+    db.redis_handler.get_key.return_value = b"cached bytes"
+
+    with patch("maxminddb.open_database", return_value=Mock()):
+        await db.initialize()
+
+    assert db_path.read_bytes() == b"cached bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
 
 
 @pytest.mark.asyncio
