@@ -762,9 +762,11 @@ class _SecurityConfigFields(BaseModel):
             "fail-open stays visible instead of silent. Bounds worst-case CPU "
             "on a request padded with many benign values ahead of a real "
             "payload; the standard detection benchmarks never approach this "
-            "cap."
+            "cap. Each named value costs two scan units, one for its name and "
+            "one for its value, so a cap of 1 could never scan a value; the "
+            "minimum is 2."
         ),
-        ge=1,
+        ge=2,
         le=100_000,
     )
 
