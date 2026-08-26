@@ -2504,7 +2504,9 @@ class SusPatternsManager:
 
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
-        if self.redis_handler:
+        if not self.redis_handler:
+            return
+        try:
             cached_patterns = self.redis_handler.get_key("patterns", "custom")
             if cached_patterns:
                 patterns = cached_patterns.split(",")
@@ -2516,6 +2518,8 @@ class SusPatternsManager:
                                 f"Skipped restoring persisted pattern: "
                                 f"{pattern[:50]}..."
                             )
+        except Exception as e:
+            logger.warning("Custom pattern restore skipped: %s", e)
 
     def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler

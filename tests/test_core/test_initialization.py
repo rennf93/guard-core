@@ -706,3 +706,31 @@ async def test_initialize_redis_handlers_reraises_redis_unreachable_fail_open_is
     assert any(
         "Redis unavailable during initialization" in r.getMessage() for r in errors
     )
+
+
+@pytest.mark.parametrize("redis_fail_open", [True, False])
+async def test_initialize_redis_handlers_completes_when_sus_patterns_get_key_fails(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    redis_fail_open: bool,
+) -> None:
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    security_config.redis_fail_open = redis_fail_open
+    mock_redis_handler.get_key = AsyncMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    SusPatternsManager._instance = None
+    real_sus = SusPatternsManager()
+
+    with (
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch("guard_core.handlers.suspatterns_handler.sus_patterns_handler", real_sus),
+    ):
+        mock_ipban.initialize_redis = AsyncMock()
+
+        await initializer.initialize_redis_handlers()
+
+    assert real_sus.redis_handler is mock_redis_handler

@@ -1062,6 +1062,22 @@ async def test_initialize_redis_skips_patterns_already_in_custom() -> None:
     assert "existing_pattern" in mgr.custom_patterns
 
 
+async def test_initialize_redis_logs_and_returns_when_get_key_raises() -> None:
+    from unittest.mock import AsyncMock
+
+    from guard_core.exceptions import GuardRedisError
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    SusPatternsManager._instance = None
+    mgr = SusPatternsManager()
+    redis_handler = AsyncMock()
+    redis_handler.get_key = AsyncMock(
+        side_effect=GuardRedisError(503, "redis unavailable")
+    )
+    await mgr.initialize_redis(redis_handler)
+    assert mgr.redis_handler is redis_handler
+
+
 async def test_initialize_redis_warns_on_rejected_persisted_pattern(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
