@@ -7,6 +7,7 @@ import pytest
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.handlers import behavior_handler
 from guard_core.sync.handlers.behavior_handler import (
     BehaviorRule,
     BehaviorTracker,
@@ -153,6 +154,28 @@ def test_track_endpoint_usage_with_window_cleanup(
     assert not tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
 
     assert len(tracker.usage_counts[endpoint_id][client_ip]) == 1
+
+
+def test_track_endpoint_usage_evicts_the_oldest_client_a_touched_client_survives(
+    security_config: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(behavior_handler, "_MAX_TRACKED_CLIENTS_PER_ENDPOINT", 3)
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=999, window=60)
+    endpoint_id = "/api/test"
+
+    for client_ip in ("203.0.113.1", "203.0.113.2", "203.0.113.3"):
+        tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    tracker.track_endpoint_usage(endpoint_id, "203.0.113.1", rule)
+    tracker.track_endpoint_usage(endpoint_id, "203.0.113.4", rule)
+
+    bucket = tracker.usage_counts[endpoint_id]
+    assert len(bucket) == 3
+    assert "203.0.113.2" not in bucket
+    assert "203.0.113.1" in bucket
+    assert "203.0.113.4" in bucket
 
 
 def test_track_endpoint_usage_with_redis(
@@ -828,6 +851,32 @@ def test_track_return_pattern_window_cleanup(
     assert not result
 
     assert len(tracker.return_patterns[pattern_key][client_ip]) == 1
+
+
+def test_track_return_pattern_evicts_the_oldest_client_a_touched_client_survives(
+    security_config: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(behavior_handler, "_MAX_TRACKED_CLIENTS_PER_ENDPOINT", 3)
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(
+        rule_type="return_pattern", threshold=999, window=60, pattern="status:200"
+    )
+    endpoint_id = "/api/test"
+    pattern_key = f"{endpoint_id}:{rule.pattern}"
+    response = MockGuardResponse("success", status_code=200)
+
+    for client_ip in ("203.0.113.11", "203.0.113.12", "203.0.113.13"):
+        tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+
+    tracker.track_return_pattern(endpoint_id, "203.0.113.11", response, rule)
+    tracker.track_return_pattern(endpoint_id, "203.0.113.14", response, rule)
+
+    bucket = tracker.return_patterns[pattern_key]
+    assert len(bucket) == 3
+    assert "203.0.113.12" not in bucket
+    assert "203.0.113.11" in bucket
+    assert "203.0.113.14" in bucket
 
 
 def test_track_return_pattern_redis_window_boundary(
