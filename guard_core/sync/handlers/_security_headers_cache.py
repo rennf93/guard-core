@@ -6,6 +6,8 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.sync._utils.logging_utils import _sanitize_for_log
+
 
 class SecurityHeadersCacheMixin:
     headers_cache: TTLCache
@@ -61,7 +63,9 @@ class SecurityHeadersCacheMixin:
                 self.custom_headers = validated_custom_headers
 
         except Exception as e:
-            self.logger.warning(f"Failed to load cached header config: {e}")
+            self.logger.warning(
+                f"Failed to load cached header config: {_sanitize_for_log(str(e))}"
+            )
 
     def _cache_configuration(self) -> None:
         if not self.redis_handler:
