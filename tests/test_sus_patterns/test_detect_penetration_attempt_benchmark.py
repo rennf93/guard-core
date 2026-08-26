@@ -1,10 +1,12 @@
 import json
+import logging
 import re
 import subprocess
 import sys
 import time
 import zlib
 from collections.abc import Iterator
+from functools import cache
 from typing import NamedTuple
 from urllib.parse import urlencode
 
@@ -130,6 +132,16 @@ class TargetedCase(NamedTuple):
     request: MockGuardRequest
     expect_detected: bool
     known_gap_reason: str = ""
+
+
+_SCAN_VALUE_CAP_KNOWN_GAP_REASON = (
+    "detection_max_scan_values bounds the number of values scanned per "
+    "request (default 512); a payload padded behind more benign values than "
+    "the configured cap is a documented, visible limitation, not a silent "
+    "bypass -- a logger.warning names the client IP the moment the cap is "
+    "hit -- and is the deliberate tradeoff GHSA-3hfx-8m47-5f9h ships in "
+    "place of an unbounded, unlogged scan"
+)
 
 
 _TARGETED_CASES: list[TargetedCase] = [
@@ -533,6 +545,27 @@ _TARGETED_CASES: list[TargetedCase] = [
         _url_path_request("/api/v1/namespaces/default"),
         False,
     ),
+    TargetedCase(
+        "scan_value_cap_payload_before_cap_still_detected",
+        MockGuardRequest(
+            query_params={
+                "payload": "1 OR 1=1 UNION SELECT password FROM users--",
+                **{f"pad{i}": "benign" for i in range(50)},
+            }
+        ),
+        True,
+    ),
+    TargetedCase(
+        "scan_value_cap_payload_past_default_cap",
+        MockGuardRequest(
+            query_params={
+                **{f"pad{i}": "benign" for i in range(520)},
+                "payload": "1 OR 1=1 UNION SELECT password FROM users--",
+            }
+        ),
+        False,
+        _SCAN_VALUE_CAP_KNOWN_GAP_REASON,
+    ),
 ]
 
 
@@ -774,6 +807,45 @@ _DOLLAR_FP_AND_LOG4SHELL_BONUS_TARGETED_CASES: list[TargetedCase] = [
     ),
 ]
 
+_SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_loopback_query_param",
+        _query_param_request("http://[::ffff:127.0.0.1]/"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_loopback_json_body",
+        _body_request(
+            '{"url":"http://[::ffff:127.0.0.1]/"}',
+            "application/json",
+        ),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_localhost_trailing_dot_query_param",
+        _query_param_request("http://localhost./"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_localhost_trailing_dot_json_body",
+        _body_request('{"url":"http://localhost./"}', "application/json"),
+        True,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_public_query_param_not_flagged",
+        _query_param_request("http://[::ffff:8.8.8.8]/"),
+        False,
+    ),
+    TargetedCase(
+        "ssrf_ipv4_mapped_ipv6_public_json_body_not_flagged",
+        _body_request(
+            '{"url":"http://[::ffff:8.8.8.8]/"}',
+            "application/json",
+        ),
+        False,
+    ),
+]
+
 
 async def _mechanism_for_case_id(mechanisms: tuple[str, ...], case_id: str) -> str:
     return mechanisms[zlib.crc32(case_id.encode()) % len(mechanisms)]
@@ -928,7 +1000,22 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
 BASELINE_MALICIOUS_DETECTED_TOTAL = 311
 _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 305
 
-_UNCOVERED_CPU_TIME_CEILING_SECONDS = 135.0
+_REFERENCE_WORKLOAD_SECONDS = 0.1243
+
+
+@cache
+def _host_cpu_speed_factor() -> float:
+    samples: list[float] = []
+    for _ in range(3):
+        start = time.process_time()
+        total = 0
+        for i in range(3_000_000):
+            total += i * i
+        samples.append(time.process_time() - start)
+    return max(1.0, min(samples) / _REFERENCE_WORKLOAD_SECONDS)
+
+
+_UNCOVERED_CPU_TIME_CEILING_SECONDS = 40.0
 _CPU_TIME_REPORT_PATTERN = re.compile(r"cpu time: ([\d.]+)s")
 _CHILD_CPU_TIME_SCRIPT = (
     "import sys, time, pytest\n"
@@ -950,7 +1037,9 @@ def _reset_singleton_to_legacy() -> None:
 
 @pytest.mark.redos_timing
 @pytest.mark.asyncio
-async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> None:
+async def test_detect_penetration_attempt_recall_and_false_positive_rate(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     assert len(_PRODUCTION_MALICIOUS_CASES) >= 100
     assert len(_PRODUCTION_BENIGN_CASES) >= 100
 
@@ -961,33 +1050,43 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     undetected_case_ids: list[str] = []
     detected_by_mechanism: dict[str, int] = {}
     total_by_mechanism: dict[str, int] = {}
-    for case in _PRODUCTION_MALICIOUS_CASES:
-        mechanism = await _mechanism_for_case_id(
-            _valid_mechanisms_for_category(case.category), case.case_id
-        )
-        mechanisms_exercised.add(mechanism)
-        total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
-        if await _detected_via(mechanism, case.payload):
-            malicious_detected += 1
-            detected_by_mechanism[mechanism] = (
-                detected_by_mechanism.get(mechanism, 0) + 1
-            )
-        else:
-            undetected_case_ids.append(f"{case.case_id}[{mechanism}]")
-
     benign_flagged = 0
     known_false_positive_case_ids: list[str] = []
     unexpected_false_positive_case_ids: list[str] = []
-    for benign_case in _PRODUCTION_BENIGN_CASES:
-        mechanism = await _mechanism_for_case_id(_ALL_MECHANISMS, benign_case.case_id)
-        mechanisms_exercised.add(mechanism)
-        if await _detected_via(mechanism, benign_case.payload):
-            benign_flagged += 1
-            pin_key = f"{benign_case.case_id}[{mechanism}]"
-            if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
-                known_false_positive_case_ids.append(pin_key)
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        for case in _PRODUCTION_MALICIOUS_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _valid_mechanisms_for_category(case.category), case.case_id
+            )
+            mechanisms_exercised.add(mechanism)
+            total_by_mechanism[mechanism] = total_by_mechanism.get(mechanism, 0) + 1
+            if await _detected_via(mechanism, case.payload):
+                malicious_detected += 1
+                detected_by_mechanism[mechanism] = (
+                    detected_by_mechanism.get(mechanism, 0) + 1
+                )
             else:
-                unexpected_false_positive_case_ids.append(pin_key)
+                undetected_case_ids.append(f"{case.case_id}[{mechanism}]")
+
+        for benign_case in _PRODUCTION_BENIGN_CASES:
+            mechanism = await _mechanism_for_case_id(
+                _ALL_MECHANISMS, benign_case.case_id
+            )
+            mechanisms_exercised.add(mechanism)
+            if await _detected_via(mechanism, benign_case.payload):
+                benign_flagged += 1
+                pin_key = f"{benign_case.case_id}[{mechanism}]"
+                if pin_key in _KNOWN_E2E_FALSE_POSITIVES:
+                    known_false_positive_case_ids.append(pin_key)
+                else:
+                    unexpected_false_positive_case_ids.append(pin_key)
+
+    assert "detection_max_scan_values" not in caplog.text, (
+        "the standard malicious/benign corpora tripped the scan-value cap; "
+        "this must never happen at the default 512 cap -- either a corpus "
+        "case grew an unexpectedly wide payload or the cap default needs "
+        "reconsidering, not silently accepting a newly-capped corpus case"
+    )
 
     targeted_failures: list[str] = []
     for targeted in _TARGETED_CASES:
@@ -1012,6 +1111,12 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
         result = await detect_penetration_attempt(targeted.request, _CONFIG)
         if result.is_threat != targeted.expect_detected:
             dollar_fp_and_log4shell_bonus_failures.append(targeted.case_id)
+
+    ssrf_ipv4_mapped_and_trailing_dot_failures: list[str] = []
+    for targeted in _SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES:
+        result = await detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            ssrf_ipv4_mapped_and_trailing_dot_failures.append(targeted.case_id)
 
     wall_time_seconds = time.monotonic() - start
 
@@ -1077,6 +1182,14 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted ssrf ipv4-mapped-ipv6-loopback and trailing-dot-localhost cases:"
+    )
+    for targeted in _SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for pin_key, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {pin_key}: {reason}")
@@ -1088,6 +1201,9 @@ async def test_detect_penetration_attempt_recall_and_false_positive_rate() -> No
     assert not round6_targeted_failures, f"{round6_targeted_failures}\n{report}"
     assert not dollar_fp_and_log4shell_bonus_failures, (
         f"{dollar_fp_and_log4shell_bonus_failures}\n{report}"
+    )
+    assert not ssrf_ipv4_mapped_and_trailing_dot_failures, (
+        f"{ssrf_ipv4_mapped_and_trailing_dot_failures}\n{report}"
     )
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
@@ -1125,16 +1241,26 @@ def test_detect_penetration_attempt_cpu_time_ceiling_uncovered() -> None:
     assert match, f"could not find cpu time in subprocess output:\n{result.stdout}"
     cpu_time_seconds = float(match.group(1))
 
-    assert cpu_time_seconds < _UNCOVERED_CPU_TIME_CEILING_SECONDS, (
+    host_factor = _host_cpu_speed_factor()
+    ceiling_seconds = _UNCOVERED_CPU_TIME_CEILING_SECONDS * host_factor
+    print(f"host cpu speed factor: {host_factor:.3f}")
+
+    assert cpu_time_seconds < ceiling_seconds, (
         "end-to-end detection benchmark uncovered CPU time regressed: measured "
         "via time.process_time() inside the child pytest subprocess around a "
         "single run, not the parent's wall clock, so host contention cannot "
-        "produce a false failure the way wall-clock timing did before. Clean "
-        "baseline measured 62.2s-68.5s CPU across repeated runs on this "
-        "machine under heavy concurrent load; the ceiling is roughly 1.97x "
-        "that ~68.5s max, tight enough to catch an order-of-magnitude ReDoS "
-        "regression while absorbing normal CPU-time variance. "
-        f"ceiling={_UNCOVERED_CPU_TIME_CEILING_SECONDS}s "
+        "produce a false failure the way wall-clock timing did before. The "
+        "statistics.mean/stdev exact-Fraction PerformanceMonitor tax "
+        "(monitor_anomalies.py) was replaced with float math.fsum arithmetic, "
+        "cutting this benchmark from ~53.7s to ~19.8s CPU measured on the "
+        "reference tree. The ceiling is host-calibrated: "
+        f"{_UNCOVERED_CPU_TIME_CEILING_SECONDS}s base (roughly 2x that ~19.8s "
+        "post-fix measurement) scaled by _host_cpu_speed_factor(), which "
+        "times a fixed pure-Python workload against this host's own "
+        "reference measurement so a revert to the old exact-Fraction "
+        "implementation fails on slower CI hosts too, not just this machine. "
+        f"host_factor={host_factor:.3f} "
+        f"ceiling={ceiling_seconds:.3f}s "
         f"actual={cpu_time_seconds:.3f}s"
     )
 

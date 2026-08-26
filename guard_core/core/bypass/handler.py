@@ -1,9 +1,31 @@
 from collections.abc import Awaitable, Callable
+from logging import Logger
 
 from guard_core.core.bypass.context import BypassContext
 from guard_core.decorators.base import RouteConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.utils import UNKNOWN_CLIENT_IDENTITY, extract_client_ip
+
+_no_client_address_warned = False
+
+
+def _warn_no_client_address(logger: Logger, *, rejected: bool) -> None:
+    global _no_client_address_warned
+    if _no_client_address_warned:
+        return
+    _no_client_address_warned = True
+    outcome = (
+        "the request is rejected with 403 (fail_secure=True)"
+        if rejected
+        else 'the pipeline runs with identity "unknown" (fail_secure=False)'
+    )
+    logger.warning(
+        "no client address on the connection; if the app is served over a "
+        'Unix socket add "unix" to trusted_proxies; %s. This warning is '
+        "logged once.",
+        outcome,
+    )
 
 
 class BypassHandler:
@@ -15,12 +37,21 @@ class BypassHandler:
         request: GuardRequest,
         call_next: Callable[[GuardRequest], Awaitable[GuardResponse]],
     ) -> GuardResponse | None:
-        if not request.client_host:
-            response = await call_next(request)
-            return await self.context.response_factory.apply_modifier(response)
-
         if await self.context.validator.is_path_excluded(request):
             request.state.guard_exclusion_scoped = True
+            return None
+
+        if not request.client_host:
+            client_ip = await extract_client_ip(request, self.context.config)
+            request.state.client_ip = client_ip
+            if client_ip == UNKNOWN_CLIENT_IDENTITY:
+                _warn_no_client_address(
+                    self.context.logger, rejected=self.context.config.fail_secure
+                )
+                if self.context.config.fail_secure:
+                    return await self.context.response_factory.create_error_response(
+                        403, "Client address could not be determined"
+                    )
 
         return None
 

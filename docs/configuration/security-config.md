@@ -42,8 +42,11 @@ Proxy Configuration
 
 **Validators**:
 
-- `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range.
+- `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range, or the literal string `"unix"`, which marks a peer-less connection (no `request.client_host`, e.g. a Unix domain socket) as a trusted hop so `X-Forwarded-For` still resolves the real client. `whitelist` and `blacklist` do not accept `"unix"`.
+- `trusted_proxies`: if any entry is a `/0` network (`0.0.0.0/0` or `::/0`), construction logs a `WARNING` naming the risk (every peer becomes trusted to set `X-Forwarded-For`); the literal `"unix"` token is exempt from this check.
 - `trusted_proxy_depth`: Must be >= 1.
+
+`trusted_proxy_depth` is the number of hops you vouch for, not a maximum: the connecting peer must itself be listed in `trusted_proxies`. A chain shorter than the configured depth, or a depth-selected entry that is itself a trusted proxy, now logs a one-time `WARNING` (see [Unsatisfiable and Over-Counted Depth](../internals/ip-management.md#unsatisfiable-and-over-counted-depth)).
 
 !!! warning "Your app server must not pre-resolve the client itself"
     Leaving `trusted_proxies` unset only means "`X-Forwarded-For` is never trusted" if your ASGI/WSGI server isn't already applying that header before guard-core runs. uvicorn's default `proxy_headers=True` (and equivalent settings in Gunicorn/Hypercorn) does exactly that. See [Deployment Prerequisite](../internals/ip-management.md#deployment-prerequisite-disable-the-app-servers-own-forwarded-header-handling) for the fix.
@@ -166,7 +169,7 @@ ___
 Detection Exclusions
 --------------------
 
-These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, and all `sec-ch-ua*` headers. `enabled_detection_categories` narrows the regex scan to a subset of the 18 known categories; custom user patterns always run regardless.
+These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, and all `sec-ch-ua*` headers. `enabled_detection_categories` narrows the regex scan to a subset of the 18 known categories; custom user patterns always run regardless. An empty `enabled_detection_categories` while `enable_penetration_detection` is `True` logs a `WARNING` at construction: detection would run on every request but never match anything.
 
 | Field                              | Type        | Default                          | Description                                                                |
 |------------------------------------|-------------|----------------------------------|----------------------------------------------------------------------------|
@@ -380,6 +383,7 @@ Detection Engine
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
 | `detection_max_body_inspect_bytes`  | `int`   | `262144`| 1024 - 10485760 | Body size cap read/scanned for detection; distinct from `detection_max_content_length` and `max_request_size`. |
+| `detection_max_scan_values`         | `int`   | `512`   | 2 - 100000    | Maximum values (query params, headers, JSON keys/values, form/multipart fields) scanned per request; remaining values are skipped and a one-time warning logs the client IP once reached. Each named value costs two scan units (name, then value), so the minimum is 2. |
 | `detection_threat_score_threshold`  | `float` | `1.0`   | 0.0 - 10.0    | Anomaly/threat score required to flag a request. |
 | `detection_scan_body`               | `bool`  | `True`  | N/A           | Scan the request body during detection; `False` restricts detection to path/query/headers. |
 
@@ -461,7 +465,9 @@ Validators
 | Validator | Fields | Behavior |
 |-----------|--------|----------|
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
-| `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges. Raises `ValueError` on invalid entries. |
+| `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges, plus the literal `"unix"` token. Raises `ValueError` on invalid entries. |
+| `warn_trusted_proxies_prefix_zero` | model-level | Logs a `WARNING` when `trusted_proxies` contains a `/0` network. Does not raise; construction still succeeds. |
+| `warn_empty_enabled_detection_categories` | model-level | Logs a `WARNING` when `enabled_detection_categories` is empty while `enable_penetration_detection` is `True`. Does not raise; construction still succeeds. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
 | `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction. |

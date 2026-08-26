@@ -11,6 +11,13 @@ from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
 from tests.test_sync.conftest import SyncMockGuardRequest
 
 
+class _FakeErrorResponse:
+    def __init__(self, status_code: int, message: str) -> None:
+        self.status_code = status_code
+        self.message = message
+        self.headers: dict[str, str] = {}
+
+
 @pytest.fixture(autouse=True)
 def cleanup_ratelimit_singleton() -> Generator[Any, Any, Any]:
     RateLimitManager._instance = None
@@ -130,7 +137,7 @@ def test_check_rate_limit_agent_event_called() -> None:
     mock_request = SyncMockGuardRequest(path="/api/endpoint", method="GET")
 
     def mock_error_response(status_code: int, message: str) -> Any:
-        return f"Error: {status_code} - {message}"
+        return _FakeErrorResponse(status_code, message)
 
     with (
         patch("guard_core.sync.handlers.ratelimit_handler.log_activity"),
@@ -149,7 +156,9 @@ def test_check_rate_limit_agent_event_called() -> None:
             create_error_response=mock_error_response,
         )
 
-        assert result2 == "Error: 429 - Too many requests"
+        assert result2.status_code == 429
+        assert result2.message == "Too many requests"
+        assert result2.headers["Retry-After"] == "60"
 
         mock_send_event.assert_called_once_with(mock_request, "192.168.1.100", 2)
 
@@ -187,7 +196,7 @@ def test_check_rate_limit_redis_path_with_agent() -> None:
     mock_request = SyncMockGuardRequest(path="/api/test", method="POST")
 
     def mock_error_response(status_code: int, message: str) -> Any:
-        return {"status": status_code, "message": message}
+        return _FakeErrorResponse(status_code, message)
 
     with patch("guard_core.sync.handlers.ratelimit_handler.log_activity"):
         result: Any = manager.check_rate_limit(
@@ -196,7 +205,9 @@ def test_check_rate_limit_redis_path_with_agent() -> None:
             create_error_response=mock_error_response,
         )
 
-        assert result == {"status": 429, "message": "Too many requests"}
+        assert result.status_code == 429
+        assert result.message == "Too many requests"
+        assert result.headers["Retry-After"] == "60"
 
         mock_agent.send_event.assert_called_once()
         sent_event = mock_agent.send_event.call_args[0][0]

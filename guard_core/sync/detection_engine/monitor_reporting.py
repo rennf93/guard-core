@@ -1,5 +1,4 @@
-from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from statistics import mean
 from typing import Any
 
@@ -87,7 +86,7 @@ def empty_summary() -> dict[str, Any]:
 
 
 def extract_metric_components(
-    recent_metrics: deque[PerformanceMetric],
+    recent_metrics: Iterable[PerformanceMetric],
 ) -> tuple[list[float], int, int]:
     recent_times = [m.execution_time for m in recent_metrics if not m.timeout]
     timeouts = sum(1 for m in recent_metrics if m.timeout)

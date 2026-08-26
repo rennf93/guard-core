@@ -168,3 +168,132 @@ async def test_full_flow_with_route_config(
 
             result = await ip_security_check.check(mock_request)
             assert result is None
+
+
+async def test_unknown_client_identity_not_blocked_with_default_config(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        result = await ip_security_check.check(mock_request)
+        assert result is None
+
+
+async def test_unknown_client_identity_blocked_when_whitelist_configured(
+    ip_security_check: IpSecurityCheck,
+    mock_request: Mock,
+    security_config: SecurityConfig,
+) -> None:
+    security_config.whitelist = ("10.0.0.1",)
+    mock_request.state.client_ip = "unknown"
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        with patch("guard_core.core.checks.implementations.ip_security.log_activity"):
+            with patch(
+                "guard_core.core.checks.implementations.ip_security."
+                "escalate_identity_violation",
+                new=AsyncMock(),
+            ):
+                result = await ip_security_check.check(mock_request)
+                assert result is not None
+                assert result.status_code == 403
+
+
+async def test_unknown_client_identity_blocked_when_whitelist_countries_configured(
+    ip_security_check: IpSecurityCheck,
+    mock_request: Mock,
+    security_config: SecurityConfig,
+) -> None:
+    security_config.geo_ip_handler = Mock()
+    security_config.whitelist_countries = frozenset({"US"})
+    mock_request.state.client_ip = "unknown"
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        with patch("guard_core.core.checks.implementations.ip_security.log_activity"):
+            with patch(
+                "guard_core.core.checks.implementations.ip_security."
+                "escalate_identity_violation",
+                new=AsyncMock(),
+            ):
+                result = await ip_security_check.check(mock_request)
+                assert result is not None
+                assert result.status_code == 403
+
+
+async def test_unknown_client_identity_with_empty_route_config_not_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    mock_request.state.route_config = RouteConfig()
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        result = await ip_security_check.check(mock_request)
+        assert result is None
+
+
+async def test_unknown_client_identity_with_route_whitelist_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["10.0.0.1"]
+    mock_request.state.route_config = route_config
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        with patch("guard_core.core.checks.implementations.ip_security.log_activity"):
+            with patch(
+                "guard_core.core.checks.implementations.ip_security."
+                "escalate_identity_violation",
+                new=AsyncMock(),
+            ):
+                result = await ip_security_check.check(mock_request)
+                assert result is not None
+                assert result.status_code == 403
+
+
+async def test_unknown_client_identity_with_route_whitelist_countries_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    route_config = RouteConfig()
+    route_config.whitelist_countries = ["US"]
+    mock_request.state.route_config = route_config
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        with patch("guard_core.core.checks.implementations.ip_security.log_activity"):
+            with patch(
+                "guard_core.core.checks.implementations.ip_security."
+                "escalate_identity_violation",
+                new=AsyncMock(),
+            ):
+                result = await ip_security_check.check(mock_request)
+                assert result is not None
+                assert result.status_code == 403
+
+
+async def test_unknown_client_identity_with_route_blacklist_not_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    route_config = RouteConfig()
+    route_config.ip_blacklist = ["10.0.0.1"]
+    mock_request.state.route_config = route_config
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = AsyncMock(return_value=False)
+
+        result = await ip_security_check.check(mock_request)
+        assert result is None

@@ -136,6 +136,40 @@ def test_initialize_database_download_failure_with_agent(
     assert "Failed to download IPInfo database" in sent_event.reason
 
 
+def test_initialize_database_download_failure_401_hides_token(
+    cleanup_ipinfo_singleton: None,
+) -> None:
+    token = "SECRET_IPINFO_TOKEN_abc123"
+    manager = IPInfoManager(token=token, db_path=Path("test_data/test.mmdb"))
+    mock_agent = MagicMock()
+    manager.agent_handler = mock_agent
+
+    class _Mocked401(Exception):
+        status = 401
+
+    download_error = _Mocked401(
+        "401 Client Error: Unauthorized for url: "
+        f"https://ipinfo.io/data/free/country_asn.mmdb?token={token}"
+    )
+
+    with (
+        patch.object(
+            manager, "_download_database", MagicMock(side_effect=download_error)
+        ),
+        patch.object(manager, "_is_db_outdated", return_value=True),
+    ):
+        manager.initialize()
+
+    mock_agent.send_event.assert_called_once()
+    sent_event = mock_agent.send_event.call_args[0][0]
+
+    assert token not in sent_event.reason
+    assert "ipinfo.io" not in sent_event.reason
+    assert (
+        sent_event.reason == "Failed to download IPInfo database: _Mocked401 (HTTP 401)"
+    )
+
+
 def test_get_country_exception_with_agent(
     cleanup_ipinfo_singleton: None,
 ) -> None:
@@ -158,7 +192,8 @@ def test_get_country_exception_with_agent(
     assert sent_event.event_type == "geo_lookup_failed"
     assert sent_event.ip_address == "192.168.1.100"
     assert sent_event.action_taken == "lookup_failed"
-    assert "Geographic lookup failed: Database corrupted" in sent_event.reason
+    assert sent_event.reason == "Geographic lookup failed: Exception"
+    assert "Database corrupted" not in sent_event.reason
 
 
 def test_get_country_exception_no_agent(

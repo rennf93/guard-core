@@ -91,7 +91,7 @@ vulture:
 bandit:
 	@echo "Running Bandit security scan..."
 	@echo ''
-	@uv run bandit -r guard_core -ll
+	@uv run bandit -c pyproject.toml -r guard_core -q
 	@$(CLEAN_CACHES)
 
 

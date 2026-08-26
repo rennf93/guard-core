@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -403,6 +404,81 @@ async def test_check_ip_access_allowed_has_no_reason() -> None:
     assert result.network is None
 
 
+async def test_check_ip_access_unknown_identity_with_no_lists_is_allowed() -> None:
+    from guard_core.utils import check_ip_access
+
+    result = await check_ip_access("unknown", SecurityConfig())
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
+async def test_check_ip_access_unknown_identity_blacklist_only_allowed() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(blacklist=["192.168.1.1"])
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
+async def test_check_ip_access_unknown_identity_with_whitelist_is_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(whitelist=["10.0.0.1"])
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP unknown not in global allowlist/blocklist"
+
+
+async def test_check_ip_access_unknown_identity_whitelist_countries_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP unknown not in global allowlist/blocklist"
+
+
+async def test_check_ip_access_unknown_identity_skips_country_and_cloud_checks(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
+    config = SecurityConfig(
+        blocked_countries=["RU"],
+        block_cloud_providers={"AWS"},
+        geo_ip_handler=mock_ipinfo,
+    )
+    mock_is_cloud_ip = mocker.patch(
+        "guard_core.handlers.cloud_handler.cloud_handler.is_cloud_ip"
+    )
+
+    result = await check_ip_access("unknown", config, mock_ipinfo)
+
+    assert result.allowed is True
+    assert result.reason == ""
+    mock_ipinfo.get_country.assert_not_called()
+    mock_is_cloud_ip.assert_not_called()
+
+
+async def test_check_ip_access_malformed_ip_string_is_still_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    result = await check_ip_access("not-an-ip", SecurityConfig())
+
+    assert result.allowed is False
+    assert result.reason == "IP not-an-ip not in global allowlist/blocklist"
+
+
 def test_is_ip_allowed_signature_unchanged() -> None:
     import inspect
 
@@ -795,8 +871,7 @@ async def test_detect_penetration_fallback_pattern_match() -> None:
     async def mock_detect_error(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Detection engine failure")
 
-    mock_pattern = MagicMock()
-    mock_pattern.search.return_value = MagicMock()
+    mock_pattern = re.compile(r"<script>")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -837,8 +912,7 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
     async def mock_detect_error(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Detection engine failure")
 
-    mock_pattern = MagicMock()
-    mock_pattern.search.side_effect = RecursionError("Pattern error")
+    mock_pattern = re.compile(r"unmatched_pattern_xyz")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -849,6 +923,11 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
             sus_patterns_handler,
             "get_all_compiled_patterns",
             return_value=[(mock_pattern, _all_ctx, "custom")],
+        ),
+        patch.object(
+            sus_patterns_handler,
+            "_check_regex_pattern",
+            side_effect=RecursionError("Pattern error"),
         ),
         patch("logging.Logger.error") as mock_log_error,
     ):

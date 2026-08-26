@@ -1,9 +1,11 @@
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from guard_core.core.initialization.handler_initializer import HandlerInitializer
+from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 
 
@@ -651,3 +653,124 @@ def test_get_initialization_status_geo_none_when_no_geo_handler(
 
     assert status["geo_ip"] is None
     assert "cloud_providers" in status
+
+
+async def test_initialize_redis_handlers_degrades_to_memory_when_unreachable_fail_open(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    mock_geo_ip_handler: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    security_config.redis_fail_open = True
+    mock_redis_handler.initialize = AsyncMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+    mock_geo_ip_handler.initialize = AsyncMock()
+
+    with (
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+        caplog.at_level(logging.ERROR, logger="guard_core.core.initialization"),
+    ):
+        mock_ipban.initialize_redis = AsyncMock()
+        mock_sus.initialize_redis = AsyncMock()
+
+        await initializer.initialize_redis_handlers()
+
+        mock_geo_ip_handler.initialize.assert_called_once()
+        mock_ipban.initialize_redis.assert_not_called()
+        mock_sus.initialize_redis.assert_not_called()
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        "Redis unavailable during initialization" in r.getMessage() for r in errors
+    )
+
+
+async def test_initialize_redis_handlers_reraises_redis_unreachable_fail_open_is_false(
+    initializer: HandlerInitializer,
+    mock_redis_handler: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_redis_handler.initialize = AsyncMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    with caplog.at_level(logging.ERROR, logger="guard_core.core.initialization"):
+        with pytest.raises(GuardRedisError):
+            await initializer.initialize_redis_handlers()
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        "Redis unavailable during initialization" in r.getMessage() for r in errors
+    )
+
+
+@pytest.mark.parametrize("redis_fail_open", [True, False])
+async def test_initialize_redis_handlers_completes_when_sus_patterns_get_key_fails(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    redis_fail_open: bool,
+) -> None:
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    security_config.redis_fail_open = redis_fail_open
+    mock_redis_handler.get_key = AsyncMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    SusPatternsManager._instance = None
+    real_sus = SusPatternsManager()
+
+    with (
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch("guard_core.handlers.suspatterns_handler.sus_patterns_handler", real_sus),
+    ):
+        mock_ipban.initialize_redis = AsyncMock()
+
+        await initializer.initialize_redis_handlers()
+
+    assert real_sus.redis_handler is mock_redis_handler
+
+
+@pytest.mark.parametrize("redis_fail_open", [True, False])
+async def test_initialize_redis_handlers_completes_when_geo_ip_handler_get_key_fails(
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    redis_fail_open: bool,
+    tmp_path: Path,
+) -> None:
+    from guard_core.handlers.ipinfo_handler import IPInfoManager
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    security_config.redis_fail_open = redis_fail_open
+    mock_redis_handler.get_key = AsyncMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    IPInfoManager._instance = None
+    real_geo = IPInfoManager(token="tok", db_path=tmp_path / "geo.mmdb")
+    SusPatternsManager._instance = None
+    real_sus = SusPatternsManager()
+
+    initializer = HandlerInitializer(
+        config=security_config,
+        redis_handler=mock_redis_handler,
+        geo_ip_handler=real_geo,
+    )
+
+    with (
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch("guard_core.handlers.suspatterns_handler.sus_patterns_handler", real_sus),
+        patch.object(real_geo, "_download_database", new=AsyncMock()),
+    ):
+        mock_ipban.initialize_redis = AsyncMock()
+
+        await initializer.initialize_redis_handlers()
+
+    assert real_geo.redis_handler is mock_redis_handler
+    IPInfoManager._instance = None

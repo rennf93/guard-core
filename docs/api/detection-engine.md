@@ -140,17 +140,17 @@ class PerformanceMonitor:
         Record a single pattern execution metric.
         """
 
-    def get_summary_stats(self) -> dict[str, Any]:
+    async def get_summary_stats(self) -> dict[str, Any]:
         """
         Return aggregate performance statistics.
         """
 
-    def get_slow_patterns(self) -> list[dict[str, Any]]:
+    async def get_slow_patterns(self) -> list[dict[str, Any]]:
         """
         Return patterns exceeding the slow threshold.
         """
 
-    def get_problematic_patterns(self) -> list[dict[str, Any]]:
+    async def get_problematic_patterns(self) -> list[dict[str, Any]]:
         """
         Return patterns with high timeout rates or anomalous execution times.
         """

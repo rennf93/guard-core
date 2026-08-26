@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from redis.asyncio import Redis
 from redis.asyncio.retry import Retry
@@ -14,6 +15,31 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
+
+
+def _unparseable_redis_url(url: str, scheme: str = "") -> str:
+    scheme = scheme or url.partition("://")[0]
+    return f"{scheme}://<unparseable>" if scheme and "://" in url else "<unparseable>"
+
+
+def _redact_redis_url(url: str | None) -> str | None:
+    if url is None:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return _unparseable_redis_url(url)
+    if not parts.netloc:
+        return url
+    try:
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return _unparseable_redis_url(url, parts.scheme)
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 class RedisManager:
@@ -80,30 +106,46 @@ class RedisManager:
             kwargs["retry_on_error"] = [RedisConnectionError, RedisTimeoutError]
         return kwargs
 
+    async def _safe_aclose(self, client: Redis) -> None:
+        try:
+            await client.aclose()
+        except Exception as e:
+            self.logger.warning(f"Failed to close a Redis client: {e}")
+
+    async def _discard_client(self) -> None:
+        if self._redis is not None:
+            old_redis, self._redis = self._redis, None
+            await self._safe_aclose(old_redis)
+
     async def initialize(self) -> None:
         if not self.config.enable_redis:
-            self._redis = None
+            async with self._connection_lock:
+                await self._discard_client()
             return
 
         self._closed = False
 
         async with self._connection_lock:
+            await self._discard_client()
+
+            new_redis: Redis | None = None
             try:
                 if self.config.redis_url is not None:
-                    self._redis = Redis.from_url(
+                    new_redis = Redis.from_url(
                         self.config.redis_url,
                         decode_responses=True,
                         **self._connection_kwargs(),
                     )
-                    if self._redis is not None:
-                        await self._redis.ping()
+                    if new_redis is not None:
+                        await new_redis.ping()
+                        self._redis = new_redis
                         self.logger.info("Redis connection established")
 
                         await self._send_redis_event(
                             event_type="redis_connection",
                             action_taken="connection_established",
                             reason="Redis connection successfully established",
-                            redis_url=self.config.redis_url,
+                            redis_url=_redact_redis_url(self.config.redis_url),
                         )
                 else:
                     self.logger.warning("Redis URL is None, skipping connection")
@@ -115,17 +157,18 @@ class RedisManager:
                     event_type="redis_error",
                     action_taken="connection_failed",
                     reason=f"Redis connection failed: {str(e)}",
-                    redis_url=self.config.redis_url,
+                    redis_url=_redact_redis_url(self.config.redis_url),
                     error_type="connection_error",
                 )
 
+                if new_redis is not None:
+                    await self._safe_aclose(new_redis)
                 self._redis = None
                 raise GuardRedisError(503, "Redis connection failed") from e
 
     async def close(self) -> None:
         if self._redis:
-            await self._redis.aclose()
-            self._redis = None
+            await self._discard_client()
             self.logger.info("Redis connection closed")
 
             await self._send_redis_event(

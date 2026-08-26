@@ -1,9 +1,12 @@
 import hashlib
 import json
 import logging
+from abc import abstractmethod
 from typing import Any
 
 from cachetools import TTLCache
+
+from guard_core._utils.logging_utils import _sanitize_for_log
 
 
 class SecurityHeadersCacheMixin:
@@ -16,6 +19,12 @@ class SecurityHeadersCacheMixin:
     hsts_config: dict[str, Any] | None
     cors_config: dict[str, Any] | None
     default_headers: dict[str, str]
+
+    @abstractmethod
+    def _validate_header_name(self, name: str) -> str: ...
+
+    @abstractmethod
+    def _validate_header_value(self, value: str) -> str: ...
 
     def _generate_cache_key(self, request_path: str | None) -> str:
         if not request_path:
@@ -50,10 +59,17 @@ class SecurityHeadersCacheMixin:
                 "security_headers", "custom_headers"
             )
             if custom_headers:
-                self.custom_headers = json.loads(custom_headers)
+                loaded_custom_headers = json.loads(custom_headers)
+                validated_custom_headers = {
+                    self._validate_header_name(name): self._validate_header_value(value)
+                    for name, value in loaded_custom_headers.items()
+                }
+                self.custom_headers = validated_custom_headers
 
         except Exception as e:
-            self.logger.warning(f"Failed to load cached header config: {e}")
+            self.logger.warning(
+                f"Failed to load cached header config: {_sanitize_for_log(str(e))}"
+            )
 
     async def _cache_configuration(self) -> None:
         if not self.redis_handler:

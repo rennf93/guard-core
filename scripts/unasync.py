@@ -22,6 +22,10 @@ SKIP_SRC = {
     "_dynamic_rules.py",
 }
 
+SKIP_TESTS = {
+    "test_module_imports_standalone.py",
+}
+
 SKIP_DIRS = {"__pycache__", "sync"}
 
 TEMPLATE_FILES = {
@@ -47,6 +51,7 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_core" / "test_suspicious_counts_concurrency.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_azure_redirect_real_sockets.py",
     TEST_SYNC_DIR / "test_sus_patterns" / "test_concurrent_redos_throughput.py",
+    TEST_SYNC_DIR / "test_sus_patterns" / "test_monitor_concurrency.py",
     TEST_SYNC_DIR
     / "test_sus_patterns"
     / "test_file_upload_decoded_truncation_body_scan.py",
@@ -523,6 +528,8 @@ def collect_test_files() -> list[tuple[Path, Path]]:
 
         for f in sorted(files):
             if not f.endswith(".py"):
+                continue
+            if rel == Path(".") and f in SKIP_TESTS:
                 continue
 
             src = root_path / f

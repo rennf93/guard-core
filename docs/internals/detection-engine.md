@@ -289,6 +289,8 @@ Detected anomalies are forwarded to every registered callback on every trip. Sen
 | `get_problematic_patterns()` | Patterns with >10% timeout rate or consistently slow execution |
 | `get_summary_stats()`    | Overall summary (total executions, avg time, timeout rate, match rate) |
 
+`get_summary_stats`, `get_slow_patterns`, and `get_problematic_patterns` are coroutines in the async tree (`await monitor.get_summary_stats()`); `guard_core.sync` calls them as plain methods.
+
 ### Callback Registration
 
 ```python

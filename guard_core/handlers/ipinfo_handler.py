@@ -14,6 +14,16 @@ from guard_core.protocols.agent_protocol import AgentHandlerProtocol
 from guard_core.protocols.redis_protocol import RedisHandlerProtocol
 
 
+def _describe_download_error(exc: BaseException) -> str:
+    status = getattr(exc, "status", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return f"{type(exc).__name__} (HTTP {status})"
+    return type(exc).__name__
+
+
 class IPInfoManager:
     _instance = None
     _download_retries: int = 3
@@ -74,43 +84,74 @@ class IPInfoManager:
     async def initialize_agent(self, agent_handler: AgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
+    def _open_database_or_none(self) -> Reader | None:
+        try:
+            return maxminddb.open_database(str(self.db_path))
+        except Exception as e:
+            self.logger.error(
+                f"IPInfo database at {self.db_path} is corrupted, removing: {e}"
+            )
+            if self.db_path.exists():
+                self.db_path.unlink()
+            return None
+
+    def _apply_opened_reader(self, reader: Reader | None) -> None:
+        if reader is not None:
+            self.reader = reader
+            self.last_refreshed = datetime.now(timezone.utc)
+
+    def _write_database_atomically(self, content: bytes) -> None:
+        tmp_path = self.db_path.with_name(self.db_path.name + ".tmp")
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(content)
+            os.replace(tmp_path, self.db_path)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+
     async def initialize(self) -> None:
         try:
             os.makedirs(self.db_path.parent, exist_ok=True)
 
             if self.redis_handler:
-                cached_db = await self.redis_handler.get_key("ipinfo", "database")
+                try:
+                    cached_db = await self.redis_handler.get_key("ipinfo", "database")
+                except Exception as e:
+                    self.logger.warning("Cached GeoIP database unavailable: %s", e)
+                    cached_db = None
                 if cached_db:
-                    with open(self.db_path, "wb") as f:
-                        f.write(
-                            cached_db
-                            if isinstance(cached_db, bytes)
-                            else cached_db.encode("latin-1")
-                        )
-                    self.reader = maxminddb.open_database(str(self.db_path))
-                    self.last_refreshed = datetime.now(timezone.utc)
+                    self._write_database_atomically(
+                        cached_db
+                        if isinstance(cached_db, bytes)
+                        else cached_db.encode("latin-1")
+                    )
+                    self._apply_opened_reader(self._open_database_or_none())
                     return
 
             try:
                 if not self.db_path.exists() or self._is_db_outdated():
                     await self._download_database()
             except Exception as e:
+                self.logger.error(
+                    "IPInfo database download failed, keeping existing reader: "
+                    f"{_describe_download_error(e)}"
+                )
                 if self.agent_handler:
                     await self._send_geo_event(
                         event_type="geo_lookup_failed",
                         ip_address="system",
                         action_taken="database_download_failed",
-                        reason=f"Failed to download IPInfo database: {str(e)}",
+                        reason=(
+                            "Failed to download IPInfo database: "
+                            f"{_describe_download_error(e)}"
+                        ),
                     )
-
-                if self.db_path.exists():
-                    self.db_path.unlink()
-                self.reader = None
                 return
 
             if self.db_path.exists():
-                self.reader = maxminddb.open_database(str(self.db_path))
-                self.last_refreshed = datetime.now(timezone.utc)
+                self._apply_opened_reader(self._open_database_or_none())
         finally:
             self._initialization_attempted = True
 
@@ -144,28 +185,32 @@ class IPInfoManager:
 
     async def _download_database(self) -> None:
         base_url = "https://ipinfo.io/data/free/country_asn.mmdb"
-        url = f"{base_url}?token={self.token}"
+        headers = {"Authorization": f"Bearer {self.token}"}
         retries = self._download_retries
         backoff = 1
 
         async with aiohttp.ClientSession() as session:
             for attempt in range(retries):
                 try:
-                    response = await session.get(url)
+                    response = await session.get(base_url, headers=headers)
                     response.raise_for_status()
                     content = await response.read()
-                    with open(self.db_path, "wb") as f:
-                        f.write(content)
+                    self._write_database_atomically(content)
 
                     if self.redis_handler is not None:
-                        with open(self.db_path, "rb") as f:
-                            db_content = f.read().decode("latin-1")
-                        await self.redis_handler.set_key(
-                            "ipinfo",
-                            "database",
-                            db_content,
-                            ttl=self._max_age,
-                        )
+                        try:
+                            with open(self.db_path, "rb") as f:
+                                db_content = f.read().decode("latin-1")
+                            await self.redis_handler.set_key(
+                                "ipinfo",
+                                "database",
+                                db_content,
+                                ttl=self._max_age,
+                            )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to cache GeoIP database in Redis: %s", e
+                            )
                     return
                 except Exception:
                     if attempt == retries - 1:
@@ -212,7 +257,7 @@ class IPInfoManager:
                     event_type="geo_lookup_failed",
                     ip_address=ip,
                     action_taken="lookup_failed",
-                    reason=f"Geographic lookup failed: {str(e)}",
+                    reason=f"Geographic lookup failed: {type(e).__name__}",
                 )
                 try:
                     asyncio.create_task(coro)
@@ -262,18 +307,24 @@ class IPInfoManager:
             self.reader.close()
 
     async def refresh(self) -> None:
-        self.close()
-        self.reader = None
         try:
             await self._download_database()
         except Exception as e:
-            self.logger.error(f"IPInfo refresh failed: {e}")
+            self.logger.error(f"IPInfo refresh failed: {_describe_download_error(e)}")
             return
         finally:
             self._initialization_attempted = True
-        if self.db_path.exists():
-            self.reader = maxminddb.open_database(str(self.db_path))
-            self.last_refreshed = datetime.now(timezone.utc)
+
+        if not self.db_path.exists():
+            return
+
+        reader = self._open_database_or_none()
+        if reader is None:
+            return
+
+        self.close()
+        self.reader = reader
+        self.last_refreshed = datetime.now(timezone.utc)
 
     async def initialize_redis(self, redis_handler: RedisHandlerProtocol) -> None:
         self.redis_handler = redis_handler

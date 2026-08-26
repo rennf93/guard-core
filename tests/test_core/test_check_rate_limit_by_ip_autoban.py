@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
+import guard_core.handlers.ratelimit_handler as ratelimit_handler
 from guard_core.core.checks.implementations.rate_limit import RateLimitCheck
 from guard_core.handlers.ipban_handler import IPBanManager
 from guard_core.handlers.ratelimit_handler import (
@@ -323,5 +324,43 @@ async def test_dedicated_counter_isolated_from_middleware_suspicious_counts() ->
         assert primitive_ip not in middleware.suspicious_request_counts
         assert _by_ip_autoban_counts[primitive_ip] == 1
         assert "192.0.2.108" not in _by_ip_autoban_counts
+    finally:
+        IPBanManager._instance = None
+
+
+async def test_autoban_counter_evicts_the_oldest_ip_a_touched_ip_survives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _by_ip_autoban_counts.clear()
+    monkeypatch.setattr(ratelimit_handler, "_MAX_TRACKED_RATE_LIMIT_KEYS", 3)
+    config = SecurityConfig(
+        enable_redis=False,
+        rate_limit=1,
+        rate_limit_window=60,
+        enable_rate_limit_auto_ban=True,
+        enable_ip_banning=True,
+        auto_ban_threshold=1_000_000,
+    )
+    _install_recording_ban_manager(config)
+    try:
+        for ip in ("198.51.100.1", "198.51.100.2", "198.51.100.3"):
+            await check_rate_limit_by_ip(ip, config)
+            await check_rate_limit_by_ip(ip, config)
+
+        assert set(_by_ip_autoban_counts) == {
+            "198.51.100.1",
+            "198.51.100.2",
+            "198.51.100.3",
+        }
+
+        await check_rate_limit_by_ip("198.51.100.1", config)
+        await check_rate_limit_by_ip("198.51.100.1", config)
+        await check_rate_limit_by_ip("198.51.100.4", config)
+        await check_rate_limit_by_ip("198.51.100.4", config)
+
+        assert len(_by_ip_autoban_counts) == 3
+        assert "198.51.100.2" not in _by_ip_autoban_counts
+        assert "198.51.100.1" in _by_ip_autoban_counts
+        assert "198.51.100.4" in _by_ip_autoban_counts
     finally:
         IPBanManager._instance = None

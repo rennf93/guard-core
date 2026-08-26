@@ -174,9 +174,11 @@ async def extract_client_ip(
 ) -> str
 ```
 
+When no client address can be resolved, `extract_client_ip` returns the sentinel `UNKNOWN_CLIENT_IDENTITY` (value `"unknown"`), exported from `guard_core.utils` and mirrored at `guard_core.sync.utils`. Every `"unknown"` reference below is that same sentinel; compare against the constant rather than the literal string.
+
 ### Logic
 
-1. If `request.client_host` is `None`, return `"unknown"`.
+1. If `request.client_host` is `None`: return the address resolved from `X-Forwarded-For` when `"unix"` is in `trusted_proxies` (same depth logic as step 6 below, falling back to `"unknown"` if the header is absent or the chain is too short); otherwise return `"unknown"`. The adapter's passthrough step (see [Middleware Integration](../adapters/middleware-integration.md)) only reaches this resolution for a non-excluded path -- an excluded path (a health or readiness endpoint, for example) passes through unaffected, before identity is resolved at all. For a non-excluded path, the passthrough step rejects the request with 403 before this point when the resolved identity is `"unknown"` and `fail_secure=True` (the default); with `fail_secure=False` the pipeline still runs with that identity, and `check_ip_access` treats `"unknown"` as no address available: the request is allowed unless a whitelist or a country allow-list is configured (`whitelist` or `whitelist_countries`; membership cannot be proven for an address that does not exist, so it is blocked), and the blacklist, `blocked_countries`, and cloud-provider checks are skipped since none of them can match without an address. A decorated route follows the same rule: `check_route_ip_access` blocks only when the route's own `ip_whitelist` or `whitelist_countries` is set, and otherwise passes the identity through to the global check untouched, since a route `ip_blacklist` or `blocked_countries` rule cannot match it either. Detection and the shared `"unknown"` rate-limit bucket still apply.
 2. Get the connecting IP from `request.client_host`.
 3. Get `X-Forwarded-For` header value.
 4. If no trusted proxies are configured, log a spoofing warning (if `X-Forwarded-For` is present) and return the connecting IP.
@@ -199,6 +201,15 @@ def _is_trusted_proxy(connecting_ip, trusted_proxies) -> bool:
 ### Spoofing Detection
 
 When an `X-Forwarded-For` header is received from an untrusted source, guard-core logs a warning and fires an agent event with `event_type="suspicious_request"` and `action_taken="spoofing_detected"`. The request is still processed using the connecting IP.
+
+### Unsatisfiable and Over-Counted Depth
+
+`trusted_proxy_depth` is a contract: it names how many proxy hops you vouch for, and the peer that connects to guard-core must itself be in `trusted_proxies`. Two misconfigurations are now surfaced with a one-time (per process) `WARNING`, not silently absorbed:
+
+- **Chain shorter than `trusted_proxy_depth`.** If `X-Forwarded-For` has fewer comma-separated entries than `trusted_proxy_depth`, guard-core cannot index the entry it was told to trust and falls back to the connecting peer, exactly as before -- but now logs the configured depth, the observed chain length, and the fallback once.
+- **The depth-selected entry is itself a trusted proxy.** If the address `trusted_proxy_depth` selects from the chain is itself listed in `trusted_proxies`, the chain likely has more real proxy hops than `trusted_proxy_depth` accounts for (an over-count signal): guard-core is probably still resolving a proxy's own address, not the client's. Identity resolution is unchanged in both cases; only the warning is new.
+
+Repeated `X-Forwarded-For` field lines are joined by the adapter before guard-core sees them (guard-core reads the header as a single string); an ASGI adapter that only returns the first field line's value for a duplicate header name is an adapter-layer defect, not something this function can detect or correct.
 
 ### Deployment Prerequisite: Disable the App Server's Own Forwarded-Header Handling
 

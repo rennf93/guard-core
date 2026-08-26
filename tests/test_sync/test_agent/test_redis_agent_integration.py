@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from guard_core.models import SecurityConfig
-from guard_core.sync.handlers.redis_handler import RedisManager
+from guard_core.sync.handlers.redis_handler import RedisManager, _redact_redis_url
+
+_REAL_REDIS_MANAGER_INITIALIZE = RedisManager.initialize
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +19,45 @@ def patch_security_event() -> Any:
 
         mock_event.side_effect = SecurityEvent
         yield
+
+
+def test_redact_redis_url_returns_none_for_none_url() -> None:
+    assert _redact_redis_url(None) is None
+
+
+def test_redact_redis_url_without_explicit_port() -> None:
+    assert _redact_redis_url("redis://:secret@localhost/0") == "redis://localhost/0"
+
+
+def test_redact_redis_url_malformed_port_does_not_raise() -> None:
+    assert _redact_redis_url("redis://host:notanumber/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_out_of_range_port_does_not_raise() -> None:
+    assert _redact_redis_url("redis://host:99999/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_unbalanced_ipv6_brackets_does_not_raise() -> None:
+    assert _redact_redis_url("redis://[::1:6379/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_ipv6_host_with_password() -> None:
+    assert _redact_redis_url("redis://:secret@[::1]:6379/0") == "redis://[::1]:6379/0"
+
+
+def test_redact_redis_url_unix_socket_left_unchanged() -> None:
+    assert _redact_redis_url("unix:///tmp/redis.sock") == "unix:///tmp/redis.sock"
+
+
+def test_redact_redis_url_keeps_scheme_host_port_db_query_drops_userinfo() -> None:
+    assert (
+        _redact_redis_url("rediss://user:pw@host:6380/1?ssl=true")
+        == "rediss://host:6380/1?ssl=true"
+    )
+
+
+def test_redact_redis_url_empty_string_does_not_raise() -> None:
+    assert _redact_redis_url("") == ""
 
 
 def test_initialize_agent() -> None:
@@ -64,6 +105,60 @@ def test_send_redis_event_success() -> None:
     assert sent_event.reason == "Redis connection successfully established"
     assert sent_event.metadata["redis_url"] == "redis://localhost"
     assert sent_event.metadata["extra_data"] == "test"
+
+
+def test_initialize_redacts_redis_url_password_on_connect_event() -> None:
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://:secret-pw@127.0.0.1:6399"
+    )
+    manager = RedisManager(config)
+    mock_agent = MagicMock()
+    manager.agent_handler = mock_agent
+
+    fake_redis = MagicMock()
+    fake_redis.ping = MagicMock(return_value=True)
+
+    with (
+        patch.object(RedisManager, "initialize", _REAL_REDIS_MANAGER_INITIALIZE),
+        patch(
+            "guard_core.sync.handlers.redis_handler.Redis.from_url",
+            return_value=fake_redis,
+        ),
+    ):
+        manager.initialize()
+
+    mock_agent.send_event.assert_called_once()
+    sent_event = mock_agent.send_event.call_args[0][0]
+
+    assert "secret-pw" not in sent_event.metadata["redis_url"]
+    assert sent_event.metadata["redis_url"] == "redis://127.0.0.1:6399"
+
+
+def test_initialize_redacts_redis_url_password_on_error_event() -> None:
+    from guard_core.exceptions import GuardRedisError
+
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://:secret-pw@127.0.0.1:6399"
+    )
+    manager = RedisManager(config)
+    mock_agent = MagicMock()
+    manager.agent_handler = mock_agent
+
+    with (
+        patch.object(RedisManager, "initialize", _REAL_REDIS_MANAGER_INITIALIZE),
+        patch(
+            "guard_core.sync.handlers.redis_handler.Redis.from_url",
+            side_effect=Exception("Connection refused"),
+        ),
+        pytest.raises(GuardRedisError),
+    ):
+        manager.initialize()
+
+    mock_agent.send_event.assert_called_once()
+    sent_event = mock_agent.send_event.call_args[0][0]
+
+    assert "secret-pw" not in sent_event.metadata["redis_url"]
+    assert sent_event.metadata["redis_url"] == "redis://127.0.0.1:6399"
 
 
 def test_send_redis_event_exception_handling(

@@ -218,6 +218,23 @@ This function provides a secure way to extract client IPs by:
 3. Properly handling proxy chains based on configured depth
 4. Detecting and reporting IP spoofing attempts via the agent handler
 
+UNKNOWN_CLIENT_IDENTITY
+------------------------
+
+```python
+UNKNOWN_CLIENT_IDENTITY: str = "unknown"
+```
+
+Sentinel value `extract_client_ip` returns when no client address can be resolved (for example, `request.client_host` is `None` and no `"unix"` trusted-proxy fallback applies). Exported from `guard_core.utils`, mirrored at `guard_core.sync.utils`. Adapters and callers should compare a resolved identity against this constant rather than the literal string `"unknown"`.
+
+```python
+from guard_core.utils import UNKNOWN_CLIENT_IDENTITY, extract_client_ip
+
+client_ip = await extract_client_ip(request, config)
+if client_ip == UNKNOWN_CLIENT_IDENTITY:
+    logger.warning("Unable to resolve a client address for this request")
+```
+
 ___
 
 Usage Examples

@@ -156,6 +156,36 @@ async def test_direct_path_non_ip_client_host_stays_raw_not_attacker_supplied() 
     assert resolved == "garbage"
 
 
+@pytest.mark.parametrize("raw_form", SIX_RAW_FORMS)
+async def test_ban_ip_canonicalizes_six_forms(raw_form: str) -> None:
+    await ip_ban_manager.ban_ip(raw_form, 60, "test")
+    assert await ip_ban_manager.is_ip_banned(CANONICAL_BY_RAW_FORM[raw_form]) is True
+
+
+async def test_ban_ip_then_is_ip_banned_with_a_different_spelling() -> None:
+    await ip_ban_manager.ban_ip("2001:DB8::1", 60, "test")
+
+    assert await ip_ban_manager.is_ip_banned("2001:db8::1") is True
+    assert (
+        await ip_ban_manager.is_ip_banned("2001:0db8:0000:0000:0000:0000:0000:0001")
+        is True
+    )
+
+
+async def test_unban_ip_with_a_different_spelling_lifts_the_ban() -> None:
+    await ip_ban_manager.ban_ip("2001:DB8::1", 60, "test")
+
+    await ip_ban_manager.unban_ip("2001:db8::1")
+
+    assert await ip_ban_manager.is_ip_banned("2001:DB8::1") is False
+
+
+async def test_ban_ip_cidr_entry_is_not_canonicalized() -> None:
+    await ip_ban_manager.ban_ip("10.0.0.0/24", 60, "test")
+
+    assert await ip_ban_manager.is_ip_banned("10.0.0.5") is True
+
+
 @pytest.mark.parametrize(
     ("form_a", "form_b", "canonical"),
     [

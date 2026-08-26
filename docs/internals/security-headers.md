@@ -134,13 +134,19 @@ is_valid = await security_headers_manager.validate_csp_report(report_json)
 
 Validates the structure of a CSP violation report (checks for `document-uri`, `violated-directive`, `blocked-uri` in the `csp-report` object) and logs the violation.
 
-### Header Value Validation
+### Header Name and Value Validation
+
+Custom header names pass through `_validate_header_name()`:
+
+- Requires the RFC 9110 token grammar (`` [!#$%&'*+.^_`|~0-9A-Za-z-]+ ``); rejects `\r`, `\n`, and any other non-token character.
 
 All header values pass through `_validate_header_value()`:
 
 - Rejects values containing `\r` or `\n` (HTTP response splitting prevention).
 - Rejects values longer than 8192 bytes.
 - Strips non-printable characters except tab.
+
+Both validators also run on `custom_headers` loaded back from Redis; a name or value that fails validation discards the entire cached `custom_headers` entry (logged, not raised).
 
 ### Redis Integration
 

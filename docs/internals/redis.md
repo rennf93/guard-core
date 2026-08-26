@@ -42,6 +42,8 @@ await redis_manager.initialize()
 
 Creates a `redis.asyncio.Redis` connection from `config.redis_url` with `decode_responses=True`, applying the configured socket timeouts (`redis_socket_timeout`, `redis_socket_connect_timeout`), pool cap (`redis_max_connections`), health-check interval (`redis_health_check_interval`), and — when `redis_retries > 0` — a client-level `Retry` with exponential backoff on connection/timeout errors. Pings to verify connectivity. Raises `GuardRedisError(503)` on failure.
 
+Since `RedisManager` is a singleton, calling `initialize()` again on the same instance (including with `enable_redis=False`, or after a failed connection attempt) first closes whatever client is already there via the same `aclose()` path `close()` uses, so the manager never holds more than one live client at a time. That close is best-effort: a failure (for example a client created on a different event loop than the one closing it) is logged as a warning and does not block creating the replacement.
+
 Note that the client-level retry re-sends non-idempotent commands: a lost reply after the server already committed an `INCR` over-counts by one. For guard-core's rate-limit counters that fails closed (mildly over-restrictive, self-heals next window); callers needing exactly-once semantics should not build on `incr()`.
 
 **Close**:
@@ -139,7 +141,7 @@ class GuardRedisError(GuardCoreError):
         self.detail = detail
 ```
 
-Adapters should catch `GuardRedisError` during initialization and handle it according to their framework's error model.
+`HandlerInitializer.initialize_redis_handlers` catches `GuardRedisError` raised by `RedisManager.initialize()` during startup and always logs it. When `redis_fail_open=True`, it degrades to the same in-memory path used when Redis is disabled (`ip_ban_manager`, the rate limiter, and `sus_patterns_handler` are never wired to Redis for the life of the process) instead of raising; `RedisManager._redis` stays `None`, so any later call through `safe_operation`/`get_connection` retries the connection on its own. When `redis_fail_open` is `False` (the default), the exception re-raises out of initialization so adapters can turn it into a clean error response (fastapi-guard returns a 503).
 
 When a `GuardRedisError` escapes a security check at request time (a Redis outage mid-request), the pipeline honors `fail_secure` by default: the request is blocked with a 500. Setting `redis_fail_open=True` opts into skipping the failing check and letting the request through, treating Redis outages as an availability concern distinct from other check failures.
 
@@ -165,3 +167,4 @@ Configuration
 - Set `redis_prefix` to a unique value per application to avoid key collisions when sharing a Redis instance.
 - When `enable_redis` is `False`, all `RedisManager` methods return `None` without attempting connections.
 - The `redis_url` can include authentication: `"redis://user:password@host:port/db"`.
+- Any userinfo in `redis_url` is stripped before the value reaches the `redis_connection`/`redis_error` agent telemetry events; only `scheme://host[:port]` is sent. The real connection still uses the unredacted `redis_url`.

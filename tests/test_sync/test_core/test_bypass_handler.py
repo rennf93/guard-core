@@ -6,16 +6,23 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync.core.bypass import handler as bypass_handler_module
 from guard_core.sync.core.bypass.context import BypassContext
 from guard_core.sync.core.bypass.handler import BypassHandler
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 
+@pytest.fixture(autouse=True)
+def _reset_no_client_address_warning() -> None:
+    bypass_handler_module._no_client_address_warned = False
+
+
 @pytest.fixture
 def mock_response_factory() -> Mock:
     factory = Mock()
     factory.apply_modifier = MagicMock(return_value=Mock(status_code=200))
+    factory.create_error_response = MagicMock(return_value=Mock(status_code=403))
     return factory
 
 
@@ -44,6 +51,9 @@ def mock_event_bus() -> Mock:
 def mock_config() -> Mock:
     config = Mock()
     config.passive_mode = False
+    config.fail_secure = True
+    config.trusted_proxies = ()
+    config.trusted_proxy_depth = 1
     return config
 
 
@@ -75,6 +85,8 @@ def mock_request() -> Mock:
     request = Mock()
     request.url_path = "/test"
     request.client_host = "127.0.0.1"
+    request.headers = {}
+    request.state = SimpleNamespace()
     return request
 
 
@@ -91,7 +103,7 @@ def test_init(bypass_context: BypassContext) -> None:
     assert handler.context == bypass_context
 
 
-def test_handle_passthrough_no_client(
+def test_handle_passthrough_no_client_fail_secure_rejects(
     bypass_handler: BypassHandler,
     mock_request: Mock,
     call_next: Callable[[Mock], Mock],
@@ -105,8 +117,99 @@ def test_handle_passthrough_no_client(
     )
 
     assert response is not None
-    assert response.status_code == 200
-    mock_response_factory.apply_modifier.assert_called_once()
+    assert response.status_code == 403
+    assert mock_request.state.client_ip == "unknown"
+    mock_response_factory.create_error_response.assert_called_once_with(
+        403, "Client address could not be determined"
+    )
+
+
+def test_handle_passthrough_no_client_fail_open_runs_pipeline_as_unknown(
+    bypass_handler: BypassHandler,
+    mock_request: Mock,
+    call_next: Callable[[Mock], Mock],
+    mock_response_factory: Mock,
+    mock_config: Mock,
+) -> None:
+    mock_config.fail_secure = False
+    mock_request.client_host = None
+
+    response = bypass_handler.handle_passthrough(
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+    )
+
+    assert response is None
+    assert mock_request.state.client_ip == "unknown"
+    mock_response_factory.create_error_response.assert_not_called()
+
+
+def test_handle_passthrough_no_client_resolves_via_unix_trusted_proxy(
+    bypass_handler: BypassHandler,
+    mock_request: Mock,
+    call_next: Callable[[Mock], Mock],
+    mock_response_factory: Mock,
+    mock_config: Mock,
+) -> None:
+    mock_config.trusted_proxies = ("unix",)
+    mock_request.client_host = None
+    mock_request.headers = {"X-Forwarded-For": "9.9.9.9"}
+
+    response = bypass_handler.handle_passthrough(
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+    )
+
+    assert response is None
+    assert mock_request.state.client_ip == "9.9.9.9"
+    mock_response_factory.create_error_response.assert_not_called()
+
+
+def test_handle_passthrough_no_client_warns_once(
+    bypass_handler: BypassHandler,
+    mock_request: Mock,
+    call_next: Callable[[Mock], Mock],
+    bypass_context: BypassContext,
+) -> None:
+    mock_request.client_host = None
+    another_request = Mock()
+    another_request.client_host = None
+    another_request.headers = {}
+    another_request.state = SimpleNamespace()
+
+    bypass_handler.handle_passthrough(
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+    )
+    bypass_handler.handle_passthrough(
+        another_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+    )
+
+    assert cast(Mock, bypass_context.logger).warning.call_count == 1
+
+
+def test_handle_passthrough_excluded_path_no_client_skips_warning(
+    bypass_handler: BypassHandler,
+    mock_request: Mock,
+    call_next: Callable[[Mock], Mock],
+    mock_validator: Mock,
+    mock_response_factory: Mock,
+    bypass_context: BypassContext,
+) -> None:
+    mock_validator.is_path_excluded.return_value = True
+    mock_request.client_host = None
+
+    response = bypass_handler.handle_passthrough(
+        mock_request,
+        cast(Callable[[SyncGuardRequest], GuardResponse], call_next),
+    )
+
+    assert response is None
+    assert mock_request.state.guard_exclusion_scoped is True
+    assert not hasattr(mock_request.state, "client_ip")
+    mock_response_factory.create_error_response.assert_not_called()
+    cast(Mock, bypass_context.logger).warning.assert_not_called()
 
 
 def test_handle_passthrough_excluded_path_falls_through_marked_exclusion_scoped(
@@ -136,7 +239,6 @@ def test_handle_passthrough_non_excluded_path_does_not_mark_request(
     mock_validator: Mock,
 ) -> None:
     mock_validator.is_path_excluded.return_value = False
-    mock_request.state = SimpleNamespace()
 
     response = bypass_handler.handle_passthrough(
         mock_request,

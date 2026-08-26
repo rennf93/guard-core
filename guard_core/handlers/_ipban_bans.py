@@ -7,6 +7,7 @@ from cachetools import TTLCache
 
 from guard_core.handlers._ipban_cache import _Network
 from guard_core.handlers._ipban_events import IpBanEventMixin
+from guard_core.utils import _canonicalize_ip
 
 _LOOPBACK_NETWORKS: tuple[_Network, ...] = (
     ipaddress.ip_network("127.0.0.0/8"),
@@ -145,6 +146,7 @@ class IpBanOperationsMixin(IpBanEventMixin):
     async def ban_ip(
         self, ip: str, duration: int, reason: str = "threshold_exceeded"
     ) -> None:
+        ip = _canonicalize_ip(ip)
         self._assert_positive_duration(duration)
         refusal = self._self_dos_refusal_reason(ip)
         if refusal is not None:

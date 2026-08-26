@@ -157,11 +157,11 @@ def _nested_path_pattern(required: str) -> str:
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 
-_LDAP_ATTR_DESC_TOKEN_RE = (
+_LDAP_ATTR_DESC_RE = (
     r"(?::)?(?:[a-zA-Z][\w.-]*|\d+(?:\.\d+)*)"
     r"(?:;[\w.-]+)*(?::[\w.-]+)*\s*"
 )
-_LDAP_ATTR_EXTENSIBLE_MATCH_RE = _LDAP_ATTR_DESC_TOKEN_RE + r":?="
+_LDAP_ATTR_EXTENSIBLE_MATCH_RE = _LDAP_ATTR_DESC_RE + r":?="
 
 _LDAP_WILDCARD_CHAIN_RE = rf"\*\)[|&]?\(+\s*{_LDAP_ATTR_EXTENSIBLE_MATCH_RE}"
 _LDAP_BREAKOUT_BACKWARD_BOUNDARY_CHARS = frozenset("\"'\n&")
@@ -218,7 +218,7 @@ _LDAP_PAREN_CONJUNCTION_FOLLOWUP_ATTR_RE = re.compile(
 _LDAP_WILDCARD_EQUALS_RE = (
     rf"\*\s*\)+\s*(?:[|&!]\s*)?\(+\s*(?:[&|!]|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
 )
-_LDAP_PAREN_BREAKOUT_RE = rf"\)\s*\(\s*(?:[&|!]|{_LDAP_ATTR_DESC_TOKEN_RE}:?[=~<>])"
+_LDAP_PAREN_BREAKOUT_RE = rf"\)\s*\(\s*(?:[&|!]|{_LDAP_ATTR_DESC_RE}:?[=~<>])"
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"(?:[&#;,\"'<>]|\s*\Z)"
@@ -2062,8 +2062,9 @@ class SusPatternsManager:
         (r"(?:<!\[CDATA\[.*?\]\]>)", _CTX_XML, "xml"),
         (r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY", _CTX_XML, "xml"),
         (
-            r"(?:^|\s|/)(?:(?<=://)[^\s/@]*@)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0|"
-            r"\[::(?:\d*)\]|169\.254(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|"
+            r"(?:^|\s|/)(?:(?<=://)[^\s/@]*@)?(?:localhost\.?|127\.0\.0\.1|0\.0\.0\.0|"
+            r"\[::(?:\d*)\]|\[::ffff:127\.0\.0\.1\]|169\.254(?:\.\d{1,3}){2}|"
+            r"192\.168(?:\.\d{1,3}){2}|"
             r"10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2[0-9]|3[01])(?:\.\d{1,3}){2}|"
             r"metadata\.google\.internal|metadata\.goog|100\.100\.100\.200)"
             r"(?::\d+)?(?:\s|$|/)",
@@ -2504,7 +2505,9 @@ class SusPatternsManager:
 
     async def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
-        if self.redis_handler:
+        if not self.redis_handler:
+            return
+        try:
             cached_patterns = await self.redis_handler.get_key("patterns", "custom")
             if cached_patterns:
                 patterns = cached_patterns.split(",")
@@ -2516,6 +2519,8 @@ class SusPatternsManager:
                                 f"Skipped restoring persisted pattern: "
                                 f"{pattern[:50]}..."
                             )
+        except Exception as e:
+            logger.warning("Custom pattern restore skipped: %s", e)
 
     async def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
@@ -3370,10 +3375,10 @@ class SusPatternsManager:
         performance_monitor = instance._performance_monitor
         if performance_monitor:
             return {
-                "summary": performance_monitor.get_summary_stats(),
-                "slow_patterns": performance_monitor.get_slow_patterns(),
+                "summary": await performance_monitor.get_summary_stats(),
+                "slow_patterns": await performance_monitor.get_slow_patterns(),
                 "problematic_patterns": (
-                    performance_monitor.get_problematic_patterns()
+                    await performance_monitor.get_problematic_patterns()
                 ),
             }
         return None
@@ -3408,8 +3413,7 @@ class SusPatternsManager:
                 hasattr(cls._instance, "_performance_monitor")
                 and cls._instance._performance_monitor
             ):
-                cls._instance._performance_monitor.pattern_stats.clear()
-                cls._instance._performance_monitor.recent_metrics.clear()
+                await cls._instance._performance_monitor.clear_stats()
 
             cls._config = None
 

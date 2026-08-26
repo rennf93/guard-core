@@ -1,5 +1,7 @@
+import time
 from collections import deque
 from datetime import datetime, timezone
+from functools import cache
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +12,21 @@ from guard_core.detection_engine.monitor import (
     PerformanceMetric,
     PerformanceMonitor,
 )
+from guard_core.detection_engine.monitor_anomalies import detect_statistical_anomaly
+
+_REFERENCE_WORKLOAD_SECONDS = 0.1243
+
+
+@cache
+def _host_cpu_speed_factor() -> float:
+    samples: list[float] = []
+    for _ in range(3):
+        start = time.process_time()
+        total = 0
+        for i in range(3_000_000):
+            total += i * i
+        samples.append(time.process_time() - start)
+    return max(1.0, min(samples) / _REFERENCE_WORKLOAD_SECONDS)
 
 
 def test_initialization() -> None:
@@ -263,6 +280,46 @@ async def test_statistical_anomaly_single_data_point() -> None:
     assert result is None
 
 
+def test_statistical_anomaly_guard_via_monitor_clamp() -> None:
+    monitor = PerformanceMonitor(anomaly_threshold=2.0, min_samples_for_anomaly=1)
+    pattern = "one_sample_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times.append(0.01)
+    monitor.pattern_stats[pattern] = stats
+
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.5,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    assert monitor._detect_statistical_anomaly(metric) is None
+
+
+def test_statistical_anomaly_guard_direct_call() -> None:
+    pattern = "one_sample_direct_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times.append(0.01)
+
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.5,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    result = detect_statistical_anomaly(
+        metric, stats, min_samples_for_anomaly=1, anomaly_threshold=2.0
+    )
+
+    assert result is None
+
+
 @pytest.mark.asyncio
 async def test_statistical_anomaly_within_threshold() -> None:
     monitor = PerformanceMonitor(anomaly_threshold=3.0)
@@ -318,6 +375,46 @@ async def test_statistical_anomaly_within_threshold() -> None:
     result = monitor._detect_statistical_anomaly(metric)
 
     assert result is None
+
+
+_RECORD_METRIC_CPU_BUDGET_SECONDS = 0.03
+
+
+@pytest.mark.asyncio
+async def test_record_metric_statistical_anomaly_cpu_budget() -> None:
+    monitor = PerformanceMonitor(min_samples_for_anomaly=30)
+    pattern = "cpu_budget_pattern"
+    for i in range(100):
+        await monitor.record_metric(
+            pattern=pattern,
+            execution_time=0.001 + (i % 7) * 1e-6,
+            content_length=100,
+            matched=False,
+        )
+
+    samples: list[float] = []
+    for _ in range(5):
+        start = time.process_time()
+        for i in range(300):
+            await monitor.record_metric(
+                pattern=pattern,
+                execution_time=0.001 + (i % 7) * 1e-6,
+                content_length=100,
+                matched=False,
+            )
+        samples.append(time.process_time() - start)
+
+    budget_seconds = _RECORD_METRIC_CPU_BUDGET_SECONDS * _host_cpu_speed_factor()
+
+    assert min(samples) < budget_seconds, (
+        "record_metric's statistical-anomaly check regressed: min of 5 runs of "
+        f"300 calls on a warm 100-sample window took {min(samples):.4f}s, "
+        f"budget={budget_seconds:.4f}s (base {_RECORD_METRIC_CPU_BUDGET_SECONDS}s "
+        "scaled by this host's _host_cpu_speed_factor(), 2.3x headroom over a "
+        "~0.013s float baseline measured on the reference tree; the "
+        "pre-fix statistics.mean/stdev implementation cost ~0.047s for the "
+        "same 300 calls)"
+    )
 
 
 @pytest.mark.asyncio
@@ -462,7 +559,7 @@ async def test_get_problematic_patterns_empty_stats() -> None:
     stats = PatternStats(pattern="empty_pattern")
     monitor.pattern_stats["empty_pattern"] = stats
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
     assert len(problematic) == 0
 
 
@@ -483,7 +580,7 @@ async def test_get_problematic_patterns_high_timeout() -> None:
                 timeout=(j < timeout_rate * 10),
             )
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
 
     assert len(problematic) == 1
     assert "pattern_1" in problematic[0]["pattern"]
@@ -509,7 +606,7 @@ async def test_get_problematic_patterns_slow() -> None:
                 matched=False,
             )
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
 
     assert len(problematic) == 2
     problematic_patterns = [p["pattern"] for p in problematic]
@@ -518,10 +615,10 @@ async def test_get_problematic_patterns_slow() -> None:
     assert all(p["issue"] == "consistently_slow" for p in problematic)
 
 
-def test_get_summary_stats_empty() -> None:
+async def test_get_summary_stats_empty() -> None:
     monitor = PerformanceMonitor()
 
-    stats = monitor.get_summary_stats()
+    stats = await monitor.get_summary_stats()
     assert stats["total_executions"] == 0
     assert stats["avg_execution_time"] == 0.0
     assert stats["timeout_rate"] == 0.0
@@ -537,7 +634,7 @@ async def test_get_summary_stats_with_data() -> None:
     await monitor.record_metric("p3", 1.0, 300, False, True)
     await monitor.record_metric("p4", 0.03, 400, True, False)
 
-    stats = monitor.get_summary_stats()
+    stats = await monitor.get_summary_stats()
     assert stats["total_executions"] == 4
     assert stats["match_rate"] == 0.5
     assert stats["timeout_rate"] == 0.25
@@ -610,7 +707,7 @@ async def test_get_slow_patterns() -> None:
                 matched=False,
             )
 
-    slow_patterns = monitor.get_slow_patterns(limit=3)
+    slow_patterns = await monitor.get_slow_patterns(limit=3)
 
     assert len(slow_patterns) == 3
     assert "very_slow" in slow_patterns[0]["pattern"]
@@ -697,6 +794,25 @@ async def test_concurrent_access() -> None:
             assert stats.avg_execution_time > 0
 
 
+async def test_record_metric_concurrent_gather_does_not_raise() -> None:  # async-only
+    import asyncio
+
+    monitor = PerformanceMonitor(min_samples_for_anomaly=10, anomaly_threshold=1.0)
+
+    async def hammer() -> None:
+        for i in range(200):
+            await monitor.record_metric(
+                pattern="gather_pattern",
+                execution_time=0.001 + (i % 5) * 1e-4,
+                content_length=100,
+                matched=False,
+            )
+
+    await asyncio.gather(*(hammer() for _ in range(20)))
+
+    assert monitor.pattern_stats["gather_pattern"].total_executions == 4000
+
+
 async def test_record_metric_timeout_skips_recent_times_update() -> None:
     monitor = PerformanceMonitor()
     await monitor.record_metric(
@@ -747,7 +863,7 @@ async def test_notify_callbacks_exception_without_agent_handler() -> None:
     assert len(captured) == 1
 
 
-def test_get_slow_patterns_skips_missing_report() -> None:
+async def test_get_slow_patterns_skips_missing_report() -> None:
     monitor = PerformanceMonitor()
     stats = PatternStats(pattern="gone")
     stats.avg_execution_time = 1.0
@@ -762,13 +878,15 @@ def test_get_slow_patterns_skips_missing_report() -> None:
 
     cast(Any, monitor).get_pattern_report = returns_none
     try:
-        reports = monitor.get_slow_patterns(limit=5)
+        reports = await monitor.get_slow_patterns(limit=5)
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert reports == []
 
 
-def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> None:
+async def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> (
+    None
+):
     monitor = PerformanceMonitor()
     stats = PatternStats(pattern="ghost")
     stats.total_executions = 10
@@ -778,13 +896,13 @@ def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> No
     real_report = monitor.get_pattern_report
     cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
-        result = monitor.get_problematic_patterns()
+        result = await monitor.get_problematic_patterns()
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert result == []
 
 
-def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
+async def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
     monitor = PerformanceMonitor(slow_pattern_threshold=0.01)
     stats = PatternStats(pattern="ghost2")
     stats.total_executions = 10
@@ -795,7 +913,7 @@ def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
     real_report = monitor.get_pattern_report
     cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
-        result = monitor.get_problematic_patterns()
+        result = await monitor.get_problematic_patterns()
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert result == []

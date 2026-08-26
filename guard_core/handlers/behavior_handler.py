@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from cachetools import TTLCache
 
+from guard_core._utils.lru_store import _lru_pop_or_create
 from guard_core.handlers._behavior_action_dispatch import BehaviorActionDispatchMixin
 from guard_core.handlers._behavior_response_pattern import (
     BehaviorResponsePatternMixin,
@@ -47,6 +48,9 @@ class BehaviorRule:
 
 def _hash_identity_segment(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+_MAX_TRACKED_CLIENTS_PER_ENDPOINT = 10_000
 
 
 class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin):
@@ -100,11 +104,15 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
 
             return valid_count > rule.threshold
 
-        timestamps = self.usage_counts[endpoint_id][client_ip]
+        bucket = self.usage_counts[endpoint_id]
+        timestamps = _lru_pop_or_create(
+            bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
+        )
 
         timestamps[:] = [ts for ts in timestamps if ts >= window_start]
 
         timestamps.append(current_time)
+        bucket[client_ip] = timestamps
 
         return len(timestamps) > rule.threshold
 
@@ -144,11 +152,15 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
             return valid_count > threshold
 
         pattern_key = f"{endpoint_id}:{rule.pattern}"
-        timestamps = self.return_patterns[pattern_key][client_ip]
+        bucket = self.return_patterns[pattern_key]
+        timestamps = _lru_pop_or_create(
+            bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
+        )
 
         timestamps[:] = [ts for ts in timestamps if ts >= window_start]
 
         timestamps.append(current_time)
+        bucket[client_ip] = timestamps
 
         return len(timestamps) > threshold
 

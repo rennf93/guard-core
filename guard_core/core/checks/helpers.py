@@ -14,6 +14,7 @@ from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.utils import (
+    UNKNOWN_CLIENT_IDENTITY,
     _ip_in_list,
     _user_agent_matches_blocked_pattern,
     detect_penetration_attempt,
@@ -90,9 +91,16 @@ def _check_ip_whitelist(
     return is_ip_in_whitelist(client_ip, ip_addr, route_config.ip_whitelist or [])
 
 
+def _route_whitelist_configured(route_config: RouteConfig) -> bool:
+    return bool(route_config.ip_whitelist or route_config.whitelist_countries)
+
+
 async def check_route_ip_access(
     client_ip: str, route_config: RouteConfig, middleware: Any
 ) -> bool | None:
+    if client_ip == UNKNOWN_CLIENT_IDENTITY:
+        return False if _route_whitelist_configured(route_config) else None
+
     try:
         ip_addr = ip_address(client_ip)
 

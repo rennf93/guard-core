@@ -1,4 +1,5 @@
 import importlib.util
+import logging
 import warnings
 from collections.abc import Callable, Mapping
 from functools import partial
@@ -21,6 +22,8 @@ from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 if TYPE_CHECKING:
     from guard_core.models import SecurityConfig
 
+
+logger = logging.getLogger("guard_core.models")
 
 CloudProvider = Literal["AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
@@ -258,11 +261,16 @@ def _revalidate_global_behavior_rules(config: "SecurityConfig") -> None:
         _validate_return_pattern_body_scan(rule.pattern, config)
 
 
-def _validate_ip_or_cidr_list(v: Any, *, invalid_message: str) -> Any:
+def _validate_ip_or_cidr_list(
+    v: Any, *, invalid_message: str, allow_unix: bool = False
+) -> Any:
     if v is None:
         return None
     validated: list[str] = []
     for entry in v:
+        if allow_unix and entry == "unix":
+            validated.append("unix")
+            continue
         try:
             if "/" in entry:
                 validated.append(str(ip_network(entry, strict=False)))
@@ -283,7 +291,34 @@ def _validate_blacklist_value(v: Any) -> Any:
 
 def _validate_trusted_proxies_value(v: Any) -> Any:
     return _validate_ip_or_cidr_list(
-        v, invalid_message="Invalid proxy IP or CIDR range"
+        v, invalid_message="Invalid proxy IP or CIDR range", allow_unix=True
+    )
+
+
+def _is_prefix_zero_trusted_proxy_entry(entry: str) -> bool:
+    try:
+        return ip_network(entry, strict=False).prefixlen == 0
+    except ValueError:
+        return False
+
+
+def _warn_trusted_proxies_prefix_zero() -> None:
+    logger.warning(
+        "trusted_proxies contains a /0 network (0.0.0.0/0 or ::/0): every "
+        "peer is trusted to set X-Forwarded-For, which lets any client "
+        "spoof its IP for rate limiting, IP banning and detection "
+        "attribution. Restrict trusted_proxies to your actual reverse "
+        "proxy addresses."
+    )
+
+
+def _warn_empty_enabled_detection_categories() -> None:
+    logger.warning(
+        "enabled_detection_categories is empty while "
+        "enable_penetration_detection is True: penetration detection is "
+        "enabled but will never match any category. Set "
+        "enabled_detection_categories to a non-empty subset, or set "
+        "enable_penetration_detection=False."
     )
 
 

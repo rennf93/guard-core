@@ -1,12 +1,16 @@
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, Mock, call, patch
 
 import maxminddb
 import pytest
 
-from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+from guard_core.sync.handlers.ipinfo_handler import (
+    IPInfoManager,
+    _describe_download_error,
+)
 
 
 def _mock_aiohttp(
@@ -54,6 +58,35 @@ def test_ipinfo_missing_token() -> None:
         IPInfoManager(token="")
 
 
+class _StatusOnlyError(Exception):
+    status = 401
+
+
+class _ResponseStatusCodeError(Exception):
+    def __init__(self) -> None:
+        super().__init__("boom")
+        self.response = SimpleNamespace(status_code=403)
+
+
+class _NoStatusError(Exception):
+    pass
+
+
+def test_describe_download_error_uses_status_attribute() -> None:
+    assert _describe_download_error(_StatusOnlyError()) == "_StatusOnlyError (HTTP 401)"
+
+
+def test_describe_download_error_uses_response_status_code() -> None:
+    assert (
+        _describe_download_error(_ResponseStatusCodeError())
+        == "_ResponseStatusCodeError (HTTP 403)"
+    )
+
+
+def test_describe_download_error_falls_back_to_class_name() -> None:
+    assert _describe_download_error(_NoStatusError()) == "_NoStatusError"
+
+
 def test_ipinfo_download_failure(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
@@ -68,6 +101,24 @@ def test_ipinfo_download_failure(tmp_path: Path) -> None:
         db.initialize()
         assert db.reader is None
         assert not db.db_path.exists()
+
+
+def test_download_database_sends_bearer_header_without_url_token(
+    tmp_path: Path,
+) -> None:
+    token = "SECRET_IPINFO_TOKEN_abc123"
+    db = IPInfoManager(token=token, db_path=tmp_path / "test.mmdb")
+    mock_session = _mock_aiohttp(content=b"test data")
+
+    with patch(
+        "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+        return_value=mock_session,
+    ):
+        db._download_database()
+
+    requested_args, requested_kwargs = mock_session.get.call_args
+    assert token not in requested_args[0]
+    assert requested_kwargs["headers"] == {"Authorization": f"Bearer {token}"}
 
 
 def test_db_initialization_retry(tmp_path: Path) -> None:
@@ -107,25 +158,17 @@ def test_database_retry_success(tmp_path: Path) -> None:
     mock_session.__exit__ = MagicMock(return_value=None)
     mock_session.get = MagicMock(side_effect=get_side_effect)
 
-    mock_file = Mock()
-    mock_file_context = Mock()
-    mock_file_context.__enter__ = Mock(return_value=mock_file)
-    mock_file_context.__exit__ = Mock(return_value=None)
-    mock_open = Mock(return_value=mock_file_context)
-
     with (
         patch(
             "guard_core.sync.handlers.ipinfo_handler.requests.Session",
             return_value=mock_session,
         ),
-        patch("builtins.open", mock_open),
-        patch("os.makedirs"),
         patch("time.sleep") as mock_sleep,
     ):
         db._download_database()
 
         assert call_count == 2
-        mock_file.write.assert_called_with(b"test data")
+        assert db.db_path.read_bytes() == b"test data"
         # Membership, not assert_called_once_with: patching sleep replaces the
         # attribute on the shared module, so this mock records every sleep in
         # the process, including background handler threads left running by
@@ -231,6 +274,67 @@ def test_redis_cache_hit(tmp_path: Path) -> None:
         assert db.reader is mock_reader
 
 
+def test_redis_cache_hit_with_corrupt_database(tmp_path: Path) -> None:
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.get_key.return_value = b"mock_db_data"
+
+    with patch(
+        "guard_core.sync.handlers.ipinfo_handler.maxminddb.open_database",
+        side_effect=Exception("corrupt database"),
+    ):
+        db.initialize()
+
+    assert db.reader is None
+    assert not db.db_path.exists()
+
+
+def test_redis_cache_hit_atomic_replace_leaves_no_temp_file(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "test.mmdb"
+    db_path.write_bytes(b"stale bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db.redis_handler = MagicMock()
+    db.redis_handler.get_key.return_value = b"cached bytes"
+
+    with patch("maxminddb.open_database", return_value=Mock()):
+        db.initialize()
+
+    assert db_path.read_bytes() == b"cached bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
+
+
+def test_initialize_redis_cache_read_failure_falls_through_to_download(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from guard_core.exceptions import GuardRedisError
+
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.get_key = MagicMock(
+        side_effect=GuardRedisError(503, "redis unavailable")
+    )
+
+    mock_session = _mock_aiohttp(content=b"downloaded_data")
+    mock_reader = Mock()
+
+    with (
+        caplog.at_level("WARNING", logger="guard_core.sync.handlers.ipinfo"),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+        patch("maxminddb.open_database", return_value=mock_reader),
+    ):
+        db.initialize()
+
+    db.redis_handler.get_key.assert_called_once_with("ipinfo", "database")
+    assert db.reader is mock_reader
+    assert db.redis_handler is not None
+    assert "Cached GeoIP database unavailable" in caplog.text
+
+
 def test_redis_cache_update(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     db.redis_handler = MagicMock()
@@ -249,6 +353,33 @@ def test_redis_cache_update(tmp_path: Path) -> None:
         db.redis_handler.set_key.assert_called_once_with(
             "ipinfo", "database", b"new_db_data".decode("latin-1"), ttl=86400
         )
+
+
+def test_download_database_redis_cache_write_failure_does_not_block_download(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from guard_core.exceptions import GuardRedisError
+
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.set_key = MagicMock(
+        side_effect=GuardRedisError(503, "redis unavailable")
+    )
+
+    mock_session = _mock_aiohttp(content=b"new_db_data")
+
+    with (
+        caplog.at_level("WARNING", logger="guard_core.sync.handlers.ipinfo"),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+    ):
+        db._download_database()
+
+    assert db.db_path.read_bytes() == b"new_db_data"
+    assert db.redis_handler is not None
+    assert "Failed to cache GeoIP database in Redis" in caplog.text
 
 
 def test_redis_initialization_flow(tmp_path: Path) -> None:
@@ -281,20 +412,20 @@ def test_ipinfo_not_initialized() -> None:
 
 def test_corrupted_db_removal(tmp_path: Path) -> None:
     test_db_path = tmp_path / "country_asn.mmdb"
+    test_db_path.touch()
     db = IPInfoManager(token="test", db_path=test_db_path)
-    db.db_path.touch()
-
-    mock_session = _mock_aiohttp(side_effect=Exception("Download failed"))
 
     with (
+        patch.object(IPInfoManager, "_is_db_outdated", return_value=False),
         patch(
-            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
-            return_value=mock_session,
+            "guard_core.sync.handlers.ipinfo_handler.maxminddb.open_database",
+            side_effect=Exception("corrupt database"),
         ),
-        patch.object(IPInfoManager, "_is_db_outdated", return_value=True),
     ):
         db.initialize()
-        assert not db.db_path.exists()
+
+    assert db.reader is None
+    assert not db.db_path.exists()
 
 
 def test_download_exhausts_retries(tmp_path: Path) -> None:
@@ -328,6 +459,49 @@ def test_redirect_handling(tmp_path: Path) -> None:
             assert f.read() == b"valid_db_content"
 
         mock_session.get.assert_called_once()
+
+
+def test_download_database_atomic_replace_leaves_no_temp_file(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "test.mmdb"
+    db = IPInfoManager(token="test", db_path=db_path)
+    mock_session = _mock_aiohttp(content=b"fresh bytes")
+
+    with patch(
+        "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+        return_value=mock_session,
+    ):
+        db._download_database()
+
+    assert db_path.read_bytes() == b"fresh bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
+
+
+def test_download_database_removes_temp_file_when_replace_fails(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db._download_retries = 1
+    mock_session = _mock_aiohttp(content=b"new bytes")
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.os.replace",
+            side_effect=OSError("cross-device link"),
+        ),
+    ):
+        with pytest.raises(OSError, match="cross-device link"):
+            db._download_database()
+
+    assert db_path.read_bytes() == b"good db bytes"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
 
 
 def test_file_operations(tmp_path: Path) -> None:
@@ -694,7 +868,7 @@ def test_refresh_aborts_when_download_fails(
     ):
         mgr.refresh()
 
-    mock_close.assert_called_once()
+    mock_close.assert_not_called()
     assert mgr.reader is None
     assert any("IPInfo refresh failed" in r.getMessage() for r in caplog.records)
     IPInfoManager._instance = None
@@ -713,8 +887,141 @@ def test_refresh_keeps_reader_unset_when_download_yields_no_file(
     ):
         mgr.refresh()
 
-    mock_close.assert_called_once()
+    mock_close.assert_not_called()
     assert mgr.reader is None
+
+
+def test_initialize_keeps_working_reader_when_download_fails(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    working_reader = Mock()
+    working_reader.get.return_value = {"country": "US"}
+    db.reader = working_reader
+
+    def _raise(*_a: object, **_kw: object) -> None:
+        raise RuntimeError("network down")
+
+    with (
+        patch.object(db, "_is_db_outdated", return_value=True),
+        patch.object(db, "_download_database", new=MagicMock(side_effect=_raise)),
+    ):
+        db.initialize()
+
+    assert db.reader is working_reader
+    assert db.db_path.exists()
+    assert db.get_country("1.1.1.1") == "US"
+    IPInfoManager._instance = None
+
+
+def test_refresh_keeps_working_reader_when_download_fails(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    working_reader = Mock()
+    working_reader.get.return_value = {"country": "US"}
+    db.reader = working_reader
+
+    def _raise() -> None:
+        raise RuntimeError("network down")
+
+    with patch.object(db, "_download_database", new=MagicMock(side_effect=_raise)):
+        db.refresh()
+
+    assert db.reader is working_reader
+    assert db.db_path.exists()
+    assert db.get_country("1.1.1.1") == "US"
+    IPInfoManager._instance = None
+
+
+def test_refresh_keeps_previous_reader_when_reopened_db_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    working_reader = Mock()
+    working_reader.get.return_value = {"country": "US"}
+    db.reader = working_reader
+
+    def fake_download() -> None:
+        db_path.write_bytes(b"corrupt bytes")
+
+    with (
+        patch.object(
+            db, "_download_database", new=MagicMock(side_effect=fake_download)
+        ),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.maxminddb.open_database",
+            side_effect=Exception("corrupt database"),
+        ),
+    ):
+        db.refresh()
+
+    assert db.reader is working_reader
+    assert not db.db_path.exists()
+    assert db.get_country("1.1.1.1") == "US"
+    IPInfoManager._instance = None
+
+
+def test_refresh_keeps_previous_database_when_temp_write_fails(
+    tmp_path: Path,
+) -> None:
+    IPInfoManager._instance = None
+    db_path = tmp_path / "existing.mmdb"
+    db_path.write_bytes(b"good db bytes")
+    db = IPInfoManager(token="test", db_path=db_path)
+    db._download_retries = 1
+    working_reader = Mock()
+    working_reader.get.return_value = {"country": "US"}
+    db.reader = working_reader
+
+    mock_session = _mock_aiohttp(content=b"new bytes")
+    real_open = open
+
+    def fake_open(path: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if str(path).endswith(".tmp") and "w" in mode:
+            raise OSError("disk full")
+        return real_open(path, mode, *args, **kwargs)
+
+    with (
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+        patch("builtins.open", side_effect=fake_open),
+    ):
+        db.refresh()
+
+    assert db.reader is working_reader
+    assert db_path.read_bytes() == b"good db bytes"
+    assert db.get_country("1.1.1.1") == "US"
+    assert not db_path.with_name(db_path.name + ".tmp").exists()
+    IPInfoManager._instance = None
+
+
+def test_open_database_or_none_skips_unlink_when_file_already_missing(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "missing.mmdb"
+    db = IPInfoManager(token="test", db_path=db_path)
+
+    with patch(
+        "guard_core.sync.handlers.ipinfo_handler.maxminddb.open_database",
+        side_effect=Exception("corrupt database"),
+    ):
+        result = db._open_database_or_none()
+
+    assert result is None
+    assert not db.db_path.exists()
+    IPInfoManager._instance = None
 
 
 def test_get_country_warns_uninitialized_before_any_init_attempt(

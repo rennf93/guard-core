@@ -1,6 +1,6 @@
 [project]
 name = "guard-core"
-version = "3.13.0"
+version = "3.14.0"
 description = "Framework-agnostic security engine for the Guard ecosystem."
 authors = [
     {name = "Renzo Franceschini", email = "rennf93@users.noreply.github.com"}
@@ -247,9 +247,8 @@ ignore_names = [
 sort_by_size = true
 
 [tool.bandit]
-skips = ["B101", "B601"]
+skips = ["B101", "B601", "B403", "B404", "B603"]
 exclude_dirs = ["tests", ".venv", "vulture_whitelist.py"]
-severity = "medium"
 
 [tool.radon]
 exclude = "tests/*,.venv/*,vulture_whitelist.py"

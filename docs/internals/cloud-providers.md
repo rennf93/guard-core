@@ -98,7 +98,7 @@ Azure does not expose a stable JSON endpoint. The fetch function performs a two-
 
 1. Fetches the Microsoft download page for Service Tags (`id=56519`).
 2. Extracts the actual JSON download URL from the HTML using a regex.
-3. Fetches the JSON and parses `values[0].properties.addressPrefixes`.
+3. Fetches the JSON and selects the entry whose `name` is `AzureCloud` (the umbrella tag for the whole public cloud; the document lists many other tags such as `ActionGroup` and `Storage`, and `AzureCloud` is not guaranteed to be first), then parses that entry's `properties.addressPrefixes`. A document with no `AzureCloud` tag is treated as a broken download: the fetch logs an error and returns an empty set rather than loading an unrelated tag's ranges.
 
 A browser-like `User-Agent` header is required to avoid being blocked by Microsoft's download portal.
 

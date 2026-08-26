@@ -12,6 +12,7 @@ from redis.exceptions import NoScriptError, RedisError
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
+from guard_core.sync._utils.lru_store import _lru_pop_or_create
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
@@ -20,6 +21,7 @@ _by_ip_request_timestamps: defaultdict[str, deque[float]] = defaultdict(deque)
 _by_ip_lock = threading.Lock()
 _by_ip_autoban_counts: defaultdict[str, int] = defaultdict(int)
 _by_ip_autoban_lock = threading.Lock()
+_MAX_TRACKED_RATE_LIMIT_KEYS = 10_000
 
 
 def _redis_request_count(
@@ -98,11 +100,16 @@ def _in_memory_request_count(
     key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
 
     with lock:
-        while request_timestamps[key] and request_timestamps[key][0] <= window_start:
-            request_timestamps[key].popleft()
+        timestamps = _lru_pop_or_create(
+            request_timestamps, key, _MAX_TRACKED_RATE_LIMIT_KEYS, deque
+        )
 
-        request_count = len(request_timestamps[key])
-        request_timestamps[key].append(current_time)
+        while timestamps and timestamps[0] <= window_start:
+            timestamps.popleft()
+
+        request_count = len(timestamps)
+        timestamps.append(current_time)
+        request_timestamps[key] = timestamps
 
     return request_count
 
@@ -137,8 +144,13 @@ def _feed_rate_limit_autoban(ip: str, config: SecurityConfig) -> None:
         return
 
     with _by_ip_autoban_lock:
-        _by_ip_autoban_counts[ip] += 1
-        count = _by_ip_autoban_counts[ip]
+        count = (
+            _lru_pop_or_create(
+                _by_ip_autoban_counts, ip, _MAX_TRACKED_RATE_LIMIT_KEYS, int
+            )
+            + 1
+        )
+        _by_ip_autoban_counts[ip] = count
 
     ip_counts = {"rate_limit": count}
     result = _resolve_and_apply_threshold_ban(
@@ -356,10 +368,12 @@ class RateLimitManager:
         if self.agent_handler:
             self._send_rate_limit_event(request, client_ip, count)
 
-        return create_error_response(
+        response = create_error_response(
             429,
             "Too many requests",
         )
+        response.headers["Retry-After"] = str(window)
+        return response
 
     def _get_in_memory_request_count(
         self,

@@ -69,6 +69,78 @@ async def test_load_cached_config_from_redis(
 
 
 @pytest.mark.asyncio
+async def test_load_cached_config_rejects_invalid_custom_header_name(
+    headers_manager: SecurityHeadersManager,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_redis = AsyncMock()
+    mock_redis.get_key = AsyncMock(
+        side_effect=[
+            None,
+            None,
+            json.dumps({"X-Evil\r\nSet-Cookie: x=1": "1"}),
+        ]
+    )
+
+    headers_manager.redis_handler = mock_redis
+    await headers_manager._load_cached_config()
+
+    assert headers_manager.custom_headers == {}
+    assert "Failed to load cached header config" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_load_cached_config_warning_sanitises_crlf_in_header_name(
+    headers_manager: SecurityHeadersManager,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_redis = AsyncMock()
+    mock_redis.get_key = AsyncMock(
+        side_effect=[
+            None,
+            None,
+            json.dumps({"X-Evil\r\nSet-Cookie: x=1": "1"}),
+        ]
+    )
+
+    headers_manager.redis_handler = mock_redis
+    with caplog.at_level("WARNING"):
+        await headers_manager._load_cached_config()
+
+    warning_records = [
+        record
+        for record in caplog.records
+        if "Failed to load cached header config" in record.getMessage()
+    ]
+    assert len(warning_records) == 1
+    message = warning_records[0].getMessage()
+    assert "\r" not in message
+    assert "\n" not in message
+    assert "\\r\\n" in message
+
+
+@pytest.mark.asyncio
+async def test_load_cached_config_rejects_invalid_custom_header_value(
+    headers_manager: SecurityHeadersManager,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_redis = AsyncMock()
+    mock_redis.get_key = AsyncMock(
+        side_effect=[
+            None,
+            None,
+            json.dumps({"X-Custom": "ok\r\nSet-Cookie: y=2"}),
+        ]
+    )
+
+    headers_manager.redis_handler = mock_redis
+    await headers_manager._load_cached_config()
+
+    assert headers_manager.custom_headers == {}
+    assert "Failed to load cached header config" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_load_cached_config_redis_error(
     headers_manager: SecurityHeadersManager,
 ) -> None:

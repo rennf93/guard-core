@@ -160,6 +160,50 @@ def test_check_route_ip_access_no_restrictions() -> None:
     assert result is None
 
 
+def test_check_route_ip_access_unknown_identity_no_restrictions() -> None:
+    rc = RouteConfig()
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = check_route_ip_access("unknown", rc, mw)
+    assert result is None
+
+
+def test_check_route_ip_access_unknown_identity_with_whitelist_blocked() -> None:
+    rc = RouteConfig()
+    rc.ip_whitelist = ["1.2.3.4"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = check_route_ip_access("unknown", rc, mw)
+    assert result is False
+
+
+def test_check_route_ip_access_unknown_identity_with_blacklist_passes() -> None:
+    rc = RouteConfig()
+    rc.ip_blacklist = ["1.2.3.4"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = check_route_ip_access("unknown", rc, mw)
+    assert result is None
+
+
+def test_check_route_ip_access_unknown_whitelist_countries_blocked() -> None:
+    rc = RouteConfig()
+    rc.whitelist_countries = ["US"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = check_route_ip_access("unknown", rc, mw)
+    assert result is False
+
+
+def test_check_route_ip_access_unknown_blocked_countries_passes() -> None:
+    rc = RouteConfig()
+    rc.blocked_countries = ["CN"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = check_route_ip_access("unknown", rc, mw)
+    assert result is None
+
+
 def test_check_route_ip_access_country() -> None:
     rc = RouteConfig()
     rc.blocked_countries = ["CN"]
