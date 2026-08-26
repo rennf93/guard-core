@@ -25,9 +25,8 @@ def _make_bypass_handler() -> BypassHandler:
         event_bus=MagicMock(),
         route_resolver=MagicMock(),
         response_factory=MagicMock(),
-        validator=MagicMock(),
+        validator=MagicMock(is_path_excluded=MagicMock(return_value=False)),
     )
-    context.validator.is_path_excluded = MagicMock(return_value=False)
     return BypassHandler(context)
 
 
