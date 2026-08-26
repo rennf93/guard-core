@@ -1,6 +1,7 @@
 import time
 from collections import deque
 from datetime import datetime, timezone
+from functools import cache
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +13,20 @@ from guard_core.detection_engine.monitor import (
     PerformanceMonitor,
 )
 from guard_core.detection_engine.monitor_anomalies import detect_statistical_anomaly
+
+_REFERENCE_WORKLOAD_SECONDS = 0.1243
+
+
+@cache
+def _host_cpu_speed_factor() -> float:
+    samples: list[float] = []
+    for _ in range(3):
+        start = time.process_time()
+        total = 0
+        for i in range(3_000_000):
+            total += i * i
+        samples.append(time.process_time() - start)
+    return max(1.0, min(samples) / _REFERENCE_WORKLOAD_SECONDS)
 
 
 def test_initialization() -> None:
@@ -265,7 +280,7 @@ async def test_statistical_anomaly_single_data_point() -> None:
     assert result is None
 
 
-def test_statistical_anomaly_guards_against_fewer_than_two_samples() -> None:
+def test_statistical_anomaly_guard_via_monitor_clamp() -> None:
     monitor = PerformanceMonitor(anomaly_threshold=2.0, min_samples_for_anomaly=1)
     pattern = "one_sample_pattern"
     stats = PatternStats(pattern=pattern)
@@ -284,7 +299,7 @@ def test_statistical_anomaly_guards_against_fewer_than_two_samples() -> None:
     assert monitor._detect_statistical_anomaly(metric) is None
 
 
-def test_detect_statistical_anomaly_function_guards_fewer_than_two_samples() -> None:
+def test_statistical_anomaly_guard_direct_call() -> None:
     pattern = "one_sample_direct_pattern"
     stats = PatternStats(pattern=pattern)
     stats.recent_times.append(0.01)
@@ -362,7 +377,7 @@ async def test_statistical_anomaly_within_threshold() -> None:
     assert result is None
 
 
-_RECORD_METRIC_CPU_BUDGET_SECONDS = 0.13
+_RECORD_METRIC_CPU_BUDGET_SECONDS = 0.03
 
 
 @pytest.mark.asyncio
@@ -389,10 +404,13 @@ async def test_record_metric_statistical_anomaly_cpu_budget() -> None:
             )
         samples.append(time.process_time() - start)
 
-    assert min(samples) < _RECORD_METRIC_CPU_BUDGET_SECONDS, (
+    budget_seconds = _RECORD_METRIC_CPU_BUDGET_SECONDS * _host_cpu_speed_factor()
+
+    assert min(samples) < budget_seconds, (
         "record_metric's statistical-anomaly check regressed: min of 5 runs of "
         f"300 calls on a warm 100-sample window took {min(samples):.4f}s, "
-        f"budget={_RECORD_METRIC_CPU_BUDGET_SECONDS}s (10x headroom over a "
+        f"budget={budget_seconds:.4f}s (base {_RECORD_METRIC_CPU_BUDGET_SECONDS}s "
+        "scaled by this host's _host_cpu_speed_factor(), 2.3x headroom over a "
         "~0.013s float baseline measured on the reference tree; the "
         "pre-fix statistics.mean/stdev implementation cost ~0.047s for the "
         "same 300 calls)"

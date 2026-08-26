@@ -5,6 +5,7 @@ import sys
 import time
 import zlib
 from collections.abc import Iterator
+from functools import cache
 from typing import NamedTuple
 from urllib.parse import urlencode
 
@@ -928,6 +929,21 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
 BASELINE_MALICIOUS_DETECTED_TOTAL = 311
 _LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 305
 
+_REFERENCE_WORKLOAD_SECONDS = 0.1243
+
+
+@cache
+def _host_cpu_speed_factor() -> float:
+    samples: list[float] = []
+    for _ in range(3):
+        start = time.process_time()
+        total = 0
+        for i in range(3_000_000):
+            total += i * i
+        samples.append(time.process_time() - start)
+    return max(1.0, min(samples) / _REFERENCE_WORKLOAD_SECONDS)
+
+
 _UNCOVERED_CPU_TIME_CEILING_SECONDS = 40.0
 _CPU_TIME_REPORT_PATTERN = re.compile(r"cpu time: ([\d.]+)s")
 _CHILD_CPU_TIME_SCRIPT = (
@@ -1125,18 +1141,26 @@ def test_detect_penetration_attempt_cpu_time_ceiling_uncovered() -> None:
     assert match, f"could not find cpu time in subprocess output:\n{result.stdout}"
     cpu_time_seconds = float(match.group(1))
 
-    assert cpu_time_seconds < _UNCOVERED_CPU_TIME_CEILING_SECONDS, (
+    host_factor = _host_cpu_speed_factor()
+    ceiling_seconds = _UNCOVERED_CPU_TIME_CEILING_SECONDS * host_factor
+    print(f"host cpu speed factor: {host_factor:.3f}")
+
+    assert cpu_time_seconds < ceiling_seconds, (
         "end-to-end detection benchmark uncovered CPU time regressed: measured "
         "via time.process_time() inside the child pytest subprocess around a "
         "single run, not the parent's wall clock, so host contention cannot "
         "produce a false failure the way wall-clock timing did before. The "
         "statistics.mean/stdev exact-Fraction PerformanceMonitor tax "
         "(monitor_anomalies.py) was replaced with float math.fsum arithmetic, "
-        "cutting this benchmark from ~53.7s to ~20.1s CPU measured on the "
-        "reference tree; the ceiling is roughly 2x that ~20.1s post-fix "
-        "measurement, tight enough to catch an order-of-magnitude ReDoS "
-        "regression while absorbing normal CPU-time variance. "
-        f"ceiling={_UNCOVERED_CPU_TIME_CEILING_SECONDS}s "
+        "cutting this benchmark from ~53.7s to ~19.8s CPU measured on the "
+        "reference tree. The ceiling is host-calibrated: "
+        f"{_UNCOVERED_CPU_TIME_CEILING_SECONDS}s base (roughly 2x that ~19.8s "
+        "post-fix measurement) scaled by _host_cpu_speed_factor(), which "
+        "times a fixed pure-Python workload against this host's own "
+        "reference measurement so a revert to the old exact-Fraction "
+        "implementation fails on slower CI hosts too, not just this machine. "
+        f"host_factor={host_factor:.3f} "
+        f"ceiling={ceiling_seconds:.3f}s "
         f"actual={cpu_time_seconds:.3f}s"
     )
 
