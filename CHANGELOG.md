@@ -29,7 +29,7 @@ Post-3.13.0 hardening: identity and proxy-trust warnings, bounded in-memory stor
 - **AzureCloud service tag.** Azure cloud-IP fetch now loads the `AzureCloud` service tag by name instead of whichever tag sorts first (#77).
 - **Rate-limit stores bounded; `Retry-After` on 429s.** In-memory rate-limit stores are now LRU-bounded at 10,000 IPs; every 429 response now carries `Retry-After` (GHSA-g53w-gmp9-9ch3, #81).
 - **Behavior-tracker stores bounded.** `BehaviorTracker.usage_counts`/`return_patterns` per-client stores are now LRU-bounded at 10,000 clients per key, the same pattern applied to the rate-limit stores above (GHSA-g53w-gmp9-9ch3).
-- **Float anomaly statistics.** `PerformanceMonitor`'s statistical-anomaly check replaces exact-Fraction arithmetic with `math.fsum`-based float mean/variance, removing an unbounded per-value CPU tax (advisory pending).
+- **Float anomaly statistics.** `PerformanceMonitor`'s statistical-anomaly check replaces exact-Fraction arithmetic with `math.fsum`-based float mean/variance, removing an unbounded per-value CPU tax (GHSA-grqq-qh92-hw79).
 - **Per-request scan cap.** `SecurityConfig.detection_max_scan_values` bounds the number of request values scanned per request, replacing an unbounded scan an attacker could exhaust with padding (GHSA-3hfx-8m47-5f9h).
 - **Telemetry secret redaction.** The IPInfo token and Redis password no longer reach telemetry: the token moves to an `Authorization` header, and `RedisManager.initialize` strips userinfo from `redis_url` before it reaches agent events (#80).
 - **Header-name validation.** Custom security-header names, including Redis-loaded ones, are now validated against RFC 9110 token grammar and rejected on CRLF or other non-token characters (#81).
