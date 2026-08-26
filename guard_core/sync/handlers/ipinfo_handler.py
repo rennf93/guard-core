@@ -73,6 +73,22 @@ class IPInfoManager:
     def initialize_agent(self, agent_handler: SyncAgentHandlerProtocol) -> None:
         self.agent_handler = agent_handler
 
+    def _open_database_or_none(self) -> Reader | None:
+        try:
+            return maxminddb.open_database(str(self.db_path))
+        except Exception as e:
+            self.logger.error(
+                f"IPInfo database at {self.db_path} is corrupted, removing: {e}"
+            )
+            if self.db_path.exists():
+                self.db_path.unlink()
+            return None
+
+    def _apply_opened_reader(self, reader: Reader | None) -> None:
+        if reader is not None:
+            self.reader = reader
+            self.last_refreshed = datetime.now(timezone.utc)
+
     def initialize(self) -> None:
         try:
             os.makedirs(self.db_path.parent, exist_ok=True)
@@ -86,14 +102,16 @@ class IPInfoManager:
                             if isinstance(cached_db, bytes)
                             else cached_db.encode("latin-1")
                         )
-                    self.reader = maxminddb.open_database(str(self.db_path))
-                    self.last_refreshed = datetime.now(timezone.utc)
+                    self._apply_opened_reader(self._open_database_or_none())
                     return
 
             try:
                 if not self.db_path.exists() or self._is_db_outdated():
                     self._download_database()
             except Exception as e:
+                self.logger.error(
+                    f"IPInfo database download failed, keeping existing reader: {e}"
+                )
                 if self.agent_handler:
                     self._send_geo_event(
                         event_type="geo_lookup_failed",
@@ -101,15 +119,10 @@ class IPInfoManager:
                         action_taken="database_download_failed",
                         reason=f"Failed to download IPInfo database: {str(e)}",
                     )
-
-                if self.db_path.exists():
-                    self.db_path.unlink()
-                self.reader = None
                 return
 
             if self.db_path.exists():
-                self.reader = maxminddb.open_database(str(self.db_path))
-                self.last_refreshed = datetime.now(timezone.utc)
+                self._apply_opened_reader(self._open_database_or_none())
         finally:
             self._initialization_attempted = True
 
@@ -255,8 +268,6 @@ class IPInfoManager:
             self.reader.close()
 
     def refresh(self) -> None:
-        self.close()
-        self.reader = None
         try:
             self._download_database()
         except Exception as e:
@@ -264,9 +275,17 @@ class IPInfoManager:
             return
         finally:
             self._initialization_attempted = True
-        if self.db_path.exists():
-            self.reader = maxminddb.open_database(str(self.db_path))
-            self.last_refreshed = datetime.now(timezone.utc)
+
+        if not self.db_path.exists():
+            return
+
+        reader = self._open_database_or_none()
+        if reader is None:
+            return
+
+        self.close()
+        self.reader = reader
+        self.last_refreshed = datetime.now(timezone.utc)
 
     def initialize_redis(self, redis_handler: SyncRedisHandlerProtocol) -> None:
         self.redis_handler = redis_handler

@@ -2,7 +2,7 @@ import os
 import time
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -39,18 +39,26 @@ def test_ipinfo_is_db_outdated_uses_max_age(tmp_path: Path) -> None:
 def test_ipinfo_refresh_closes_and_redownloads(tmp_path: Path) -> None:
     db_path = tmp_path / "db.mmdb"
     mgr = IPInfoManager(token="tok", db_path=db_path)
-    mgr.reader = None
+    mgr.reader = Mock()
 
     closed = {"count": 0}
 
     def fake_close() -> None:
         closed["count"] += 1
 
+    def fake_download() -> None:
+        db_path.write_bytes(b"placeholder")
+
     with (
         patch.object(mgr, "close", side_effect=fake_close) as mock_close,
-        patch.object(mgr, "_download_database") as mock_download,
+        patch.object(
+            mgr, "_download_database", side_effect=fake_download
+        ) as mock_download,
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.maxminddb.open_database",
+            return_value=Mock(),
+        ),
     ):
-        mock_download.return_value = None
         mgr.refresh()
         mock_close.assert_called_once()
         mock_download.assert_called_once()
