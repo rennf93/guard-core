@@ -157,11 +157,11 @@ def _nested_path_pattern(required: str) -> str:
 _TOP_LEVEL_PATH_PREFIX_RE = rf"\A{_PATH_ONLY_SEP_RE}?"
 _TERMINAL_PATH_SUFFIX_RE = rf"(?:{_PATH_ONLY_SEP_RE})?(?:\?\S*)?\s*\Z"
 
-_LDAP_ATTR_DESC_TOKEN_RE = (
+_LDAP_ATTR_DESC_RE = (
     r"(?::)?(?:[a-zA-Z][\w.-]*|\d+(?:\.\d+)*)"
     r"(?:;[\w.-]+)*(?::[\w.-]+)*\s*"
 )
-_LDAP_ATTR_EXTENSIBLE_MATCH_RE = _LDAP_ATTR_DESC_TOKEN_RE + r":?="
+_LDAP_ATTR_EXTENSIBLE_MATCH_RE = _LDAP_ATTR_DESC_RE + r":?="
 
 _LDAP_WILDCARD_CHAIN_RE = rf"\*\)[|&]?\(+\s*{_LDAP_ATTR_EXTENSIBLE_MATCH_RE}"
 _LDAP_BREAKOUT_BACKWARD_BOUNDARY_CHARS = frozenset("\"'\n&")
@@ -218,7 +218,7 @@ _LDAP_PAREN_CONJUNCTION_FOLLOWUP_ATTR_RE = re.compile(
 _LDAP_WILDCARD_EQUALS_RE = (
     rf"\*\s*\)+\s*(?:[|&!]\s*)?\(+\s*(?:[&|!]|{_LDAP_ATTR_EXTENSIBLE_MATCH_RE})"
 )
-_LDAP_PAREN_BREAKOUT_RE = rf"\)\s*\(\s*(?:[&|!]|{_LDAP_ATTR_DESC_TOKEN_RE}:?[=~<>])"
+_LDAP_PAREN_BREAKOUT_RE = rf"\)\s*\(\s*(?:[&|!]|{_LDAP_ATTR_DESC_RE}:?[=~<>])"
 
 _SINGLE_LINE_PREFIX_RE = r"\A(?:(?!\n).)*"
 _SINGLE_LINE_SUFFIX_RE = r"(?:[&#;,\"'<>]|\s*\Z)"
