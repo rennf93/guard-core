@@ -29,6 +29,37 @@ def test_redact_redis_url_without_explicit_port() -> None:
     assert _redact_redis_url("redis://:secret@localhost/0") == "redis://localhost/0"
 
 
+def test_redact_redis_url_malformed_port_does_not_raise() -> None:
+    assert _redact_redis_url("redis://host:notanumber/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_out_of_range_port_does_not_raise() -> None:
+    assert _redact_redis_url("redis://host:99999/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_unbalanced_ipv6_brackets_does_not_raise() -> None:
+    assert _redact_redis_url("redis://[::1:6379/0") == "redis://<unparseable>"
+
+
+def test_redact_redis_url_ipv6_host_with_password() -> None:
+    assert _redact_redis_url("redis://:secret@[::1]:6379/0") == "redis://[::1]:6379/0"
+
+
+def test_redact_redis_url_unix_socket_left_unchanged() -> None:
+    assert _redact_redis_url("unix:///tmp/redis.sock") == "unix:///tmp/redis.sock"
+
+
+def test_redact_redis_url_keeps_scheme_host_port_db_query_drops_userinfo() -> None:
+    assert (
+        _redact_redis_url("rediss://user:pw@host:6380/1?ssl=true")
+        == "rediss://host:6380/1?ssl=true"
+    )
+
+
+def test_redact_redis_url_empty_string_does_not_raise() -> None:
+    assert _redact_redis_url("") == ""
+
+
 def test_initialize_agent() -> None:
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost")
     manager = RedisManager(config)

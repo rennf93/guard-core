@@ -17,13 +17,28 @@ from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 
 
+def _unparseable_redis_url(url: str, scheme: str = "") -> str:
+    scheme = scheme or url.partition("://")[0]
+    return f"{scheme}://<unparseable>" if scheme and "://" in url else "<unparseable>"
+
+
 def _redact_redis_url(url: str | None) -> str | None:
     if url is None:
         return None
-    parts = urlsplit(url)
-    netloc = parts.hostname or ""
-    if parts.port is not None:
-        netloc = f"{netloc}:{parts.port}"
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return _unparseable_redis_url(url)
+    if not parts.netloc:
+        return url
+    try:
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return _unparseable_redis_url(url, parts.scheme)
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 

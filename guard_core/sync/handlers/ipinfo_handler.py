@@ -130,7 +130,8 @@ class IPInfoManager:
                     self._download_database()
             except Exception as e:
                 self.logger.error(
-                    f"IPInfo database download failed, keeping existing reader: {e}"
+                    "IPInfo database download failed, keeping existing reader: "
+                    f"{_describe_download_error(e)}"
                 )
                 if self.agent_handler:
                     self._send_geo_event(
@@ -293,7 +294,7 @@ class IPInfoManager:
         try:
             self._download_database()
         except Exception as e:
-            self.logger.error(f"IPInfo refresh failed: {e}")
+            self.logger.error(f"IPInfo refresh failed: {_describe_download_error(e)}")
             return
         finally:
             self._initialization_attempted = True

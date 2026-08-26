@@ -109,7 +109,8 @@ def test_ipinfo_refresh_logs_and_returns_when_download_fails(
         mgr.refresh()
 
     assert mgr.reader is None
-    assert any("network down" in m for m in error_messages)
+    assert any("RuntimeError" in m for m in error_messages)
+    assert not any("network down" in m for m in error_messages)
 
 
 def test_ipinfo_download_database_uses_configured_ttl(tmp_path: Path) -> None:
