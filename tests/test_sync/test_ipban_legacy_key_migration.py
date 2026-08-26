@@ -64,7 +64,7 @@ class _BadConnectionRedisHandler:
 
 def _seed_legacy_ban(handler: object, duration: int = 60) -> None:
     ip_ban_manager.initialize_redis(handler)
-    ip_ban_manager.ban_ip(LEGACY_MAPPED_FORM, duration, "test_legacy_ban")
+    ip_ban_manager._ban_exact_ip(LEGACY_MAPPED_FORM, duration, "test_legacy_ban")
     ip_ban_manager.banned_ips.clear()
 
 
@@ -226,7 +226,7 @@ def test_migration_keeps_the_longer_expiry_when_canonical_key_already_exists(
     try:
         ip_ban_manager.initialize_redis(handler)
         ip_ban_manager.ban_ip(CANONICAL_FORM, 120, "test_long_canonical_ban")
-        ip_ban_manager.ban_ip(LEGACY_MAPPED_FORM, 60, "test_short_legacy_ban")
+        ip_ban_manager._ban_exact_ip(LEGACY_MAPPED_FORM, 60, "test_short_legacy_ban")
         ip_ban_manager.banned_ips.clear()
 
         prefix = security_config_redis.redis_prefix

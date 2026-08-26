@@ -6,6 +6,7 @@ from cachetools import TTLCache
 
 from guard_core.handlers._ipban_cache import _Network
 from guard_core.handlers._ipban_events import IpBanEventMixin
+from guard_core.utils import _canonicalize_ip
 
 
 class IpBanQueryMixin(IpBanEventMixin):
@@ -39,6 +40,7 @@ class IpBanQueryMixin(IpBanEventMixin):
         return False
 
     async def is_ip_banned(self, ip: str) -> bool:
+        ip = _canonicalize_ip(ip)
         current_time = time.time()
 
         if ip in self.banned_ips:
@@ -61,6 +63,7 @@ class IpBanQueryMixin(IpBanEventMixin):
         return False
 
     async def unban_ip(self, ip: str) -> None:
+        ip = _canonicalize_ip(ip)
         if ip in self.banned_ips:
             del self.banned_ips[ip]
 
