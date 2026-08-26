@@ -45,6 +45,8 @@ Proxy Configuration
 - `trusted_proxies`: Each entry is validated as a valid IP address or CIDR range, or the literal string `"unix"`, which marks a peer-less connection (no `request.client_host`, e.g. a Unix domain socket) as a trusted hop so `X-Forwarded-For` still resolves the real client. `whitelist` and `blacklist` do not accept `"unix"`.
 - `trusted_proxy_depth`: Must be >= 1.
 
+`trusted_proxy_depth` is the number of hops you vouch for, not a maximum: the connecting peer must itself be listed in `trusted_proxies`. A chain shorter than the configured depth, or a depth-selected entry that is itself a trusted proxy, now logs a one-time `WARNING` (see [Unsatisfiable and Over-Counted Depth](../internals/ip-management.md#unsatisfiable-and-over-counted-depth)).
+
 !!! warning "Your app server must not pre-resolve the client itself"
     Leaving `trusted_proxies` unset only means "`X-Forwarded-For` is never trusted" if your ASGI/WSGI server isn't already applying that header before guard-core runs. uvicorn's default `proxy_headers=True` (and equivalent settings in Gunicorn/Hypercorn) does exactly that. See [Deployment Prerequisite](../internals/ip-management.md#deployment-prerequisite-disable-the-app-servers-own-forwarded-header-handling) for the fix.
 

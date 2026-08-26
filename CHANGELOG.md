@@ -11,6 +11,7 @@ Unreleased
 ### Fixed
 
 - **A request with no client address (`request.client_host` is `None`, e.g. behind a Unix domain socket or a misbehaving ASGI adapter) is now rejected instead of skipping the entire security pipeline.** `fail_secure=True` (the default) returns 403 with a one-time warning naming the cause and the fix; `fail_secure=False` runs the pipeline with identity `"unknown"`, the same fallback already used elsewhere, with the same one-time warning. Excluded paths (health and readiness endpoints) are unaffected: they pass through before identity is resolved, exactly as before, so a Unix-socket deployment upgrading without `"unix"` in `trusted_proxies` does not start failing orchestrator probes. A new `"unix"` token in `trusted_proxies` marks a peer-less connection as a trusted hop, so `X-Forwarded-For` still resolves the real client on Unix-socket deployments (GHSA-634g-4wr8-xwxv).
+- **guard-core now warns once when an X-Forwarded-For chain cannot satisfy `trusted_proxy_depth`, and once when the depth-selected entry is itself a listed trusted proxy.** Both are misconfiguration signals; resolved identity is unchanged in both cases (a chain shorter than the depth still falls back to the connecting peer, exactly as before). `trusted_proxy_depth` semantics are unchanged: it is not reinterpreted as a ceiling (GHSA-8xvm-856x-7hwp).
 
 ___
 

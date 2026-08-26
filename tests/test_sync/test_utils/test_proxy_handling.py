@@ -289,6 +289,139 @@ def test_preemption_warning_emitted_at_most_once(
     assert caplog.text.count(PREEMPTION_WARNING_TEXT) == 1
 
 
+CHAIN_TOO_SHORT_WARNING_TEXT = "chain has only"
+
+
+@pytest.fixture(autouse=True)
+def _reset_chain_too_short_warning() -> None:
+    ip_extraction._forwarded_header_chain_too_short_warned = False
+
+
+def test_chain_too_short_warning_fires_on_depth_exceeding_chain_length(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=3)
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "1.2.3.4"},
+        client_host="127.0.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "127.0.0.1"
+    assert CHAIN_TOO_SHORT_WARNING_TEXT in caplog.text
+    assert "trusted_proxy_depth is 3" in caplog.text
+
+
+def test_chain_too_short_warning_absent_when_chain_meets_depth(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=2)
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "5.6.7.8, 1.2.3.4"},
+        client_host="127.0.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "5.6.7.8"
+    assert CHAIN_TOO_SHORT_WARNING_TEXT not in caplog.text
+
+
+def test_chain_too_short_warning_emitted_at_most_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=3)
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            request = SyncMockGuardRequest(
+                path="/",
+                method="GET",
+                headers={"X-Forwarded-For": "1.2.3.4"},
+                client_host="127.0.0.1",
+            )
+            extract_client_ip(request, config)
+
+    assert caplog.text.count(CHAIN_TOO_SHORT_WARNING_TEXT) == 1
+
+
+SELECTED_ENTRY_TRUSTED_PROXY_WARNING_TEXT = "is itself listed in trusted_proxies"
+
+
+@pytest.fixture(autouse=True)
+def _reset_selected_entry_trusted_proxy_warning() -> None:
+    ip_extraction._forwarded_header_selected_entry_trusted_proxy_warned = False
+
+
+def test_selected_entry_trusted_proxy_warning_fires_on_overcounted_depth(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(
+        trusted_proxies=["127.0.0.1", "10.0.0.1"], trusted_proxy_depth=2
+    )
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "10.0.0.1, 1.2.3.4"},
+        client_host="127.0.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "10.0.0.1"
+    assert SELECTED_ENTRY_TRUSTED_PROXY_WARNING_TEXT in caplog.text
+
+
+def test_selected_entry_trusted_proxy_warning_absent_for_real_client(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=1)
+
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "1.2.3.4"},
+        client_host="127.0.0.1",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        ip = extract_client_ip(request, config)
+
+    assert ip == "1.2.3.4"
+    assert SELECTED_ENTRY_TRUSTED_PROXY_WARNING_TEXT not in caplog.text
+
+
+def test_selected_entry_trusted_proxy_warning_emitted_at_most_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(
+        trusted_proxies=["127.0.0.1", "10.0.0.1"], trusted_proxy_depth=2
+    )
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(5):
+            request = SyncMockGuardRequest(
+                path="/",
+                method="GET",
+                headers={"X-Forwarded-For": "10.0.0.1, 1.2.3.4"},
+                client_host="127.0.0.1",
+            )
+            extract_client_ip(request, config)
+
+    assert caplog.text.count(SELECTED_ENTRY_TRUSTED_PROXY_WARNING_TEXT) == 1
+
+
 GLOB_METACHARACTERS = ("*", "?", "[", "]", "\\")
 
 

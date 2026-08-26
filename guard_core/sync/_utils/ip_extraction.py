@@ -164,8 +164,48 @@ def _handle_untrusted_proxy(
     return canonical_connecting_ip
 
 
+_forwarded_header_chain_too_short_warned = False
+
+
+def _warn_forwarded_header_chain_too_short(
+    forwarded_for: str, proxy_depth: int, chain_length: int
+) -> None:
+    global _forwarded_header_chain_too_short_warned
+    if _forwarded_header_chain_too_short_warned:
+        return
+    _forwarded_header_chain_too_short_warned = True
+    logger.warning(
+        "trusted_proxy_depth is %d but the X-Forwarded-For chain has only "
+        "%d entries (%s); falling back to the connecting peer as the "
+        "client. This warning is logged once.",
+        proxy_depth,
+        chain_length,
+        _sanitize_for_log(forwarded_for),
+    )
+
+
+_forwarded_header_selected_entry_trusted_proxy_warned = False
+
+
+def _warn_forwarded_header_selected_entry_trusted_proxy(entry: str) -> None:
+    global _forwarded_header_selected_entry_trusted_proxy_warned
+    if _forwarded_header_selected_entry_trusted_proxy_warned:
+        return
+    _forwarded_header_selected_entry_trusted_proxy_warned = True
+    logger.warning(
+        "trusted_proxy_depth selected %s from the X-Forwarded-For chain, "
+        "but that address is itself listed in trusted_proxies; the chain "
+        "likely has more proxy hops than trusted_proxy_depth accounts for. "
+        "This warning is logged once.",
+        _sanitize_for_log(entry),
+    )
+
+
 def _resolve_trusted_proxy_client_ip(
-    canonical_connecting_ip: str, forwarded_for: str | None, proxy_depth: int
+    canonical_connecting_ip: str,
+    forwarded_for: str | None,
+    proxy_depth: int,
+    trusted_proxies: list[str],
 ) -> str:
     try:
         if not forwarded_for:
@@ -173,7 +213,15 @@ def _resolve_trusted_proxy_client_ip(
 
         client_ip = _extract_from_forwarded_header(forwarded_for, proxy_depth)
         if client_ip:
+            if _is_trusted_proxy(client_ip, trusted_proxies):
+                _warn_forwarded_header_selected_entry_trusted_proxy(client_ip)
             return client_ip
+
+        chain_length = len(forwarded_for.split(","))
+        if chain_length < proxy_depth:
+            _warn_forwarded_header_chain_too_short(
+                forwarded_for, proxy_depth, chain_length
+            )
     except (ValueError, IndexError) as e:
         logger.warning(f"Error processing client IP: {str(e)}")
 
@@ -193,7 +241,10 @@ def extract_client_ip(
         if "unix" in config.trusted_proxies:
             forwarded_for = request.headers.get("X-Forwarded-For")
             return _resolve_trusted_proxy_client_ip(
-                "unknown", forwarded_for, config.trusted_proxy_depth
+                "unknown",
+                forwarded_for,
+                config.trusted_proxy_depth,
+                config.trusted_proxies,
             )
         return "unknown"
 
@@ -217,5 +268,8 @@ def extract_client_ip(
         )
 
     return _resolve_trusted_proxy_client_ip(
-        canonical_connecting_ip, forwarded_for, config.trusted_proxy_depth
+        canonical_connecting_ip,
+        forwarded_for,
+        config.trusted_proxy_depth,
+        config.trusted_proxies,
     )
