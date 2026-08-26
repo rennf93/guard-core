@@ -40,6 +40,7 @@ def _json_body_request(payload: str) -> MockGuardRequest:
     return MockGuardRequest(body_content=body, headers=headers)
 
 
+@pytest.mark.redos_timing
 async def test_no_false_negative_under_concurrent_redos_async() -> None:
     redos_request = _json_body_request(_REDOS_PAYLOAD)
     benign_request = _json_body_request(_BENIGN_MATCHING_PAYLOAD)
@@ -62,6 +63,7 @@ async def test_no_false_negative_under_concurrent_redos_async() -> None:
     )
 
 
+@pytest.mark.redos_timing
 async def test_concurrent_custom_and_benign_no_false_negative_async() -> None:
     await SusPatternsManager.add_pattern(_CUSTOM_PATTERN, custom=True)
     custom_payload = f"{_CUSTOM_MARKER}99"
@@ -91,6 +93,7 @@ async def test_concurrent_custom_and_benign_no_false_negative_async() -> None:
     assert elapsed < 15.0
 
 
+@pytest.mark.redos_timing
 async def test_slipping_custom_pattern_detect_completes_async() -> None:
     slipping = re.compile(r"(\w|\w)*x")
     compiled_tuple = (slipping, frozenset({"request_body", "unknown"}), "custom")
