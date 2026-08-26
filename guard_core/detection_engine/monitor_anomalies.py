@@ -1,5 +1,5 @@
+import math
 from datetime import datetime, timezone
-from statistics import mean, stdev
 from typing import Any
 
 from .monitor_types import PatternStats, PerformanceMetric
@@ -37,9 +37,14 @@ def detect_statistical_anomaly(
     if not stats or len(stats.recent_times) < min_samples_for_anomaly:
         return None
 
-    recent_times = list(stats.recent_times)
-    avg_time = mean(recent_times)
-    std_time = stdev(recent_times)
+    recent_times = stats.recent_times
+    sample_count = len(recent_times)
+    if sample_count < 2:
+        return None
+
+    avg_time = math.fsum(recent_times) / sample_count
+    variance = math.fsum((t - avg_time) ** 2 for t in recent_times) / (sample_count - 1)
+    std_time = variance**0.5
 
     if std_time <= 0:
         return None
