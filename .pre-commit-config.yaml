@@ -29,7 +29,7 @@ repos:
         pass_filenames: false
       - id: bandit
         name: bandit
-        entry: uv run bandit -r guard_core -ll
+        entry: uv run bandit -c pyproject.toml -r guard_core -q
         require_serial: true
         language: system
         types: [python]

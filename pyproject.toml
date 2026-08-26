@@ -247,7 +247,7 @@ ignore_names = [
 sort_by_size = true
 
 [tool.bandit]
-skips = ["B101", "B601"]
+skips = ["B101", "B601", "B403", "B404", "B603"]
 exclude_dirs = ["tests", ".venv", "vulture_whitelist.py"]
 
 [tool.radon]
