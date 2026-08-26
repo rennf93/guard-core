@@ -313,8 +313,11 @@ async def test_chain_too_short_warning_fires_on_depth_exceeding_chain_length(
         ip = await extract_client_ip(request, config)
 
     assert ip == "127.0.0.1"
-    assert CHAIN_TOO_SHORT_WARNING_TEXT in caplog.text
-    assert "configured trusted_proxy_depth" in caplog.text
+    assert (
+        "The X-Forwarded-For chain has only 1 entries, fewer than the "
+        "configured trusted_proxy_depth; chain was 1.2.3.4; falling back to "
+        "the connecting peer as the client. This warning is logged once."
+    ) in caplog.text
 
 
 async def test_chain_too_short_warning_absent_when_chain_meets_depth(

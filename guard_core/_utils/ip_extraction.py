@@ -178,7 +178,7 @@ def _warn_forwarded_header_chain_too_short(
     _forwarded_header_chain_too_short_warned = True
     logger.warning(
         "The X-Forwarded-For chain has only %d entries, fewer than the "
-        "configured trusted_proxy_depth (%s); falling back to the "
+        "configured trusted_proxy_depth; chain was %s; falling back to the "
         "connecting peer as the client. This warning is logged once.",
         chain_length,
         _sanitize_for_log(forwarded_for),
