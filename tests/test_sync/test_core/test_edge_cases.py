@@ -165,6 +165,20 @@ def _raising_detect(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
     raise RuntimeError("Detection engine failure")
 
 
+def _raising_recursion_error_detect(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    raise RecursionError("maximum recursion depth exceeded")
+
+
+def test_check_value_enhanced_recursion_error_escapes_the_fallback() -> None:
+    sus_patterns_handler.configure(SecurityConfig())
+
+    with patch.object(
+        sus_patterns_handler, "detect", side_effect=_raising_recursion_error_detect
+    ):
+        with pytest.raises(RecursionError):
+            _check_value_enhanced("' OR '1'='1", "request_body", "127.0.0.1", "corr-4")
+
+
 _FALLBACK_SCAN_CPU_BUDGET_SECONDS = 0.05
 
 

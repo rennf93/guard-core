@@ -138,6 +138,13 @@ def _asim_gif_bytes(n: int = 4000) -> bytes:
     return b"GIF89a" + bytes(rng.getrandbits(8) for _ in range(n)) + b"\x00\x3b"
 
 
+def _nested_json_attack(depth: int, leaf: str) -> bytes:
+    leaf_json = json.dumps(leaf)
+    prefix = '{"a":' * depth
+    suffix = "}" * depth
+    return (prefix + leaf_json + suffix).encode()
+
+
 ATTACKS: list[tuple[str, bytes]] = [
     ("b64_invalid_byte_xss", b64_joined(XSS, b"\x85")),
     ("b64_invalid_byte_sqli", b64_joined(SQLI, b"\x85")),
@@ -241,6 +248,8 @@ ATTACKS: list[tuple[str, bytes]] = [
         "scan_value_cap_regression_ordinary_sqli_still_detected",
         b"1 OR 1=1 UNION SELECT password_hash FROM admin_users--",
     ),
+    ("json_nested_depth10_sqli", _nested_json_attack(10, "' OR 1=1--")),
+    ("json_nested_depth40_sqli", _nested_json_attack(40, "' OR 1=1--")),
 ]
 
 BENIGN: list[tuple[str, bytes]] = [

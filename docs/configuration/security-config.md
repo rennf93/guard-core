@@ -385,6 +385,7 @@ Detection Engine
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
 | `detection_max_body_inspect_bytes`  | `int`   | `262144`| 1024 - 10485760 | Body size cap read/scanned for detection; distinct from `detection_max_content_length` and `max_request_size`. |
 | `detection_max_scan_values`         | `int`   | `512`   | 2 - 100000    | Maximum values (query params, headers, JSON keys/values, form/multipart fields) scanned per request; remaining values are skipped and a one-time warning logs the client IP once reached. Each named value costs two scan units (name, then value), so the minimum is 2. |
+| `detection_max_json_depth`          | `int`   | `32`    | 1 - 1000      | Maximum nesting depth of a JSON request body walked structurally. A dict or list reached at this depth is not descended into: it is serialized back to text and scanned as one value instead, bounded by `detection_max_content_length`, so content hidden below the cap is still scanned as text rather than structurally. A one-time warning logs the client IP once reached (GHSA-f6cf-jjhc-qp85). |
 | `detection_threat_score_threshold`  | `float` | `1.0`   | 0.0 - 10.0    | Anomaly/threat score required to flag a request. |
 | `detection_scan_body`               | `bool`  | `True`  | N/A           | Scan the request body during detection; `False` restricts detection to path/query/headers. |
 

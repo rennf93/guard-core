@@ -94,3 +94,14 @@ def _resolve_max_scan_values(config: "SecurityConfig | None") -> int:
         if config is not None
         else _DEFAULT_MAX_SCAN_VALUES
     )
+
+
+_DEFAULT_MAX_JSON_DEPTH = 32
+
+
+def _resolve_max_json_depth(config: "SecurityConfig | None") -> int:
+    return (
+        config.detection_max_json_depth
+        if config is not None
+        else _DEFAULT_MAX_JSON_DEPTH
+    )

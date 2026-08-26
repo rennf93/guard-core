@@ -12,6 +12,7 @@ from guard_core.sync._utils.detection_config import (
     _resolve_excluded_headers,
     _resolve_excluded_params,
     _resolve_log_level,
+    _resolve_max_json_depth,
     _resolve_max_scan_values,
     _resolve_scan_body,
 )
@@ -139,8 +140,9 @@ def detect_penetration_attempt(
     excluded_headers = _resolve_excluded_headers(config, route_config)
     log_level = _resolve_log_level(config)
     max_scan_values = _resolve_max_scan_values(config)
+    max_json_depth = _resolve_max_json_depth(config)
 
-    with _scan_value_budget(max_scan_values):
+    with _scan_value_budget(max_scan_values, max_json_depth):
         surface_hit = _scan_request_surface(
             request,
             excluded_params,

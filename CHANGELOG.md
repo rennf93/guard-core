@@ -12,6 +12,10 @@ Unreleased
 
 - **`SecurityConfig` now warns at construction when `whitelist` contains a `/0` network.** A `whitelist` entry of `0.0.0.0/0` or `::/0` makes every address whitelisted, so `blacklist`, `blocked_countries` and IP bans can never block anyone; this was previously silent. Precedence and every access decision are unchanged, a `/0` whitelist still allows everyone, this is a signal only (#79).
 
+### Security
+
+- **Uncontrolled recursion in the JSON body walk (CWE-674).** The structural JSON-body scan recursed one Python call per nesting level with no depth bound; a `{"a":{"a":...}}` body nested past Python's recursion limit raised `RecursionError` out of `detect_penetration_attempt`, and just below that limit the enhanced-detection exception fallback silently swallowed the error and scanned the request as clean instead of failing secure. The walk is now an explicit-stack iteration with no recursion anywhere in guard-core's own JSON traversal. A new `SecurityConfig.detection_max_json_depth` (default `32`, `1` to `1000`) bounds the nesting depth walked structurally; a dict or list reached at that depth is serialized back to text and scanned as one value instead, bounded by `detection_max_content_length`, and a one-time warning names the client IP. `_check_value_enhanced` no longer treats `RecursionError` as a fallback case, it now re-raises into the pipeline's fail-secure handling instead of ever returning a silent clean verdict (GHSA-f6cf-jjhc-qp85).
+
 ___
 
 v3.14.0 (2026-08-26)

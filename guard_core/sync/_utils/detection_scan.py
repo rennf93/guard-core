@@ -5,7 +5,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from guard_core.sync._utils.detection_config import _DEFAULT_MAX_SCAN_VALUES
+from guard_core.sync._utils.detection_config import (
+    _DEFAULT_MAX_JSON_DEPTH,
+    _DEFAULT_MAX_SCAN_VALUES,
+)
 from guard_core.sync._utils.logging_utils import _log_at_level, _sanitize_for_reporting
 
 logger = logging.getLogger("guard_core")
@@ -16,17 +19,29 @@ _scanned_value_count: contextvars.ContextVar[int] = contextvars.ContextVar(
 _scan_value_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
     "guard_core_detection_scan_value_cap", default=_DEFAULT_MAX_SCAN_VALUES
 )
+_json_depth_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_json_depth_cap", default=_DEFAULT_MAX_JSON_DEPTH
+)
+_json_depth_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "guard_core_detection_json_depth_warned", default=False
+)
 
 
 @contextmanager
-def _scan_value_budget(max_values: int) -> Iterator[None]:
+def _scan_value_budget(
+    max_values: int, max_json_depth: int = _DEFAULT_MAX_JSON_DEPTH
+) -> Iterator[None]:
     count_token = _scanned_value_count.set(0)
     cap_token = _scan_value_cap.set(max_values)
+    depth_cap_token = _json_depth_cap.set(max_json_depth)
+    depth_warned_token = _json_depth_warned.set(False)
     try:
         yield
     finally:
         _scanned_value_count.reset(count_token)
         _scan_value_cap.reset(cap_token)
+        _json_depth_cap.reset(depth_cap_token)
+        _json_depth_warned.reset(depth_warned_token)
 
 
 def _scan_value_budget_exhausted(client_ip: str) -> bool:
@@ -43,6 +58,22 @@ def _scan_value_budget_exhausted(client_ip: str) -> bool:
             client_ip,
         )
     return True
+
+
+def _json_depth_cap_value() -> int:
+    return _json_depth_cap.get()
+
+
+def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
+    if _json_depth_warned.get():
+        return
+    _json_depth_warned.set(True)
+    logger.warning(
+        "detection_max_json_depth (%d) reached for client %s; nested content "
+        "below that depth is scanned as text",
+        _json_depth_cap.get(),
+        client_ip,
+    )
 
 
 def _check_json_fields(
@@ -206,6 +237,8 @@ def _check_value_enhanced(
 
         return True, "Threat detected", threats
 
+    except RecursionError:
+        raise
     except Exception as e:
         logger.error(f"Enhanced detection failed: {e}, falling back to basic check")
         detected, trigger = _fallback_pattern_check(value, client_ip, context)

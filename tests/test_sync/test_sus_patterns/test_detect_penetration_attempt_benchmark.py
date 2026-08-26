@@ -847,6 +847,25 @@ _SSRF_IPV4_MAPPED_AND_TRAILING_DOT_TARGETED_CASES: list[TargetedCase] = [
 ]
 
 
+def _nested_json_body_text(depth: int, leaf: str) -> str:
+    leaf_json = json.dumps(leaf)
+    return ('{"a":' * depth) + leaf_json + ("}" * depth)
+
+
+_JSON_DEPTH_TARGETED_CASES: list[TargetedCase] = [
+    TargetedCase(
+        "json_nested_depth10_sqli_body",
+        _body_request(_nested_json_body_text(10, "' OR 1=1--"), "application/json"),
+        True,
+    ),
+    TargetedCase(
+        "json_nested_depth40_sqli_body",
+        _body_request(_nested_json_body_text(40, "' OR 1=1--"), "application/json"),
+        True,
+    ),
+]
+
+
 def _mechanism_for_case_id(mechanisms: tuple[str, ...], case_id: str) -> str:
     return mechanisms[zlib.crc32(case_id.encode()) % len(mechanisms)]
 
@@ -1115,6 +1134,12 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate(
         if result.is_threat != targeted.expect_detected:
             ssrf_ipv4_mapped_and_trailing_dot_failures.append(targeted.case_id)
 
+    json_depth_failures: list[str] = []
+    for targeted in _JSON_DEPTH_TARGETED_CASES:
+        result = detect_penetration_attempt(targeted.request, _CONFIG)
+        if result.is_threat != targeted.expect_detected:
+            json_depth_failures.append(targeted.case_id)
+
     wall_time_seconds = time.monotonic() - start
 
     report_lines = [
@@ -1187,6 +1212,14 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate(
             f"  {targeted.case_id}: expected={targeted.expect_detected}"
         )
     report_lines.append("")
+    report_lines.append(
+        "targeted nested-json depth cases (GHSA-f6cf-jjhc-qp85, depth 10 and 40):"
+    )
+    for targeted in _JSON_DEPTH_TARGETED_CASES:
+        report_lines.append(
+            f"  {targeted.case_id}: expected={targeted.expect_detected}"
+        )
+    report_lines.append("")
     report_lines.append("known end-to-end false positives (documented, still counted):")
     for pin_key, reason in _KNOWN_E2E_FALSE_POSITIVES.items():
         report_lines.append(f"  {pin_key}: {reason}")
@@ -1202,6 +1235,7 @@ def test_detect_penetration_attempt_recall_and_false_positive_rate(
     assert not ssrf_ipv4_mapped_and_trailing_dot_failures, (
         f"{ssrf_ipv4_mapped_and_trailing_dot_failures}\n{report}"
     )
+    assert not json_depth_failures, f"{json_depth_failures}\n{report}"
 
     assert malicious_detected >= BASELINE_MALICIOUS_DETECTED_TOTAL, (
         f"overall recall regressed: baseline={BASELINE_MALICIOUS_DETECTED_TOTAL} "
