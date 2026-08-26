@@ -559,7 +559,7 @@ async def test_get_problematic_patterns_empty_stats() -> None:
     stats = PatternStats(pattern="empty_pattern")
     monitor.pattern_stats["empty_pattern"] = stats
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
     assert len(problematic) == 0
 
 
@@ -580,7 +580,7 @@ async def test_get_problematic_patterns_high_timeout() -> None:
                 timeout=(j < timeout_rate * 10),
             )
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
 
     assert len(problematic) == 1
     assert "pattern_1" in problematic[0]["pattern"]
@@ -606,7 +606,7 @@ async def test_get_problematic_patterns_slow() -> None:
                 matched=False,
             )
 
-    problematic = monitor.get_problematic_patterns()
+    problematic = await monitor.get_problematic_patterns()
 
     assert len(problematic) == 2
     problematic_patterns = [p["pattern"] for p in problematic]
@@ -615,10 +615,10 @@ async def test_get_problematic_patterns_slow() -> None:
     assert all(p["issue"] == "consistently_slow" for p in problematic)
 
 
-def test_get_summary_stats_empty() -> None:
+async def test_get_summary_stats_empty() -> None:
     monitor = PerformanceMonitor()
 
-    stats = monitor.get_summary_stats()
+    stats = await monitor.get_summary_stats()
     assert stats["total_executions"] == 0
     assert stats["avg_execution_time"] == 0.0
     assert stats["timeout_rate"] == 0.0
@@ -634,7 +634,7 @@ async def test_get_summary_stats_with_data() -> None:
     await monitor.record_metric("p3", 1.0, 300, False, True)
     await monitor.record_metric("p4", 0.03, 400, True, False)
 
-    stats = monitor.get_summary_stats()
+    stats = await monitor.get_summary_stats()
     assert stats["total_executions"] == 4
     assert stats["match_rate"] == 0.5
     assert stats["timeout_rate"] == 0.25
@@ -707,7 +707,7 @@ async def test_get_slow_patterns() -> None:
                 matched=False,
             )
 
-    slow_patterns = monitor.get_slow_patterns(limit=3)
+    slow_patterns = await monitor.get_slow_patterns(limit=3)
 
     assert len(slow_patterns) == 3
     assert "very_slow" in slow_patterns[0]["pattern"]
@@ -863,7 +863,7 @@ async def test_notify_callbacks_exception_without_agent_handler() -> None:
     assert len(captured) == 1
 
 
-def test_get_slow_patterns_skips_missing_report() -> None:
+async def test_get_slow_patterns_skips_missing_report() -> None:
     monitor = PerformanceMonitor()
     stats = PatternStats(pattern="gone")
     stats.avg_execution_time = 1.0
@@ -878,13 +878,15 @@ def test_get_slow_patterns_skips_missing_report() -> None:
 
     cast(Any, monitor).get_pattern_report = returns_none
     try:
-        reports = monitor.get_slow_patterns(limit=5)
+        reports = await monitor.get_slow_patterns(limit=5)
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert reports == []
 
 
-def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> None:
+async def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> (
+    None
+):
     monitor = PerformanceMonitor()
     stats = PatternStats(pattern="ghost")
     stats.total_executions = 10
@@ -894,13 +896,13 @@ def test_get_problematic_patterns_skips_when_high_timeout_report_is_none() -> No
     real_report = monitor.get_pattern_report
     cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
-        result = monitor.get_problematic_patterns()
+        result = await monitor.get_problematic_patterns()
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert result == []
 
 
-def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
+async def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
     monitor = PerformanceMonitor(slow_pattern_threshold=0.01)
     stats = PatternStats(pattern="ghost2")
     stats.total_executions = 10
@@ -911,7 +913,7 @@ def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
     real_report = monitor.get_pattern_report
     cast(Any, monitor).get_pattern_report = lambda _p: None
     try:
-        result = monitor.get_problematic_patterns()
+        result = await monitor.get_problematic_patterns()
     finally:
         cast(Any, monitor).get_pattern_report = real_report
     assert result == []

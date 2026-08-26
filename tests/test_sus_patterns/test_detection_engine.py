@@ -51,10 +51,10 @@ async def test_performance_monitor() -> None:
     await monitor.record_metric("test_pattern", 0.05, 200, False)
     await monitor.record_metric("slow_pattern", 0.2, 300, False)
 
-    stats = monitor.get_summary_stats()
+    stats = await monitor.get_summary_stats()
     assert stats["total_executions"] == 3
     assert stats["match_rate"] > 0
 
-    slow = monitor.get_slow_patterns()
+    slow = await monitor.get_slow_patterns()
     assert len(slow) > 0
     assert slow[0]["pattern"] == "slow_pattern"

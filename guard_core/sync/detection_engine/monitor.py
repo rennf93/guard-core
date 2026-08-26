@@ -248,41 +248,56 @@ class PerformanceMonitor:
         return build_pattern_report(pattern, stats)
 
     def get_slow_patterns(self, limit: int = 10) -> list[dict[str, Any]]:
-        return collect_slow_patterns(self.pattern_stats, self.get_pattern_report, limit)
+        with self._lock:
+            pattern_stats_snapshot = dict(self.pattern_stats)
+        return collect_slow_patterns(
+            pattern_stats_snapshot, self.get_pattern_report, limit
+        )
 
     def get_problematic_patterns(self) -> list[dict[str, Any]]:
+        with self._lock:
+            pattern_stats_snapshot = dict(self.pattern_stats)
         return collect_problematic_patterns(
-            self.pattern_stats, self.get_pattern_report, self.slow_pattern_threshold
+            pattern_stats_snapshot, self.get_pattern_report, self.slow_pattern_threshold
         )
 
     def _get_empty_summary(self) -> dict[str, Any]:
         return empty_summary()
 
     def _extract_metric_components(
-        self,
+        self, recent_metrics: list[PerformanceMetric]
     ) -> tuple[list[float], int, int]:
-        return extract_metric_components(self.recent_metrics)
+        return extract_metric_components(recent_metrics)
 
     def _build_summary_dict(
         self,
+        total_metrics: int,
+        total_patterns: int,
         recent_times: list[float],
         timeouts: int,
         matches: int,
     ) -> dict[str, Any]:
         return build_summary_dict(
-            len(self.recent_metrics),
-            len(self.pattern_stats),
+            total_metrics, total_patterns, recent_times, timeouts, matches
+        )
+
+    def get_summary_stats(self) -> dict[str, Any]:
+        with self._lock:
+            if not self.recent_metrics:
+                return self._get_empty_summary()
+            recent_metrics_snapshot = list(self.recent_metrics)
+            total_patterns = len(self.pattern_stats)
+
+        recent_times, timeouts, matches = self._extract_metric_components(
+            recent_metrics_snapshot
+        )
+        return self._build_summary_dict(
+            len(recent_metrics_snapshot),
+            total_patterns,
             recent_times,
             timeouts,
             matches,
         )
-
-    def get_summary_stats(self) -> dict[str, Any]:
-        if not self.recent_metrics:
-            return self._get_empty_summary()
-
-        recent_times, timeouts, matches = self._extract_metric_components()
-        return self._build_summary_dict(recent_times, timeouts, matches)
 
     def register_anomaly_callback(self, callback: Any) -> None:
         self.anomaly_callbacks.append(callback)

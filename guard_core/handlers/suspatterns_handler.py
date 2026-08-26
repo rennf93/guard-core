@@ -3371,10 +3371,10 @@ class SusPatternsManager:
         performance_monitor = instance._performance_monitor
         if performance_monitor:
             return {
-                "summary": performance_monitor.get_summary_stats(),
-                "slow_patterns": performance_monitor.get_slow_patterns(),
+                "summary": await performance_monitor.get_summary_stats(),
+                "slow_patterns": await performance_monitor.get_slow_patterns(),
                 "problematic_patterns": (
-                    performance_monitor.get_problematic_patterns()
+                    await performance_monitor.get_problematic_patterns()
                 ),
             }
         return None
