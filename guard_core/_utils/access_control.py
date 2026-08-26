@@ -4,7 +4,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any
 
 from guard_core._utils.detection_scan import _user_agent_matches_blocked_pattern
-from guard_core._utils.ip_extraction import _canonicalize_ip
+from guard_core._utils.ip_extraction import UNKNOWN_CLIENT_IDENTITY, _canonicalize_ip
 from guard_core._utils.logging_utils import _log_at_level
 from guard_core.protocols.geo_ip_protocol import GeoIPHandler
 from guard_core.protocols.request_protocol import GuardRequest
@@ -198,6 +198,27 @@ async def _check_cloud_providers_detail(ip: str, config: Any) -> IpAccessResult 
     )
 
 
+def _check_unknown_identity_access(
+    ip: str, config: Any, skip_ip_lists: bool
+) -> IpAccessResult | None:
+    if ip != UNKNOWN_CLIENT_IDENTITY:
+        return None
+    if not skip_ip_lists and config.whitelist:
+        return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+    return IpAccessResult(True, "")
+
+
+async def _check_ip_lists_detail(
+    ip_addr: Any, ip: str, config: Any
+) -> IpAccessResult | None:
+    if config.whitelist:
+        if not await _check_whitelist(ip_addr, ip, config):
+            return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+    elif not await _check_blacklist(ip_addr, ip, config):
+        return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+    return None
+
+
 async def check_ip_access(
     ip: str,
     config: Any,
@@ -206,17 +227,17 @@ async def check_ip_access(
     skip_ip_lists: bool = False,
     skip_countries: bool = False,
 ) -> IpAccessResult:
+    unknown_result = _check_unknown_identity_access(ip, config, skip_ip_lists)
+    if unknown_result is not None:
+        return unknown_result
+
     try:
         ip_addr = ip_address(ip)
 
         if not skip_ip_lists:
-            if config.whitelist:
-                if not await _check_whitelist(ip_addr, ip, config):
-                    return IpAccessResult(
-                        False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip)
-                    )
-            elif not await _check_blacklist(ip_addr, ip, config):
-                return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
+            list_result = await _check_ip_lists_detail(ip_addr, ip, config)
+            if list_result is not None:
+                return list_result
 
         if not skip_countries:
             country_result = await _check_blocked_countries_detail(

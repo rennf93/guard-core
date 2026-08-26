@@ -404,6 +404,69 @@ async def test_check_ip_access_allowed_has_no_reason() -> None:
     assert result.network is None
 
 
+async def test_check_ip_access_unknown_identity_with_no_lists_is_allowed() -> None:
+    from guard_core.utils import check_ip_access
+
+    result = await check_ip_access("unknown", SecurityConfig())
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
+async def test_check_ip_access_unknown_identity_blacklist_only_allowed() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(blacklist=["192.168.1.1"])
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
+async def test_check_ip_access_unknown_identity_with_whitelist_is_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(whitelist=["10.0.0.1"])
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP unknown not in global allowlist/blocklist"
+
+
+async def test_check_ip_access_unknown_identity_skips_country_and_cloud_checks(
+    mocker: MockerFixture,
+) -> None:
+    from guard_core.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
+    config = SecurityConfig(
+        blocked_countries=["RU"],
+        block_cloud_providers={"AWS"},
+        geo_ip_handler=mock_ipinfo,
+    )
+    mock_is_cloud_ip = mocker.patch(
+        "guard_core.handlers.cloud_handler.cloud_handler.is_cloud_ip"
+    )
+
+    result = await check_ip_access("unknown", config, mock_ipinfo)
+
+    assert result.allowed is True
+    assert result.reason == ""
+    mock_ipinfo.get_country.assert_not_called()
+    mock_is_cloud_ip.assert_not_called()
+
+
+async def test_check_ip_access_malformed_ip_string_is_still_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    result = await check_ip_access("not-an-ip", SecurityConfig())
+
+    assert result.allowed is False
+    assert result.reason == "IP not-an-ip not in global allowlist/blocklist"
+
+
 def test_is_ip_allowed_signature_unchanged() -> None:
     import inspect
 

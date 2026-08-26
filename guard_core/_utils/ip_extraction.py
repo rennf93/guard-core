@@ -9,6 +9,8 @@ from guard_core.protocols.request_protocol import GuardRequest
 
 logger = logging.getLogger("guard_core")
 
+UNKNOWN_CLIENT_IDENTITY = "unknown"
+
 
 def _proxy_matches(connecting_ip: str, connecting_ip_obj: Any, proxy: str) -> bool:
     if "/" in proxy:
@@ -238,12 +240,12 @@ async def extract_client_ip(
         if "unix" in config.trusted_proxies:
             forwarded_for = request.headers.get("X-Forwarded-For")
             return _resolve_client_ip_from_forwarded_chain(
-                "unknown",
+                UNKNOWN_CLIENT_IDENTITY,
                 forwarded_for,
                 config.trusted_proxy_depth,
                 config.trusted_proxies,
             )
-        return "unknown"
+        return UNKNOWN_CLIENT_IDENTITY
 
     connecting_ip = request.client_host
     canonical_connecting_ip = _canonicalize_ip(connecting_ip)
