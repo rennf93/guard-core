@@ -435,6 +435,18 @@ async def test_check_ip_access_unknown_identity_with_whitelist_is_blocked() -> N
     assert result.reason == "IP unknown not in global allowlist/blocklist"
 
 
+async def test_check_ip_access_unknown_identity_whitelist_countries_blocked() -> None:
+    from guard_core.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=GeoIPHandler)
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    result = await check_ip_access("unknown", config)
+
+    assert result.allowed is False
+    assert result.reason == "IP unknown not in global allowlist/blocklist"
+
+
 async def test_check_ip_access_unknown_identity_skips_country_and_cloud_checks(
     mocker: MockerFixture,
 ) -> None:

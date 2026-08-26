@@ -186,6 +186,24 @@ async def test_check_route_ip_access_unknown_identity_with_blacklist_passes() ->
     assert result is None
 
 
+async def test_check_route_ip_access_unknown_whitelist_countries_blocked() -> None:
+    rc = RouteConfig()
+    rc.whitelist_countries = ["US"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = await check_route_ip_access("unknown", rc, mw)
+    assert result is False
+
+
+async def test_check_route_ip_access_unknown_blocked_countries_passes() -> None:
+    rc = RouteConfig()
+    rc.blocked_countries = ["CN"]
+    mw = MagicMock()
+    mw.geo_ip_handler = None
+    result = await check_route_ip_access("unknown", rc, mw)
+    assert result is None
+
+
 async def test_check_route_ip_access_country() -> None:
     rc = RouteConfig()
     rc.blocked_countries = ["CN"]

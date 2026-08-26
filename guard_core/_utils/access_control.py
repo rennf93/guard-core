@@ -203,11 +203,13 @@ async def _check_cloud_providers_detail(ip: str, config: Any) -> IpAccessResult 
 
 
 def _check_unknown_identity_access(
-    ip: str, config: Any, skip_ip_lists: bool
+    ip: str, config: Any, skip_ip_lists: bool, skip_countries: bool
 ) -> IpAccessResult | None:
     if ip != UNKNOWN_CLIENT_IDENTITY:
         return None
-    if not skip_ip_lists and config.whitelist:
+    whitelist_blocks = not skip_ip_lists and config.whitelist
+    country_whitelist_blocks = not skip_countries and config.whitelist_countries
+    if whitelist_blocks or country_whitelist_blocks:
         return IpAccessResult(False, _GENERIC_LIST_BLOCK_REASON.format(ip=ip))
     return IpAccessResult(True, "")
 
@@ -231,7 +233,9 @@ async def check_ip_access(
     skip_ip_lists: bool = False,
     skip_countries: bool = False,
 ) -> IpAccessResult:
-    unknown_result = _check_unknown_identity_access(ip, config, skip_ip_lists)
+    unknown_result = _check_unknown_identity_access(
+        ip, config, skip_ip_lists, skip_countries
+    )
     if unknown_result is not None:
         return unknown_result
 
