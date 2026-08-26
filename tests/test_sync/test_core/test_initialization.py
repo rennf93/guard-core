@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.sync.core.initialization.handler_initializer import HandlerInitializer
 
@@ -651,3 +652,57 @@ def test_get_initialization_status_geo_none_when_no_geo_handler(
 
     assert status["geo_ip"] is None
     assert "cloud_providers" in status
+
+
+def test_initialize_redis_handlers_degrades_to_memory_when_unreachable_fail_open(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    mock_geo_ip_handler: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    security_config.redis_fail_open = True
+    mock_redis_handler.initialize = MagicMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+    mock_geo_ip_handler.initialize = MagicMock()
+
+    with (
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+        caplog.at_level(logging.ERROR, logger="guard_core.sync.core.initialization"),
+    ):
+        mock_ipban.initialize_redis = MagicMock()
+        mock_sus.initialize_redis = MagicMock()
+
+        initializer.initialize_redis_handlers()
+
+        mock_geo_ip_handler.initialize.assert_called_once()
+        mock_ipban.initialize_redis.assert_not_called()
+        mock_sus.initialize_redis.assert_not_called()
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        "Redis unavailable during initialization" in r.getMessage() for r in errors
+    )
+
+
+def test_initialize_redis_handlers_reraises_redis_unreachable_fail_open_is_false(
+    initializer: HandlerInitializer,
+    mock_redis_handler: Mock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_redis_handler.initialize = MagicMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    with caplog.at_level(logging.ERROR, logger="guard_core.sync.core.initialization"):
+        with pytest.raises(GuardRedisError):
+            initializer.initialize_redis_handlers()
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        "Redis unavailable during initialization" in r.getMessage() for r in errors
+    )

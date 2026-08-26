@@ -139,7 +139,7 @@ class GuardRedisError(GuardCoreError):
         self.detail = detail
 ```
 
-Adapters should catch `GuardRedisError` during initialization and handle it according to their framework's error model.
+`HandlerInitializer.initialize_redis_handlers` catches `GuardRedisError` raised by `RedisManager.initialize()` during startup and always logs it. When `redis_fail_open=True`, it degrades to the same in-memory path used when Redis is disabled (`ip_ban_manager`, the rate limiter, and `sus_patterns_handler` are never wired to Redis for the life of the process) instead of raising; `RedisManager._redis` stays `None`, so any later call through `safe_operation`/`get_connection` retries the connection on its own. When `redis_fail_open` is `False` (the default), the exception re-raises out of initialization so adapters can turn it into a clean error response (fastapi-guard returns a 503).
 
 When a `GuardRedisError` escapes a security check at request time (a Redis outage mid-request), the pipeline honors `fail_secure` by default: the request is blocked with a 500. Setting `redis_fail_open=True` opts into skipping the failing check and letting the request through, treating Redis outages as an availability concern distinct from other check failures.
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from guard_core.exceptions import GuardRedisError
 from guard_core.protocols.cloud_ip_store_protocol import CloudIpStoreProtocol
 
 if TYPE_CHECKING:
@@ -197,6 +198,18 @@ class HandlerInitializer:
         if self.geo_ip_handler is not None:
             await self.geo_ip_handler.initialize()
 
+    async def _connect_redis(self) -> bool:
+        try:
+            await self.redis_handler.initialize()
+        except GuardRedisError as e:
+            self.logger.error(
+                "Redis unavailable during initialization: %s", e, exc_info=True
+            )
+            if not self.config.redis_fail_open:
+                raise
+            return False
+        return True
+
     async def initialize_redis_handlers(self) -> None:
         self._configure_detection()
 
@@ -207,7 +220,9 @@ class HandlerInitializer:
             await self._load_cloud_and_geo_without_redis()
             return
 
-        await self.redis_handler.initialize()
+        if not await self._connect_redis():
+            await self._load_cloud_and_geo_without_redis()
+            return
 
         from guard_core.handlers.cloud_handler import cloud_handler
         from guard_core.handlers.ipban_handler import ip_ban_manager
