@@ -249,7 +249,6 @@ sort_by_size = true
 [tool.bandit]
 skips = ["B101", "B601"]
 exclude_dirs = ["tests", ".venv", "vulture_whitelist.py"]
-severity = "medium"
 
 [tool.radon]
 exclude = "tests/*,.venv/*,vulture_whitelist.py"

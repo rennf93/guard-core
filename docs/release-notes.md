@@ -56,7 +56,7 @@ Post-3.13.0 hardening: identity and proxy-trust warnings, bounded in-memory stor
 
 ___
 
-v3.13.0 (2026-08-22)
+v3.13.0 (2026-08-24)
 --------------------
 
 Detection-engine hardening: ReDoS validation backstop, scan-window mechanism, all-category ingestion bypasses, new deserialization category, and breaking auth-verifier requirement (v3.13.0)
