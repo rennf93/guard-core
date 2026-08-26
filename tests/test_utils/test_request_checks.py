@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -795,8 +796,7 @@ async def test_detect_penetration_fallback_pattern_match() -> None:
     async def mock_detect_error(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Detection engine failure")
 
-    mock_pattern = MagicMock()
-    mock_pattern.search.return_value = MagicMock()
+    mock_pattern = re.compile(r"<script>")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -837,8 +837,7 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
     async def mock_detect_error(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Detection engine failure")
 
-    mock_pattern = MagicMock()
-    mock_pattern.search.side_effect = RecursionError("Pattern error")
+    mock_pattern = re.compile(r"unmatched_pattern_xyz")
 
     _all_ctx = frozenset(
         {"query_param", "header", "url_path", "request_body", "unknown"}
@@ -849,6 +848,11 @@ async def test_detect_penetration_fallback_pattern_exception() -> None:
             sus_patterns_handler,
             "get_all_compiled_patterns",
             return_value=[(mock_pattern, _all_ctx, "custom")],
+        ),
+        patch.object(
+            sus_patterns_handler,
+            "_check_regex_pattern",
+            side_effect=RecursionError("Pattern error"),
         ),
         patch("logging.Logger.error") as mock_log_error,
     ):

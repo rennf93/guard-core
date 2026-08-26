@@ -1,4 +1,7 @@
 import re
+import time
+from functools import cache
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -7,8 +10,26 @@ from guard_core.core.events.middleware_events import SecurityEventBus
 from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
 from guard_core.handlers.ratelimit_handler import RateLimitManager
 from guard_core.handlers.security_headers_handler import SecurityHeadersManager
-from guard_core.handlers.suspatterns_handler import SusPatternsManager
+from guard_core.handlers.suspatterns_handler import (
+    SusPatternsManager,
+    sus_patterns_handler,
+)
 from guard_core.models import SecurityConfig
+from guard_core.utils import _check_value_enhanced
+
+_REFERENCE_WORKLOAD_SECONDS = 0.1243
+
+
+@cache
+def _host_cpu_speed_factor() -> float:
+    samples: list[float] = []
+    for _ in range(3):
+        start = time.process_time()
+        total = 0
+        for i in range(3_000_000):
+            total += i * i
+        samples.append(time.process_time() - start)
+    return max(1.0, min(samples) / _REFERENCE_WORKLOAD_SECONDS)
 
 
 async def test_send_rule_received_event_no_agent() -> None:
@@ -102,15 +123,15 @@ async def test_fallback_pattern_check_recursion_error_is_logged_and_skipped(
     ) as mock_handler:
         mock_pattern = Mock()
         mock_pattern.pattern = "(evil){1,100}"
-        mock_pattern.search = Mock(
-            side_effect=RecursionError("maximum recursion depth")
-        )
         mock_handler.get_all_compiled_patterns = AsyncMock(
             return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
         )
+        mock_handler._check_regex_pattern = AsyncMock(
+            side_effect=RecursionError("maximum recursion depth")
+        )
 
         with caplog.at_level(logging.WARNING, logger="guard_core"):
-            result = await _fallback_pattern_check("test_value")
+            result = await _fallback_pattern_check("test_value", "127.0.0.1", "unknown")
 
         assert result == (False, "")
         assert "recursion" in caplog.text.lower()
@@ -124,17 +145,59 @@ async def test_fallback_pattern_check_unexpected_exception_propagates() -> None:
         "guard_core.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_pattern = Mock()
-        mock_pattern.search = Mock(side_effect=ValueError("not a recursion error"))
+        mock_pattern.pattern = "test_pattern"
         mock_handler.get_all_compiled_patterns = AsyncMock(
             return_value=[(mock_pattern, frozenset({"unknown"}), "custom")]
         )
+        mock_handler._check_regex_pattern = AsyncMock(
+            side_effect=ValueError("not a recursion error")
+        )
 
         try:
-            await _fallback_pattern_check("test_value")
+            await _fallback_pattern_check("test_value", "127.0.0.1", "unknown")
         except ValueError as exc:
             assert str(exc) == "not a recursion error"
         else:
             raise AssertionError("expected ValueError to propagate")
+
+
+async def _raising_detect(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    raise RuntimeError("Detection engine failure")
+
+
+_FALLBACK_SCAN_CPU_BUDGET_SECONDS = 0.05
+
+
+async def test_check_value_enhanced_fallback_scan_stays_cpu_bounded() -> None:
+    sus_patterns_handler.configure(SecurityConfig())
+    value = "{{" * 10000
+
+    with patch.object(sus_patterns_handler, "detect", side_effect=_raising_detect):
+        samples: list[float] = []
+        for _ in range(5):
+            start = time.process_time()
+            await _check_value_enhanced(value, "request_body", "127.0.0.1", "corr-1")
+            samples.append(time.process_time() - start)
+
+    budget_seconds = _FALLBACK_SCAN_CPU_BUDGET_SECONDS * _host_cpu_speed_factor()
+    assert min(samples) < budget_seconds, (
+        "fallback pattern scan regressed: min of 5 runs against '{{' * 10000 took "
+        f"{min(samples):.4f}s, budget={budget_seconds:.4f}s (base "
+        f"{_FALLBACK_SCAN_CPU_BUDGET_SECONDS}s scaled by this host's "
+        "_host_cpu_speed_factor())"
+    )
+
+
+async def test_check_value_enhanced_fallback_scan_still_detects_sqli() -> None:
+    sus_patterns_handler.configure(SecurityConfig())
+
+    with patch.object(sus_patterns_handler, "detect", side_effect=_raising_detect):
+        detected, trigger, threats = await _check_value_enhanced(
+            "' OR '1'='1", "request_body", "127.0.0.1", "corr-2"
+        )
+
+    assert detected is True
+    assert trigger != ""
 
 
 async def test_check_value_enhanced_empty_threats_list() -> None:

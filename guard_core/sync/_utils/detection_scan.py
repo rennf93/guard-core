@@ -1,5 +1,6 @@
 import contextvars
 import logging
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -134,14 +135,24 @@ def _user_agent_matches_blocked_pattern(user_agent: str, patterns: list[str]) ->
     return False
 
 
-def _fallback_pattern_check(value: str) -> tuple[bool, str]:
+def _fallback_pattern_check(
+    value: str, client_ip: str, context: str
+) -> tuple[bool, str]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
+    normalized_context = sus_patterns_handler._normalize_context(context)
     all_compiled = sus_patterns_handler.get_all_compiled_patterns()
-    for pattern, _contexts, _category in all_compiled:
+    for pattern, _contexts, category in all_compiled:
+        pattern_start = time.monotonic()
         try:
-            if pattern.search(value):
-                return True, "Value matched pattern (fallback)"
+            threat, _timeout_occurred = sus_patterns_handler._check_regex_pattern(
+                pattern,
+                value,
+                client_ip,
+                pattern_start,
+                category,
+                context=normalized_context,
+            )
         except RecursionError:
             logger.warning(
                 "Fallback pattern search hit the regex engine's recursion "
@@ -150,6 +161,8 @@ def _fallback_pattern_check(value: str) -> tuple[bool, str]:
                 pattern.pattern,
             )
             continue
+        if threat:
+            return True, "Value matched pattern (fallback)"
     return False, ""
 
 
@@ -195,7 +208,7 @@ def _check_value_enhanced(
 
     except Exception as e:
         logger.error(f"Enhanced detection failed: {e}, falling back to basic check")
-        detected, trigger = _fallback_pattern_check(value)
+        detected, trigger = _fallback_pattern_check(value, client_ip, context)
         return detected, trigger, []
 
 
