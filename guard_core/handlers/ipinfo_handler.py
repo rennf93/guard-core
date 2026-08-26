@@ -116,7 +116,11 @@ class IPInfoManager:
             os.makedirs(self.db_path.parent, exist_ok=True)
 
             if self.redis_handler:
-                cached_db = await self.redis_handler.get_key("ipinfo", "database")
+                try:
+                    cached_db = await self.redis_handler.get_key("ipinfo", "database")
+                except Exception as e:
+                    self.logger.warning("Cached GeoIP database unavailable: %s", e)
+                    cached_db = None
                 if cached_db:
                     self._write_database_atomically(
                         cached_db
@@ -194,14 +198,19 @@ class IPInfoManager:
                     self._write_database_atomically(content)
 
                     if self.redis_handler is not None:
-                        with open(self.db_path, "rb") as f:
-                            db_content = f.read().decode("latin-1")
-                        await self.redis_handler.set_key(
-                            "ipinfo",
-                            "database",
-                            db_content,
-                            ttl=self._max_age,
-                        )
+                        try:
+                            with open(self.db_path, "rb") as f:
+                                db_content = f.read().decode("latin-1")
+                            await self.redis_handler.set_key(
+                                "ipinfo",
+                                "database",
+                                db_content,
+                                ttl=self._max_age,
+                            )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to cache GeoIP database in Redis: %s", e
+                            )
                     return
                 except Exception:
                     if attempt == retries - 1:

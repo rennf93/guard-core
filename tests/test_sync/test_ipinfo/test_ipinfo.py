@@ -305,6 +305,36 @@ def test_redis_cache_hit_atomic_replace_leaves_no_temp_file(
     assert not db_path.with_name(db_path.name + ".tmp").exists()
 
 
+def test_initialize_redis_cache_read_failure_falls_through_to_download(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from guard_core.exceptions import GuardRedisError
+
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.get_key = MagicMock(
+        side_effect=GuardRedisError(503, "redis unavailable")
+    )
+
+    mock_session = _mock_aiohttp(content=b"downloaded_data")
+    mock_reader = Mock()
+
+    with (
+        caplog.at_level("WARNING", logger="guard_core.sync.handlers.ipinfo"),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+        patch("maxminddb.open_database", return_value=mock_reader),
+    ):
+        db.initialize()
+
+    db.redis_handler.get_key.assert_called_once_with("ipinfo", "database")
+    assert db.reader is mock_reader
+    assert db.redis_handler is not None
+    assert "Cached GeoIP database unavailable" in caplog.text
+
+
 def test_redis_cache_update(tmp_path: Path) -> None:
     db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
     db.redis_handler = MagicMock()
@@ -323,6 +353,33 @@ def test_redis_cache_update(tmp_path: Path) -> None:
         db.redis_handler.set_key.assert_called_once_with(
             "ipinfo", "database", b"new_db_data".decode("latin-1"), ttl=86400
         )
+
+
+def test_download_database_redis_cache_write_failure_does_not_block_download(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from guard_core.exceptions import GuardRedisError
+
+    db = IPInfoManager(token="test", db_path=tmp_path / "test.mmdb")
+    db.redis_handler = MagicMock()
+    db.redis_handler.set_key = MagicMock(
+        side_effect=GuardRedisError(503, "redis unavailable")
+    )
+
+    mock_session = _mock_aiohttp(content=b"new_db_data")
+
+    with (
+        caplog.at_level("WARNING", logger="guard_core.sync.handlers.ipinfo"),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.requests.Session",
+            return_value=mock_session,
+        ),
+    ):
+        db._download_database()
+
+    assert db.db_path.read_bytes() == b"new_db_data"
+    assert db.redis_handler is not None
+    assert "Failed to cache GeoIP database in Redis" in caplog.text
 
 
 def test_redis_initialization_flow(tmp_path: Path) -> None:

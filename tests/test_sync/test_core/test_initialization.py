@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -737,3 +738,45 @@ def test_initialize_redis_handlers_completes_when_sus_patterns_get_key_fails(
         initializer.initialize_redis_handlers()
 
     assert real_sus.redis_handler is mock_redis_handler
+
+
+@pytest.mark.parametrize("redis_fail_open", [True, False])
+def test_initialize_redis_handlers_completes_when_geo_ip_handler_get_key_fails(
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+    redis_fail_open: bool,
+    tmp_path: Path,
+) -> None:
+    from guard_core.sync.handlers.ipinfo_handler import IPInfoManager
+    from guard_core.sync.handlers.suspatterns_handler import SusPatternsManager
+
+    security_config.redis_fail_open = redis_fail_open
+    mock_redis_handler.get_key = MagicMock(
+        side_effect=GuardRedisError(503, "Redis connection failed")
+    )
+
+    IPInfoManager._instance = None
+    real_geo = IPInfoManager(token="tok", db_path=tmp_path / "geo.mmdb")
+    SusPatternsManager._instance = None
+    real_sus = SusPatternsManager()
+
+    initializer = HandlerInitializer(
+        config=security_config,
+        redis_handler=mock_redis_handler,
+        geo_ip_handler=real_geo,
+    )
+
+    with (
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler",
+            real_sus,
+        ),
+        patch.object(real_geo, "_download_database", new=MagicMock()),
+    ):
+        mock_ipban.initialize_redis = MagicMock()
+
+        initializer.initialize_redis_handlers()
+
+    assert real_geo.redis_handler is mock_redis_handler
+    IPInfoManager._instance = None
