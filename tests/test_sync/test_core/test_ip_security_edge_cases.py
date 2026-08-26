@@ -199,3 +199,55 @@ def test_unknown_client_identity_blocked_when_whitelist_configured(
                 result = ip_security_check.check(mock_request)
                 assert result is not None
                 assert result.status_code == 403
+
+
+def test_unknown_client_identity_with_empty_route_config_not_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    mock_request.state.route_config = RouteConfig()
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = MagicMock(return_value=False)
+
+        result = ip_security_check.check(mock_request)
+        assert result is None
+
+
+def test_unknown_client_identity_with_route_whitelist_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    route_config = RouteConfig()
+    route_config.ip_whitelist = ["10.0.0.1"]
+    mock_request.state.route_config = route_config
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = MagicMock(return_value=False)
+
+        with patch(
+            "guard_core.sync.core.checks.implementations.ip_security.log_activity"
+        ):
+            with patch(
+                "guard_core.sync.core.checks.implementations.ip_security."
+                "escalate_identity_violation",
+                new=MagicMock(),
+            ):
+                result = ip_security_check.check(mock_request)
+                assert result is not None
+                assert result.status_code == 403
+
+
+def test_unknown_client_identity_with_route_blacklist_not_blocked(
+    ip_security_check: IpSecurityCheck, mock_request: Mock
+) -> None:
+    mock_request.state.client_ip = "unknown"
+    route_config = RouteConfig()
+    route_config.ip_blacklist = ["10.0.0.1"]
+    mock_request.state.route_config = route_config
+
+    with patch.object(ip_security_check, "ip_ban_manager") as mock_ban_mgr:
+        mock_ban_mgr.is_ip_banned = MagicMock(return_value=False)
+
+        result = ip_security_check.check(mock_request)
+        assert result is None

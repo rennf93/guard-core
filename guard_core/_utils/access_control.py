@@ -22,7 +22,11 @@ async def is_user_agent_allowed(user_agent: str, config: Any) -> bool:
 def _extract_ip_from_request(request: str | GuardRequest) -> str:
     if isinstance(request, str):
         return request
-    return _canonicalize_ip(request.client_host) if request.client_host else "unknown"
+    return (
+        _canonicalize_ip(request.client_host)
+        if request.client_host
+        else UNKNOWN_CLIENT_IDENTITY
+    )
 
 
 def _has_country_rules(config: Any) -> bool:

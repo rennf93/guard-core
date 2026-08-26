@@ -5,7 +5,7 @@ from guard_core.core.bypass.context import BypassContext
 from guard_core.decorators.base import RouteConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
-from guard_core.utils import extract_client_ip
+from guard_core.utils import UNKNOWN_CLIENT_IDENTITY, extract_client_ip
 
 _no_client_address_warned = False
 
@@ -44,7 +44,7 @@ class BypassHandler:
         if not request.client_host:
             client_ip = await extract_client_ip(request, self.context.config)
             request.state.client_ip = client_ip
-            if client_ip == "unknown":
+            if client_ip == UNKNOWN_CLIENT_IDENTITY:
                 _warn_no_client_address(
                     self.context.logger, rejected=self.context.config.fail_secure
                 )

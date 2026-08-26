@@ -23,7 +23,11 @@ from guard_core.sync._utils.detection_scan import (
     _check_request_component,
     _scan_value_budget,
 )
-from guard_core.sync._utils.ip_extraction import _canonicalize_ip, extract_client_ip
+from guard_core.sync._utils.ip_extraction import (
+    UNKNOWN_CLIENT_IDENTITY,
+    _canonicalize_ip,
+    extract_client_ip,
+)
 from guard_core.sync.detection_result import DetectionResult
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
@@ -123,7 +127,9 @@ def detect_penetration_attempt(
         client_ip = extract_client_ip(request, config)
     else:
         client_ip = (
-            _canonicalize_ip(request.client_host) if request.client_host else "unknown"
+            _canonicalize_ip(request.client_host)
+            if request.client_host
+            else UNKNOWN_CLIENT_IDENTITY
         )
     correlation_id = str(uuid.uuid4())
 

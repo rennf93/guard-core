@@ -77,6 +77,7 @@ from guard_core.sync._utils.detection_scan import (
     _user_agent_matches_blocked_pattern,
 )
 from guard_core.sync._utils.ip_extraction import (
+    UNKNOWN_CLIENT_IDENTITY,
     _canonical_ip_text,
     _canonicalize_ip,
     _extract_from_forwarded_header,
@@ -179,6 +180,7 @@ __all__ = [
     "_warn_forwarded_header_preempted",
     "IpAccessResult",
     "JsonFormatter",
+    "UNKNOWN_CLIENT_IDENTITY",
     "check_ip_access",
     "check_ip_country",
     "detect_penetration_attempt",

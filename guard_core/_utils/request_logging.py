@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Literal
 
-from guard_core._utils.ip_extraction import _canonicalize_ip
+from guard_core._utils.ip_extraction import UNKNOWN_CLIENT_IDENTITY, _canonicalize_ip
 from guard_core._utils.logging_utils import _log_at_level
 from guard_core.protocols.request_protocol import GuardRequest
 
@@ -13,7 +13,7 @@ def _extract_request_context(request: GuardRequest) -> dict[str, Any]:
     elif request.client_host:
         client_ip = _canonicalize_ip(request.client_host)
     else:
-        client_ip = "unknown"
+        client_ip = UNKNOWN_CLIENT_IDENTITY
 
     return {
         "client_ip": client_ip,
