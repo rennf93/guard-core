@@ -19,7 +19,7 @@ from guard_core._security_config_validators import (
     _apply_geo_ip_handler_assignment,
     _country_shadow_should_warn,
     _extra_installed,
-    _is_prefix_zero_trusted_proxy_entry,
+    _is_prefix_zero_network_entry,
     _resolve_geo_ip_handler,
     _revalidate_copied_config,
     _validate_block_cloud_providers_value,
@@ -37,6 +37,7 @@ from guard_core._security_config_validators import (
     _warn_country_allowlist_shadows_blocklist,
     _warn_empty_enabled_detection_categories,
     _warn_trusted_proxies_prefix_zero,
+    _warn_whitelist_prefix_zero,
     cloud_blocking_enabled,
 )
 from guard_core._security_config_validators import (
@@ -255,10 +256,14 @@ class SecurityConfig(_SecurityConfigFields):
 
     @model_validator(mode="after")
     def warn_trusted_proxies_prefix_zero(self) -> Self:
-        if any(
-            _is_prefix_zero_trusted_proxy_entry(entry) for entry in self.trusted_proxies
-        ):
+        if any(_is_prefix_zero_network_entry(entry) for entry in self.trusted_proxies):
             _warn_trusted_proxies_prefix_zero()
+        return self
+
+    @model_validator(mode="after")
+    def warn_whitelist_prefix_zero(self) -> Self:
+        if any(_is_prefix_zero_network_entry(entry) for entry in self.whitelist or ()):
+            _warn_whitelist_prefix_zero()
         return self
 
     @model_validator(mode="after")

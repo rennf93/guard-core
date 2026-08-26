@@ -8,6 +8,10 @@ ___
 Unreleased
 ----------
 
+### Added
+
+- **`SecurityConfig` now warns at construction when `whitelist` contains a `/0` network.** A `whitelist` entry of `0.0.0.0/0` or `::/0` makes every address whitelisted, so `blacklist`, `blocked_countries` and IP bans can never block anyone; this was previously silent. Precedence and every access decision are unchanged, a `/0` whitelist still allows everyone, this is a signal only (#79).
+
 ___
 
 v3.14.0 (2026-08-26)

@@ -70,6 +70,7 @@ IP Management
 **Validators**:
 
 - `whitelist` and `blacklist`: Each entry validated as a valid IP or CIDR range via `ipaddress.ip_address()` / `ip_network()`.
+- `whitelist`: if any entry is a `/0` network (`0.0.0.0/0` or `::/0`), construction logs a `WARNING` naming the risk (every address becomes whitelisted, so `blacklist`, `blocked_countries` and IP bans cannot block anyone). Precedence is unchanged: a `/0` whitelist still allows every address, this is a signal only.
 
 !!! warning "Whitelist Semantics"
     `whitelist=None` means "no whitelist" (all IPs pass). `whitelist=[]` means "empty whitelist" (no IPs pass). Adapter developers should document this distinction.
@@ -467,6 +468,7 @@ Validators
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges, plus the literal `"unix"` token. Raises `ValueError` on invalid entries. |
 | `warn_trusted_proxies_prefix_zero` | model-level | Logs a `WARNING` when `trusted_proxies` contains a `/0` network. Does not raise; construction still succeeds. |
+| `warn_whitelist_prefix_zero` | model-level | Logs a `WARNING` when `whitelist` contains a `/0` network. Does not raise; construction still succeeds, and precedence is unchanged. |
 | `warn_empty_enabled_detection_categories` | model-level | Logs a `WARNING` when `enabled_detection_categories` is empty while `enable_penetration_detection` is `True`. Does not raise; construction still succeeds. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
 | `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |

@@ -394,6 +394,17 @@ async def test_check_ip_access_whitelist_block_keeps_existing_reason() -> None:
     assert result.reason == "IP 192.168.1.1 not in global allowlist/blocklist"
 
 
+async def test_check_ip_access_prefix_zero_whitelist_overrides_blacklist() -> None:
+    from guard_core.utils import check_ip_access
+
+    config = SecurityConfig(whitelist=["0.0.0.0/0"], blacklist=["1.2.3.4"])
+
+    result = await check_ip_access("1.2.3.4", config)
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
 async def test_check_ip_access_allowed_has_no_reason() -> None:
     from guard_core.utils import check_ip_access
 

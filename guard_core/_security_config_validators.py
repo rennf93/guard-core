@@ -295,7 +295,7 @@ def _validate_trusted_proxies_value(v: Any) -> Any:
     )
 
 
-def _is_prefix_zero_trusted_proxy_entry(entry: str) -> bool:
+def _is_prefix_zero_network_entry(entry: str) -> bool:
     try:
         return ip_network(entry, strict=False).prefixlen == 0
     except ValueError:
@@ -309,6 +309,15 @@ def _warn_trusted_proxies_prefix_zero() -> None:
         "spoof its IP for rate limiting, IP banning and detection "
         "attribution. Restrict trusted_proxies to your actual reverse "
         "proxy addresses."
+    )
+
+
+def _warn_whitelist_prefix_zero() -> None:
+    logger.warning(
+        "whitelist contains a /0 network (0.0.0.0/0 or ::/0): every "
+        "address is whitelisted, so blacklist, blocked_countries and IP "
+        "bans cannot block anyone. Remove the /0 entry or list the "
+        "specific networks you trust."
     )
 
 
