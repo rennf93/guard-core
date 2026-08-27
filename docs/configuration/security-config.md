@@ -405,6 +405,8 @@ Logging
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
 
+`setup_custom_logging()` (called by every adapter at middleware init with `log_format` and `custom_log_file`) always attaches its own console handler to the `guard_core` logger, but that handler's console output yields to the host's root handlers whenever they exist, whichever was configured first, so the event propagates to the host's own root handlers exactly once instead of printing twice. The `custom_log_file` handler is unaffected and is attached in every case. See [Logging Configuration](logging.md#avoiding-duplicate-log-lines) for detail.
+
 ___
 
 Agent / Telemetry

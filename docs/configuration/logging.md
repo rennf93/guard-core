@@ -90,7 +90,7 @@ SecurityConfig(
 )
 ```
 
-When set, guard-core creates both a console handler and a file handler with the configured formatter.
+When set, guard-core creates a file handler with the configured formatter. A console handler is also always attached, but it yields to the host's own root handlers whenever they exist; see "Avoiding duplicate log lines" below.
 
 ___
 
@@ -109,10 +109,21 @@ def setup_custom_logging(
 This is called internally by the middleware during initialization. It:
 
 1. Gets or creates the `"guard_core"` logger.
-2. Clears existing handlers.
-3. Adds a `StreamHandler` (console) with the configured formatter.
-4. Optionally adds a `FileHandler` if `log_file` is specified.
+2. Clears existing handlers on the `"guard_core"` logger.
+3. Adds a `StreamHandler` (console) with the configured formatter, always, carrying a filter that yields to the host's own root logger handlers; see "Avoiding duplicate log lines" below.
+4. Optionally adds a `FileHandler` if `log_file` is specified, unfiltered, regardless of the root logger's state.
 5. Sets the logger level to `INFO`.
+
+___
+
+Avoiding Duplicate Log Lines
+-----------------------------
+
+The `"guard_core"` logger keeps `propagate=True`, so its records always reach any handlers already attached to the process's root logger (a host calling `logging.basicConfig()`, for example). Guard's own console handler used to be attached unconditionally, so a host with root handlers configured saw every guard security event printed twice: once formatted by guard's handler, once via propagation through the host's.
+
+`setup_custom_logging()` always attaches its own console handler to `"guard_core"`, but that handler carries a filter that checks `logging.getLogger().handlers` at the moment each record is emitted, not at setup time. Guard's console output yields to the host's root handlers whenever they exist, whichever was configured first: if the host configures its root logger before guard's `setup_custom_logging()` runs, or only afterward, guard's own console handler goes silent the moment root handlers exist, and the event reaches the host's handlers exactly once through propagation. Only while the root logger has no handlers at all does guard's own console handler emit, so output still appears when nothing else is configured to show it.
+
+A host that wants guard's own formatted output (text or JSON) while running its own root logger handlers should either set `custom_log_file` (the file handler carries no such filter and is always attached) or attach a handler directly to the `"guard_core"` logger.
 
 ___
 

@@ -63,7 +63,7 @@ Per-route gates -- `required_headers`, `blocked_user_agents`, `max_request_size`
 
 ### Logging
 
-`custom_log_file`, `log_suspicious_level` (default `WARNING`), `log_request_level` (default `None`; set to enable request logging), `log_country_check_level` (default `INFO`; non-block country verdicts, `None` silences them), `log_format` (`"text"` or `"json"`), `custom_error_responses`.
+`custom_log_file`, `log_suspicious_level` (default `WARNING`), `log_request_level` (default `None`; set to enable request logging), `log_country_check_level` (default `INFO`; non-block country verdicts, `None` silences them), `log_format` (`"text"` or `"json"`), `custom_error_responses`. `setup_custom_logging()` (`guard_core/_utils/logging_utils.py`, called by every adapter at middleware init) always attaches its own console handler to the `guard_core` logger, carrying a `logging.Filter` (`_YieldToHostRootHandlers`) that checks `logging.getLogger().handlers` at emission time, not at setup time; guard's console output yields to the host's root handlers whenever they exist, whichever was configured first, and the `guard_core` logger's `propagate=True` carries the event to the host's own root handlers exactly once instead of printing it twice. The `custom_log_file` handler carries no such filter and is attached either way.
 
 ### Mute sets
 
