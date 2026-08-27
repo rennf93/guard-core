@@ -111,7 +111,7 @@ def _forwarded_header_ips(forwarded_for: str) -> list[str]:
     return [_strip_forwarded_entry_port(ip.strip()) for ip in forwarded_for.split(",")]
 
 
-def _forwarded_header_right_side_untrusted_count(
+def _forwarded_header_right_side_unlisted_count(
     ips: list[str], proxy_depth: int, trusted_proxies: list[str]
 ) -> int:
     right_side = ips[len(ips) - proxy_depth + 1 :]
@@ -250,20 +250,19 @@ _forwarded_header_depth_overcounts_hops_warned = False
 
 
 def _warn_forwarded_header_depth_overcounts_hops(
-    proxy_depth: int, untrusted_count: int, forwarded_for: str
+    unlisted_right_entries: int, forwarded_for: str
 ) -> None:
     global _forwarded_header_depth_overcounts_hops_warned
     if _forwarded_header_depth_overcounts_hops_warned:
         return
     _forwarded_header_depth_overcounts_hops_warned = True
     logger.warning(
-        "trusted_proxy_depth (%d) selected an entry from the X-Forwarded-For "
+        "trusted_proxy_depth selected an entry from the X-Forwarded-For "
         "chain with %d entry/entries to its right that are not listed in "
         "trusted_proxies; chain was %s; the declared depth over-counts the "
         "real proxy hops. Set trusted_proxy_depth to the number of proxies "
         "that append to X-Forwarded-For. This warning is logged once.",
-        proxy_depth,
-        untrusted_count,
+        unlisted_right_entries,
         _sanitize_for_log(forwarded_for),
     )
 
@@ -286,12 +285,12 @@ def _resolve_client_ip_from_forwarded_chain(
             return canonical_connecting_ip
 
         if trusted_proxies:
-            untrusted_count = _forwarded_header_right_side_untrusted_count(
+            unlisted_right_entries = _forwarded_header_right_side_unlisted_count(
                 ips, proxy_depth, trusted_proxies
             )
-            if untrusted_count:
+            if unlisted_right_entries:
                 _warn_forwarded_header_depth_overcounts_hops(
-                    proxy_depth, untrusted_count, forwarded_for
+                    unlisted_right_entries, forwarded_for
                 )
                 resolved = _resolve_forwarded_chain_right_to_left(ips, trusted_proxies)
                 return resolved if resolved is not None else canonical_connecting_ip
