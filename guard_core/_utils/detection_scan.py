@@ -136,6 +136,8 @@ async def _try_check_json_value(
             )
     except json.JSONDecodeError:
         pass
+    except RecursionError:
+        _warn_json_depth_cap_reached_once(client_ip)
     return None
 
 

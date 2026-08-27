@@ -250,6 +250,10 @@ ATTACKS: list[tuple[str, bytes]] = [
     ),
     ("json_nested_depth10_sqli", _nested_json_attack(10, "' OR 1=1--")),
     ("json_nested_depth40_sqli", _nested_json_attack(40, "' OR 1=1--")),
+    (
+        "embedded_json_recursion_depth1500_xss",
+        _nested_json_attack(1500, "<script>alert(1)</script>"),
+    ),
 ]
 
 BENIGN: list[tuple[str, bytes]] = [
