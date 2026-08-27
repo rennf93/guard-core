@@ -241,6 +241,12 @@ def check_rate_limit_by_ip(
             ``endpoint_path`` contains a ``:``. Validation runs before any
             counting side effect and before the ``enable_rate_limiting`` early
             return, so rejected input never records a hit and never feeds auto-ban.
+        GuardRedisError: if Redis is enabled and the Redis call fails while
+            ``config.redis_fail_open`` is ``False`` (the default); the caller
+            decides how to handle it, since this primitive has no pipeline
+            ``fail_secure`` handling to fall back on. With
+            ``redis_fail_open=True``, the same failure instead falls back to the
+            in-memory window and does not raise.
     """
     try:
         ipaddress.ip_address(ip)
