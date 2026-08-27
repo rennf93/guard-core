@@ -150,8 +150,18 @@ def _read_capped_body_prefix(
     )
 
 
+def _warn_body_inspect_bytes_cap_reached(max_bytes: int, client_ip: str) -> None:
+    logger.warning(
+        "detection_max_body_inspect_bytes (%d) reached for client %s; only the "
+        "first %d bytes of the request body are scanned",
+        max_bytes,
+        client_ip,
+        max_bytes,
+    )
+
+
 def _read_capped_body(
-    request: SyncGuardRequest, config: "SecurityConfig | None"
+    request: SyncGuardRequest, config: "SecurityConfig | None", client_ip: str = ""
 ) -> bytes | None:
     if config is None:
         return _safe_read(
@@ -165,9 +175,9 @@ def _read_capped_body(
 
     if content_length is not None:
         parsed = _parse_content_length(content_length)
-        if parsed is not None and parsed > max_bytes:
-            return None
         if parsed is not None:
+            if parsed > max_bytes:
+                _warn_body_inspect_bytes_cap_reached(max_bytes, client_ip)
             return _read_and_cache_body(
                 request, max_bytes, timeout, request.body, "body", max_concurrent
             )

@@ -145,6 +145,48 @@ def _nested_json_attack(depth: int, leaf: str) -> bytes:
     return (prefix + leaf_json + suffix).encode()
 
 
+def _oversized_body_with_marker_in_first_kb(total_size: int, marker: str) -> bytes:
+    marker_bytes = marker.encode()
+    prefix = b"x" * 500
+    filler = b"y" * (total_size - len(prefix) - len(marker_bytes))
+    return prefix + marker_bytes + filler
+
+
+_BENIGN_BODY_WORDS = [
+    "the",
+    "quick",
+    "brown",
+    "fox",
+    "jumps",
+    "over",
+    "lazy",
+    "dog",
+    "customer",
+    "order",
+    "invoice",
+    "shipment",
+    "product",
+    "warehouse",
+    "region",
+    "quarter",
+    "revenue",
+    "report",
+    "summary",
+    "analytics",
+]
+
+
+def _oversized_benign_body(total_size: int) -> bytes:
+    rng = random.Random(13)
+    parts = []
+    length = 0
+    while length < total_size:
+        word = rng.choice(_BENIGN_BODY_WORDS)
+        parts.append(word)
+        length += len(word) + 1
+    return " ".join(parts)[:total_size].encode()
+
+
 ATTACKS: list[tuple[str, bytes]] = [
     ("b64_invalid_byte_xss", b64_joined(XSS, b"\x85")),
     ("b64_invalid_byte_sqli", b64_joined(SQLI, b"\x85")),
@@ -254,9 +296,14 @@ ATTACKS: list[tuple[str, bytes]] = [
         "embedded_json_recursion_depth1500_xss",
         _nested_json_attack(1500, "<script>alert(1)</script>"),
     ),
+    (
+        "oversized_body_attack_in_first_kb",
+        _oversized_body_with_marker_in_first_kb(300_000, SQLI),
+    ),
 ]
 
 BENIGN: list[tuple[str, bytes]] = [
+    ("oversized_body_benign_reporter_style", _oversized_benign_body(300_000)),
     ("sql_select_int_compare", b"SELECT id FROM users WHERE id = 5"),
     ("sql_select_bool_compare", b"SELECT name, email FROM customers WHERE active = 1"),
     ("sql_select_quoted_compare", b"SELECT * FROM orders WHERE status = 'shipped'"),

@@ -1,0 +1,118 @@
+import json
+import random
+import time
+from collections.abc import Iterator
+
+import pytest
+
+from guard_core.handlers.suspatterns_handler import (
+    SusPatternsManager,
+    sus_patterns_handler,
+)
+from guard_core.models import SecurityConfig
+from guard_core.utils import detect_penetration_attempt
+from tests.conftest import MockGuardRequest
+from tests.test_sus_patterns.test_detect_penetration_attempt_benchmark import (
+    _host_cpu_speed_factor,
+)
+
+_TWENTY_EIGHT_VALUES_CPU_BUDGET_SECONDS = 1.0
+
+
+def _reset_singleton_to_legacy() -> None:
+    sus_patterns_handler._compiler = None
+    sus_patterns_handler._preprocessor = None
+    sus_patterns_handler._semantic_analyzer = None
+    sus_patterns_handler._performance_monitor = None
+    sus_patterns_handler._threat_score_threshold = 1.0
+    SusPatternsManager._config = None
+
+
+def _twenty_eight_large_values_request() -> MockGuardRequest:
+    rng = random.Random(7)
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    payload = {
+        f"k{i}": "".join(rng.choice(alphabet) for _ in range(9342)) for i in range(28)
+    }
+    body = json.dumps(payload).encode()
+    return MockGuardRequest(
+        method="POST",
+        body_content=body,
+        headers={
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+    )
+
+
+@pytest.fixture(autouse=True)
+def _restore_singleton_after_test() -> Iterator[None]:
+    yield
+    sus_patterns_handler.configure(SecurityConfig())
+
+
+async def test_fresh_unconfigured_singleton_auto_configures_on_bare_call() -> None:
+    _reset_singleton_to_legacy()
+    assert sus_patterns_handler._detection_state.compiler is None
+
+    config = SecurityConfig()
+    request = MockGuardRequest(query_params={"q": "hello"})
+
+    await detect_penetration_attempt(request, config)
+
+    assert sus_patterns_handler._detection_state.compiler is not None
+
+
+@pytest.mark.redos_timing
+async def test_fresh_unconfigured_singleton_runs_enhanced_within_the_ceiling() -> None:
+    _reset_singleton_to_legacy()
+    config = SecurityConfig()
+    request = _twenty_eight_large_values_request()
+
+    await detect_penetration_attempt(request, config)
+    assert sus_patterns_handler._detection_state.compiler is not None
+
+    samples: list[float] = []
+    for _ in range(5):
+        start = time.process_time()
+        await detect_penetration_attempt(request, config)
+        samples.append(time.process_time() - start)
+
+    budget_seconds = _TWENTY_EIGHT_VALUES_CPU_BUDGET_SECONDS * _host_cpu_speed_factor()
+    assert min(samples) < budget_seconds, (
+        "a bare detect_penetration_attempt(request, config) call on an "
+        "unconfigured singleton must auto-configure into enhanced mode; min "
+        f"of 5 runs took {min(samples):.4f}s, budget={budget_seconds:.4f}s. "
+        "Legacy mode measures this same body an order of magnitude slower "
+        "via the per-pattern thread-pool dispatch."
+    )
+
+
+async def test_second_call_with_the_same_config_object_does_not_reconfigure() -> None:
+    _reset_singleton_to_legacy()
+    config = SecurityConfig()
+    request = MockGuardRequest(query_params={"q": "hello"})
+
+    await detect_penetration_attempt(request, config)
+    state_after_first_call = sus_patterns_handler._detection_state
+
+    await detect_penetration_attempt(request, config)
+    state_after_second_call = sus_patterns_handler._detection_state
+
+    assert state_after_second_call is state_after_first_call
+
+
+async def test_call_with_a_different_config_object_reconfigures() -> None:
+    _reset_singleton_to_legacy()
+    config_a = SecurityConfig()
+    request = MockGuardRequest(query_params={"q": "hello"})
+
+    await detect_penetration_attempt(request, config_a)
+    state_after_config_a = sus_patterns_handler._detection_state
+
+    config_b = SecurityConfig()
+    await detect_penetration_attempt(request, config_b)
+    state_after_config_b = sus_patterns_handler._detection_state
+
+    assert state_after_config_b is not state_after_config_a
+    assert sus_patterns_handler._config is config_b

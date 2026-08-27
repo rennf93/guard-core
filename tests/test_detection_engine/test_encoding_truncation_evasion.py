@@ -173,7 +173,7 @@ async def test_representative_short_benign_tokens_stay_clean(
     assert await _is_threat(token) is False
 
 
-async def test_oversized_valid_content_length_still_skips_body_scan() -> None:
+async def test_oversized_declared_content_length_still_scans_the_actual_body() -> None:
     class _BoundedBodyReaderRequest(MockGuardRequest):
         async def read_body_prefix(self, max_bytes: int) -> bytes:
             return self._body[:max_bytes]
@@ -188,4 +188,4 @@ async def test_oversized_valid_content_length_still_skips_body_scan() -> None:
 
     result = await detect_penetration_attempt(cast(GuardRequest, request), config)
 
-    assert result.is_threat is False
+    assert result.is_threat is True

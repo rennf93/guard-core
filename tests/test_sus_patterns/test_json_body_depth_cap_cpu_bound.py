@@ -37,6 +37,7 @@ def _json_request(body: bytes) -> MockGuardRequest:
 async def test_depth_400_json_body_scan_stays_cpu_bounded() -> None:
     config = SecurityConfig()
     sus_patterns_handler.configure(config)
+    assert sus_patterns_handler._detection_state.compiler is not None
     request = _json_request(_nested_json_body(400, _SQLI_PAYLOAD))
 
     await detect_penetration_attempt(request, config)

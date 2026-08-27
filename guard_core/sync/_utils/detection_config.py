@@ -96,6 +96,17 @@ def _resolve_max_scan_values(config: "SecurityConfig | None") -> int:
     )
 
 
+_DEFAULT_MAX_SCAN_BYTES = 65536
+
+
+def _resolve_max_scan_bytes(config: "SecurityConfig | None") -> int:
+    return (
+        config.detection_max_scan_bytes
+        if config is not None
+        else _DEFAULT_MAX_SCAN_BYTES
+    )
+
+
 _DEFAULT_MAX_JSON_DEPTH = 32
 
 

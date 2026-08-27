@@ -731,8 +731,9 @@ class _SecurityConfigFields(BaseModel):
         description=(
             "Maximum bytes read from the start of the request body and inspected "
             "for penetration detection. When the request's Content-Length exceeds "
-            "this, the body is not read or scanned and the request proceeds, "
-            "bounding memory on the detection hot path. This is a memory bound, "
+            "this, the first this-many bytes are still read and scanned (a "
+            "one-time warning names the cap and the client), bounding memory on "
+            "the detection hot path. This is a memory bound, "
             "not full-body coverage: only this leading prefix is ever scanned, so "
             "a payload placed after the first N bytes, or a signature split across "
             "the boundary, is not detected. That tradeoff is inherent to "
@@ -768,6 +769,26 @@ class _SecurityConfigFields(BaseModel):
         ),
         ge=2,
         le=100_000,
+    )
+
+    detection_max_scan_bytes: int = Field(
+        default=65536,
+        description=(
+            "Maximum total characters, across every value handed to the "
+            "pattern engine per request (query parameters, header values, "
+            "JSON keys and leaf values, form fields, multipart parts, "
+            "including JSON embedded within a single value), counted at the "
+            "same accounting point as detection_max_scan_values. Once "
+            "reached, remaining values in the request are not scanned and a "
+            "one-time warning is logged naming the client IP, the same "
+            "fail-open signal detection_max_scan_values already gives. "
+            "Bounds worst-case CPU on a request whose values are individually "
+            "large (a handful of large values can cost as much CPU as many "
+            "small ones), a gap detection_max_scan_values alone does not "
+            "close (GHSA-3hfx-8m47-5f9h residual)."
+        ),
+        ge=1024,
+        le=262144,
     )
 
     detection_max_json_depth: int = Field(

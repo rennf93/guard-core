@@ -13,6 +13,7 @@ from guard_core._utils.detection_config import (
     _resolve_excluded_params,
     _resolve_log_level,
     _resolve_max_json_depth,
+    _resolve_max_scan_bytes,
     _resolve_max_scan_values,
     _resolve_scan_body,
 )
@@ -96,7 +97,7 @@ async def _scan_body_surface(
     if not _resolve_scan_body(config, route_config):
         return _build_detection_miss()
 
-    body_bytes = await _read_capped_body(request, config)
+    body_bytes = await _read_capped_body(request, config, client_ip)
     if body_bytes is None:
         return _build_detection_miss()
 
@@ -117,12 +118,27 @@ async def _scan_body_surface(
     return _build_detection_miss()
 
 
+def _ensure_detection_singleton_configured(config: "SecurityConfig | None") -> None:
+    if config is None:
+        return
+
+    from guard_core.handlers.suspatterns_handler import sus_patterns_handler
+
+    if (
+        sus_patterns_handler._detection_state.compiler is None
+        or sus_patterns_handler._config is not config
+    ):
+        sus_patterns_handler.configure(config)
+
+
 async def detect_penetration_attempt(
     request: GuardRequest,
     config: "SecurityConfig | None" = None,
     route_config: "RouteConfig | None" = None,
 ) -> DetectionResult:
     import uuid
+
+    _ensure_detection_singleton_configured(config)
 
     if config is not None:
         client_ip = await extract_client_ip(request, config)
@@ -141,8 +157,9 @@ async def detect_penetration_attempt(
     log_level = _resolve_log_level(config)
     max_scan_values = _resolve_max_scan_values(config)
     max_json_depth = _resolve_max_json_depth(config)
+    max_scan_bytes = _resolve_max_scan_bytes(config)
 
-    with _scan_value_budget(max_scan_values, max_json_depth):
+    with _scan_value_budget(max_scan_values, max_json_depth, max_scan_bytes):
         surface_hit = await _scan_request_surface(
             request,
             excluded_params,

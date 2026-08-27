@@ -46,14 +46,18 @@ class _BoundedBodyReaderRequest(_BodyRequest):
         return self._body[:max_bytes]
 
 
-def test_over_cap_body_is_not_read_or_scanned() -> None:
+def test_over_cap_declared_length_body_is_still_read_truncated_and_scanned(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = _BodyRequest(body=_SQLI_BODY, content_length=10_000_000)
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
-    result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
 
-    assert request.body_read is False
-    assert result.is_threat is False
+    assert request.body_read is True
+    assert result.is_threat is True
+    assert "detection_max_body_inspect_bytes (1024) reached" in caplog.text
 
 
 def test_at_cap_body_is_still_read_and_scanned() -> None:

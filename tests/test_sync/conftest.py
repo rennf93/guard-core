@@ -11,6 +11,7 @@ import pytest
 from pytest import TempPathFactory
 
 from guard_core.models import SecurityConfig
+from guard_core.sync._utils import detection_scan as _detection_scan_module
 from guard_core.sync.core.events import logfire_handler as _logfire_handler_module
 from guard_core.sync.core.events import otel_handler as _otel_handler_module
 from guard_core.sync.handlers import ipban_handler as _ipban_module
@@ -112,6 +113,22 @@ def _reset_cloud_handler() -> None:
     cloud_handler._refresh_task = None
     cloud_handler._refresh_in_flight = False
     cloud_handler._empty_ranges_warned_at = {}
+
+
+def _reset_detection_scan_budgets() -> None:
+    _detection_scan_module._scanned_value_count.set(0)
+    _detection_scan_module._scan_value_cap.set(
+        _detection_scan_module._DEFAULT_MAX_SCAN_VALUES
+    )
+    _detection_scan_module._scanned_byte_count.set(0)
+    _detection_scan_module._scan_byte_cap.set(
+        _detection_scan_module._DEFAULT_MAX_SCAN_BYTES
+    )
+    _detection_scan_module._scan_byte_cap_warned.set(False)
+    _detection_scan_module._json_depth_cap.set(
+        _detection_scan_module._DEFAULT_MAX_JSON_DEPTH
+    )
+    _detection_scan_module._json_depth_warned.set(False)
 
 
 def _reset_security_headers_manager() -> None:
@@ -245,6 +262,7 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
+    _reset_detection_scan_budgets()
     _reset_security_headers_manager()
 
     if IPInfoManager._instance:
@@ -273,6 +291,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
+    _reset_detection_scan_budgets()
     _reset_security_headers_manager()
 
     dynamic_rule_instance = DynamicRuleManager._instance
