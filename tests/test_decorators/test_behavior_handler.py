@@ -955,6 +955,7 @@ async def test_track_return_pattern_evicts_the_oldest_client_a_touched_client_su
     assert len(bucket) == 3
     assert "203.0.113.12" not in bucket
     assert "203.0.113.11" in bucket
+    assert "203.0.113.14" in bucket
 
 
 @pytest.mark.asyncio
