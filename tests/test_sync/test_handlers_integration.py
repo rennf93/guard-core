@@ -3,6 +3,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.ipban_handler import IPBanManager
 from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
@@ -216,7 +219,7 @@ def test_ratelimit_redis_count_without_script() -> None:
     assert count == 3
 
 
-def test_ratelimit_redis_count_redis_error() -> None:
+def test_ratelimit_redis_error_raises_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
     RateLimitManager._instance = None
@@ -230,13 +233,51 @@ def test_ratelimit_redis_count_redis_error() -> None:
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
 
+    with pytest.raises(GuardRedisError):
+        mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
+
+
+def test_ratelimit_redis_error_falls_back_when_fail_open_true() -> None:
+    from redis.exceptions import RedisError
+
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
+    )
+    mgr = RateLimitManager(config)
+    mgr.rate_limit_script_sha = "sha123"
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+
     count = mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
     assert count is None
 
 
-def test_ratelimit_redis_count_generic_error() -> None:
+def test_ratelimit_generic_error_raises_when_fail_open_false() -> None:
     RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    mgr = RateLimitManager(config)
+    mgr.rate_limit_script_sha = "sha123"
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(Exception("generic fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+
+    with pytest.raises(GuardRedisError):
+        mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
+
+
+def test_ratelimit_generic_error_falls_back_when_fail_open_true() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
+    )
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
@@ -326,12 +367,37 @@ def test_ratelimit_check_redis_ok() -> None:
     assert result is None
 
 
-def test_ratelimit_check_falls_back_to_memory_when_redis_count_is_none() -> None:
+def test_ratelimit_check_raises_on_redis_error_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
     RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
+    )
+    mgr = RateLimitManager(config)
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+    mgr.rate_limit_script_sha = "sha123"
+
+    req = SyncMockGuardRequest()
+    with pytest.raises(GuardRedisError):
+        mgr.check_rate_limit(req, "1.2.3.4", MagicMock())
+    assert "1.2.3.4" not in mgr.request_timestamps
+
+
+def test_ratelimit_check_falls_back_to_memory_when_fail_open_true() -> None:
+    from redis.exceptions import RedisError
+
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True,
+        redis_url="redis://localhost:6379",
+        rate_limit=100,
+        redis_fail_open=True,
     )
     mgr = RateLimitManager(config)
 

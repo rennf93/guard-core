@@ -3,6 +3,9 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from guard_core.exceptions import GuardRedisError
 from guard_core.handlers.ipban_handler import IPBanManager
 from guard_core.handlers.ratelimit_handler import RateLimitManager
 from guard_core.handlers.security_headers_handler import SecurityHeadersManager
@@ -216,7 +219,7 @@ async def test_ratelimit_redis_count_without_script() -> None:
     assert count == 3
 
 
-async def test_ratelimit_redis_count_redis_error() -> None:
+async def test_ratelimit_redis_error_raises_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
     RateLimitManager._instance = None
@@ -230,13 +233,51 @@ async def test_ratelimit_redis_count_redis_error() -> None:
     redis.config.redis_prefix = "test:"
     mgr.redis_handler = redis
 
+    with pytest.raises(GuardRedisError):
+        await mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
+
+
+async def test_ratelimit_redis_error_falls_back_when_fail_open_true() -> None:
+    from redis.exceptions import RedisError
+
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
+    )
+    mgr = RateLimitManager(config)
+    mgr.rate_limit_script_sha = "sha123"
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+
     count = await mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
     assert count is None
 
 
-async def test_ratelimit_redis_count_generic_error() -> None:
+async def test_ratelimit_generic_error_raises_when_fail_open_false() -> None:
     RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
+    mgr = RateLimitManager(config)
+    mgr.rate_limit_script_sha = "sha123"
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(Exception("generic fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+
+    with pytest.raises(GuardRedisError):
+        await mgr._get_redis_request_count("1.2.3.4", time.time(), time.time() - 60)
+
+
+async def test_ratelimit_generic_error_falls_back_when_fail_open_true() -> None:
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
+    )
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
 
@@ -328,12 +369,37 @@ async def test_ratelimit_check_redis_ok() -> None:
     assert result is None
 
 
-async def test_ratelimit_check_falls_back_to_memory_when_redis_count_is_none() -> None:
+async def test_ratelimit_check_raises_on_redis_error_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
     RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
+    )
+    mgr = RateLimitManager(config)
+
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection(RedisError("conn fail"))
+    redis.config = MagicMock()
+    redis.config.redis_prefix = "test:"
+    mgr.redis_handler = redis
+    mgr.rate_limit_script_sha = "sha123"
+
+    req = MockGuardRequest()
+    with pytest.raises(GuardRedisError):
+        await mgr.check_rate_limit(req, "1.2.3.4", AsyncMock())
+    assert "1.2.3.4" not in mgr.request_timestamps
+
+
+async def test_ratelimit_check_falls_back_to_memory_when_fail_open_true() -> None:
+    from redis.exceptions import RedisError
+
+    RateLimitManager._instance = None
+    config = SecurityConfig(
+        enable_redis=True,
+        redis_url="redis://localhost:6379",
+        rate_limit=100,
+        redis_fail_open=True,
     )
     mgr = RateLimitManager(config)
 

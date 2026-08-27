@@ -145,6 +145,8 @@ class GuardRedisError(GuardCoreError):
 
 When a `GuardRedisError` escapes a security check at request time (a Redis outage mid-request), the pipeline honors `fail_secure` by default: the request is blocked with a 500. Setting `redis_fail_open=True` opts into skipping the failing check and letting the request through, treating Redis outages as an availability concern distinct from other check failures.
 
+The rate limiter is a third case, not just startup and other checks: `_redis_request_count` (`guard_core/handlers/ratelimit_handler.py`, both `check_rate_limit` and `check_rate_limit_by_ip`) used to catch every Redis failure itself and silently fall back to the in-memory window regardless of `redis_fail_open`, so a Redis outage silently turned the shared, cross-worker rate limit into a per-process one (N workers effectively multiplying `rate_limit` by N) with no signal and no way to opt out. It now honors `redis_fail_open` like every other check: `True` keeps the in-memory fallback, but logs a `WARNING` once per process ("Redis unavailable for rate limiting; using the in-memory window...") instead of an `ERROR` on every request; `False` (the default) raises `GuardRedisError` instead of silently falling back, so `fail_secure` decides the outcome exactly as it does for any other check.
+
 ___
 
 Configuration

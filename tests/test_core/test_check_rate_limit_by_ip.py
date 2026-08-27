@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from redis.exceptions import NoScriptError, RedisError
 
+from guard_core.exceptions import GuardRedisError
 from guard_core.handlers import ratelimit_handler
 from guard_core.handlers.ratelimit_handler import (
     RateLimitManager,
@@ -99,11 +100,24 @@ async def test_falls_back_to_in_memory_when_redis_handler_not_supplied() -> None
     assert await check_rate_limit_by_ip(ip, config) is False
 
 
-async def test_redis_error_falls_back_to_in_memory_count() -> None:
+async def test_redis_error_raises_when_fail_open_is_false() -> None:
     config = SecurityConfig(enable_redis=True, rate_limit=1, rate_limit_window=60)
     redis = _broken_redis_handler()
 
     ip = "203.0.113.6"
+    with pytest.raises(GuardRedisError):
+        await check_rate_limit_by_ip(ip, config, redis_handler=redis)
+
+
+async def test_redis_error_falls_back_to_in_memory_count_when_fail_open_is_true() -> (
+    None
+):
+    config = SecurityConfig(
+        enable_redis=True, rate_limit=1, rate_limit_window=60, redis_fail_open=True
+    )
+    redis = _broken_redis_handler()
+
+    ip = "203.0.113.106"
     assert await check_rate_limit_by_ip(ip, config, redis_handler=redis) is True
     assert await check_rate_limit_by_ip(ip, config, redis_handler=redis) is False
 

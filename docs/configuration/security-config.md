@@ -365,7 +365,7 @@ Redis
 | `redis_health_check_interval`    | `int`         | `30`                      | Seconds between pooled-connection health checks. `0` disables. |
 | `redis_max_connections`          | `int \| None` | `None`                    | Cap on the connection pool size. `None` uses redis-py's default. |
 | `redis_retries`                  | `int`         | `1`                       | Retries (with exponential backoff) on transient connection/timeout errors. `0` disables. |
-| `redis_fail_open`                | `bool`        | `False`                   | On Redis outage, `fail_secure` governs by default. Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures. |
+| `redis_fail_open`                | `bool`        | `False`                   | On Redis outage, `fail_secure` governs by default. Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures. Covers Redis unavailability at startup, a `GuardRedisError` raised from any security check mid-request, and the rate limiter's Redis path: `True` falls back to an in-memory window with a one-time process warning (with several workers the effective limit becomes workers times `rate_limit`), `False` raises so `fail_secure` decides the outcome. |
 
 ___
 
