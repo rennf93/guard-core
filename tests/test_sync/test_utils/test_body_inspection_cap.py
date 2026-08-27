@@ -46,14 +46,35 @@ class _BoundedBodyReaderRequest(_BodyRequest):
         return self._body[:max_bytes]
 
 
-def test_over_cap_body_is_not_read_or_scanned() -> None:
+def test_over_cap_declared_length_no_bounded_reader_skips_and_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     request = _BodyRequest(body=_SQLI_BODY, content_length=10_000_000)
     config = SecurityConfig(detection_max_body_inspect_bytes=1024)
 
-    result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
 
     assert request.body_read is False
     assert result.is_threat is False
+    assert "detection_max_body_inspect_bytes (1024) reached" in caplog.text
+    assert "does not implement a bounded reader" in caplog.text
+
+
+def test_over_cap_declared_length_bounded_reader_reads_prefix_at_the_cap(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = _BoundedBodyReaderRequest(body=_SQLI_BODY)
+    request.headers["content-length"] = "10000000"
+    config = SecurityConfig(detection_max_body_inspect_bytes=1024)
+
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
+
+    assert request.body_read is False
+    assert request.prefix_requested_max_bytes == 1024
+    assert result.is_threat is True
+    assert "detection_max_body_inspect_bytes (1024) reached" in caplog.text
 
 
 def test_at_cap_body_is_still_read_and_scanned() -> None:

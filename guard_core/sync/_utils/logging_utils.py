@@ -53,6 +53,11 @@ def _create_formatter(log_format: str) -> logging.Formatter:
     return logging.Formatter("[%(name)s] %(asctime)s - %(levelname)s - %(message)s")
 
 
+class _YieldToHostRootHandlers(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not logging.getLogger().handlers
+
+
 def setup_custom_logging(
     log_file: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
@@ -65,6 +70,7 @@ def setup_custom_logging(
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(_YieldToHostRootHandlers())
     logger.addHandler(console_handler)
 
     if log_file:

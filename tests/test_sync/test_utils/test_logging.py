@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
@@ -15,6 +16,38 @@ from guard_core.sync.utils import (
     setup_custom_logging,
 )
 from tests.test_sync.conftest import SyncMockGuardRequest
+
+
+class _RecordingHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture(autouse=True)
+def _restore_logger_state() -> Iterator[None]:
+    root_logger = logging.getLogger()
+    guard_logger = logging.getLogger("guard_core")
+    original_root_handlers = root_logger.handlers[:]
+    original_root_level = root_logger.level
+    original_guard_handlers = guard_logger.handlers[:]
+    original_guard_level = guard_logger.level
+    original_guard_propagate = guard_logger.propagate
+    yield
+    for handler in guard_logger.handlers[:]:
+        if handler not in original_guard_handlers:
+            handler.close()
+    guard_logger.handlers = original_guard_handlers
+    guard_logger.setLevel(original_guard_level)
+    guard_logger.propagate = original_guard_propagate
+    for handler in root_logger.handlers[:]:
+        if handler not in original_root_handlers:
+            handler.close()
+    root_logger.handlers = original_root_handlers
+    root_logger.setLevel(original_root_level)
 
 
 def test_is_ip_allowed(security_config: SecurityConfig, mocker: MockerFixture) -> None:
@@ -223,16 +256,140 @@ def test_log_custom_type(caplog: pytest.LogCaptureFixture) -> None:
     assert "Headers: {'user-agent': 'test-agent'}" in caplog.text
 
 
-def test_setup_custom_logging() -> None:
-    log_file = os.path.join(os.getcwd(), "security.log")
-    logger = setup_custom_logging(log_file)
+def test_setup_custom_logging_always_attaches_console_and_file_handlers(
+    tmp_path: Any,
+) -> None:
+    log_file = tmp_path / "security.log"
+    logger = setup_custom_logging(str(log_file))
 
     handler_count = sum(
         1
         for h in logger.handlers
         if isinstance(h, logging.FileHandler | logging.StreamHandler)
     )
-    assert handler_count >= 2
+    assert handler_count == 2
+
+
+def test_no_duplicate_emission_when_root_is_configured_before_guard(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    logging.basicConfig(force=True)
+    recorder = _RecordingHandler()
+    logging.getLogger().addHandler(recorder)
+
+    logger = setup_custom_logging(None, "json")
+    console_handler = logger.handlers[0]
+    assert isinstance(console_handler, logging.StreamHandler)
+
+    capsys.readouterr()
+    logger.warning("root-first-line")
+
+    assert len(recorder.records) == 1
+    assert recorder.records[0].getMessage() == "root-first-line"
+    assert console_handler.filter(recorder.records[0]) is False
+
+    captured = capsys.readouterr()
+    matching_lines = [
+        line for line in captured.err.splitlines() if "root-first-line" in line
+    ]
+    assert len(matching_lines) == 1
+    assert not matching_lines[0].startswith("{")
+
+
+def test_no_duplicate_emission_when_guard_is_configured_before_root(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    logging.getLogger().handlers = []
+    logger = setup_custom_logging(None, "json")
+    console_handler = logger.handlers[0]
+    assert isinstance(console_handler, logging.StreamHandler)
+
+    logging.basicConfig(force=True)
+    recorder = _RecordingHandler()
+    logging.getLogger().addHandler(recorder)
+
+    capsys.readouterr()
+    logger.warning("guard-first-line")
+
+    assert len(recorder.records) == 1
+    assert recorder.records[0].getMessage() == "guard-first-line"
+    assert console_handler.filter(recorder.records[0]) is False
+
+    captured = capsys.readouterr()
+    matching_lines = [
+        line for line in captured.err.splitlines() if "guard-first-line" in line
+    ]
+    assert len(matching_lines) == 1
+    assert not matching_lines[0].startswith("{")
+
+
+@pytest.mark.parametrize(
+    ("log_format", "expects_json"),
+    [("text", False), ("json", True)],
+)
+def test_setup_custom_logging_emits_once_via_own_handler_when_root_has_no_handlers(
+    capsys: pytest.CaptureFixture[str], log_format: str, expects_json: bool
+) -> None:
+    logging.getLogger().handlers = []
+
+    logger = setup_custom_logging(None, log_format)
+    assert len(logger.handlers) == 1
+    assert isinstance(logger.handlers[0], logging.StreamHandler)
+    assert logger.level == logging.INFO
+
+    capsys.readouterr()
+    logger.warning("solo-guard-line")
+
+    captured = capsys.readouterr()
+    matching_lines = [
+        line for line in captured.err.splitlines() if "solo-guard-line" in line
+    ]
+    assert len(matching_lines) == 1
+    if expects_json:
+        assert matching_lines[0].startswith("{")
+    else:
+        assert matching_lines[0].startswith("[guard_core]")
+
+
+@pytest.mark.parametrize(
+    "ordering",
+    ["root_configured_first", "guard_configured_first", "no_root_handlers"],
+)
+def test_custom_log_file_receives_the_line_in_every_root_handler_ordering(
+    tmp_path: Any, ordering: str
+) -> None:
+    logging.getLogger().handlers = []
+    log_file = tmp_path / "audit.log"
+
+    if ordering == "root_configured_first":
+        logging.getLogger().addHandler(logging.NullHandler())
+        logger = setup_custom_logging(str(log_file))
+    elif ordering == "guard_configured_first":
+        logger = setup_custom_logging(str(log_file))
+        logging.getLogger().addHandler(logging.NullHandler())
+    else:
+        logger = setup_custom_logging(str(log_file))
+
+    logger.warning("file-line")
+
+    with open(log_file) as f:
+        content = f.read()
+    assert "file-line" in content
+
+
+def test_repeated_setup_does_not_stack_handlers_or_filters() -> None:
+    setup_custom_logging(None)
+    logger = setup_custom_logging(None)
+    handler_count_first_call = len(logger.handlers)
+    console_handler = logger.handlers[0]
+    assert len(console_handler.filters) == 1
+    assert logger.level == logging.INFO
+
+    logger = setup_custom_logging(None)
+    assert len(logger.handlers) == handler_count_first_call
+    new_console_handler = logger.handlers[0]
+    assert len(new_console_handler.filters) == 1
+    assert logger.level == logging.INFO
 
 
 def test_no_duplicate_logs(caplog: pytest.LogCaptureFixture, tmp_path: Any) -> None:
@@ -322,7 +479,9 @@ def test_custom_log_file_configuration(tmp_path: Any) -> None:
     )
 
 
-def test_console_always_enabled(caplog: pytest.LogCaptureFixture) -> None:
+def test_logger_output_reaches_caplog_with_and_without_log_file(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logger_no_file = setup_custom_logging(None)
 
     caplog.clear()

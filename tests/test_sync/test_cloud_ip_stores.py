@@ -231,6 +231,46 @@ def test_cloud_manager_store_path_handles_fetch_exception(
     assert mgr.ip_ranges["Azure"] == set()
 
 
+def test_cloud_manager_store_path_preserves_ranges_on_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MagicMock()
+    store.get = MagicMock(return_value=None)
+    store.set = MagicMock(side_effect=RuntimeError("redis down"))
+    mgr = CloudManager()
+    mgr.set_store(store)
+    mgr.ip_ranges["AWS"] = {ipaddress.ip_network("10.0.0.0/8")}
+
+    def fake_aws() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return {ipaddress.ip_network("172.16.0.0/12")}
+
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges", fake_aws
+    )
+    mgr.refresh_async({"AWS"})
+    assert mgr.ip_ranges["AWS"] == {ipaddress.ip_network("10.0.0.0/8")}
+
+
+def test_cloud_manager_store_path_new_provider_stays_empty_on_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MagicMock()
+    store.get = MagicMock(return_value=None)
+    store.set = MagicMock(side_effect=RuntimeError("redis down"))
+    mgr = CloudManager()
+    mgr.set_store(store)
+    mgr.ip_ranges.pop("Azure", None)
+
+    def fake_azure() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return {ipaddress.ip_network("10.0.0.0/8")}
+
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.cloud_handler.fetch_azure_ip_ranges", fake_azure
+    )
+    mgr.refresh_async({"Azure"})
+    assert mgr.ip_ranges["Azure"] == set()
+
+
 def test_cloud_manager_initialize_redis_upgrades_default_store_to_redis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -337,6 +377,27 @@ def test_cloud_manager_legacy_redis_path_preserves_existing_ranges_on_error(
 
     monkeypatch.setattr(
         "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges", boom
+    )
+    mgr.refresh_async({"AWS"})
+    assert mgr.ip_ranges["AWS"] == {ipaddress.ip_network("10.0.0.0/8")}
+
+
+def test_cloud_manager_legacy_redis_path_preserves_ranges_on_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mgr = CloudManager()
+    mgr._store = None
+    redis_handler = MagicMock()
+    redis_handler.get_key = MagicMock(return_value=None)
+    redis_handler.set_key = MagicMock(side_effect=RuntimeError("redis down"))
+    mgr.redis_handler = redis_handler
+    mgr.ip_ranges["AWS"] = {ipaddress.ip_network("10.0.0.0/8")}
+
+    def fake_aws() -> set[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return {ipaddress.ip_network("198.51.100.0/24")}
+
+    monkeypatch.setattr(
+        "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges", fake_aws
     )
     mgr.refresh_async({"AWS"})
     assert mgr.ip_ranges["AWS"] == {ipaddress.ip_network("10.0.0.0/8")}

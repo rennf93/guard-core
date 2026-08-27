@@ -256,16 +256,16 @@ class CloudManager:
 
                 ranges, regions = await _fetch_provider_ranges(provider)
                 if ranges:
-                    old_ranges = self.ip_ranges.get(provider, set())
-                    self._log_range_changes(provider, old_ranges, ranges)
-                    self.ip_ranges[provider] = ranges
-                    self.network_regions[provider] = regions
-                    self.last_updated[provider] = datetime.now(timezone.utc)
                     await self._store.set(
                         provider,
                         _encode_cached(ranges, regions),
                         ttl=ttl,
                     )
+                    old_ranges = self.ip_ranges.get(provider, set())
+                    self._log_range_changes(provider, old_ranges, ranges)
+                    self.ip_ranges[provider] = ranges
+                    self.network_regions[provider] = regions
+                    self.last_updated[provider] = datetime.now(timezone.utc)
             except Exception as e:
                 self.logger.error(f"Failed to refresh {provider} IP ranges: {str(e)}")
                 if provider not in self.ip_ranges:
@@ -289,17 +289,17 @@ class CloudManager:
 
                 ranges, regions = await _fetch_provider_ranges(provider)
                 if ranges:
-                    old_ranges = self.ip_ranges.get(provider, set())
-                    self._log_range_changes(provider, old_ranges, ranges)
-                    self.ip_ranges[provider] = ranges
-                    self.network_regions[provider] = regions
-                    self.last_updated[provider] = datetime.now(timezone.utc)
                     await self.redis_handler.set_key(
                         "cloud_ranges_v2",
                         provider,
                         ",".join(sorted(_encode_cached(ranges, regions))),
                         ttl=ttl,
                     )
+                    old_ranges = self.ip_ranges.get(provider, set())
+                    self._log_range_changes(provider, old_ranges, ranges)
+                    self.ip_ranges[provider] = ranges
+                    self.network_regions[provider] = regions
+                    self.last_updated[provider] = datetime.now(timezone.utc)
             except Exception as e:
                 self.logger.error(f"Failed to refresh {provider} IP ranges: {str(e)}")
                 if provider not in self.ip_ranges:

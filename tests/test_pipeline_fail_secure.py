@@ -1,10 +1,14 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis.exceptions import RedisError
 
+from guard_core.core.checks.implementations.rate_limit import RateLimitCheck
 from guard_core.core.checks.pipeline import SecurityCheckPipeline
 from guard_core.exceptions import GuardRedisError
+from guard_core.handlers.ratelimit_handler import RateLimitManager
 from guard_core.models import SecurityConfig
+from tests.conftest import MockGuardRequest
 
 
 def _redis_failing_check(config: SecurityConfig) -> MagicMock:
@@ -14,6 +18,40 @@ def _redis_failing_check(config: SecurityConfig) -> MagicMock:
     check.check = AsyncMock(side_effect=GuardRedisError(503, "Redis connection failed"))
     check.create_error_response = AsyncMock(return_value="BLOCKED")
     return check
+
+
+class _FailingConnection:
+    async def __aenter__(self) -> None:
+        raise RedisError("down")
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+def _rate_limit_check_with_broken_redis(config: SecurityConfig) -> RateLimitCheck:
+    RateLimitManager._instance = None
+    rate_limit_manager = RateLimitManager(config)
+    rate_limit_manager.rate_limit_script_sha = "sha123"
+    redis = MagicMock()
+    redis.get_connection = lambda: _FailingConnection()
+    redis.config = MagicMock(redis_prefix="test:")
+    rate_limit_manager.redis_handler = redis
+
+    middleware = MagicMock()
+    middleware.config = config
+    middleware.logger = MagicMock()
+    middleware.route_resolver.should_bypass_check = MagicMock(return_value=False)
+    middleware.rate_limit_handler = rate_limit_manager
+    middleware.create_error_response = AsyncMock(return_value="BLOCKED")
+    return RateLimitCheck(middleware)
+
+
+def _rate_limit_request() -> MockGuardRequest:
+    request = MockGuardRequest(path="/x")
+    request.state.is_whitelisted = False
+    request.state.client_ip = "203.0.113.20"
+    request.state.route_config = None
+    return request
 
 
 def test_default_security_config_is_fail_secure() -> None:
@@ -122,3 +160,37 @@ async def test_pipeline_blocks_on_redis_error_when_fail_open_disabled() -> None:
     result = await pipeline.execute(MagicMock())
 
     assert result == "BLOCKED"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_rate_limit_check_blocks_when_fail_secure() -> None:
+    config = SecurityConfig(
+        enable_redis=True,
+        enable_rate_limiting=True,
+        rate_limit=100,
+        fail_secure=True,
+        redis_fail_open=False,
+    )
+    check = _rate_limit_check_with_broken_redis(config)
+
+    pipeline = SecurityCheckPipeline([check])
+    result = await pipeline.execute(_rate_limit_request())
+
+    assert result == "BLOCKED"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_rate_limit_check_passes_through_when_not_fail_secure() -> None:
+    config = SecurityConfig(
+        enable_redis=True,
+        enable_rate_limiting=True,
+        rate_limit=100,
+        fail_secure=False,
+        redis_fail_open=False,
+    )
+    check = _rate_limit_check_with_broken_redis(config)
+
+    pipeline = SecurityCheckPipeline([check])
+    result = await pipeline.execute(_rate_limit_request())
+
+    assert result is None

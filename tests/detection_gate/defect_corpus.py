@@ -138,6 +138,64 @@ def _asim_gif_bytes(n: int = 4000) -> bytes:
     return b"GIF89a" + bytes(rng.getrandbits(8) for _ in range(n)) + b"\x00\x3b"
 
 
+def _nested_json_attack(depth: int, leaf: str) -> bytes:
+    leaf_json = json.dumps(leaf)
+    prefix = '{"a":' * depth
+    suffix = "}" * depth
+    return (prefix + leaf_json + suffix).encode()
+
+
+def _oversized_body_with_marker_in_first_kb(total_size: int, marker: str) -> bytes:
+    marker_bytes = marker.encode()
+    prefix = b"x" * 500
+    filler = b"y" * (total_size - len(prefix) - len(marker_bytes))
+    return prefix + marker_bytes + filler
+
+
+_BENIGN_BODY_WORDS = [
+    "the",
+    "quick",
+    "brown",
+    "fox",
+    "jumps",
+    "over",
+    "lazy",
+    "dog",
+    "customer",
+    "order",
+    "invoice",
+    "shipment",
+    "product",
+    "warehouse",
+    "region",
+    "quarter",
+    "revenue",
+    "report",
+    "summary",
+    "analytics",
+]
+
+
+def _oversized_body_with_marker_straddling_cap(
+    total_size: int, cap: int, marker: str
+) -> bytes:
+    marker_bytes = marker.encode()
+    prefix = b"y" * (cap - len(marker_bytes) // 2)
+    suffix = b"y" * (total_size - len(prefix) - len(marker_bytes))
+    return prefix + marker_bytes + suffix
+
+
+def _oversized_benign_body(total_size: int) -> bytes:
+    rng = random.Random(13)
+    parts = []
+    length = 0
+    while length < total_size:
+        word = rng.choice(_BENIGN_BODY_WORDS)
+        parts.append(word)
+        length += len(word) + 1
+    return " ".join(parts)[:total_size].encode()
+
+
 ATTACKS: list[tuple[str, bytes]] = [
     ("b64_invalid_byte_xss", b64_joined(XSS, b"\x85")),
     ("b64_invalid_byte_sqli", b64_joined(SQLI, b"\x85")),
@@ -241,9 +299,26 @@ ATTACKS: list[tuple[str, bytes]] = [
         "scan_value_cap_regression_ordinary_sqli_still_detected",
         b"1 OR 1=1 UNION SELECT password_hash FROM admin_users--",
     ),
+    ("json_nested_depth10_sqli", _nested_json_attack(10, "' OR 1=1--")),
+    ("json_nested_depth40_sqli", _nested_json_attack(40, "' OR 1=1--")),
+    (
+        "embedded_json_recursion_depth1500_xss",
+        _nested_json_attack(1500, "<script>alert(1)</script>"),
+    ),
+    (
+        "oversized_body_attack_in_first_kb",
+        _oversized_body_with_marker_in_first_kb(300_000, SQLI),
+    ),
+    (
+        "oversized_body_straddling_signature_at_cap_boundary",
+        _oversized_body_with_marker_straddling_cap(
+            300_000, SecurityConfig().detection_max_body_inspect_bytes, SQLI
+        ),
+    ),
 ]
 
 BENIGN: list[tuple[str, bytes]] = [
+    ("oversized_body_benign_reporter_style", _oversized_benign_body(300_000)),
     ("sql_select_int_compare", b"SELECT id FROM users WHERE id = 5"),
     ("sql_select_bool_compare", b"SELECT name, email FROM customers WHERE active = 1"),
     ("sql_select_quoted_compare", b"SELECT * FROM orders WHERE status = 'shipped'"),
@@ -438,14 +513,26 @@ class _State:
     pass
 
 
+CONTENT_TYPE_OVERRIDES: dict[str, str] = {
+    "json_nested_depth10_sqli": "application/json",
+    "json_nested_depth40_sqli": "application/json",
+}
+
+MECHANISM_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "oversized_body_straddling_signature_at_cap_boundary": ("raw_body",),
+}
+
+
 class _Req:
-    def __init__(self, body: bytes, mechanism: str) -> None:
+    def __init__(
+        self, body: bytes, mechanism: str, content_type: str | None = None
+    ) -> None:
         self.client_host = "203.0.113.7"
         self.url_path = "/x"
         self.method = "POST"
         self.state: Any = _State()
         self.query_params: dict[str, str] = {}
-        self.headers: dict[str, str] = {"content-type": "text/plain"}
+        self.headers: dict[str, str] = {"content-type": content_type or "text/plain"}
         self._body = body
         if mechanism == "form_body":
             self.headers = {"content-type": "application/x-www-form-urlencoded"}
@@ -482,11 +569,16 @@ class _Req:
     async def body(self) -> bytes:
         return self._body
 
+    async def read_body_prefix(self, max_bytes: int) -> bytes:
+        return self._body[:max_bytes]
 
-async def verdict(body: bytes, mechanism: str) -> bool | str:
+
+async def verdict(
+    body: bytes, mechanism: str, content_type: str | None = None
+) -> bool | str:
     try:
         result = await detect_penetration_attempt(
-            _Req(body, mechanism), SecurityConfig()
+            _Req(body, mechanism, content_type), SecurityConfig()
         )
         return bool(result.is_threat)
     except Exception as exc:
@@ -508,10 +600,14 @@ async def main() -> None:
         ("limitation", DOCUMENTED_LIMITATIONS),
     ):
         for name, body in cases:
-            mechs = REDUCED_MECHANISMS if name in REDUCED_MECHANISM_ROWS else MECHANISMS
+            mechs = MECHANISM_OVERRIDES.get(
+                name,
+                REDUCED_MECHANISMS if name in REDUCED_MECHANISM_ROWS else MECHANISMS,
+            )
+            content_type = CONTENT_TYPE_OVERRIDES.get(name)
             per = {}
             for mech in mechs:
-                per[mech] = await verdict(body, mech)
+                per[mech] = await verdict(body, mech, content_type)
             rows.append(
                 {
                     "name": name,

@@ -46,7 +46,7 @@ Proxy Configuration
 - `trusted_proxies`: if any entry is a `/0` network (`0.0.0.0/0` or `::/0`), construction logs a `WARNING` naming the risk (every peer becomes trusted to set `X-Forwarded-For`); the literal `"unix"` token is exempt from this check.
 - `trusted_proxy_depth`: Must be >= 1.
 
-`trusted_proxy_depth` is the number of hops you vouch for, not a maximum: the connecting peer must itself be listed in `trusted_proxies`. A chain shorter than the configured depth, or a depth-selected entry that is itself a trusted proxy, now logs a one-time `WARNING` (see [Unsatisfiable and Over-Counted Depth](../internals/ip-management.md#unsatisfiable-and-over-counted-depth)).
+`trusted_proxy_depth` is the number of hops you vouch for, not a maximum: the connecting peer must itself be listed in `trusted_proxies`. A chain shorter than the configured depth, or a depth-selected entry that is itself a trusted proxy, now logs a one-time `WARNING`. A declared depth that over-counts the real hops -- an entry to the right of the depth-selected one is not itself a listed trusted proxy -- also logs a one-time `WARNING` and, unlike the first two, corrects the resolved identity: it walks the chain right to left and returns the first entry that is not a listed trusted proxy, instead of the plain (and, in that case, client-rotatable) depth-indexed entry. See [Unsatisfiable and Over-Counted Depth](../internals/ip-management.md#unsatisfiable-and-over-counted-depth).
 
 !!! warning "Your app server must not pre-resolve the client itself"
     Leaving `trusted_proxies` unset only means "`X-Forwarded-For` is never trusted" if your ASGI/WSGI server isn't already applying that header before guard-core runs. uvicorn's default `proxy_headers=True` (and equivalent settings in Gunicorn/Hypercorn) does exactly that. See [Deployment Prerequisite](../internals/ip-management.md#deployment-prerequisite-disable-the-app-servers-own-forwarded-header-handling) for the fix.
@@ -70,6 +70,7 @@ IP Management
 **Validators**:
 
 - `whitelist` and `blacklist`: Each entry validated as a valid IP or CIDR range via `ipaddress.ip_address()` / `ip_network()`.
+- `whitelist`: if any entry is a `/0` network (`0.0.0.0/0` or `::/0`), construction logs a `WARNING` naming the risk (every address becomes whitelisted, so `blacklist`, `blocked_countries` and IP bans cannot block anyone). Precedence is unchanged: a `/0` whitelist still allows every address, this is a signal only.
 
 !!! warning "Whitelist Semantics"
     `whitelist=None` means "no whitelist" (all IPs pass). `whitelist=[]` means "empty whitelist" (no IPs pass). Adapter developers should document this distinction.
@@ -364,7 +365,7 @@ Redis
 | `redis_health_check_interval`    | `int`         | `30`                      | Seconds between pooled-connection health checks. `0` disables. |
 | `redis_max_connections`          | `int \| None` | `None`                    | Cap on the connection pool size. `None` uses redis-py's default. |
 | `redis_retries`                  | `int`         | `1`                       | Retries (with exponential backoff) on transient connection/timeout errors. `0` disables. |
-| `redis_fail_open`                | `bool`        | `False`                   | On Redis outage, `fail_secure` governs by default. Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures. |
+| `redis_fail_open`                | `bool`        | `False`                   | On Redis outage, `fail_secure` governs by default. Set `True` to skip the failing check and let the request through, treating Redis outages as an availability concern distinct from other check failures. Covers Redis unavailability at startup, a `GuardRedisError` raised from any security check mid-request, and the rate limiter's Redis path: `True` falls back to an in-memory window with a one-time process warning (with several workers the effective limit becomes workers times `rate_limit`), `False` raises so `fail_secure` decides the outcome. |
 
 ___
 
@@ -382,10 +383,14 @@ Detection Engine
 | `detection_slow_pattern_threshold`  | `float` | `0.1`   | 0.01 - 1.0   | Seconds to consider a pattern slow.          |
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
-| `detection_max_body_inspect_bytes`  | `int`   | `262144`| 1024 - 10485760 | Body size cap read/scanned for detection; distinct from `detection_max_content_length` and `max_request_size`. |
+| `detection_max_body_inspect_bytes`  | `int`   | `262144`| 1024 - 10485760 | Body size cap read/scanned for detection; distinct from `detection_max_content_length` and `max_request_size`. A body whose declared `Content-Length` exceeds this cap is read through the adapter's bounded reader (`read_body_prefix`) and only the first this-many bytes are scanned, if the adapter implements one; without a bounded reader the body is not read at all, the same skip as before this cap existed. Either way a one-time warning names the cap, the client, and which of the two happened. A signature that straddles the cap boundary is still caught: a small overlap (the longest compiled pattern length, up to 256 bytes) is read past the cap on every path, including a declared oversized `Content-Length`. |
 | `detection_max_scan_values`         | `int`   | `512`   | 2 - 100000    | Maximum values (query params, headers, JSON keys/values, form/multipart fields) scanned per request; remaining values are skipped and a one-time warning logs the client IP once reached. Each named value costs two scan units (name, then value), so the minimum is 2. |
+| `detection_max_scan_chars`          | `int`   | `65536` | 1024 - 262144 | Maximum total characters, across every value handed to the pattern engine per request (counted at the same point as `detection_max_scan_values`), before remaining values are skipped and a one-time warning logs the client IP. A value already in progress when the budget is checked is always scanned in full; only values that would start after the budget is spent are skipped, so a single large value is never silently dropped (GHSA-3hfx-8m47-5f9h residual). |
+| `detection_max_json_depth`          | `int`   | `32`    | 1 - 1000      | Maximum nesting depth of a JSON request body walked structurally. A dict or list reached at this depth is not descended into: it is serialized back to text and scanned as one value instead, bounded by `detection_max_content_length`, so content hidden below the cap is still scanned as text rather than structurally. A one-time warning logs the client IP once reached (GHSA-f6cf-jjhc-qp85). |
 | `detection_threat_score_threshold`  | `float` | `1.0`   | 0.0 - 10.0    | Anomaly/threat score required to flag a request. |
 | `detection_scan_body`               | `bool`  | `True`  | N/A           | Scan the request body during detection; `False` restricts detection to path/query/headers. |
+
+The detection engine follows one `SecurityConfig` per process: `detect_penetration_attempt(request, config)` configures the shared detection singleton from `config` the first time it is called, and reconfigures it whenever called with a different `SecurityConfig` object (compared by identity, so calling it repeatedly with the same object is a no-op). Alternating between two `SecurityConfig` objects on every other request reconfigures on every call, discarding the previously compiled pattern cache each time. The swap itself is a single attribute assignment: the new state is built completely before it replaces the old one, so a concurrent request always sees a fully-built state, never a half-constructed one. There is no lock around the swap.
 
 ___
 
@@ -399,6 +404,8 @@ Logging
 | `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits log at `log_suspicious_level` instead (default `WARNING`); no-rules / no-geolocation always log at `DEBUG`. |
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
+
+`setup_custom_logging()` (called by every adapter at middleware init with `log_format` and `custom_log_file`) always attaches its own console handler to the `guard_core` logger, but that handler's console output yields to the host's root handlers whenever they exist, whichever was configured first, so the event propagates to the host's own root handlers exactly once instead of printing twice. The `custom_log_file` handler is unaffected and is attached in every case. See [Logging Configuration](logging.md#avoiding-duplicate-log-lines) for detail.
 
 ___
 
@@ -467,6 +474,7 @@ Validators
 | `validate_ip_lists` | `whitelist`, `blacklist` | Validates IP addresses and CIDR ranges. Raises `ValueError` on invalid entries. |
 | `validate_trusted_proxies` | `trusted_proxies` | Validates proxy IPs and CIDR ranges, plus the literal `"unix"` token. Raises `ValueError` on invalid entries. |
 | `warn_trusted_proxies_prefix_zero` | model-level | Logs a `WARNING` when `trusted_proxies` contains a `/0` network. Does not raise; construction still succeeds. |
+| `warn_whitelist_prefix_zero` | model-level | Logs a `WARNING` when `whitelist` contains a `/0` network. Does not raise; construction still succeeds, and precedence is unchanged. |
 | `warn_empty_enabled_detection_categories` | model-level | Logs a `WARNING` when `enabled_detection_categories` is empty while `enable_penetration_detection` is `True`. Does not raise; construction still succeeds. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
 | `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |

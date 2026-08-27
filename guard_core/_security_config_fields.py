@@ -411,7 +411,7 @@ class _SecurityConfigFields(BaseModel):
             "Redis is enabled (enable_redis=True and a redis_handler is wired) "
             "and the consuming adapter calls initialize_redis_handlers() during "
             "its own opt-in startup hook (for example fastapi-guard's lifespan "
-            "integration) — it is not triggered by app boot on its own. Without "
+            "integration), it is not triggered by app boot on its own. Without "
             "Redis, or without that hook wired, cloud/geo initialization instead "
             "happens through their on-demand paths and this flag has no effect. "
             "First requests may see partially-populated cloud-IP ranges until "
@@ -731,8 +731,14 @@ class _SecurityConfigFields(BaseModel):
         description=(
             "Maximum bytes read from the start of the request body and inspected "
             "for penetration detection. When the request's Content-Length exceeds "
-            "this, the body is not read or scanned and the request proceeds, "
-            "bounding memory on the detection hot path. This is a memory bound, "
+            "this, the adapter's read_body_prefix (a bounded reader that only "
+            "ever returns up to the requested byte count) is used to read the "
+            "first this-many bytes and scan them, if the adapter implements it; "
+            "when the adapter has no bounded reader, the body is not read at "
+            "all and detection falls back to path, query, and header checks "
+            "only, the same as before this cap existed. Either way a one-time "
+            "warning names the cap, the client, and which of the two happened. "
+            "This is a memory bound, "
             "not full-body coverage: only this leading prefix is ever scanned, so "
             "a payload placed after the first N bytes, or a signature split across "
             "the boundary, is not detected. That tradeoff is inherent to "
@@ -768,6 +774,44 @@ class _SecurityConfigFields(BaseModel):
         ),
         ge=2,
         le=100_000,
+    )
+
+    detection_max_scan_chars: int = Field(
+        default=65536,
+        description=(
+            "Maximum total characters, across every value handed to the "
+            "pattern engine per request (query parameters, header values, "
+            "JSON keys and leaf values, form fields, multipart parts, "
+            "including JSON embedded within a single value), counted at the "
+            "same accounting point as detection_max_scan_values. Once "
+            "reached, remaining values in the request are not scanned and a "
+            "one-time warning is logged naming the client IP, the same "
+            "fail-open signal detection_max_scan_values already gives. "
+            "Bounds worst-case CPU on a request whose values are individually "
+            "large (a handful of large values can cost as much CPU as many "
+            "small ones), a gap detection_max_scan_values alone does not "
+            "close (GHSA-3hfx-8m47-5f9h residual)."
+        ),
+        ge=1024,
+        le=262144,
+    )
+
+    detection_max_json_depth: int = Field(
+        default=32,
+        description=(
+            "Maximum nesting depth of a JSON request body walked structurally "
+            "during penetration detection. A dict or list encountered at this "
+            "depth is not descended into: it is serialized back to text and "
+            "scanned as a single value instead, bounded by "
+            "detection_max_content_length, so content hidden below the cap is "
+            "still scanned, just as text rather than structurally. Once "
+            "reached, a one-time warning is logged naming the client IP. "
+            "Bounds worst-case call-stack and CPU usage on a deeply nested "
+            "JSON body; the standard detection benchmarks never approach this "
+            "cap."
+        ),
+        ge=1,
+        le=1000,
     )
 
     detection_preserve_attack_patterns: bool = Field(
@@ -891,7 +935,7 @@ class _SecurityConfigFields(BaseModel):
             "Populate guard.* metadata on every event and every metric with "
             "project identity, deterministic threat score, matched dynamic "
             "rule, and per-IP behavioral correlation keys. Requires "
-            "enable_agent=True — enrichment is the guard-agent-gated tier "
+            "enable_agent=True, enrichment is the guard-agent-gated tier "
             "of the telemetry pipeline."
         ),
     )

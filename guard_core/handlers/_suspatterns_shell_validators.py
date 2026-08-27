@@ -1,0 +1,170 @@
+import re
+
+from guard_core.handlers._suspatterns_shell_sources import (
+    _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS,
+    _BACKTICK_WINDOW_DELIMITER_CHARS,
+    _BACKTICK_WINDOW_DELIMITER_RE,
+    _BARE_SHELL_PARAMETER_NAME_RE,
+    _GLOB_WILDCARD_CHAR_RE,
+    _GLUED_BACKTICK_ASCII_WORD_RE,
+    _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE,
+    _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE,
+    _SHELL_CHAIN_OPERATOR_RE,
+    _SHELL_SPECIAL_PARAMETER_NAMES,
+    _STRONG_SQL_KEYWORD_GLUED_PREFIX_RE,
+    _STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE,
+)
+
+
+def _backtick_token_has_chained_shell_operators(token: str) -> bool:
+    return len(_SHELL_CHAIN_OPERATOR_RE.findall(token)) >= 2
+
+
+_SHELL_METACHARACTER_WINDOW_RE = re.compile(
+    r"(?:;|\|\||\||&&)\s*(?:`|[A-Za-z_][\w-]*|[~./][\w./-]*|-[\w-]*)|\$\(|\$\{"
+)
+
+
+def _backtick_pair_glued(content: str, start: int, end: int) -> bool:
+    prefix_glued = start > 0 and bool(
+        _GLUED_BACKTICK_ASCII_WORD_RE.match(content[start - 1])
+    )
+    suffix_glued = end < len(content) and bool(
+        _GLUED_BACKTICK_ASCII_WORD_RE.match(content[end])
+    )
+    return prefix_glued or suffix_glued
+
+
+def _backtick_window_start(content: str, position: int) -> int:
+    index = position
+    while index > 0 and content[index - 1] not in _BACKTICK_WINDOW_DELIMITER_CHARS:
+        index -= 1
+    return index
+
+
+def _backtick_window_end(content: str, position: int) -> int:
+    delimiter = _BACKTICK_WINDOW_DELIMITER_RE.search(content, position)
+    return delimiter.start() if delimiter else len(content)
+
+
+def _backtick_pair_context_window(content: str, start: int, end: int) -> str:
+    window_start = _backtick_window_start(content, start)
+    window_end = _backtick_window_end(content, end)
+    return content[window_start:window_end]
+
+
+_SHELL_TEXT_PRINTABLE_ASCII_RE = re.compile(r"\A[\t\x20-\x7e]*\Z")
+
+
+def _backtick_token_is_implausible_sql_identifier(token: str) -> bool:
+    return bool(_IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE.search(token))
+
+
+def _strong_sql_keyword_glued_to_pair(content: str, start: int, end: int) -> bool:
+    window_start = _backtick_window_start(content, start)
+    window_end = _backtick_window_end(content, end)
+    prefix = content[window_start:start]
+    suffix = content[end:window_end]
+    if _STRONG_SQL_KEYWORD_GLUED_PREFIX_RE.search(prefix):
+        return True
+    return bool(_STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE.match(suffix))
+
+
+def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
+    content = match.string
+    start, end = match.start(), match.end()
+    token = content[start + 1 : end - 1]
+    if not _SHELL_TEXT_PRINTABLE_ASCII_RE.match(token):
+        return False
+    if _backtick_token_has_chained_shell_operators(token):
+        return True
+    if not _backtick_pair_glued(content, start, end):
+        return False
+    if _backtick_token_is_implausible_sql_identifier(token):
+        return True
+    window = _backtick_pair_context_window(content, start, end)
+    if _SHELL_METACHARACTER_WINDOW_RE.search(window):
+        return True
+    if _strong_sql_keyword_glued_to_pair(content, start, end):
+        return False
+    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
+def _dollar_substitution_token_is_implausible(token: str, delimiter: str) -> bool:
+    stripped = token.strip().lower()
+    if stripped in _SHELL_SPECIAL_PARAMETER_NAMES:
+        return True
+    if delimiter == "{":
+        return not _BARE_SHELL_PARAMETER_NAME_RE.match(token.strip())
+    return bool(_IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE.search(token))
+
+
+def _dollar_substitution_pair_backtick_quoted(
+    content: str, start: int, end: int
+) -> bool:
+    prefix_quoted = start > 0 and content[start - 1] == "`"
+    suffix_quoted = end < len(content) and content[end] == "`"
+    return prefix_quoted or suffix_quoted
+
+
+def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> bool:
+    content = match.string
+    start, end = match.start(), match.end()
+    if _dollar_substitution_pair_backtick_quoted(content, start, end):
+        return False
+    delimiter = content[start + 1]
+    token = content[start + 2 : end - 1]
+    if _dollar_substitution_token_is_implausible(token, delimiter):
+        return True
+    if _strong_sql_keyword_glued_to_pair(content, start, end):
+        return False
+    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+
+
+def _quote_splice_token_is_dangerous_command(match: re.Match) -> bool:
+    run = 0
+    for fragment in re.split(r"['\"]+", match.group()):
+        run = run + 1 if len(fragment) == 1 else 0
+        if run >= 3:
+            return True
+    return False
+
+
+_GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE = re.compile(r"(?:;|\|\||\||&&|\$\(|`)\s*\Z")
+_GLOB_WILDCARD_VALUE_START_CONTEXTS = frozenset({"request_body"})
+_GLOB_WILDCARD_LETTER_RE = re.compile(r"[A-Za-z]")
+_GLOB_WILDCARD_COMMAND_SUFFIX_CHARS = " \t\r\n;|&"
+
+
+def _glob_wildcard_token_is_word_shaped(token: str) -> bool:
+    for wildcard in _GLOB_WILDCARD_CHAR_RE.finditer(token):
+        index = wildcard.start()
+        left = 0
+        position = index - 1
+        while position >= 0 and _GLOB_WILDCARD_LETTER_RE.match(token, position):
+            left += 1
+            position -= 1
+        right = 0
+        position = index + 1
+        while position < len(token) and _GLOB_WILDCARD_LETTER_RE.match(token, position):
+            right += 1
+            position += 1
+        if left + right >= 2:
+            return True
+    return False
+
+
+def _glob_wildcard_token_is_dangerous_command(
+    match: re.Match, context: str = "unknown"
+) -> bool:
+    if not _glob_wildcard_token_is_word_shaped(match.group()):
+        return False
+    suffix = match.string[match.end() : match.end() + 1]
+    if suffix and suffix not in _GLOB_WILDCARD_COMMAND_SUFFIX_CHARS:
+        return False
+    prefix = match.string[: match.start()]
+    if _GLOB_WILDCARD_COMMAND_BOUNDARY_PREFIX_RE.search(prefix):
+        return True
+    if context in _GLOB_WILDCARD_VALUE_START_CONTEXTS:
+        return not prefix.strip()
+    return False

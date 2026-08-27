@@ -1,10 +1,24 @@
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from guard_core.sync.utils import JsonFormatter, setup_custom_logging
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_handlers() -> Iterator[None]:
+    root_logger = logging.getLogger()
+    original_handlers = root_logger.handlers[:]
+    original_level = root_logger.level
+    yield
+    for handler in root_logger.handlers[:]:
+        if handler not in original_handlers:
+            handler.close()
+    root_logger.handlers = original_handlers
+    root_logger.setLevel(original_level)
 
 
 def test_text_format_default() -> None:
@@ -16,6 +30,7 @@ def test_text_format_default() -> None:
 def test_json_format_produces_valid_json(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
+    logging.getLogger().handlers = []
     logger = setup_custom_logging(log_format="json")
     logger.info("test message")
 

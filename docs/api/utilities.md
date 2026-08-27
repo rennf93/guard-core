@@ -25,12 +25,18 @@ def setup_custom_logging(
     """
     Setup custom logging for Guard Core.
 
-    Configures a hierarchical logger that outputs to both console and file.
-    Console output is ALWAYS enabled for visibility.
-    File output is optional for persistence.
+    Configures a hierarchical logger that outputs to console and file.
+    A console handler is always attached, but it carries a filter that
+    yields to the host's own root logger handlers whenever they exist
+    (checked at emission time, not at setup time), so the event
+    propagates to the host's handlers instead, avoiding a duplicate line.
+    File output is optional for persistence, and is unaffected by the
+    root logger's state.
 
     Args:
-        log_file: Optional path to log file. If None, only console output is enabled.
+        log_file: Optional path to log file. If None, only console output
+                  (when the root logger has no handlers of its own, see
+                  above) is used.
                   If provided, creates the directory if it doesn't exist.
         log_format: "text" (default) or "json" for structured JSON output.
 

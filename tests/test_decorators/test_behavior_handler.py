@@ -183,6 +183,44 @@ async def test_track_endpoint_usage_evicts_the_oldest_client_a_touched_client_su
 
 
 @pytest.mark.asyncio
+async def test_track_endpoint_usage_evicts_oldest_endpoint_touched_one_survives(
+    security_config: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(behavior_handler, "_MAX_TRACKED_ENDPOINTS", 3)
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=999, window=60)
+    client_ip = "203.0.113.1"
+
+    for endpoint_id in ("/api/one", "/api/two", "/api/three"):
+        await tracker.track_endpoint_usage(endpoint_id, client_ip, rule)
+
+    await tracker.track_endpoint_usage("/api/one", client_ip, rule)
+    await tracker.track_endpoint_usage("/api/four", client_ip, rule)
+
+    assert len(tracker.usage_counts) == 3
+    assert "/api/two" not in tracker.usage_counts
+    assert "/api/one" in tracker.usage_counts
+    assert "/api/four" in tracker.usage_counts
+
+
+@pytest.mark.asyncio
+async def test_track_endpoint_usage_many_endpoints_settle_at_default_bound(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=999, window=60)
+    client_ip = "203.0.113.1"
+
+    for i in range(15_000):
+        await tracker.track_endpoint_usage(f"/api/endpoint-{i}", client_ip, rule)
+
+    assert len(tracker.usage_counts) == 10_000
+    assert "/api/endpoint-0" not in tracker.usage_counts
+    assert "/api/endpoint-14999" in tracker.usage_counts
+
+
+@pytest.mark.asyncio
 async def test_track_endpoint_usage_with_redis(
     security_config_redis: SecurityConfig,
 ) -> None:
@@ -918,6 +956,52 @@ async def test_track_return_pattern_evicts_the_oldest_client_a_touched_client_su
     assert "203.0.113.12" not in bucket
     assert "203.0.113.11" in bucket
     assert "203.0.113.14" in bucket
+
+
+@pytest.mark.asyncio
+async def test_track_return_pattern_evicts_oldest_endpoint_touched_one_survives(
+    security_config: SecurityConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(behavior_handler, "_MAX_TRACKED_ENDPOINTS", 3)
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(
+        rule_type="return_pattern", threshold=999, window=60, pattern="status:200"
+    )
+    client_ip = "203.0.113.11"
+    response = MockGuardResponse("success", status_code=200)
+
+    for endpoint_id in ("/api/one", "/api/two", "/api/three"):
+        await tracker.track_return_pattern(endpoint_id, client_ip, response, rule)
+
+    await tracker.track_return_pattern("/api/one", client_ip, response, rule)
+    await tracker.track_return_pattern("/api/four", client_ip, response, rule)
+
+    assert len(tracker.return_patterns) == 3
+    assert f"/api/two:{rule.pattern}" not in tracker.return_patterns
+    assert f"/api/one:{rule.pattern}" in tracker.return_patterns
+    assert f"/api/four:{rule.pattern}" in tracker.return_patterns
+
+
+@pytest.mark.asyncio
+async def test_track_return_pattern_many_endpoints_settle_at_default_bound(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(
+        rule_type="return_pattern", threshold=999, window=60, pattern="status:200"
+    )
+    client_ip = "203.0.113.11"
+    response = MockGuardResponse("success", status_code=200)
+
+    for i in range(15_000):
+        await tracker.track_return_pattern(
+            f"/api/endpoint-{i}", client_ip, response, rule
+        )
+
+    assert len(tracker.return_patterns) == 10_000
+    assert f"/api/endpoint-0:{rule.pattern}" not in tracker.return_patterns
+    assert f"/api/endpoint-14999:{rule.pattern}" in tracker.return_patterns
 
 
 @pytest.mark.asyncio

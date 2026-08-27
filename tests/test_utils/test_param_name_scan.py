@@ -1,4 +1,5 @@
 import json
+import logging
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -17,6 +18,7 @@ from guard_core.utils import (
     _scan_json_value,
     _scan_multipart_body,
     _scan_query_params,
+    _try_check_json_value,
     detect_penetration_attempt,
 )
 from tests.conftest import MockGuardRequest
@@ -426,3 +428,49 @@ async def test_scan_multipart_body_excluded_name_skips_name_and_value() -> None:
         "WARNING",
     )
     assert detected is False
+
+
+def _nested_json_string(depth: int, leaf: str) -> str:
+    return ('{"a":' * depth) + json.dumps(leaf) + ("}" * depth)
+
+
+_RECURSION_XSS_PAYLOAD = _nested_json_string(1500, "<script>alert(1)</script>")
+
+
+async def test_try_check_json_value_returns_none_on_recursion_error() -> None:
+    result = await _try_check_json_value(
+        _RECURSION_XSS_PAYLOAD, "query_param:v", "127.0.0.1", "corr-1", None
+    )
+    assert result is None
+
+
+async def test_query_param_beyond_json_loads_recursion_limit_does_not_raise() -> None:
+    request = MockGuardRequest(query_params={"v": _RECURSION_XSS_PAYLOAD})
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert result.trigger_info.startswith("Query param 'v': ")
+
+
+async def test_header_beyond_json_loads_recursion_limit_does_not_raise() -> None:
+    request = MockGuardRequest(headers={"x-custom": _RECURSION_XSS_PAYLOAD})
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert result.trigger_info.startswith("Header 'x-custom': ")
+
+
+async def test_form_field_beyond_json_loads_recursion_limit_does_not_raise() -> None:
+    body = urlencode({"v": _RECURSION_XSS_PAYLOAD}).encode()
+    request = _body_request(body, "application/x-www-form-urlencoded")
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is True
+    assert result.trigger_info.startswith("Request body field 'v': ")
+
+
+async def test_query_param_recursion_error_warns_via_the_depth_cap_mechanism(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = MockGuardRequest(query_params={"v": _RECURSION_XSS_PAYLOAD})
+    with caplog.at_level(logging.WARNING, logger="guard_core"):
+        await detect_penetration_attempt(request, _CONFIG)
+    assert "detection_max_json_depth (32) reached" in caplog.text
+    assert caplog.text.count("detection_max_json_depth (32) reached") == 1

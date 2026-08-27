@@ -114,10 +114,10 @@ async def test_ipv4_mapped_address_without_zone_still_canonicalizes_to_bare_ipv4
     assert resolved == "1.2.3.4"
 
 
-def test_forwarded_header_candidate_with_port_suffix_is_dropped() -> None:
+def test_forwarded_header_candidate_with_port_suffix_resolves_to_the_address() -> None:
     result = _extract_from_forwarded_header("1.2.3.4:8080", 1)
 
-    assert result is None
+    assert result == "1.2.3.4"
 
 
 def test_forwarded_header_bracketed_ipv6_candidate_is_accepted_and_canonicalized() -> (

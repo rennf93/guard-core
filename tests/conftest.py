@@ -1,3 +1,4 @@
+import gc
 import os
 import re
 import sys
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 from pytest import TempPathFactory
 
+from guard_core._utils import detection_scan as _detection_scan_module
 from guard_core.core.events import logfire_handler as _logfire_handler_module
 from guard_core.core.events import otel_handler as _otel_handler_module
 from guard_core.handlers import ipban_handler as _ipban_module
@@ -36,6 +38,7 @@ from guard_core.models import SecurityConfig
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
+GUARD_TESTS_GC_PER_TEST = os.getenv("GUARD_TESTS_GC_PER_TEST") == "1"
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +104,22 @@ def _reset_cloud_handler() -> None:
     cloud_handler._refresh_task = None
     cloud_handler._refresh_in_flight = False
     cloud_handler._empty_ranges_warned_at = {}
+
+
+def _reset_detection_scan_budgets() -> None:
+    _detection_scan_module._scanned_value_count.set(0)
+    _detection_scan_module._scan_value_cap.set(
+        _detection_scan_module._DEFAULT_MAX_SCAN_VALUES
+    )
+    _detection_scan_module._scanned_char_count.set(0)
+    _detection_scan_module._scan_char_cap.set(
+        _detection_scan_module._DEFAULT_MAX_SCAN_CHARS
+    )
+    _detection_scan_module._scan_char_cap_warned.set(False)
+    _detection_scan_module._json_depth_cap.set(
+        _detection_scan_module._DEFAULT_MAX_JSON_DEPTH
+    )
+    _detection_scan_module._json_depth_warned.set(False)
 
 
 async def _reset_security_headers_manager() -> None:
@@ -230,6 +249,7 @@ class MockGuardResponseFactory:
 async def reset_state() -> AsyncGenerator[None, None]:
     _reset_ip_ban_manager()
     _reset_cloud_handler()
+    _reset_detection_scan_budgets()
     await _reset_security_headers_manager()
 
     if IPInfoManager._instance:
@@ -254,6 +274,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
+    _reset_detection_scan_budgets()
     await _reset_security_headers_manager()
 
     dynamic_rule_instance = DynamicRuleManager._instance
@@ -347,6 +368,13 @@ async def reset_rate_limiter() -> AsyncGenerator[None, None]:
     rate_limit = rate_limit_handler(config)
     await rate_limit.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _collect_garbage_after_test() -> Any:
+    yield
+    if GUARD_TESTS_GC_PER_TEST:
+        gc.collect()
 
 
 @pytest.fixture

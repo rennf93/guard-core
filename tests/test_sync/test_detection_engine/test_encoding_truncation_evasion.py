@@ -171,7 +171,7 @@ def test_representative_short_benign_tokens_stay_clean(label: str, token: str) -
     assert _is_threat(token) is False
 
 
-def test_oversized_valid_content_length_still_skips_body_scan() -> None:
+def test_oversized_declared_content_length_still_scans_the_actual_body() -> None:
     class _BoundedBodyReaderRequest(SyncMockGuardRequest):
         def read_body_prefix(self, max_bytes: int) -> bytes:
             return self._body[:max_bytes]
@@ -186,4 +186,4 @@ def test_oversized_valid_content_length_still_skips_body_scan() -> None:
 
     result = detect_penetration_attempt(cast(SyncGuardRequest, request), config)
 
-    assert result.is_threat is False
+    assert result.is_threat is True

@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from redis.exceptions import NoScriptError, RedisError
 
+from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
@@ -22,6 +23,33 @@ _by_ip_lock = threading.Lock()
 _by_ip_autoban_counts: defaultdict[str, int] = defaultdict(int)
 _by_ip_autoban_lock = threading.Lock()
 _MAX_TRACKED_RATE_LIMIT_KEYS = 10_000
+_redis_fail_open_warned = False
+
+
+def _warn_redis_fail_open_in_memory_fallback() -> None:
+    global _redis_fail_open_warned
+    with _by_ip_lock:
+        if _redis_fail_open_warned:
+            return
+        _redis_fail_open_warned = True
+    _by_ip_logger.warning(
+        "Redis unavailable for rate limiting; using the in-memory window "
+        "(redis_fail_open=True); with several workers the effective limit "
+        "is workers x rate_limit"
+    )
+
+
+def _resolve_redis_rate_limit_failure(
+    error: Exception,
+    redis_fail_open: bool,
+    logger: logging.Logger,
+    context: str,
+) -> None:
+    if redis_fail_open:
+        _warn_redis_fail_open_in_memory_fallback()
+        return
+    logger.error(f"{context}: {error}")
+    raise GuardRedisError(503, "Redis rate limiting unavailable") from error
 
 
 def _redis_request_count(
@@ -35,6 +63,7 @@ def _redis_request_count(
     rate_limit_script_sha: str | None,
     on_script_reloaded: Callable[[], None] | None = None,
     endpoint_path: str = "",
+    redis_fail_open: bool = False,
 ) -> tuple[int | None, str | None]:
     if not redis_handler:
         return None, rate_limit_script_sha
@@ -81,10 +110,13 @@ def _redis_request_count(
                 return int(results[2]), rate_limit_script_sha
 
     except RedisError as e:
-        logger.error(f"Redis rate limiting error: {str(e)}")
-        logger.info("Falling back to in-memory rate limiting")
+        _resolve_redis_rate_limit_failure(
+            e, redis_fail_open, logger, "Redis rate limiting error"
+        )
     except Exception as e:
-        logger.error(f"Unexpected error in rate limiting: {str(e)}")
+        _resolve_redis_rate_limit_failure(
+            e, redis_fail_open, logger, "Unexpected error in rate limiting"
+        )
 
     return None, rate_limit_script_sha
 
@@ -210,6 +242,12 @@ def check_rate_limit_by_ip(
             ``endpoint_path`` contains a ``:``. Validation runs before any
             counting side effect and before the ``enable_rate_limiting`` early
             return, so rejected input never records a hit and never feeds auto-ban.
+        GuardRedisError: if Redis is enabled and the Redis call fails while
+            ``config.redis_fail_open`` is ``False`` (the default); the caller
+            decides how to handle it, since this primitive has no pipeline
+            ``fail_secure`` handling to fall back on. With
+            ``redis_fail_open=True``, the same failure instead falls back to the
+            in-memory window and does not raise.
     """
     try:
         ipaddress.ip_address(ip)
@@ -240,6 +278,7 @@ def check_rate_limit_by_ip(
             None,
             None,
             endpoint_path,
+            config.redis_fail_open,
         )
         if count is not None:
             allowed = count <= config.rate_limit
@@ -342,6 +381,7 @@ class RateLimitManager:
             self.rate_limit_script_sha,
             self._emit_script_reloaded_event,
             endpoint_path,
+            self.config.redis_fail_open,
         )
         return count
 

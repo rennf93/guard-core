@@ -84,7 +84,9 @@ def test_extract_client_ip_ignores_spoofed_xff_prefix() -> None:
 
 
 def test_extract_client_ip_depth2_ignores_spoofed_prefix() -> None:
-    config = SecurityConfig(trusted_proxies=["127.0.0.1"], trusted_proxy_depth=2)
+    config = SecurityConfig(
+        trusted_proxies=["127.0.0.1", "5.5.5.5"], trusted_proxy_depth=2
+    )
     request = SyncMockGuardRequest(
         path="/",
         method="GET",

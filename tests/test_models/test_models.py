@@ -151,6 +151,78 @@ def test_trusted_proxies_without_prefix_zero_does_not_warn(
     )
 
 
+def test_whitelist_prefix_zero_ipv4_warns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=["0.0.0.0/0"])
+
+    assert any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
+def test_whitelist_prefix_zero_ipv6_warns(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=["::/0"])
+
+    assert any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
+def test_whitelist_prefix_zero_mixed_list_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=["10.0.0.0/8", "0.0.0.0/0"])
+
+    assert any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
+def test_whitelist_prefix_zero_warns_once_per_construction(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=["0.0.0.0/0", "::/0"])
+
+    matches = [
+        record
+        for record in caplog.records
+        if "every address is whitelisted" in record.message
+    ]
+    assert len(matches) == 1
+
+
+def test_whitelist_specific_network_does_not_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=["10.0.0.0/8"])
+
+    assert not any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
+def test_whitelist_empty_list_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=[])
+
+    assert not any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
+def test_whitelist_none_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="guard_core.models"):
+        SecurityConfig(whitelist=None)
+
+    assert not any(
+        "every address is whitelisted" in record.message for record in caplog.records
+    )
+
+
 def test_validate_whitelist_rejects_unix_token() -> None:
     with pytest.raises(ValueError, match="Invalid IP or CIDR range"):
         SecurityConfig(whitelist=["unix"])

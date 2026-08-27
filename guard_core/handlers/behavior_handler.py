@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
@@ -50,6 +51,7 @@ def _hash_identity_segment(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+_MAX_TRACKED_ENDPOINTS = 10_000
 _MAX_TRACKED_CLIENTS_PER_ENDPOINT = 10_000
 
 
@@ -68,6 +70,7 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
         self._body_unavailable_log_cache: TTLCache[str, bool] = TTLCache(
             maxsize=1000, ttl=300
         )
+        self._lock = threading.Lock()
 
     async def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
@@ -80,10 +83,11 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
             return 0
         cutoff = time.time() - window_seconds
         count = 0
-        for endpoint_bucket in self.usage_counts.values():
-            for ts in endpoint_bucket.get(ip, []):
-                if ts >= cutoff:
-                    count += 1
+        with self._lock:
+            for endpoint_bucket in self.usage_counts.values():
+                for ts in endpoint_bucket.get(ip, []):
+                    if ts >= cutoff:
+                        count += 1
         return count
 
     async def track_endpoint_usage(
@@ -104,17 +108,24 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
 
             return valid_count > rule.threshold
 
-        bucket = self.usage_counts[endpoint_id]
-        timestamps = _lru_pop_or_create(
-            bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
-        )
+        with self._lock:
+            bucket = _lru_pop_or_create(
+                self.usage_counts,
+                endpoint_id,
+                _MAX_TRACKED_ENDPOINTS,
+                lambda: defaultdict(list),
+            )
+            self.usage_counts[endpoint_id] = bucket
+            timestamps = _lru_pop_or_create(
+                bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
+            )
 
-        timestamps[:] = [ts for ts in timestamps if ts >= window_start]
+            timestamps[:] = [ts for ts in timestamps if ts >= window_start]
 
-        timestamps.append(current_time)
-        bucket[client_ip] = timestamps
+            timestamps.append(current_time)
+            bucket[client_ip] = timestamps
 
-        return len(timestamps) > rule.threshold
+            return len(timestamps) > rule.threshold
 
     async def track_return_pattern(
         self,
@@ -152,17 +163,24 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
             return valid_count > threshold
 
         pattern_key = f"{endpoint_id}:{rule.pattern}"
-        bucket = self.return_patterns[pattern_key]
-        timestamps = _lru_pop_or_create(
-            bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
-        )
+        with self._lock:
+            bucket = _lru_pop_or_create(
+                self.return_patterns,
+                pattern_key,
+                _MAX_TRACKED_ENDPOINTS,
+                lambda: defaultdict(list),
+            )
+            self.return_patterns[pattern_key] = bucket
+            timestamps = _lru_pop_or_create(
+                bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
+            )
 
-        timestamps[:] = [ts for ts in timestamps if ts >= window_start]
+            timestamps[:] = [ts for ts in timestamps if ts >= window_start]
 
-        timestamps.append(current_time)
-        bucket[client_ip] = timestamps
+            timestamps.append(current_time)
+            bucket[client_ip] = timestamps
 
-        return len(timestamps) > threshold
+            return len(timestamps) > threshold
 
 
 def config_to_rule(cfg: BehaviorRuleConfig) -> BehaviorRule:

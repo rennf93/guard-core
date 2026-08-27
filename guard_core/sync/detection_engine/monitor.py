@@ -1,9 +1,9 @@
 import logging
+import math
 import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
-from statistics import mean
 from typing import Any
 
 from .monitor_anomalies import (
@@ -115,7 +115,7 @@ class PerformanceMonitor:
                 stats.max_execution_time = max(stats.max_execution_time, execution_time)
                 stats.min_execution_time = min(stats.min_execution_time, execution_time)
                 stats.avg_execution_time = (
-                    mean(stats.recent_times)
+                    math.fsum(stats.recent_times) / len(stats.recent_times)
                     if stats.recent_times
                     else stats.avg_execution_time
                 )

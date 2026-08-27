@@ -1,9 +1,10 @@
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-from guard_core.exceptions import GuardRedisError
-from guard_core.protocols.cloud_ip_store_protocol import CloudIpStoreProtocol
+from guard_core.core.initialization._handler_initializer_steps import (
+    _HandlerInitializerStepsMixin,
+)
 
 if TYPE_CHECKING:
     from guard_core.core.events.metrics import MetricsCollector
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
     from guard_core.models import SecurityConfig
 
 
-class HandlerInitializer:
+class HandlerInitializer(_HandlerInitializerStepsMixin):
     def __init__(
         self,
         config: "SecurityConfig",
@@ -137,198 +138,3 @@ class HandlerInitializer:
             config=self.config,
             event_filter=self.event_filter,
         )
-
-    async def _run_lazy_init(self) -> None:
-        from guard_core.handlers.cloud_handler import cloud_handler
-
-        if self.config.block_cloud_providers:
-            try:
-                await cloud_handler.initialize_redis(
-                    self.redis_handler,
-                    self.config.block_cloud_providers,
-                    ttl=self.config.cloud_ip_refresh_interval,
-                )
-            except Exception as e:
-                self.logger.warning(
-                    "Lazy cloud-IP initialization failed: %s", e, exc_info=True
-                )
-
-        if self.geo_ip_handler is not None:
-            try:
-                await self.geo_ip_handler.initialize_redis(self.redis_handler)
-            except Exception as e:
-                self.logger.warning(
-                    "Lazy geo-IP initialization failed: %s", e, exc_info=True
-                )
-
-    def _resolve_cloud_ip_store(self) -> CloudIpStoreProtocol:
-        store = self.config.cloud_ip_store
-        needs_invocation = isinstance(store, type) or (
-            callable(store) and not isinstance(store, CloudIpStoreProtocol)
-        )
-        if needs_invocation:
-            factory = cast(Any, store)
-            return cast(CloudIpStoreProtocol, factory(self.redis_handler))
-        return cast(CloudIpStoreProtocol, store)
-
-    def _configure_detection(self) -> None:
-        from guard_core.handlers.ipban_handler import ip_ban_manager
-        from guard_core.handlers.suspatterns_handler import sus_patterns_handler
-
-        ip_ban_manager.config = self.config
-        sus_patterns_handler.configure(self.config)
-
-    def _warn_if_lazy_init_is_inert(self) -> None:
-        if not (self.config.block_cloud_providers or self.geo_ip_handler is not None):
-            return
-        self.logger.warning(
-            "lazy_init has no effect without Redis (enable_redis=True and a "
-            "redis_handler); cloud-IP ranges and the geo-IP database will "
-            "initialize through their own on-demand paths regardless of "
-            "lazy_init's value."
-        )
-
-    async def _load_cloud_and_geo_without_redis(self) -> None:
-        from guard_core.handlers.cloud_handler import cloud_handler
-
-        if self.config.cloud_ip_store is not None:
-            cloud_handler.set_store(self._resolve_cloud_ip_store())
-        if self.config.block_cloud_providers:
-            await cloud_handler.refresh(self.config.block_cloud_providers)
-        if self.geo_ip_handler is not None:
-            await self.geo_ip_handler.initialize()
-
-    async def _connect_redis(self) -> bool:
-        try:
-            await self.redis_handler.initialize()
-        except GuardRedisError as e:
-            self.logger.error(
-                "Redis unavailable during initialization: %s", e, exc_info=True
-            )
-            if not self.config.redis_fail_open:
-                raise
-            return False
-        return True
-
-    async def initialize_redis_handlers(self) -> None:
-        self._configure_detection()
-
-        if not (self.config.enable_redis and self.redis_handler):
-            if self.config.lazy_init:
-                self._warn_if_lazy_init_is_inert()
-                return
-            await self._load_cloud_and_geo_without_redis()
-            return
-
-        if not await self._connect_redis():
-            await self._load_cloud_and_geo_without_redis()
-            return
-
-        from guard_core.handlers.cloud_handler import cloud_handler
-        from guard_core.handlers.ipban_handler import ip_ban_manager
-        from guard_core.handlers.suspatterns_handler import sus_patterns_handler
-
-        if self.config.cloud_ip_store is not None:
-            cloud_handler.set_store(self._resolve_cloud_ip_store())
-
-        if self.config.lazy_init:
-            self._lazy_init_task = asyncio.create_task(self._run_lazy_init())
-        else:
-            if self.config.block_cloud_providers:
-                await cloud_handler.initialize_redis(
-                    self.redis_handler,
-                    self.config.block_cloud_providers,
-                    ttl=self.config.cloud_ip_refresh_interval,
-                )
-            if self.geo_ip_handler is not None:
-                await self.geo_ip_handler.initialize_redis(self.redis_handler)
-
-        await ip_ban_manager.initialize_redis(self.redis_handler)
-
-        if self.rate_limit_handler is not None:
-            await self.rate_limit_handler.initialize_redis(self.redis_handler)
-        await sus_patterns_handler.initialize_redis(self.redis_handler)
-
-    async def initialize_agent_for_handlers(self) -> None:
-        telemetry = self.composite_handler or self.agent_handler
-        if telemetry is None:
-            return
-
-        from guard_core.handlers.cloud_handler import cloud_handler
-        from guard_core.handlers.ipban_handler import ip_ban_manager
-        from guard_core.handlers.security_headers_handler import (
-            security_headers_manager,
-        )
-        from guard_core.handlers.suspatterns_handler import sus_patterns_handler
-
-        await ip_ban_manager.initialize_agent(telemetry)
-        if self.rate_limit_handler is not None:
-            await self.rate_limit_handler.initialize_agent(telemetry)
-        await sus_patterns_handler.initialize_agent(telemetry)
-        await security_headers_manager.initialize_agent(telemetry)
-
-        if self.config.block_cloud_providers:
-            await cloud_handler.initialize_agent(telemetry)
-
-        if self.geo_ip_handler and hasattr(self.geo_ip_handler, "initialize_agent"):
-            await self.geo_ip_handler.initialize_agent(telemetry)
-
-    async def initialize_dynamic_rule_manager(self) -> None:
-        if not self.config.enable_dynamic_rules:
-            return
-        if not self.agent_handler:
-            self.logger.warning(
-                "Dynamic rules enabled but agent unavailable; falling back to "
-                "static config. Dashboard rule updates will not propagate until "
-                "agent connectivity is restored."
-            )
-            return
-
-        from guard_core.handlers.dynamic_rule_handler import DynamicRuleManager
-
-        dynamic_rule_manager = DynamicRuleManager(self.config)
-        telemetry = self.composite_handler or self.agent_handler
-        await dynamic_rule_manager.initialize_agent(telemetry)
-
-        if self.redis_handler:
-            await dynamic_rule_manager.initialize_redis(self.redis_handler)
-
-    async def initialize_agent_integrations(self) -> None:
-        if (
-            not self.agent_handler
-            and not self.config.enable_otel
-            and not self.config.enable_logfire
-            and not self.config.enable_enrichment
-        ):
-            return
-
-        from guard_core._pydantic_plugin_mute import (
-            _mute_pydantic_plugin_instrumentation,
-        )
-
-        _mute_pydantic_plugin_instrumentation()
-
-        self.composite_handler = self.build_composite_handler()
-        self.event_filter = self.build_event_filter()
-
-        await self.composite_handler.start()
-
-        if self.agent_handler and self.redis_handler:
-            await self.agent_handler.initialize_redis(self.redis_handler)
-            await self.redis_handler.initialize_agent(self.agent_handler)
-
-        await self.initialize_agent_for_handlers()
-
-        if self.guard_decorator and hasattr(self.guard_decorator, "initialize_agent"):
-            telemetry = self.composite_handler or self.agent_handler
-            await self.guard_decorator.initialize_agent(telemetry)
-
-        await self.initialize_dynamic_rule_manager()
-
-    async def shutdown_agent_integrations(self) -> None:
-        if self.composite_handler is None:
-            return
-        await self.composite_handler.stop()
-        self.composite_handler = None
-        self.event_filter = None
-        self.enricher = None

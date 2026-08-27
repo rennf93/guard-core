@@ -1,4 +1,5 @@
 import time
+import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -132,9 +133,10 @@ def test_record_sliding_window_hit_identical_timestamps_each_count_separately(
     handler = redis_handler(security_config_redis)
     handler.initialize()
 
+    key = f"frozen_clock_{uuid.uuid4().hex}"
     with handler.get_connection() as conn:
         prefix = security_config_redis.redis_prefix
-        conn.delete(f"{prefix}sliding_window_test:frozen_clock")
+        conn.delete(f"{prefix}sliding_window_test:{key}")
 
     frozen_timestamp = 2_000_000_500.0
     window_start = frozen_timestamp - 60
@@ -143,7 +145,7 @@ def test_record_sliding_window_hit_identical_timestamps_each_count_separately(
     for _ in range(50):
         count = handler.record_sliding_window_hit(
             "sliding_window_test",
-            "frozen_clock",
+            key,
             frozen_timestamp,
             window_start,
             60,

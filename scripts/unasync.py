@@ -17,6 +17,8 @@ SKIP_SRC = {
     "exceptions.py",
     "_pydantic_plugin_mute.py",
     "_security_config_validators.py",
+    "_security_config_field_validators.py",
+    "_config_capabilities.py",
     "_config_field_revalidators.py",
     "_security_config_fields.py",
     "_dynamic_rules.py",
@@ -24,6 +26,8 @@ SKIP_SRC = {
 
 SKIP_TESTS = {
     "test_module_imports_standalone.py",
+    "test_suspatterns_handler_module_surface.py",
+    "test_gc_per_test_opt_in.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
@@ -66,6 +70,7 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_logfire_handler_provider_lifecycle.py",
     TEST_SYNC_DIR / "test_isolation_hooks_ordering.py",
     TEST_SYNC_DIR / "test_ratelimit_concurrency.py",
+    TEST_SYNC_DIR / "test_behavior_tracker_concurrency.py",
     TEST_SYNC_DIR / "test_sync_bypass_and_threads.py",
     TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_concurrency.py",
 }

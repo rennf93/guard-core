@@ -3,13 +3,33 @@ from unittest.mock import MagicMock
 import pytest
 from redis.exceptions import NoScriptError, RedisError
 
+from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
+from guard_core.sync.handlers import ratelimit_handler
 from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
+
+
+@pytest.fixture(autouse=True)
+def _reset_redis_fail_open_warning() -> None:
+    ratelimit_handler._redis_fail_open_warned = False
 
 
 @pytest.fixture
 def manager() -> RateLimitManager:
     config = SecurityConfig(enable_redis=True, rate_limit=100, rate_limit_window=60)
+    mgr = RateLimitManager(config)
+    mgr.rate_limit_script_sha = "deadbeef"
+    return mgr
+
+
+@pytest.fixture
+def fail_open_manager() -> RateLimitManager:
+    config = SecurityConfig(
+        enable_redis=True,
+        rate_limit=100,
+        rate_limit_window=60,
+        redis_fail_open=True,
+    )
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "deadbeef"
     return mgr
@@ -45,7 +65,7 @@ def test_noscript_triggers_reload_and_retry_succeeds(
     assert manager.rate_limit_script_sha == "newsha"
 
 
-def test_noscript_reload_failure_falls_through(
+def test_noscript_reload_failure_raises_when_fail_open_is_false(
     manager: RateLimitManager, caplog: pytest.LogCaptureFixture
 ) -> None:
     import logging
@@ -56,17 +76,40 @@ def test_noscript_reload_failure_falls_through(
     manager.redis_handler = _make_redis_handler(conn)
 
     caplog.set_level(logging.ERROR)
-    result = manager._get_redis_request_count(
+    with pytest.raises(GuardRedisError):
+        manager._get_redis_request_count(
+            client_ip="1.1.1.1",
+            current_time=100.0,
+            window_start=40.0,
+        )
+
+    assert any("Redis rate limiting error" in r.message for r in caplog.records)
+
+
+def test_noscript_reload_failure_falls_back_when_fail_open_is_true(
+    fail_open_manager: RateLimitManager, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    conn = MagicMock()
+    conn.evalsha = MagicMock(side_effect=NoScriptError("NOSCRIPT"))
+    conn.script_load = MagicMock(side_effect=RedisError("connection lost"))
+    fail_open_manager.redis_handler = _make_redis_handler(conn)
+
+    caplog.set_level(logging.WARNING)
+    result = fail_open_manager._get_redis_request_count(
         client_ip="1.1.1.1",
         current_time=100.0,
         window_start=40.0,
     )
 
     assert result is None
-    assert any("Redis rate limiting error" in r.message for r in caplog.records)
+    assert any(
+        "Redis unavailable for rate limiting" in r.message for r in caplog.records
+    )
 
 
-def test_double_noscript_falls_through(
+def test_double_noscript_raises_when_fail_open_is_false(
     manager: RateLimitManager,
 ) -> None:
     conn = MagicMock()
@@ -76,7 +119,25 @@ def test_double_noscript_falls_through(
     conn.script_load = MagicMock(return_value="newsha")
     manager.redis_handler = _make_redis_handler(conn)
 
-    result = manager._get_redis_request_count(
+    with pytest.raises(GuardRedisError):
+        manager._get_redis_request_count(
+            client_ip="1.1.1.1",
+            current_time=100.0,
+            window_start=40.0,
+        )
+
+
+def test_double_noscript_falls_back_when_fail_open_is_true(
+    fail_open_manager: RateLimitManager,
+) -> None:
+    conn = MagicMock()
+    conn.evalsha = MagicMock(
+        side_effect=[NoScriptError("first"), NoScriptError("second")]
+    )
+    conn.script_load = MagicMock(return_value="newsha")
+    fail_open_manager.redis_handler = _make_redis_handler(conn)
+
+    result = fail_open_manager._get_redis_request_count(
         client_ip="1.1.1.1",
         current_time=100.0,
         window_start=40.0,
@@ -85,20 +146,59 @@ def test_double_noscript_falls_through(
     assert result is None
 
 
-def test_generic_redis_error_unchanged(
+def test_generic_redis_error_raises_when_fail_open_is_false(
     manager: RateLimitManager,
 ) -> None:
     conn = MagicMock()
     conn.evalsha = MagicMock(side_effect=RedisError("connection refused"))
     manager.redis_handler = _make_redis_handler(conn)
 
-    result = manager._get_redis_request_count(
+    with pytest.raises(GuardRedisError):
+        manager._get_redis_request_count(
+            client_ip="1.1.1.1",
+            current_time=100.0,
+            window_start=40.0,
+        )
+
+
+def test_generic_redis_error_falls_back_when_fail_open_is_true(
+    fail_open_manager: RateLimitManager,
+) -> None:
+    conn = MagicMock()
+    conn.evalsha = MagicMock(side_effect=RedisError("connection refused"))
+    fail_open_manager.redis_handler = _make_redis_handler(conn)
+
+    result = fail_open_manager._get_redis_request_count(
         client_ip="1.1.1.1",
         current_time=100.0,
         window_start=40.0,
     )
 
     assert result is None
+
+
+def test_fail_open_warning_logged_once_across_many_calls(
+    fail_open_manager: RateLimitManager, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    conn = MagicMock()
+    conn.evalsha = MagicMock(side_effect=RedisError("connection refused"))
+    fail_open_manager.redis_handler = _make_redis_handler(conn)
+
+    caplog.set_level(logging.WARNING)
+    for _ in range(5):
+        result = fail_open_manager._get_redis_request_count(
+            client_ip="1.1.1.1",
+            current_time=100.0,
+            window_start=40.0,
+        )
+        assert result is None
+
+    warnings = [
+        r for r in caplog.records if "Redis unavailable for rate limiting" in r.message
+    ]
+    assert len(warnings) == 1
     assert conn.script_load.call_count == 0
 
 
