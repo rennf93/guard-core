@@ -665,6 +665,12 @@ GLOB_METACHARACTERS = ("*", "?", "[", "]", "\\")
         ("[evil, 5.6.7.8", 2),
         ("not-an-ip", 1),
         ("1.2.3.4", 3),
+        ("1.2.3.4:abc", 1),
+        ("1.2.3.4:5678:9", 1),
+        ("[2001:db8::1]:abc", 1),
+        ("[2001:db8::1", 1),
+        ("[2001:db8::1]x", 1),
+        ("[2001:db8::1]:", 1),
     ],
 )
 async def test_extract_from_forwarded_header_rejects_non_ip_entries(
@@ -683,6 +689,10 @@ async def test_extract_from_forwarded_header_rejects_non_ip_entries(
         ("[::1]", 1, "::1"),
         ("[2001:db8::1]", 1, "2001:db8::1"),
         ("fe80::1%eth0", 1, "fe80::1%eth0"),
+        ("1.2.3.4:5678", 1, "1.2.3.4"),
+        ("5.6.7.8:1234, 1.2.3.4", 2, "5.6.7.8"),
+        ("[2001:db8::1]:5678", 1, "2001:db8::1"),
+        ("[::1]:8080", 1, "::1"),
     ],
 )
 async def test_extract_from_forwarded_header_returns_valid_ips(

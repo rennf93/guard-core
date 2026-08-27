@@ -45,6 +45,22 @@ def _strip_ip_brackets(value: str) -> str:
     return value
 
 
+def _strip_forwarded_entry_port(value: str) -> str:
+    if value.startswith("["):
+        closing = value.find("]")
+        if closing == -1:
+            return value
+        remainder = value[closing + 1 :]
+        if remainder and not (remainder.startswith(":") and remainder[1:].isdigit()):
+            return value
+        return value[1:closing]
+    if value.count(":") == 1:
+        host, _, port = value.partition(":")
+        if port.isdigit():
+            return host
+    return value
+
+
 def _canonicalize_ip(value: str) -> str:
     try:
         addr = ip_address(_strip_ip_brackets(value))
@@ -61,7 +77,7 @@ def _forwarded_header_candidate(forwarded_for: str, proxy_depth: int) -> str | N
     ips = [ip.strip() for ip in forwarded_for.split(",")]
     if len(ips) < proxy_depth:
         return None
-    return _strip_ip_brackets(ips[-proxy_depth])
+    return _strip_forwarded_entry_port(ips[-proxy_depth])
 
 
 def _forwarded_header_candidate_addr(
@@ -92,7 +108,7 @@ def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str 
 
 
 def _forwarded_header_ips(forwarded_for: str) -> list[str]:
-    return [_strip_ip_brackets(ip.strip()) for ip in forwarded_for.split(",")]
+    return [_strip_forwarded_entry_port(ip.strip()) for ip in forwarded_for.split(",")]
 
 
 def _forwarded_header_right_side_untrusted_count(

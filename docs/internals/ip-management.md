@@ -185,6 +185,8 @@ When no client address can be resolved, `extract_client_ip` returns the sentinel
 5. If the connecting IP is not a trusted proxy, log a spoofing warning and return the connecting IP.
 6. If the connecting IP is a trusted proxy, extract the client IP from `X-Forwarded-For` counting from the right end of the comma-separated list (`ips[-trusted_proxy_depth]`); with the default depth of `1` that is the rightmost entry, not the leftmost, since each proxy hop appends its own view to the right.
 
+Each comma-separated entry is stripped of a trailing port before parsing (`_strip_forwarded_entry_port`, `guard_core/_utils/ip_extraction.py`): `1.2.3.4:5678` and `[2001:db8::1]:5678` resolve to `1.2.3.4` and `2001:db8::1`. An unbracketed IPv6 address is never mistaken for `host:port`, since the split only fires when an entry has exactly one colon (every real IPv6 literal has at least two); an entry that merely looks like `host:port` but has a non-numeric or missing port (`1.2.3.4:abc`, `[2001:db8::1]:`) is left untouched and fails address parsing exactly as it did before this stripping existed, following the existing malformed-entry path.
+
 ### Trusted Proxy Evaluation
 
 ```python
