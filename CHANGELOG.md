@@ -16,6 +16,10 @@ Unreleased
 
 - **Uncontrolled recursion in the JSON body walk (CWE-674).** The structural JSON-body scan recursed one Python call per nesting level with no depth bound; a `{"a":{"a":...}}` body nested past Python's recursion limit raised `RecursionError` out of `detect_penetration_attempt`, and just below that limit the enhanced-detection exception fallback silently swallowed the error and scanned the request as clean instead of failing secure. The walk is now an explicit-stack iteration with no recursion anywhere in guard-core's own JSON traversal. A new `SecurityConfig.detection_max_json_depth` (default `32`, `1` to `1000`) bounds the nesting depth walked structurally; a dict or list reached at that depth is serialized back to text and scanned as one value instead, bounded by `detection_max_content_length`, and a one-time warning names the client IP. `_check_value_enhanced` no longer treats `RecursionError` as a fallback case, it now re-raises into the pipeline's fail-secure handling instead of ever returning a silent clean verdict (GHSA-f6cf-jjhc-qp85).
 
+### Fixed
+
+- **`CloudManager.refresh_async` and `_refresh_providers_via_redis_handler` no longer apply freshly fetched cloud IP ranges to the in-memory cache before the store write that persists them.** A store or Redis write failure was caught and logged, but the in-memory `ip_ranges` had already been updated, so `is_cloud_ip` reported ranges that were never persisted, a silent divergence between what a single process believes and what other workers see through Redis. The write now happens first; on failure the provider falls through to the existing preserve-or-empty fallback, the same one already used for a fetch failure. Sync mirror regenerated.
+
 ___
 
 v3.14.0 (2026-08-26)
