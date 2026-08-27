@@ -1,3 +1,4 @@
+import gc
 import os
 import re
 import sys
@@ -37,6 +38,7 @@ from guard_core.models import SecurityConfig
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
+GUARD_TESTS_GC_PER_TEST = os.getenv("GUARD_TESTS_GC_PER_TEST") == "1"
 
 
 @pytest.fixture(autouse=True)
@@ -366,6 +368,13 @@ async def reset_rate_limiter() -> AsyncGenerator[None, None]:
     rate_limit = rate_limit_handler(config)
     await rate_limit.reset()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _collect_garbage_after_test() -> Any:
+    yield
+    if GUARD_TESTS_GC_PER_TEST:
+        gc.collect()
 
 
 @pytest.fixture

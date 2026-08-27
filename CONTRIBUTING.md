@@ -75,6 +75,9 @@ make test-3.11
 
 # Run tests locally (if you have 'uv' installed)
 make local-test
+
+# Localise a leaked-resource ResourceWarning to the test that caused it (opt-in, adds real wall time)
+GUARD_TESTS_GC_PER_TEST=1 REDIS_URL=redis://localhost:6379 uv run pytest -v
 ```
 
 ### Style Guidelines
