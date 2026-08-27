@@ -24,6 +24,7 @@ SKIP_SRC = {
 
 SKIP_TESTS = {
     "test_module_imports_standalone.py",
+    "test_suspatterns_handler_module_surface.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}

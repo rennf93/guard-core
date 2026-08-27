@@ -300,13 +300,13 @@ async def test_regex_timeout_fallback() -> None:
     evil_content = "a" * 100 + "b"
 
     with patch(
-        "guard_core.handlers.suspatterns_handler.shared_regex_executor"
+        "guard_core.handlers._suspatterns_regex.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
+        with patch("guard_core.handlers._suspatterns_regex.logger") as mock_logger:
             result = await manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
             assert result["is_threat"] is True
@@ -397,7 +397,7 @@ async def test_pattern_timeout_with_compiler(
         mock_create.return_value = mock_matcher
 
         with patch("time.monotonic", mock_time):
-            with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
+            with patch("guard_core.handlers._suspatterns_regex.logger") as mock_logger:
                 result = await manager.detect(evil_content, "127.0.0.1", "test_timeout")
 
                 warning_calls = [
@@ -517,7 +517,7 @@ async def test_legacy_pattern_timeout_uses_configured_compiler_timeout(
             return FakeFuture()
 
     with patch(
-        "guard_core.handlers.suspatterns_handler.shared_regex_executor",
+        "guard_core.handlers._suspatterns_regex.shared_regex_executor",
         return_value=FakeExecutor(),
     ):
         match, timed_out = await manager._check_pattern_with_timeout(
@@ -543,13 +543,13 @@ async def test_regex_search_exception_fallback() -> None:
     await manager.add_pattern(test_pattern, custom=True)
 
     with patch(
-        "guard_core.handlers.suspatterns_handler.shared_regex_executor"
+        "guard_core.handlers._suspatterns_regex.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = RuntimeError("Test exception")
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
+        with patch("guard_core.handlers._suspatterns_regex.logger") as mock_logger:
             result = await manager.detect("test content", "127.0.0.1", "test_exception")
 
             assert not result["is_threat"]

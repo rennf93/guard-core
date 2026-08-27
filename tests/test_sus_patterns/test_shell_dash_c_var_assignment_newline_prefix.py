@@ -138,13 +138,13 @@ async def test_check_windowed_pattern_timeout_returns_none_and_logs() -> None:
         yield from ()
 
     with patch(
-        "guard_core.handlers.suspatterns_handler.shared_regex_executor"
+        "guard_core.handlers._suspatterns_regex.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = concurrent.futures.TimeoutError()
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
+        with patch("guard_core.handlers._suspatterns_regex.logger") as mock_logger:
             threat, timed_out = await sus_patterns_handler._check_windowed_pattern(
                 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE,
                 _finder,
@@ -165,13 +165,13 @@ async def test_check_windowed_pattern_exception_returns_none_and_logs() -> None:
         yield from ()
 
     with patch(
-        "guard_core.handlers.suspatterns_handler.shared_regex_executor"
+        "guard_core.handlers._suspatterns_regex.shared_regex_executor"
     ) as mock_shared_executor:
         mock_future = MagicMock()
         mock_future.result.side_effect = RuntimeError("boom")
         mock_shared_executor.return_value.submit.return_value = mock_future
 
-        with patch("guard_core.handlers.suspatterns_handler.logger") as mock_logger:
+        with patch("guard_core.handlers._suspatterns_regex.logger") as mock_logger:
             threat, timed_out = await sus_patterns_handler._check_windowed_pattern(
                 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE,
                 _finder,
