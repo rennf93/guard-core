@@ -447,14 +447,22 @@ class _State:
     pass
 
 
+CONTENT_TYPE_OVERRIDES: dict[str, str] = {
+    "json_nested_depth10_sqli": "application/json",
+    "json_nested_depth40_sqli": "application/json",
+}
+
+
 class _Req:
-    def __init__(self, body: bytes, mechanism: str) -> None:
+    def __init__(
+        self, body: bytes, mechanism: str, content_type: str | None = None
+    ) -> None:
         self.client_host = "203.0.113.7"
         self.url_path = "/x"
         self.method = "POST"
         self.state: Any = _State()
         self.query_params: dict[str, str] = {}
-        self.headers: dict[str, str] = {"content-type": "text/plain"}
+        self.headers: dict[str, str] = {"content-type": content_type or "text/plain"}
         self._body = body
         if mechanism == "form_body":
             self.headers = {"content-type": "application/x-www-form-urlencoded"}
@@ -492,10 +500,12 @@ class _Req:
         return self._body
 
 
-async def verdict(body: bytes, mechanism: str) -> bool | str:
+async def verdict(
+    body: bytes, mechanism: str, content_type: str | None = None
+) -> bool | str:
     try:
         result = await detect_penetration_attempt(
-            _Req(body, mechanism), SecurityConfig()
+            _Req(body, mechanism, content_type), SecurityConfig()
         )
         return bool(result.is_threat)
     except Exception as exc:
@@ -518,9 +528,10 @@ async def main() -> None:
     ):
         for name, body in cases:
             mechs = REDUCED_MECHANISMS if name in REDUCED_MECHANISM_ROWS else MECHANISMS
+            content_type = CONTENT_TYPE_OVERRIDES.get(name)
             per = {}
             for mech in mechs:
-                per[mech] = await verdict(body, mech)
+                per[mech] = await verdict(body, mech, content_type)
             rows.append(
                 {
                     "name": name,
