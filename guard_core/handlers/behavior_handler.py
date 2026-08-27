@@ -50,6 +50,7 @@ def _hash_identity_segment(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+_MAX_TRACKED_ENDPOINTS = 10_000
 _MAX_TRACKED_CLIENTS_PER_ENDPOINT = 10_000
 
 
@@ -104,7 +105,13 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
 
             return valid_count > rule.threshold
 
-        bucket = self.usage_counts[endpoint_id]
+        bucket = _lru_pop_or_create(
+            self.usage_counts,
+            endpoint_id,
+            _MAX_TRACKED_ENDPOINTS,
+            lambda: defaultdict(list),
+        )
+        self.usage_counts[endpoint_id] = bucket
         timestamps = _lru_pop_or_create(
             bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
         )
@@ -152,7 +159,13 @@ class BehaviorTracker(BehaviorResponsePatternMixin, BehaviorActionDispatchMixin)
             return valid_count > threshold
 
         pattern_key = f"{endpoint_id}:{rule.pattern}"
-        bucket = self.return_patterns[pattern_key]
+        bucket = _lru_pop_or_create(
+            self.return_patterns,
+            pattern_key,
+            _MAX_TRACKED_ENDPOINTS,
+            lambda: defaultdict(list),
+        )
+        self.return_patterns[pattern_key] = bucket
         timestamps = _lru_pop_or_create(
             bucket, client_ip, _MAX_TRACKED_CLIENTS_PER_ENDPOINT, list
         )

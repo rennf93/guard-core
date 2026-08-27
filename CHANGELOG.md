@@ -20,6 +20,7 @@ Unreleased
 ### Fixed
 
 - **`CloudManager.refresh_async` and `_refresh_providers_via_redis_handler` no longer apply freshly fetched cloud IP ranges to the in-memory cache before the store write that persists them.** A store or Redis write failure was caught and logged, but the in-memory `ip_ranges` had already been updated, so `is_cloud_ip` reported ranges that were never persisted, a silent divergence between what a single process believes and what other workers see through Redis. The write now happens first; on failure the provider falls through to the existing preserve-or-empty fallback, the same one already used for a fetch failure. Sync mirror regenerated.
+- **`BehaviorTracker.usage_counts`/`return_patterns` outer stores, keyed by endpoint id, are now bounded.** Only the inner per-client store was LRU-bounded; the outer dict grew one entry per distinct endpoint id forever. It now evicts the least-recently-touched endpoint once it tracks 10,000, the same `_lru_pop_or_create` pattern already used for the inner store, dropping that endpoint's entire inner store on eviction.
 
 ___
 
