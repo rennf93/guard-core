@@ -10,6 +10,7 @@ from pydantic import ConfigDict, PrivateAttr, field_validator, model_validator
 from typing_extensions import Self
 
 from guard_core import __version__
+from guard_core._config_capabilities import _extra_installed, cloud_blocking_enabled
 from guard_core._dynamic_rules import DynamicRules as DynamicRules
 from guard_core._security_config_fields import _SecurityConfigFields
 from guard_core._security_config_validators import (
@@ -18,7 +19,6 @@ from guard_core._security_config_validators import (
     _GLOBAL_BEHAVIOR_RULE_FIELDS,
     _apply_geo_ip_handler_assignment,
     _country_shadow_should_warn,
-    _extra_installed,
     _is_prefix_zero_network_entry,
     _resolve_geo_ip_handler,
     _revalidate_copied_config,
@@ -38,7 +38,6 @@ from guard_core._security_config_validators import (
     _warn_empty_enabled_detection_categories,
     _warn_trusted_proxies_prefix_zero,
     _warn_whitelist_prefix_zero,
-    cloud_blocking_enabled,
 )
 from guard_core._security_config_validators import (
     VALID_CLOUD_PROVIDERS as VALID_CLOUD_PROVIDERS,
