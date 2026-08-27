@@ -28,9 +28,10 @@ _redis_fail_open_warned = False
 
 def _warn_redis_fail_open_in_memory_fallback() -> None:
     global _redis_fail_open_warned
-    if _redis_fail_open_warned:
-        return
-    _redis_fail_open_warned = True
+    with _by_ip_lock:
+        if _redis_fail_open_warned:
+            return
+        _redis_fail_open_warned = True
     _by_ip_logger.warning(
         "Redis unavailable for rate limiting; using the in-memory window "
         "(redis_fail_open=True); with several workers the effective limit "
