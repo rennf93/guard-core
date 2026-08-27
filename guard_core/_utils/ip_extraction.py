@@ -91,6 +91,34 @@ def _extract_from_forwarded_header(forwarded_for: str, proxy_depth: int) -> str 
     return _canonical_ip_text(addr)
 
 
+def _forwarded_header_ips(forwarded_for: str) -> list[str]:
+    return [_strip_ip_brackets(ip.strip()) for ip in forwarded_for.split(",")]
+
+
+def _forwarded_header_right_side_untrusted_count(
+    ips: list[str], proxy_depth: int, trusted_proxies: list[str]
+) -> int:
+    right_side = ips[len(ips) - proxy_depth + 1 :]
+    return sum(
+        1
+        for entry in right_side
+        if not _is_trusted_proxy(_canonicalize_ip(entry), trusted_proxies)
+    )
+
+
+def _resolve_forwarded_chain_right_to_left(
+    ips: list[str], trusted_proxies: list[str]
+) -> str | None:
+    for entry in reversed(ips):
+        if _is_trusted_proxy(_canonicalize_ip(entry), trusted_proxies):
+            continue
+        addr = _forwarded_header_candidate_addr(entry)
+        if addr is None or _forwarded_header_candidate_has_metachar(entry):
+            return None
+        return _canonical_ip_text(addr)
+    return None
+
+
 def _is_private_or_loopback(ip: str) -> bool:
     try:
         addr = ip_address(ip)
@@ -202,6 +230,28 @@ def _warn_forwarded_header_selected_entry_trusted_proxy(entry: str) -> None:
     )
 
 
+_forwarded_header_depth_overcounts_hops_warned = False
+
+
+def _warn_forwarded_header_depth_overcounts_hops(
+    proxy_depth: int, untrusted_count: int, forwarded_for: str
+) -> None:
+    global _forwarded_header_depth_overcounts_hops_warned
+    if _forwarded_header_depth_overcounts_hops_warned:
+        return
+    _forwarded_header_depth_overcounts_hops_warned = True
+    logger.warning(
+        "trusted_proxy_depth (%d) selected an entry from the X-Forwarded-For "
+        "chain with %d entry/entries to its right that are not listed in "
+        "trusted_proxies; chain was %s; the declared depth over-counts the "
+        "real proxy hops. Set trusted_proxy_depth to the number of proxies "
+        "that append to X-Forwarded-For. This warning is logged once.",
+        proxy_depth,
+        untrusted_count,
+        _sanitize_for_log(forwarded_for),
+    )
+
+
 def _resolve_client_ip_from_forwarded_chain(
     canonical_connecting_ip: str,
     forwarded_for: str | None,
@@ -212,15 +262,29 @@ def _resolve_client_ip_from_forwarded_chain(
         if not forwarded_for:
             return canonical_connecting_ip
 
+        ips = _forwarded_header_ips(forwarded_for)
+        chain_length = len(ips)
+
+        if chain_length < proxy_depth:
+            _warn_forwarded_header_chain_too_short(forwarded_for, chain_length)
+            return canonical_connecting_ip
+
+        if trusted_proxies:
+            untrusted_count = _forwarded_header_right_side_untrusted_count(
+                ips, proxy_depth, trusted_proxies
+            )
+            if untrusted_count:
+                _warn_forwarded_header_depth_overcounts_hops(
+                    proxy_depth, untrusted_count, forwarded_for
+                )
+                resolved = _resolve_forwarded_chain_right_to_left(ips, trusted_proxies)
+                return resolved if resolved is not None else canonical_connecting_ip
+
         client_ip = _extract_from_forwarded_header(forwarded_for, proxy_depth)
         if client_ip:
             if _is_trusted_proxy(client_ip, trusted_proxies):
                 _warn_forwarded_header_selected_entry_trusted_proxy(client_ip)
             return client_ip
-
-        chain_length = len(forwarded_for.split(","))
-        if chain_length < proxy_depth:
-            _warn_forwarded_header_chain_too_short(forwarded_for, chain_length)
     except (ValueError, IndexError) as e:
         logger.warning(f"Error processing client IP: {str(e)}")
 
