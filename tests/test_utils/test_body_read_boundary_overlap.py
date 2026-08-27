@@ -85,6 +85,26 @@ async def test_the_same_straddling_signature_is_matched_once_the_overlap_covers_
     assert request.requested_max_bytes == 1024 + len(_MAGIC)
 
 
+async def test_a_straddling_signature_is_matched_on_the_oversized_content_length_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(detection_scan, "_check_value_enhanced", _fake_component_check)
+
+    async def _fixed_overlap() -> int:
+        return len(_MAGIC)
+
+    monkeypatch.setattr(body_reader, "_straddle_overlap_bytes", _fixed_overlap)
+    body = _straddling_body(1024)
+    request = _PrefixOnlyRequest(body=body)
+    request.headers["content-length"] = str(len(body))
+    config = SecurityConfig(detection_max_body_inspect_bytes=1024)
+
+    result = await utils.detect_penetration_attempt(cast(GuardRequest, request), config)
+
+    assert result.is_threat is True
+    assert request.requested_max_bytes == 1024 + len(_MAGIC)
+
+
 async def test_a_payload_placed_entirely_past_the_cap_is_still_not_detected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

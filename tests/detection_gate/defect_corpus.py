@@ -176,6 +176,15 @@ _BENIGN_BODY_WORDS = [
 ]
 
 
+def _oversized_body_with_marker_straddling_cap(
+    total_size: int, cap: int, marker: str
+) -> bytes:
+    marker_bytes = marker.encode()
+    prefix = b"y" * (cap - len(marker_bytes) // 2)
+    suffix = b"y" * (total_size - len(prefix) - len(marker_bytes))
+    return prefix + marker_bytes + suffix
+
+
 def _oversized_benign_body(total_size: int) -> bytes:
     rng = random.Random(13)
     parts = []
@@ -299,6 +308,12 @@ ATTACKS: list[tuple[str, bytes]] = [
     (
         "oversized_body_attack_in_first_kb",
         _oversized_body_with_marker_in_first_kb(300_000, SQLI),
+    ),
+    (
+        "oversized_body_straddling_signature_at_cap_boundary",
+        _oversized_body_with_marker_straddling_cap(
+            300_000, SecurityConfig().detection_max_body_inspect_bytes, SQLI
+        ),
     ),
 ]
 
@@ -503,6 +518,10 @@ CONTENT_TYPE_OVERRIDES: dict[str, str] = {
     "json_nested_depth40_sqli": "application/json",
 }
 
+MECHANISM_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "oversized_body_straddling_signature_at_cap_boundary": ("raw_body",),
+}
+
 
 class _Req:
     def __init__(
@@ -581,7 +600,10 @@ async def main() -> None:
         ("limitation", DOCUMENTED_LIMITATIONS),
     ):
         for name, body in cases:
-            mechs = REDUCED_MECHANISMS if name in REDUCED_MECHANISM_ROWS else MECHANISMS
+            mechs = MECHANISM_OVERRIDES.get(
+                name,
+                REDUCED_MECHANISMS if name in REDUCED_MECHANISM_ROWS else MECHANISMS,
+            )
             content_type = CONTENT_TYPE_OVERRIDES.get(name)
             per = {}
             for mech in mechs:

@@ -93,13 +93,17 @@ async def _read_and_cache_body(
     return capped
 
 
+async def _capped_body_fetch_size(max_bytes: int) -> int:
+    return max_bytes + await _straddle_overlap_bytes()
+
+
 async def _read_capped_body_prefix(
     request: GuardRequest, max_bytes: int, timeout: float, max_concurrent: int
 ) -> bytes | None:
     if not isinstance(request, _BoundedBodyReader):
         return None
 
-    fetch_bytes = max_bytes + await _straddle_overlap_bytes()
+    fetch_bytes = await _capped_body_fetch_size(max_bytes)
     return await _read_and_cache_body(
         request,
         fetch_bytes,
@@ -144,11 +148,12 @@ async def _read_oversized_declared_body(
         return None
 
     _warn_body_inspect_bytes_cap_reached(max_bytes, client_ip)
+    fetch_bytes = await _capped_body_fetch_size(max_bytes)
     return await _read_and_cache_body(
         request,
-        max_bytes,
+        fetch_bytes,
         timeout,
-        lambda: request.read_body_prefix(max_bytes),
+        lambda: request.read_body_prefix(fetch_bytes),
         "read_body_prefix",
         max_concurrent,
     )

@@ -133,13 +133,17 @@ def _read_and_cache_body(
     return capped
 
 
+def _capped_body_fetch_size(max_bytes: int) -> int:
+    return max_bytes + _straddle_overlap_bytes()
+
+
 def _read_capped_body_prefix(
     request: SyncGuardRequest, max_bytes: int, timeout: float, max_concurrent: int
 ) -> bytes | None:
     if not isinstance(request, _BoundedBodyReader):
         return None
 
-    fetch_bytes = max_bytes + _straddle_overlap_bytes()
+    fetch_bytes = _capped_body_fetch_size(max_bytes)
     return _read_and_cache_body(
         request,
         fetch_bytes,
@@ -184,11 +188,12 @@ def _read_oversized_declared_body(
         return None
 
     _warn_body_inspect_bytes_cap_reached(max_bytes, client_ip)
+    fetch_bytes = _capped_body_fetch_size(max_bytes)
     return _read_and_cache_body(
         request,
-        max_bytes,
+        fetch_bytes,
         timeout,
-        lambda: request.read_body_prefix(max_bytes),
+        lambda: request.read_body_prefix(fetch_bytes),
         "read_body_prefix",
         max_concurrent,
     )
