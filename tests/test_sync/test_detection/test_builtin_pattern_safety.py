@@ -57,7 +57,7 @@ def test_match_path_caps_input_length_in_legacy_mode() -> None:
 
     try:
         big = "A" * 5_000_000
-        capped, decode_budget_exhausted = mgr._preprocess_content(big, None)
+        capped, decode_budget_exhausted, decoded = mgr._preprocess_content(big, None)
 
         cap = getattr(
             mgr._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
@@ -65,6 +65,7 @@ def test_match_path_caps_input_length_in_legacy_mode() -> None:
         assert len(capped) == min(len(big), cap)
         assert len(capped) < len(big)
         assert decode_budget_exhausted is False
+        assert decoded is None
     finally:
         mgr._preprocessor = original_preprocessor
 

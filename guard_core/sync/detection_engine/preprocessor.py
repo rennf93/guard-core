@@ -307,16 +307,24 @@ class ContentPreprocessor:
     def preprocess(
         self, content: str, decode_budget_exhausted: list[bool] | None = None
     ) -> str:
+        processed, _decoded = self.preprocess_with_decoded(
+            content, decode_budget_exhausted
+        )
+        return processed
+
+    def preprocess_with_decoded(
+        self, content: str, decode_budget_exhausted: list[bool] | None = None
+    ) -> tuple[str, str]:
         if not content:
-            return ""
+            return "", ""
 
-        content = self.normalize_unicode(content)
-        content = self.decode_common_encodings(content, decode_budget_exhausted)
-        content = self.remove_null_bytes(content)
-        content = self.remove_excessive_whitespace(content)
-        content = self.truncate_safely(content)
+        decoded = self.normalize_unicode(content)
+        decoded = self.decode_common_encodings(decoded, decode_budget_exhausted)
+        processed = self.remove_null_bytes(decoded)
+        processed = self.remove_excessive_whitespace(processed)
+        processed = self.truncate_safely(processed)
 
-        return content
+        return processed, decoded
 
     def preprocess_signal_preserving(self, content: str) -> str:
         if not content:

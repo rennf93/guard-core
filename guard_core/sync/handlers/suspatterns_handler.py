@@ -2558,14 +2558,14 @@ class SusPatternsManager:
         correlation_id: str | None,
         *,
         state: _DetectionState | None = None,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, str | None]:
         state = self._resolve_state(state)
         preprocessor = state.preprocessor
         if not preprocessor:
             max_length = getattr(
                 self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
             )
-            return content[:max_length], False
+            return content[:max_length], False, None
 
         context_preprocessor = ContentPreprocessor(
             max_content_length=preprocessor.max_content_length,
@@ -2575,8 +2575,10 @@ class SusPatternsManager:
             max_full_scan_bytes=preprocessor._MAX_FULL_SCAN_BYTES,
         )
         decode_budget_exhausted = [False]
-        processed = context_preprocessor.preprocess(content, decode_budget_exhausted)
-        return processed, decode_budget_exhausted[0]
+        processed, decoded = context_preprocessor.preprocess_with_decoded(
+            content, decode_budget_exhausted
+        )
+        return processed, decode_budget_exhausted[0], decoded
 
     def _check_regex_pattern(
         self,
@@ -2960,17 +2962,26 @@ class SusPatternsManager:
         correlation_id: str | None,
         enabled_categories: set[str] | None,
         state: _DetectionState,
+        *,
+        precomputed_decoded: str | None = None,
+        precomputed_decode_budget_exhausted: bool = False,
     ) -> tuple[list[dict], list[str], list[str], bool]:
         preprocessor = state.preprocessor
         if not preprocessor:
             return [], [], [], False
 
-        decode_budget_exhausted: list[bool] = [False]
-        url_decoded_view_content = (
-            preprocessor.preprocess_url_decoded_newline_preserving(
-                content, decode_budget_exhausted
+        if precomputed_decoded is not None:
+            url_decoded_view_content = preprocessor.truncate_safely(precomputed_decoded)
+            decode_budget_exhausted_flag = precomputed_decode_budget_exhausted
+        else:
+            decode_budget_exhausted: list[bool] = [False]
+            url_decoded_view_content = (
+                preprocessor.preprocess_url_decoded_newline_preserving(
+                    content, decode_budget_exhausted
+                )
             )
-        )
+            decode_budget_exhausted_flag = decode_budget_exhausted[0]
+
         threats, matched, timeouts = self._check_regex_patterns(
             url_decoded_view_content,
             ip_address,
@@ -2980,7 +2991,7 @@ class SusPatternsManager:
             state=state,
             url_decoded_view_only=True,
         )
-        return threats, matched, timeouts, decode_budget_exhausted[0]
+        return threats, matched, timeouts, decode_budget_exhausted_flag
 
     def _check_short_base64_additive_view_patterns(
         self,
@@ -3024,9 +3035,11 @@ class SusPatternsManager:
         execution_start = time.monotonic()
         state = self._detection_state
 
-        processed_content, decode_budget_exhausted = self._preprocess_content(
-            content, correlation_id, state=state
-        )
+        (
+            processed_content,
+            decode_budget_exhausted,
+            precomputed_decoded,
+        ) = self._preprocess_content(content, correlation_id, state=state)
 
         regex_threats, matched_patterns, timeouts = self._check_regex_patterns(
             processed_content,
@@ -3058,7 +3071,14 @@ class SusPatternsManager:
             url_decoded_timeouts,
             url_decoded_budget_exhausted,
         ) = self._check_url_decoded_view_patterns(
-            content, ip_address, context, correlation_id, enabled_categories, state
+            content,
+            ip_address,
+            context,
+            correlation_id,
+            enabled_categories,
+            state,
+            precomputed_decoded=precomputed_decoded,
+            precomputed_decode_budget_exhausted=decode_budget_exhausted,
         )
         regex_threats = regex_threats + url_decoded_threats
         matched_patterns = matched_patterns + url_decoded_matched
