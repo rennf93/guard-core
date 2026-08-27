@@ -13,7 +13,7 @@ from guard_core._utils.detection_config import (
     _resolve_excluded_params,
     _resolve_log_level,
     _resolve_max_json_depth,
-    _resolve_max_scan_bytes,
+    _resolve_max_scan_chars,
     _resolve_max_scan_values,
     _resolve_scan_body,
 )
@@ -157,9 +157,9 @@ async def detect_penetration_attempt(
     log_level = _resolve_log_level(config)
     max_scan_values = _resolve_max_scan_values(config)
     max_json_depth = _resolve_max_json_depth(config)
-    max_scan_bytes = _resolve_max_scan_bytes(config)
+    max_scan_chars = _resolve_max_scan_chars(config)
 
-    with _scan_value_budget(max_scan_values, max_json_depth, max_scan_bytes):
+    with _scan_value_budget(max_scan_values, max_json_depth, max_scan_chars):
         surface_hit = await _scan_request_surface(
             request,
             excluded_params,

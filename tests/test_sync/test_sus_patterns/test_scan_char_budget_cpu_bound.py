@@ -14,7 +14,7 @@ from tests.test_sync.conftest import SyncMockGuardRequest
 
 _ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 _TWENTY_EIGHT_VALUES_CPU_BUDGET_SECONDS = 1.0
-_FIVE_TWELVE_VALUES_CPU_BUDGET_SECONDS = 3.0
+_FIVE_TWELVE_VALUES_CPU_BUDGET_SECONDS = 2.8
 
 
 def _random_alphanumeric(rng: random.Random, length: int) -> str:
@@ -66,7 +66,7 @@ def test_twenty_eight_large_values_body_scan_stays_cpu_bounded() -> None:
         f"{min(samples):.4f}s, budget={budget_seconds:.4f}s (base "
         f"{_TWENTY_EIGHT_VALUES_CPU_BUDGET_SECONDS}s scaled by this host's "
         "_host_cpu_speed_factor()). This shape cost 1.81s CPU in enhanced "
-        "mode before detection_max_scan_bytes and the monitor.py "
+        "mode before detection_max_scan_chars and the monitor.py "
         "statistics.mean cut; either regressing alone reopens that cost."
     )
 
@@ -95,6 +95,7 @@ def test_five_hundred_twelve_small_values_body_scan_stays_cpu_bounded() -> None:
         f"{_FIVE_TWELVE_VALUES_CPU_BUDGET_SECONDS}s scaled by this host's "
         "_host_cpu_speed_factor()). This shape plateaus at "
         "detection_max_scan_values (512) without ever reaching "
-        "detection_max_scan_bytes, so it isolates the constant-factor cuts "
-        "from the byte budget; it cost 4.0 to 5.3s CPU before those cuts."
+        "detection_max_scan_chars, so it isolates the constant-factor cuts "
+        "from the char budget; it measured 1.4s CPU after those cuts (this "
+        "ceiling is 2x that), down from 4.0 to 5.3s CPU before them."
     )

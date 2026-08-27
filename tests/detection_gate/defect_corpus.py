@@ -550,6 +550,9 @@ class _Req:
     async def body(self) -> bytes:
         return self._body
 
+    async def read_body_prefix(self, max_bytes: int) -> bytes:
+        return self._body[:max_bytes]
+
 
 async def verdict(
     body: bytes, mechanism: str, content_type: str | None = None

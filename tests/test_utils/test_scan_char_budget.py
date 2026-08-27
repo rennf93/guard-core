@@ -8,7 +8,7 @@ from guard_core.models import SecurityConfig
 from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 
-_BUDGET_WARNING_TEXT = "detection_max_scan_bytes (1024) reached"
+_BUDGET_WARNING_TEXT = "detection_max_scan_chars (1024) reached"
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +28,10 @@ def _json_body_request(payload: dict[str, str]) -> MockGuardRequest:
     )
 
 
-async def test_byte_budget_warning_fires_once_across_many_skipped_values(
+async def test_char_budget_warning_fires_once_across_many_skipped_values(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    config = SecurityConfig(detection_max_scan_bytes=1024)
+    config = SecurityConfig(detection_max_scan_chars=1024)
     payload = {f"k{i}": "x" * 200 for i in range(10)}
     request = _json_body_request(payload)
 
@@ -42,10 +42,10 @@ async def test_byte_budget_warning_fires_once_across_many_skipped_values(
     assert caplog.text.count(_BUDGET_WARNING_TEXT) == 1
 
 
-async def test_embedded_json_value_byte_budget_skips_remaining_fields(
+async def test_embedded_json_value_char_budget_skips_remaining_fields(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    config = SecurityConfig(detection_max_scan_bytes=1024)
+    config = SecurityConfig(detection_max_scan_chars=1024)
     embedded = json.dumps({f"k{i}": "x" * 200 for i in range(10)})
     request = MockGuardRequest(query_params={"filters": embedded})
 

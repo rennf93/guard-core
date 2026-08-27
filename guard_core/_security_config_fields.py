@@ -731,9 +731,14 @@ class _SecurityConfigFields(BaseModel):
         description=(
             "Maximum bytes read from the start of the request body and inspected "
             "for penetration detection. When the request's Content-Length exceeds "
-            "this, the first this-many bytes are still read and scanned (a "
-            "one-time warning names the cap and the client), bounding memory on "
-            "the detection hot path. This is a memory bound, "
+            "this, the adapter's read_body_prefix (a bounded reader that only "
+            "ever returns up to the requested byte count) is used to read the "
+            "first this-many bytes and scan them, if the adapter implements it; "
+            "when the adapter has no bounded reader, the body is not read at "
+            "all and detection falls back to path, query, and header checks "
+            "only, the same as before this cap existed. Either way a one-time "
+            "warning names the cap, the client, and which of the two happened. "
+            "This is a memory bound, "
             "not full-body coverage: only this leading prefix is ever scanned, so "
             "a payload placed after the first N bytes, or a signature split across "
             "the boundary, is not detected. That tradeoff is inherent to "
@@ -771,7 +776,7 @@ class _SecurityConfigFields(BaseModel):
         le=100_000,
     )
 
-    detection_max_scan_bytes: int = Field(
+    detection_max_scan_chars: int = Field(
         default=65536,
         description=(
             "Maximum total characters, across every value handed to the "

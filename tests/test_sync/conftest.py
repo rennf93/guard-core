@@ -120,11 +120,11 @@ def _reset_detection_scan_budgets() -> None:
     _detection_scan_module._scan_value_cap.set(
         _detection_scan_module._DEFAULT_MAX_SCAN_VALUES
     )
-    _detection_scan_module._scanned_byte_count.set(0)
-    _detection_scan_module._scan_byte_cap.set(
-        _detection_scan_module._DEFAULT_MAX_SCAN_BYTES
+    _detection_scan_module._scanned_char_count.set(0)
+    _detection_scan_module._scan_char_cap.set(
+        _detection_scan_module._DEFAULT_MAX_SCAN_CHARS
     )
-    _detection_scan_module._scan_byte_cap_warned.set(False)
+    _detection_scan_module._scan_char_cap_warned.set(False)
     _detection_scan_module._json_depth_cap.set(
         _detection_scan_module._DEFAULT_MAX_JSON_DEPTH
     )

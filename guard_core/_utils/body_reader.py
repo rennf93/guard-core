@@ -120,6 +120,40 @@ def _warn_body_inspect_bytes_cap_reached(max_bytes: int, client_ip: str) -> None
     )
 
 
+def _warn_body_inspect_bytes_cap_reached_no_bounded_reader(
+    max_bytes: int, client_ip: str
+) -> None:
+    logger.warning(
+        "detection_max_body_inspect_bytes (%d) reached for client %s; the "
+        "request body is not read because the adapter does not implement a "
+        "bounded reader (read_body_prefix)",
+        max_bytes,
+        client_ip,
+    )
+
+
+async def _read_oversized_declared_body(
+    request: GuardRequest,
+    max_bytes: int,
+    timeout: float,
+    max_concurrent: int,
+    client_ip: str,
+) -> bytes | None:
+    if not isinstance(request, _BoundedBodyReader):
+        _warn_body_inspect_bytes_cap_reached_no_bounded_reader(max_bytes, client_ip)
+        return None
+
+    _warn_body_inspect_bytes_cap_reached(max_bytes, client_ip)
+    return await _read_and_cache_body(
+        request,
+        max_bytes,
+        timeout,
+        lambda: request.read_body_prefix(max_bytes),
+        "read_body_prefix",
+        max_concurrent,
+    )
+
+
 async def _read_capped_body(
     request: GuardRequest, config: "SecurityConfig | None", client_ip: str = ""
 ) -> bytes | None:
@@ -137,7 +171,9 @@ async def _read_capped_body(
         parsed = _parse_content_length(content_length)
         if parsed is not None:
             if parsed > max_bytes:
-                _warn_body_inspect_bytes_cap_reached(max_bytes, client_ip)
+                return await _read_oversized_declared_body(
+                    request, max_bytes, timeout, max_concurrent, client_ip
+                )
             return await _read_and_cache_body(
                 request, max_bytes, timeout, request.body, "body", max_concurrent
             )

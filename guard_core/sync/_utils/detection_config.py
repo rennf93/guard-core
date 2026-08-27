@@ -96,14 +96,14 @@ def _resolve_max_scan_values(config: "SecurityConfig | None") -> int:
     )
 
 
-_DEFAULT_MAX_SCAN_BYTES = 65536
+_DEFAULT_MAX_SCAN_CHARS = 65536
 
 
-def _resolve_max_scan_bytes(config: "SecurityConfig | None") -> int:
+def _resolve_max_scan_chars(config: "SecurityConfig | None") -> int:
     return (
-        config.detection_max_scan_bytes
+        config.detection_max_scan_chars
         if config is not None
-        else _DEFAULT_MAX_SCAN_BYTES
+        else _DEFAULT_MAX_SCAN_CHARS
     )
 
 

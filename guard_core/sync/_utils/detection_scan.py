@@ -7,7 +7,7 @@ from typing import Any
 
 from guard_core.sync._utils.detection_config import (
     _DEFAULT_MAX_JSON_DEPTH,
-    _DEFAULT_MAX_SCAN_BYTES,
+    _DEFAULT_MAX_SCAN_CHARS,
     _DEFAULT_MAX_SCAN_VALUES,
 )
 from guard_core.sync._utils.logging_utils import _log_at_level, _sanitize_for_reporting
@@ -20,14 +20,14 @@ _scanned_value_count: contextvars.ContextVar[int] = contextvars.ContextVar(
 _scan_value_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
     "guard_core_detection_scan_value_cap", default=_DEFAULT_MAX_SCAN_VALUES
 )
-_scanned_byte_count: contextvars.ContextVar[int] = contextvars.ContextVar(
-    "guard_core_detection_scanned_byte_count", default=0
+_scanned_char_count: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_scanned_char_count", default=0
 )
-_scan_byte_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
-    "guard_core_detection_scan_byte_cap", default=_DEFAULT_MAX_SCAN_BYTES
+_scan_char_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_scan_char_cap", default=_DEFAULT_MAX_SCAN_CHARS
 )
-_scan_byte_cap_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "guard_core_detection_scan_byte_cap_warned", default=False
+_scan_char_cap_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "guard_core_detection_scan_char_cap_warned", default=False
 )
 _json_depth_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
     "guard_core_detection_json_depth_cap", default=_DEFAULT_MAX_JSON_DEPTH
@@ -41,13 +41,13 @@ _json_depth_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
 def _scan_value_budget(
     max_values: int,
     max_json_depth: int = _DEFAULT_MAX_JSON_DEPTH,
-    max_scan_bytes: int = _DEFAULT_MAX_SCAN_BYTES,
+    max_scan_chars: int = _DEFAULT_MAX_SCAN_CHARS,
 ) -> Iterator[None]:
     count_token = _scanned_value_count.set(0)
     cap_token = _scan_value_cap.set(max_values)
-    byte_count_token = _scanned_byte_count.set(0)
-    byte_cap_token = _scan_byte_cap.set(max_scan_bytes)
-    byte_warned_token = _scan_byte_cap_warned.set(False)
+    char_count_token = _scanned_char_count.set(0)
+    char_cap_token = _scan_char_cap.set(max_scan_chars)
+    char_warned_token = _scan_char_cap_warned.set(False)
     depth_cap_token = _json_depth_cap.set(max_json_depth)
     depth_warned_token = _json_depth_warned.set(False)
     try:
@@ -55,9 +55,9 @@ def _scan_value_budget(
     finally:
         _scanned_value_count.reset(count_token)
         _scan_value_cap.reset(cap_token)
-        _scanned_byte_count.reset(byte_count_token)
-        _scan_byte_cap.reset(byte_cap_token)
-        _scan_byte_cap_warned.reset(byte_warned_token)
+        _scanned_char_count.reset(char_count_token)
+        _scan_char_cap.reset(char_cap_token)
+        _scan_char_cap_warned.reset(char_warned_token)
         _json_depth_cap.reset(depth_cap_token)
         _json_depth_warned.reset(depth_warned_token)
 
@@ -78,27 +78,27 @@ def _scan_value_budget_exhausted(client_ip: str) -> bool:
     return True
 
 
-def _scan_byte_budget_exhausted(client_ip: str, value_length: int) -> bool:
-    consumed_before = _scanned_byte_count.get()
-    cap = _scan_byte_cap.get()
+def _scan_char_budget_exhausted(client_ip: str, value_length: int) -> bool:
+    consumed_before = _scanned_char_count.get()
+    cap = _scan_char_cap.get()
     if consumed_before >= cap:
-        if not _scan_byte_cap_warned.get():
-            _scan_byte_cap_warned.set(True)
+        if not _scan_char_cap_warned.get():
+            _scan_char_cap_warned.set(True)
             logger.warning(
-                "detection_max_scan_bytes (%d) reached for client %s; remaining "
+                "detection_max_scan_chars (%d) reached for client %s; remaining "
                 "request values are not scanned",
                 cap,
                 client_ip,
             )
         return True
-    _scanned_byte_count.set(consumed_before + value_length)
+    _scanned_char_count.set(consumed_before + value_length)
     return False
 
 
 def _scan_budget_exhausted(client_ip: str, value: str) -> bool:
     if _scan_value_budget_exhausted(client_ip):
         return True
-    return _scan_byte_budget_exhausted(client_ip, len(value))
+    return _scan_char_budget_exhausted(client_ip, len(value))
 
 
 def _json_depth_cap_value() -> int:
