@@ -199,9 +199,9 @@ class SemanticAnalyzer:
 
         return 0.0
 
-    def analyze_attack_probability(self, content: str) -> dict[str, float]:
-        tokens = self.extract_tokens(content)
-        token_set = set(tokens)
+    def _attack_probabilities_for_tokens(
+        self, token_set: set[str], content: str
+    ) -> dict[str, float]:
         probabilities = {}
 
         for attack_type, keywords in self.attack_keywords.items():
@@ -211,6 +211,10 @@ class SemanticAnalyzer:
             probabilities[attack_type] = min(score, 1.0)
 
         return probabilities
+
+    def analyze_attack_probability(self, content: str) -> dict[str, float]:
+        tokens = self.extract_tokens(content)
+        return self._attack_probabilities_for_tokens(set(tokens), content)
 
     def detect_obfuscation(self, content: str) -> bool:
         if looks_like_binary_content(content):
@@ -328,14 +332,17 @@ class SemanticAnalyzer:
         return min(risk_score, 1.0)
 
     def analyze(self, content: str) -> dict[str, Any]:
+        tokens = self.extract_tokens(content)
         return {
-            "attack_probabilities": self.analyze_attack_probability(content),
+            "attack_probabilities": self._attack_probabilities_for_tokens(
+                set(tokens), content
+            ),
             "entropy": self.calculate_entropy(content),
             "encoding_layers": self.detect_encoding_layers(content),
             "is_obfuscated": self.detect_obfuscation(content),
             "suspicious_patterns": self.extract_suspicious_patterns(content),
             "code_injection_risk": self.analyze_code_injection_risk(content),
-            "token_count": len(self.extract_tokens(content)),
+            "token_count": len(tokens),
         }
 
     def get_threat_score(self, analysis_results: dict[str, Any]) -> float:
