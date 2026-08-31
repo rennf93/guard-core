@@ -3,6 +3,7 @@ from types import TracebackType
 from typing import Any, cast
 
 import pytest
+from cachetools import TTLCache
 
 from guard_core.sync.handlers.security_headers_handler import (
     SecurityHeadersManager,
@@ -58,6 +59,63 @@ def test_get_headers_with_cached_non_dict_value(
     assert "X-Frame-Options" in headers
 
     assert isinstance(headers_manager.headers_cache[cache_key], dict)
+
+
+def test_get_headers_survives_ttl_expiry_between_membership_check_and_read(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    class _RaceTimer:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        def __call__(self) -> float:
+            self._calls += 1
+            return 0.0 if self._calls <= 2 else 300.001
+
+    headers_manager.enabled = True
+    original_cache = headers_manager.headers_cache
+    headers_manager.headers_cache = TTLCache(maxsize=1000, ttl=300, timer=_RaceTimer())
+
+    try:
+        cache_key = headers_manager._generate_cache_key("race_path")
+        cached_headers = headers_manager.default_headers.copy()
+        headers_manager.headers_cache[cache_key] = cached_headers
+
+        headers = headers_manager.get_headers("race_path")
+
+        assert isinstance(headers, dict)
+        assert "X-Content-Type-Options" in headers
+        assert "X-Frame-Options" in headers
+    finally:
+        headers_manager.headers_cache = original_cache
+
+
+def test_get_headers_returns_cached_dict_on_live_cache_hit(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    headers_manager.enabled = True
+
+    cache_key = headers_manager._generate_cache_key("live_path")
+    cached_headers = {"X-Content-Type-Options": "nosniff", "X-Test-Cache": "hit"}
+    headers_manager.headers_cache[cache_key] = cached_headers
+
+    headers = headers_manager.get_headers("live_path")
+
+    assert headers == cached_headers
+
+
+def test_get_headers_rebuilds_headers_on_cache_miss(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    headers_manager.enabled = True
+
+    cache_key = headers_manager._generate_cache_key("missing_path")
+    assert cache_key not in headers_manager.headers_cache
+
+    headers = headers_manager.get_headers("missing_path")
+
+    assert headers == headers_manager.default_headers
+    assert headers_manager.headers_cache[cache_key] == headers
 
 
 def test_complete_secure_configuration() -> None:
