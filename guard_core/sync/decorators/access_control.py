@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from guard_core.models import VALID_CLOUD_PROVIDERS
+from guard_core.models import VALID_BYPASS_CHECKS, VALID_CLOUD_PROVIDERS
 from guard_core.sync.decorators.base import BaseSecurityMixin, DecoratedFunction
 
 
@@ -71,7 +71,14 @@ class AccessControlMixin(BaseSecurityMixin):
     ) -> Callable[[Callable[..., Any]], DecoratedFunction]:
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:
             route_config = self._ensure_route_config(func)
-            route_config.bypassed_checks.update(checks)
+            valid = {c for c in checks if c in VALID_BYPASS_CHECKS}
+            route_config.bypassed_checks.update(valid)
+            invalid = set(checks) - valid
+            if invalid:
+                logging.getLogger("guard_core.sync.decorators").warning(
+                    "@bypass: ignored unknown checks %s",
+                    sorted(invalid),
+                )
             return self._apply_route_config(func)
 
         return decorator

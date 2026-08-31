@@ -70,6 +70,10 @@ if TYPE_CHECKING:
     from guard_agent import AgentConfig
 
 
+VALID_BYPASS_CHECKS: frozenset[str] = frozenset(
+    {"all", "ip_ban", "ip", "clouds", "rate_limit", "penetration"}
+)
+
 logger = logging.getLogger("guard_core.models")
 
 _skip_revalidation: contextvars.ContextVar[bool] = contextvars.ContextVar(
