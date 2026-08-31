@@ -77,7 +77,7 @@ class AccessControlMixin(BaseSecurityMixin):
             if invalid:
                 logging.getLogger("guard_core.sync.decorators").warning(
                     "@bypass: ignored unknown checks %s",
-                    sorted(invalid),
+                    sorted(invalid, key=str),
                 )
             return self._apply_route_config(func)
 

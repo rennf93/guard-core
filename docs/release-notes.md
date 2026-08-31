@@ -18,7 +18,7 @@ v3.15.1 (2026-08-31)
 
 ### Fixed
 
-- **`@bypass` decorator filters unknown check names.** Previously `@bypass(["rate_limit", "geo_check"])` silently stored `"geo_check"` on the route config's `bypassed_checks`, where it had no effect: `should_bypass_check` only ever tests `"all"`, `"ip_ban"`, `"ip"`, `"clouds"`, `"rate_limit"`, and `"penetration"`, so a mistyped or invalid check name left the intended check fully enforced with no diagnostic. `bypass()` now filters through a new `VALID_BYPASS_CHECKS` frozenset, the same way `@block_clouds` filters through `VALID_CLOUD_PROVIDERS` (added in v3.1.0), and warns on ignored entries. Async and sync mirrors updated.
+- **`@bypass` decorator filters unknown check names.** Previously `@bypass(["rate_limit", "geo_check"])` silently stored `"geo_check"` on the route config's `bypassed_checks`, where it had no effect: `should_bypass_check` only ever tests `"all"`, `"ip_ban"`, `"ip"`, `"clouds"`, `"rate_limit"`, and `"penetration"`, so a mistyped or invalid check name left the intended check fully enforced with no diagnostic. `bypass()` now filters through a new `VALID_BYPASS_CHECKS` frozenset, the same way `@block_clouds` filters through `VALID_CLOUD_PROVIDERS` (added in v3.1.0), and warns on ignored entries. Async and sync mirrors updated. This also means the `security_bypass` middleware event's `bypassed_checks` payload now reports only recognized tokens, so a caller who previously passed extra labels for bookkeeping through `bypass()` will no longer see them there.
 
 ### Added
 
