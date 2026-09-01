@@ -199,6 +199,25 @@ def update_changelogs(version: str) -> bool:
     return ok
 
 
+def update_skill_md(version: str) -> bool:
+    path = (
+        PROJECT_ROOT / "guard_core" / ".agents" / "skills" / "guard-core" / "SKILL.md"
+    )
+    content = path.read_text()
+    pattern = re.compile(r"^Current as of guard-core \d+\.\d+\.\d+\.$", re.MULTILINE)
+    match = pattern.search(content)
+    if not match:
+        print("  ERROR: version marker missing from SKILL.md")
+        return False
+    if match.group(0) == f"Current as of guard-core {version}.":
+        print(f"  SKILL.md: already set to {version}")
+        return True
+    new_content = pattern.sub(f"Current as of guard-core {version}.", content)
+    path.write_text(new_content)
+    print(f"  SKILL.md: updated to {version}")
+    return True
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Usage: bump_version.py <version>")
@@ -218,6 +237,7 @@ def main() -> int:
         (".mike.yml", update_mike_yml),
         ("docs/versions/versions.json", update_versions_json),
         ("changelogs", update_changelogs),
+        ("SKILL.md", update_skill_md),
     ]
 
     all_ok = True
