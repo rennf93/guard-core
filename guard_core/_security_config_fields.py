@@ -700,6 +700,15 @@ class _SecurityConfigFields(BaseModel):
         description="Interval in seconds between dynamic rule updates",
     )
 
+    dynamic_rules_cache_path: Path | None = Field(
+        default=None,
+        description="Optional local JSON file persisting the last-known dynamic "
+        "rules snapshot so a restart during a SaaS outage restores the last "
+        "applied rules instead of base config. Redis holds the primary snapshot "
+        "whenever a redis_handler is present; the file is an additional "
+        "opt-in fallback that is only written and read when this path is set.",
+    )
+
     agent_status_interval: int = Field(
         default=300,
         ge=60,

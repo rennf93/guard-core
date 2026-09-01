@@ -440,6 +440,34 @@ async def test_initialize_dynamic_rule_manager_no_redis(
         mock_drm_instance.initialize_redis.assert_not_called()
 
 
+async def test_initialize_dynamic_rule_manager_initializes_redis_before_agent(
+    initializer: HandlerInitializer,
+    security_config: SecurityConfig,
+    mock_agent_handler: Mock,
+    mock_redis_handler: Mock,
+) -> None:
+    security_config.enable_dynamic_rules = True
+    call_order: list[str] = []
+
+    with patch(
+        "guard_core.handlers.dynamic_rule_handler.DynamicRuleManager"
+    ) as MockDRM:
+        mock_drm_instance = Mock()
+        mock_drm_instance.initialize_redis = AsyncMock(
+            side_effect=lambda handler: call_order.append("redis")
+        )
+        mock_drm_instance.initialize_agent = AsyncMock(
+            side_effect=lambda telemetry: call_order.append("agent")
+        )
+        MockDRM.return_value = mock_drm_instance
+
+        await initializer.initialize_dynamic_rule_manager()
+
+    assert call_order == ["redis", "agent"]
+    mock_drm_instance.initialize_redis.assert_called_once_with(mock_redis_handler)
+    mock_drm_instance.initialize_agent.assert_called_once()
+
+
 async def test_initialize_agent_integrations_no_agent(
     security_config: SecurityConfig,
 ) -> None:

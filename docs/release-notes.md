@@ -10,6 +10,26 @@ Release Notes
 
 ___
 
+v3.17.0 (2026-09-01)
+--------------------
+
+Last-known dynamic rules survive a restart during a SaaS outage (v3.17.0)
+-------------------------------------------------------------------------
+
+
+### Added
+
+- **Dynamic rules persist to a last-known local snapshot.** When rules apply successfully, the exact payload that was applied is written to a local JSON snapshot, so a backend/Redis outage (Cloudflare-fronted SaaS unreachable, Redis down at process start) no longer leaves a restarted guard-core running with defaults. The write is atomic (`tempfile` + `os.replace`), so a crash mid-write can never leave a half-written snapshot. The snapshot stores a versioned strict envelope (`LastKnownRulesSnapshot`, `schema_version` + `LastKnownDynamicRules`): a snapshot written by a newer guard-core (unknown `schema_version` or unknown fields) and a malformed snapshot are both discarded with an error logged and the next store is tried; nothing is ever applied in degraded form.
+- **Hydration on startup whenever dynamic rules are enabled.** At `initialize_agent`, with `enable_dynamic_rules=True`, guard-core tries the last-known rules from Redis first and falls back to the file snapshot (including when the Redis payload is expired or malformed). Hydration runs once per process. A snapshot whose rules were already expired when stored is discarded with its own log and the next store is tried.
+- **`dynamic_rules_cache_path` config field.** Optional path for the file snapshot; unset disables the file layer entirely (Redis remains the last-known store). Validation enforces the type (non-empty string or `Path`); a path that is not writable at runtime is reported once per persist attempt and skipped, never a request failure.
+
+### Changed
+
+- **Redis is the primary last-known store, the file is the opt-in fallback.** With Redis configured, persistence goes to Redis and the file snapshot is a second line of defense read only when Redis has nothing usable. Without Redis, the file snapshot (when configured) is the only store.
+- **`_has_rule_expired` no longer doubles as the expired-rule warning dedup.** Expiry checking and the once-per-rule warning are separated, so a hydration pass that skips expired rules cannot suppress or duplicate the warning state of the live apply path.
+
+___
+
 v3.16.0 (2026-09-01)
 --------------------
 

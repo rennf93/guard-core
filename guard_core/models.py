@@ -2,6 +2,7 @@ import contextvars
 import difflib
 import logging
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,7 @@ from guard_core._security_config_validators import (
     _validate_block_cloud_providers_value,
     _validate_blocked_user_agents_value,
     _validate_country_set_value,
+    _validate_dynamic_rules_cache_path_value,
     _validate_enabled_detection_categories_value,
     _validate_exclude_paths_value,
     _validate_global_behavior_rule_assignment,
@@ -284,6 +286,10 @@ class SecurityConfig(_SecurityConfigFields):
     @field_validator("exclude_paths")
     def validate_exclude_paths(cls, v: list[str]) -> list[str]:
         return _validate_exclude_paths_value(v, stacklevel=4)
+
+    @field_validator("dynamic_rules_cache_path", mode="before")
+    def validate_dynamic_rules_cache_path(cls, v: Any) -> Path | None:
+        return _validate_dynamic_rules_cache_path_value(v)
 
     def to_agent_config(self) -> "AgentConfig | None":
         if not self.enable_agent or not self.agent_api_key:

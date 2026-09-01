@@ -175,10 +175,11 @@ class _HandlerInitializerStepsMixin:
 
         dynamic_rule_manager = DynamicRuleManager(self.config)
         telemetry = self.composite_handler or self.agent_handler
-        await dynamic_rule_manager.initialize_agent(telemetry)
 
         if self.redis_handler:
             await dynamic_rule_manager.initialize_redis(self.redis_handler)
+
+        await dynamic_rule_manager.initialize_agent(telemetry)
 
     async def initialize_agent_integrations(self) -> None:
         if (

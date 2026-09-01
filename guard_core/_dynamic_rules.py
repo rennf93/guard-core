@@ -69,3 +69,35 @@ class DynamicRules(BaseModel):
     emergency_whitelist: list[str] = Field(
         default_factory=list, description="Emergency whitelist IPs"
     )
+
+
+LAST_KNOWN_RULES_SNAPSHOT_SCHEMA_VERSION = 1
+
+
+class LastKnownDynamicRules(DynamicRules):
+    model_config = ConfigDict(extra="forbid")
+
+
+class LastKnownRulesSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int
+    rules: LastKnownDynamicRules
+
+
+def dump_last_known_rules_snapshot(rules: DynamicRules) -> str:
+    snapshot = LastKnownRulesSnapshot(
+        schema_version=LAST_KNOWN_RULES_SNAPSHOT_SCHEMA_VERSION,
+        rules=LastKnownDynamicRules.model_validate(rules.model_dump()),
+    )
+    return snapshot.model_dump_json()
+
+
+def load_last_known_rules_snapshot(payload: str | bytes) -> DynamicRules:
+    snapshot = LastKnownRulesSnapshot.model_validate_json(payload)
+    if snapshot.schema_version != LAST_KNOWN_RULES_SNAPSHOT_SCHEMA_VERSION:
+        raise ValueError(
+            "Unsupported last-known dynamic rules snapshot schema version: "
+            f"{snapshot.schema_version}"
+        )
+    return DynamicRules.model_validate(snapshot.rules.model_dump())

@@ -7,7 +7,7 @@ description: Guard Core best practices and conventions for the framework-agnosti
 
 Official guard-core skill to write code with best practices, keeping up to date with the real installed surface (introspect the package, do not rely on model memory of it).
 
-Current as of guard-core 3.16.0.
+Current as of guard-core 3.17.0.
 
 guard-core is the framework-agnostic security engine powering the Guard ecosystem. Framework adapters (fastapi-guard, flaskapi-guard, djapi-guard, tornadoapi-guard) implement three protocols and get the full pipeline, detection engine, Redis state, and telemetry for free.
 
@@ -69,6 +69,7 @@ import json; print(json.dumps({f: (SecurityConfig.model_fields[f].default, Secur
 Key defaults that bite:
 
 * `on_block` (default `None`) is an optional callback fired exactly once per block decision, receiving `(request, payload)` where payload carries `check_name`, `reason`, `trigger_info`, `passive_mode`, `client_ip`, `path`, `method`, and `status_code`. In passive mode it fires at flag time with `status_code=None`, since no response is ever sent. It is deliberately not fired for `custom_request` or route `custom_validators` (application-authored, the app already knows), the HTTPS-enforcement redirect (a redirect is not a block), or an adapter's Redis-unavailable response (cover that with `on_error`). Under ASGI the hook may be sync or async; under WSGI it must be sync and an async hook raises `TypeError`. A hook that raises is caught and logged, never propagated into request handling.
+* `dynamic_rules_cache_path` (default `None`) is the opt-in file layer for the last-known dynamic rules snapshot. With `enable_dynamic_rules=True`, every successfully applied `DynamicRules` payload is persisted as a versioned strict envelope (`LastKnownRulesSnapshot`, `guard_core/_dynamic_rules.py`): to Redis under the `dynamic_rules` namespace, key `last_known`, whenever a redis handler is present, and to this file when set (atomic `tempfile` + `os.replace`). `DynamicRuleManager.initialize_agent` hydrates once per process before the update loop starts, Redis first then the file, through the normal apply path, so a restart during a SaaS outage comes up with the last applied rules instead of base config, and the first successful fetch supersedes them through the usual version check. An expired, malformed, or newer-schema snapshot is discarded with an error logged and the next store is tried; nothing is applied in degraded form. Neither store expires on its own: remove the Redis key or the file yourself after disabling dynamic rules.
 * `fail_secure` defaults to `True`. A check raising an unexpected exception blocks with HTTP 500 instead of falling through. Opt back into fail-open with `SecurityConfig(fail_secure=False)` only if you understand the risk.
 * `enable_redis` defaults to `True` with `redis_url="redis://localhost:6379"`. If you have no Redis, set `enable_redis=False` or point at a real instance; do not leave the default running in a no-Redis environment.
 * `passive_mode` defaults to `False`. Set `True` for log-only mode (no blocking, events still emit).
