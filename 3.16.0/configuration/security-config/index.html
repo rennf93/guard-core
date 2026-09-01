@@ -3005,17 +3005,17 @@
 <td><code>ipinfo_token</code></td>
 <td><code>str \| None</code></td>
 <td><code>None</code></td>
-<td><strong>Deprecated.</strong> IPInfo API token.</td>
+<td>IPInfo API token for IP geolocation.</td>
 </tr>
 <tr>
 <td><code>ipinfo_db_path</code></td>
 <td><code>Path \| None</code></td>
 <td><code>data/ipinfo/country_asn.mmdb</code></td>
-<td><strong>Deprecated.</strong> Path to IPInfo database.</td>
+<td>Path to the local IPInfo MMDB database file.</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Model validator</strong>: If <code>blocked_countries</code> or <code>whitelist_countries</code> are set, <code>geo_ip_handler</code> must be provided (or <code>ipinfo_token</code> for backward compatibility). Raises <code>ValueError</code> otherwise.</p>
+<p><strong>Model validator</strong>: If <code>blocked_countries</code> or <code>whitelist_countries</code> are set, <code>geo_ip_handler</code> must be provided (or <code>ipinfo_token</code>, from which one is constructed automatically). Raises <code>ValueError</code> otherwise.</p>
 <hr />
 <h2 id="rate-limiting">Rate Limiting<a class="headerlink" href="#rate-limiting" title="Permanent link">&para;</a></h2>
 <table>
