@@ -39,13 +39,20 @@ class IpBanQueryMixin(IpBanEventMixin):
         await self.redis_handler.delete("banned_ips", ip)
         return False
 
+    def _purge_banned_ip(self, ip: str) -> None:
+        try:
+            del self.banned_ips[ip]
+        except KeyError:
+            return
+
     async def is_ip_banned(self, ip: str) -> bool:
         ip = _canonicalize_ip(ip)
         current_time = time.time()
 
-        if ip in self.banned_ips:
-            if current_time > self.banned_ips[ip]:
-                del self.banned_ips[ip]
+        expiry = self.banned_ips.get(ip)
+        if expiry is not None:
+            if current_time > expiry:
+                self._purge_banned_ip(ip)
                 return False
             return True
 
@@ -64,8 +71,7 @@ class IpBanQueryMixin(IpBanEventMixin):
 
     async def unban_ip(self, ip: str) -> None:
         ip = _canonicalize_ip(ip)
-        if ip in self.banned_ips:
-            del self.banned_ips[ip]
+        self._purge_banned_ip(ip)
 
         if self.redis_handler:
             await self.redis_handler.delete("banned_ips", ip)

@@ -84,6 +84,7 @@ def test_get_headers_survives_ttl_expiry_between_membership_check_and_read(
         headers = headers_manager.get_headers("race_path")
 
         assert isinstance(headers, dict)
+        assert headers is cached_headers
         assert "X-Content-Type-Options" in headers
         assert "X-Frame-Options" in headers
     finally:
