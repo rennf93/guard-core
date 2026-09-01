@@ -2607,6 +2607,12 @@
 <td><code>None</code></td>
 <td>Best-effort callback invoked when a middleware/agent step fails, receiving <code>(stage, exception, context)</code>. <code>stage</code> is one of <code>agent_init</code>, <code>geoip</code>, <code>transport_send</code>, <code>encryption</code>. Also forwarded to <code>AgentConfig.on_error</code> when the agent is enabled; see <a href="#agent-telemetry">Agent / Telemetry</a>.</td>
 </tr>
+<tr>
+<td><code>on_block</code></td>
+<td><code>Callable[[GuardRequest, dict[str, Any]], None] \| None</code></td>
+<td><code>None</code></td>
+<td>Fired exactly once per block decision with <code>(request, payload)</code>; in passive mode fires at flag time with <code>status_code=None</code>. Payload keys: <code>check_name</code>, <code>reason</code>, <code>trigger_info</code>, <code>passive_mode</code>, <code>client_ip</code>, <code>path</code>, <code>method</code>, <code>status_code</code>. Not fired for <code>custom_request</code>/<code>custom_validators</code> (application-authored), the HTTPS redirect, or a Redis-unavailable response (use <code>on_error</code>). Sync or async under ASGI; sync-only under WSGI (async raises <code>TypeError</code>). A raising hook is logged, never propagated.</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Default <code>exclude_paths</code></strong>: <code>["/docs", "/redoc", "/openapi.json", "/openapi.yaml", "/favicon.ico", "/static"]</code></p>
