@@ -92,9 +92,8 @@ def test_geo_ip_handler_validation() -> None:
         SecurityConfig(geo_ip_handler=invalid_handler)
 
 
-def test_geo_ip_handler_deprecated_fallback() -> None:
-    with pytest.warns(DeprecationWarning, match="ipinfo_token is deprecated"):
-        config = SecurityConfig(ipinfo_token="test", whitelist_countries=["US"])
+def test_geo_ip_handler_ipinfo_token_fallback() -> None:
+    config = SecurityConfig(ipinfo_token="test", whitelist_countries=["US"])
     assert config.geo_ip_handler is not None
     assert type(config.geo_ip_handler).__name__ == "IPInfoManager"
 

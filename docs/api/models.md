@@ -166,7 +166,6 @@ class SecurityConfig(BaseModel):
 | `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when country filtering is configured (falls back to constructing `IPInfoManager` if `ipinfo_token` is set). Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction, so the same requirement holds at runtime, not only at construction. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent=True`; requires `enable_agent=True` when `enable_dynamic_rules=True`. |
 | `validate_global_return_pattern_body_scan` | `global_behavior_rules` | Rejects a `return_pattern` rule whose pattern is not `status:` when `behavior_scan_response_body=False`, since such a rule could never match. |
-| `warn_deprecated_fields` | model-level | Emits `DeprecationWarning` when `ipinfo_token`/`ipinfo_db_path` is set. |
 | `validate_muted_event_types` | `muted_event_types` | Rejects unknown values (must be a subset of `EVENT_TYPE_VALUES`). Returns `frozenset[str]`. |
 | `validate_muted_metric_types` | `muted_metric_types` | Rejects unknown values (must be a subset of `METRIC_TYPE_VALUES`). Returns `frozenset[str]`. |
 | `validate_muted_check_logs` | `muted_check_logs` | Rejects unknown values (must be a subset of `CHECK_NAME_VALUES`). Returns `frozenset[str]`. |

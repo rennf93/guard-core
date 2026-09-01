@@ -502,14 +502,14 @@ class _SecurityConfigFields(BaseModel):
 
     ipinfo_token: str | None = Field(
         default=None,
-        description="IPInfo API token for IP geolocation. Deprecated. "
-        "Create a custom `geo_ip_handler` instead.",
+        description="IPInfo API token used to fetch IP geolocation data from "
+        "the IPInfo API.",
     )
 
     ipinfo_db_path: Path | None = Field(
         default=Path("data/ipinfo/country_asn.mmdb"),
-        description="Path to the IPInfo database file. Deprecated. "
-        "Create a custom `geo_ip_handler` instead.",
+        description="Path to the local IPInfo MMDB database file used for IP "
+        "geolocation.",
     )
 
     enable_agent: bool = Field(

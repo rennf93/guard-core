@@ -1,7 +1,6 @@
 import contextvars
 import difflib
 import logging
-import warnings
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -242,19 +241,6 @@ class SecurityConfig(_SecurityConfigFields):
             if rule.rule_type != "return_pattern" or not rule.pattern:
                 continue
             _validate_return_pattern_body_scan(rule.pattern, self)
-        return self
-
-    @model_validator(mode="after")
-    def warn_deprecated_fields(self) -> Self:
-        for name in sorted({"ipinfo_token", "ipinfo_db_path"} & self.model_fields_set):
-            if getattr(self, name) is None:
-                continue
-            warnings.warn(
-                f"{name} is deprecated and will be removed in a future release; "
-                "create a custom geo_ip_handler instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         return self
 
     @model_validator(mode="after")

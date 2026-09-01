@@ -1,4 +1,3 @@
-import warnings
 from pathlib import Path
 from typing import cast
 
@@ -43,14 +42,10 @@ def test_blocked_countries_assignment_with_geo_handler_already_set_succeeds(
 def test_blocked_countries_assignment_with_ipinfo_token_auto_constructs_handler() -> (
     None
 ):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        config = SecurityConfig(ipinfo_token="tok")
+    config = SecurityConfig(ipinfo_token="tok")
     assert config.geo_ip_handler is None
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        config.blocked_countries = cast(frozenset[str], ["US"])
+    config.blocked_countries = cast(frozenset[str], ["US"])
 
     assert type(config.geo_ip_handler).__name__ == "IPInfoManager"
     assert config.blocked_countries == frozenset({"US"})
@@ -94,14 +89,10 @@ def test_model_copy_update_blocked_countries_with_geo_handler_in_same_update_suc
 def test_model_copy_update_blocked_countries_with_token_auto_constructs_handler() -> (
     None
 ):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        base = SecurityConfig(ipinfo_token="tok")
+    base = SecurityConfig(ipinfo_token="tok")
     assert base.geo_ip_handler is None
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        copied = base.model_copy(update={"blocked_countries": ["US"]})
+    copied = base.model_copy(update={"blocked_countries": ["US"]})
 
     assert type(copied.geo_ip_handler).__name__ == "IPInfoManager"
     assert copied.blocked_countries == frozenset({"US"})

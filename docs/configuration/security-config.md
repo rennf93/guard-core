@@ -279,10 +279,10 @@ Geolocation
 | Field              | Type              | Default | Description                                         |
 |--------------------|-------------------|---------|-----------------------------------------------------|
 | `geo_ip_handler`   | `GeoIPHandler \| None` | `None`  | Custom geolocation handler implementing the protocol.|
-| `ipinfo_token`     | `str \| None`     | `None`  | **Deprecated.** IPInfo API token.                   |
-| `ipinfo_db_path`   | `Path \| None`    | `data/ipinfo/country_asn.mmdb` | **Deprecated.** Path to IPInfo database. |
+| `ipinfo_token`     | `str \| None`     | `None`  | IPInfo API token for IP geolocation.                |
+| `ipinfo_db_path`   | `Path \| None`    | `data/ipinfo/country_asn.mmdb` | Path to the local IPInfo MMDB database file. |
 
-**Model validator**: If `blocked_countries` or `whitelist_countries` are set, `geo_ip_handler` must be provided (or `ipinfo_token` for backward compatibility). Raises `ValueError` otherwise.
+**Model validator**: If `blocked_countries` or `whitelist_countries` are set, `geo_ip_handler` must be provided (or `ipinfo_token`, from which one is constructed automatically). Raises `ValueError` otherwise.
 
 ___
 

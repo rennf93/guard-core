@@ -14,10 +14,9 @@ def _reset_ipinfo_singleton() -> Any:
 
 
 def test_geo_ip_db_max_age_reaches_auto_constructed_handler() -> None:
-    with pytest.warns(DeprecationWarning):
-        config = SecurityConfig(
-            ipinfo_token="token123",
-            blocked_countries=["CN"],
-            geo_ip_db_max_age=7200,
-        )
+    config = SecurityConfig(
+        ipinfo_token="token123",
+        blocked_countries=["CN"],
+        geo_ip_db_max_age=7200,
+    )
     assert cast(Any, config.geo_ip_handler)._max_age == 7200
