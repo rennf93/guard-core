@@ -9,6 +9,7 @@ from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
 from guard_core.sync._utils.request_logging import _dispatch_block_hook
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import (
     detect_penetration_attempt,
     is_ip_allowed,
@@ -561,9 +562,9 @@ def test_setup_custom_logging_file_handler_exception(
 
 
 def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -575,9 +576,9 @@ def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
 
 
 def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -594,9 +595,9 @@ def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> None:
 
 
 def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -617,9 +618,9 @@ def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code() -> No
 def test_log_activity_passive_mode_fires_on_block_hook(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(

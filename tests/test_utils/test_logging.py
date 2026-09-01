@@ -9,6 +9,7 @@ from pytest_mock import MockerFixture
 
 from guard_core._utils.request_logging import _dispatch_block_hook
 from guard_core.models import SecurityConfig
+from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.utils import (
     detect_penetration_attempt,
     is_ip_allowed,
@@ -563,9 +564,9 @@ def test_setup_custom_logging_file_handler_exception(
 
 
 async def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: MockGuardRequest, payload: dict) -> None:
+    def hook(request: GuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -577,9 +578,9 @@ async def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
 
 
 async def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: MockGuardRequest, payload: dict) -> None:
+    def hook(request: GuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -598,9 +599,9 @@ async def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> No
 async def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code() -> (
     None
 ):
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: MockGuardRequest, payload: dict) -> None:
+    def hook(request: GuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
@@ -621,9 +622,9 @@ async def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code()
 async def test_log_activity_passive_mode_fires_on_block_hook(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: MockGuardRequest, payload: dict) -> None:
+    def hook(request: GuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = MockGuardRequest(

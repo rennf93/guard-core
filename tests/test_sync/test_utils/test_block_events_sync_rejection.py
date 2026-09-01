@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -7,6 +8,7 @@ from guard_core.sync._utils.block_events import (
     ON_BLOCK_EXCLUDED_CHECK_NAMES,
     fire_block_hook,
 )
+from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from tests.test_sync.conftest import SyncMockGuardRequest
 
 
@@ -16,9 +18,9 @@ class AwaitableSignal:
 
 
 def test_sync_fire_block_hook_rejects_awaitable_hook() -> None:
-    requests: list[SyncMockGuardRequest] = []
+    requests: list[SyncGuardRequest] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> AwaitableSignal:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> AwaitableSignal:
         requests.append(request)
         return AwaitableSignal()
 
@@ -35,7 +37,7 @@ def test_sync_fire_block_hook_rejects_awaitable_hook() -> None:
 
 
 def test_sync_fire_block_hook_rejects_deferred_awaitable_hook() -> None:
-    def hook(request: SyncMockGuardRequest, payload: dict) -> AwaitableSignal:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> AwaitableSignal:
         return AwaitableSignal()
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="10.0.0.1")
@@ -45,19 +47,16 @@ def test_sync_fire_block_hook_rejects_deferred_awaitable_hook() -> None:
 
 
 def test_sync_fire_block_hook_invokes_sync_hook_with_payload() -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(path="/api/x", method="POST", client_host="10.0.0.1")
     request.state.client_ip = "203.0.113.7"
 
-    result = fire_block_hook(
-        hook, request, "ip_security", "blacklisted", "IPMatch", False, 403
-    )
+    fire_block_hook(hook, request, "ip_security", "blacklisted", "IPMatch", False, 403)
 
-    assert result is None
     assert calls == [
         {
             "check_name": "ip_security",
@@ -75,44 +74,37 @@ def test_sync_fire_block_hook_invokes_sync_hook_with_payload() -> None:
 def test_sync_fire_block_hook_with_no_hook_is_a_no_op() -> None:
     request = SyncMockGuardRequest(path="/", method="GET", client_host="10.0.0.1")
 
-    assert (
-        fire_block_hook(None, request, "ip_security", "blacklisted", "", False, 403)
-        is None
-    )
+    fire_block_hook(None, request, "ip_security", "blacklisted", "", False, 403)
 
 
 def test_sync_fire_block_hook_swallows_hook_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         raise RuntimeError("hook exploded")
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="10.0.0.1")
 
     with caplog.at_level(logging.ERROR, logger="guard_core"):
-        result = fire_block_hook(
-            hook, request, "ip_security", "blacklisted", "", False, 403
-        )
+        fire_block_hook(hook, request, "ip_security", "blacklisted", "", False, 403)
 
-    assert result is None
     assert "on_block hook raised" in caplog.text
     assert "hook exploded" in caplog.text
 
 
 @pytest.mark.parametrize("check_name", sorted(ON_BLOCK_EXCLUDED_CHECK_NAMES))
 def test_sync_fire_block_hook_skips_excluded_check_names(check_name: str) -> None:
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
-    def hook(request: SyncMockGuardRequest, payload: dict) -> None:
+    def hook(request: SyncGuardRequest, payload: dict[str, Any]) -> None:
         calls.append(payload)
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="10.0.0.1")
 
-    result = fire_block_hook(
+    fire_block_hook(
         hook, request, check_name, "validator rejected", "trigger", False, 403
     )
 
-    assert result is None
     assert calls == []
 
 
