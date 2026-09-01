@@ -12,6 +12,7 @@ from guard_core.models import (
 from guard_core.sync.handlers._dynamic_rule_application import (
     DynamicRuleApplicationMixin,
 )
+from guard_core.sync.handlers._dynamic_rule_snapshot import DynamicRuleSnapshotMixin
 
 
 def _coerce_naive_utc(value: datetime) -> datetime:
@@ -20,7 +21,7 @@ def _coerce_naive_utc(value: datetime) -> datetime:
     return value
 
 
-class DynamicRuleManager(DynamicRuleApplicationMixin):
+class DynamicRuleManager(DynamicRuleApplicationMixin, DynamicRuleSnapshotMixin):
     _instance = None
     config: SecurityConfig
     agent_handler: Any = None
@@ -33,6 +34,7 @@ class DynamicRuleManager(DynamicRuleApplicationMixin):
     _stop_event: threading.Event
     _active_base_snapshot: dict[str, object] | None = None
     _last_skipped_expired_rule: tuple[str, int] | None = None
+    _hydrated_last_known_rules: bool = False
 
     _SNAPSHOT_FIELDS = (
         "blocked_countries",
@@ -68,18 +70,23 @@ class DynamicRuleManager(DynamicRuleApplicationMixin):
             cls._instance._stop_event = threading.Event()
             cls._instance._active_base_snapshot = None
             cls._instance._last_skipped_expired_rule = None
+            cls._instance._hydrated_last_known_rules = False
         return cls._instance
 
     def initialize_agent(self, agent_handler: Any) -> None:
         self.agent_handler = agent_handler
 
-        if self.config.enable_dynamic_rules and not self.update_task:
-            self._stop_event.clear()
-            self.update_task = threading.Thread(
-                target=self._rule_update_loop, daemon=True
-            )
-            self.update_task.start()
-            self.logger.info("Started dynamic rule update loop")
+        if self.config.enable_dynamic_rules:
+            if not self._hydrated_last_known_rules:
+                self._hydrated_last_known_rules = True
+                self._hydrate_last_known_rules()
+            if not self.update_task:
+                self._stop_event.clear()
+                self.update_task = threading.Thread(
+                    target=self._rule_update_loop, daemon=True
+                )
+                self.update_task.start()
+                self.logger.info("Started dynamic rule update loop")
 
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler
@@ -156,10 +163,13 @@ class DynamicRuleManager(DynamicRuleApplicationMixin):
                 "restored base config"
             )
 
-    def _reject_if_already_expired(self, rules: DynamicRules) -> bool:
+    def _has_rule_expired(self, rules: DynamicRules) -> bool:
         if rules.expires_at is None:
             return False
-        if datetime.now(timezone.utc) <= _coerce_naive_utc(rules.expires_at):
+        return datetime.now(timezone.utc) > _coerce_naive_utc(rules.expires_at)
+
+    def _reject_if_already_expired(self, rules: DynamicRules) -> bool:
+        if not self._has_rule_expired(rules):
             return False
 
         key = (rules.rule_id, rules.version)
@@ -240,6 +250,8 @@ class DynamicRuleManager(DynamicRuleApplicationMixin):
                 raise
 
             self._capture_active_base_snapshot(snapshot)
+
+            self._persist_last_known_rules(rules)
 
     def get_current_rules(self) -> DynamicRules | None:
         return self.current_rules

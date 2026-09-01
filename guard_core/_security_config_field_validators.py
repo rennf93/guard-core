@@ -419,6 +419,22 @@ def _validate_blocked_user_agents_value(v: Any) -> list[str]:
     return patterns
 
 
+def _validate_dynamic_rules_cache_path_value(v: Any) -> Path | None:
+    if v is None:
+        return None
+    if not isinstance(v, str | Path):
+        raise ValueError(
+            "dynamic_rules_cache_path must be a non-empty filesystem path "
+            f"string or None, got {type(v).__name__}"
+        )
+    if not str(v).strip():
+        raise ValueError(
+            "dynamic_rules_cache_path must not be empty or whitespace-only; "
+            "leave it unset (None) to disable the local snapshot fallback"
+        )
+    return Path(v)
+
+
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
@@ -459,4 +475,5 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "enable_rate_limit_auto_ban": partial(
         _validate_bool_field_value, field_name="enable_rate_limit_auto_ban"
     ),
+    "dynamic_rules_cache_path": _validate_dynamic_rules_cache_path_value,
 }

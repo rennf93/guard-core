@@ -46,9 +46,11 @@ TEMPLATE_FILES = {
 
 HAND_MAINTAINED = {
     SYNC_DIR / "handlers" / "ratelimit_handler.py",
+    SYNC_DIR / "handlers" / "_dynamic_rule_persistence.py",
     TEST_SYNC_DIR / "test_core" / "test_check_rate_limit_by_ip_autoban.py",
     TEST_SYNC_DIR / "test_agent" / "test_ratelimit_agent_integration.py",
     TEST_SYNC_DIR / "test_dynamic_rule_atomicity.py",
+    TEST_SYNC_DIR / "test_dynamic_rule_persistence.py",
     TEST_SYNC_DIR / "test_cloud_ips" / "test_nonblocking_refresh.py",
     TEST_SYNC_DIR / "test_detection" / "test_builtin_pattern_safety.py",
     TEST_SYNC_DIR / "test_detection" / "test_builtin_redos_protection.py",
@@ -360,12 +362,12 @@ DOTALL_FIXUPS: list[tuple[str, str]] = [
         r"\2",
     ),
     (
-        r"self\.update_task = threading\.Thread\(target=self\._rule_update_loop, args=\(\)\)\n\s+self\.logger\.info",  # noqa: E501
-        "self.update_task = threading.Thread(\n"
-        "                target=self._rule_update_loop, daemon=True\n"
-        "            )\n"
-        "            self.update_task.start()\n"
-        "            self.logger.info",
+        r"([ \t]+)self\.update_task = threading\.Thread\(target=self\._rule_update_loop, args=\(\)\)\n\1self\.logger\.info",  # noqa: E501
+        "\\1self.update_task = threading.Thread(\n"
+        "\\1    target=self._rule_update_loop, daemon=True\n"
+        "\\1)\n"
+        "\\1self.update_task.start()\n"
+        "\\1self.logger.info",
     ),
     (
         r"self\._lazy_init_task = threading\.Thread\("
