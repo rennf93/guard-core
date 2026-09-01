@@ -10,6 +10,25 @@ Release Notes
 
 ___
 
+v3.16.0 (2026-09-01)
+--------------------
+
+on_block hook plus TTL check-then-use closure on the ban path (v3.16.0)
+-----------------------------------------------------------------------
+
+
+### Added
+
+- **A new optional `SecurityConfig.on_block` callback fires exactly once per blocked request.** `on_block` receives `(request, payload)` at the block decision in `SecurityCheckPipeline`, with a payload carrying `check_name`, `reason`, `trigger_info`, `passive_mode`, `client_ip`, `path`, `method` and `status_code`, so an application can observe what guard-core decided in-process instead of reconstructing it from logs. It is deliberately not fired for `custom_request_check` or route `custom_validators` (application-authored, the app already knows), the HTTPS-enforcement redirect (a redirect is not a block), or an adapter's Redis-unavailable response (cover that with `on_error`). In passive mode it fires at flag time with `status_code=None`, since no response is ever sent. In ASGI deployments the hook may be sync or async; in WSGI deployments it must be sync, and an async hook raises `TypeError` with an explicit message. A hook that raises is caught and logged, never propagated into request handling. Both fire sites, the block decision and the passive-mode flag inside `log_activity`, share one payload builder in `guard_core/_utils/block_events.py`, with a hand-maintained sync twin enforcing the WSGI contract (#87).
+
+### Fixed
+
+- **A TTLCache check-then-use race in `SecurityHeadersManager.get_headers` raised `KeyError` under a TTL boundary crossing.** The header cache decided presence with a membership test and read the value as a separate operation; cachetools reads its clock once per operation, so an expiry crossing between the two made the subscript raise, escaping `get_headers` into the pipeline's generic handler (a 500 with `fail_secure=True`, a silently skipped check with `fail_secure=False`). The read is now a single `.get()` whose frozen clock makes presence and value agree by construction; the regression test drives the exact expiry boundary and asserts the returned headers ARE the cached object, so a silent rebuild cannot masquerade as passing (#86).
+- **The same race survived on the ban path, where a KeyError failed the ban check open.** `is_ip_banned` and `unban_ip` decided against the `banned_ips` TTLCache with separate clock reads, and cachetools' `__delitem__` itself raises when the entry is expired at the moment of the delete, so the ban purge could raise with no interleaving at all. The pipeline's generic catch turned that into a 500 with `fail_secure=True` and, with the default `fail_secure=False`, a request whose ban check silently did not run. Both now decide with a single `banned_ips.get(ip)` read and purge best-effort, preserving the shipped behavior exactly (cachetools' own `__contains__` already expiry-checks, so an entry expired at read time has always fallen through to the network and Redis lookups). Regression tests drive the exact expiry boundary and fail on the parent implementation.
+- **The path-exclusion and body-unavailable dedup caches read the same way.** Neither could crash, since they only check then set, but both decided have-I-already-fired with two clock reads; both now read once with `.get()`, closing the race class everywhere it appeared.
+
+___
+
 v3.15.1 (2026-08-31)
 --------------------
 
