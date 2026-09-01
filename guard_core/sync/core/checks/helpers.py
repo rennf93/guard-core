@@ -311,6 +311,7 @@ def _try_threshold_ban(
         level=config.log_suspicious_level,
         check_name=check_name,
         muted_check_logs=muted_check_logs,
+        on_block=config.on_block,
     )
     return True
 

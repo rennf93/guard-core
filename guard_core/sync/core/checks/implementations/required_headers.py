@@ -47,6 +47,7 @@ class RequiredHeadersCheck(SecurityCheck):
             passive_mode=self.config.passive_mode,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
+            on_block=self.config.on_block,
         )
 
         decorator_type, violation_type = _classify_header_violation(header)

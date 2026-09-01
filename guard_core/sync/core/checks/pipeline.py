@@ -7,6 +7,7 @@ from typing import cast
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.block_events import fire_block_hook
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
@@ -119,6 +120,20 @@ class SecurityCheckPipeline:
 
         return None
 
+    def _fire_block_hook(
+        self, check: SecurityCheck, request: SyncGuardRequest, response: GuardResponse
+    ) -> None:
+        stash = getattr(request.state, "_guard_block_stash", None) or {}
+        fire_block_hook(
+            check.config.on_block,
+            request,
+            check.check_name,
+            stash.get("reason", ""),
+            stash.get("trigger_info", ""),
+            False,
+            response.status_code,
+        )
+
     def _handle_rebuild_error(
         self, request: SyncGuardRequest, error: Exception
     ) -> GuardResponse | None:
@@ -162,6 +177,7 @@ class SecurityCheckPipeline:
                             f"Request blocked by {check.check_name}",
                             extra=self._log_extra(check, request),
                         )
+                    self._fire_block_hook(check, request, response)
                     return response
 
             except Exception as e:

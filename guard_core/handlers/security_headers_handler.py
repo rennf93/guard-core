@@ -83,10 +83,9 @@ class SecurityHeadersManager(
             return {}
 
         cache_key = self._generate_cache_key(request_path)
-        if cache_key in self.headers_cache:
-            cached = self.headers_cache[cache_key]
-            if isinstance(cached, dict):
-                return cached
+        cached = self.headers_cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
 
         headers = self.default_headers.copy()
 

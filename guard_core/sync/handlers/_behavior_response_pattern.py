@@ -22,7 +22,7 @@ class BehaviorResponsePatternMixin(BehaviorJsonPatternMixin):
     _body_unavailable_log_cache: TTLCache[str, bool]
 
     def _log_body_unavailable(self, pattern: str) -> None:
-        if pattern in self._body_unavailable_log_cache:
+        if self._body_unavailable_log_cache.get(pattern) is not None:
             return
         self._body_unavailable_log_cache[pattern] = True
         self.logger.warning(

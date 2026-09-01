@@ -1,6 +1,8 @@
 import logging
+from collections.abc import Callable
 from typing import Any, Literal
 
+from guard_core.sync._utils.block_events import fire_block_hook
 from guard_core.sync._utils.ip_extraction import (
     UNKNOWN_CLIENT_IDENTITY,
     _canonicalize_ip,
@@ -65,6 +67,28 @@ def _build_log_message_generic(
     return details, reason_message
 
 
+def _dispatch_block_hook(
+    request: SyncGuardRequest,
+    log_type: str,
+    check_name: str | None,
+    reason: str,
+    trigger_info: str,
+    passive_mode: bool,
+    on_block: Callable[[SyncGuardRequest, dict[str, Any]], Any] | None,
+) -> None:
+    if log_type != "suspicious":
+        return
+    if not passive_mode:
+        request.state._guard_block_stash = {
+            "reason": reason,
+            "trigger_info": trigger_info,
+        }
+        return
+    fire_block_hook(
+        on_block, request, check_name or "", reason, trigger_info, True, None
+    )
+
+
 def log_activity(
     request: SyncGuardRequest,
     logger: logging.Logger,
@@ -75,7 +99,11 @@ def log_activity(
     level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
     check_name: str | None = None,
     muted_check_logs: frozenset[str] | None = None,
+    on_block: Callable[[SyncGuardRequest, dict[str, Any]], Any] | None = None,
 ) -> None:
+    _dispatch_block_hook(
+        request, log_type, check_name, reason, trigger_info, passive_mode, on_block
+    )
     if level is None:
         return
     if (

@@ -83,7 +83,7 @@ class RequestValidator:
             return False
 
         cache_key = hashlib.sha256(normalized_path.encode()).hexdigest()
-        if cache_key not in self._path_excluded_event_cache:
+        if self._path_excluded_event_cache.get(cache_key) is None:
             self._path_excluded_event_cache[cache_key] = True
             await self.context.event_bus.send_middleware_event(
                 event_type="path_excluded",

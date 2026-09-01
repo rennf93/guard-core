@@ -33,6 +33,7 @@ def _mock_middleware() -> Mock:
     middleware.config = Mock()
     middleware.config.fail_secure = False
     middleware.config.passive_mode = False
+    middleware.config.on_block = None
     middleware.logger = Mock()
     middleware.event_bus = Mock()
     return middleware
