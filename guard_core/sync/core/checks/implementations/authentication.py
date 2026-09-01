@@ -48,6 +48,7 @@ class AuthenticationCheck(SecurityCheck):
             passive_mode=self.config.passive_mode,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
+            on_block=self.config.on_block,
         )
 
         self.middleware.event_bus.send_middleware_event(

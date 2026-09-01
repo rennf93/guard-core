@@ -539,6 +539,23 @@ class _SecurityConfigFields(BaseModel):
         ),
     )
 
+    on_block: Callable[[GuardRequest, dict[str, Any]], None] | None = Field(
+        default=None,
+        description=(
+            "Optional best-effort callback invoked exactly once per blocked or "
+            "passive-mode-flagged request, receiving (request, payload). payload "
+            "keys: check_name, reason, trigger_info, passive_mode, client_ip, "
+            "path, method, status_code (None on the passive-mode path, where no "
+            "response is ever sent). Not fired for custom_request_check or "
+            "route_config.custom_validators (application-authored, the app "
+            "already knows), the HTTPS-enforcement redirect (a redirect is not "
+            "a block), or an adapter's Redis-unavailable response (see "
+            "on_error). Sync or async in async deployments; sync-only in WSGI "
+            "deployments, where an async callback raises TypeError. A callback "
+            "that raises is caught and logged, never propagated."
+        ),
+    )
+
     agent_endpoint: str = Field(
         default="https://api.guard-core.com",
         description="Guard Agent SaaS platform endpoint",

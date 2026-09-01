@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from pytest_mock import MockerFixture
 
+from guard_core._utils.request_logging import _dispatch_block_hook
 from guard_core.models import SecurityConfig
 from guard_core.utils import (
     detect_penetration_attempt,
@@ -559,6 +560,91 @@ def test_setup_custom_logging_file_handler_exception(
     test_message = "Console still works after file handler failure"
     logger.info(test_message)
     assert test_message in caplog.text
+
+
+async def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
+    calls: list[dict] = []
+
+    def hook(request: MockGuardRequest, payload: dict) -> None:
+        calls.append(payload)
+
+    request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
+
+    await _dispatch_block_hook(request, "request", "ip_security", "r", "", False, hook)
+
+    assert calls == []
+    assert getattr(request.state, "_guard_block_stash", None) is None
+
+
+async def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> None:
+    calls: list[dict] = []
+
+    def hook(request: MockGuardRequest, payload: dict) -> None:
+        calls.append(payload)
+
+    request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
+
+    await _dispatch_block_hook(
+        request, "suspicious", "ip_security", "blacklisted", "IPMatch", False, hook
+    )
+
+    assert calls == []
+    assert request.state._guard_block_stash == {
+        "reason": "blacklisted",
+        "trigger_info": "IPMatch",
+    }
+
+
+async def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code() -> (
+    None
+):
+    calls: list[dict] = []
+
+    def hook(request: MockGuardRequest, payload: dict) -> None:
+        calls.append(payload)
+
+    request = MockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
+
+    await _dispatch_block_hook(
+        request, "suspicious", "ip_security", "blacklisted", "IPMatch", True, hook
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["check_name"] == "ip_security"
+    assert calls[0]["reason"] == "blacklisted"
+    assert calls[0]["trigger_info"] == "IPMatch"
+    assert calls[0]["passive_mode"] is True
+    assert calls[0]["status_code"] is None
+    assert getattr(request.state, "_guard_block_stash", None) is None
+
+
+async def test_log_activity_passive_mode_fires_on_block_hook(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[dict] = []
+
+    def hook(request: MockGuardRequest, payload: dict) -> None:
+        calls.append(payload)
+
+    request = MockGuardRequest(
+        path="/", method="POST", headers={"user-agent": "t"}, client_host="127.0.0.1"
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await log_activity(
+            request,
+            logging.getLogger(__name__),
+            log_type="suspicious",
+            reason="blacklisted",
+            passive_mode=True,
+            trigger_info="IPMatch",
+            check_name="suspicious_activity",
+            on_block=hook,
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["check_name"] == "suspicious_activity"
+    assert calls[0]["passive_mode"] is True
 
 
 async def test_log_level(caplog: pytest.LogCaptureFixture) -> None:

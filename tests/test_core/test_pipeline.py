@@ -44,6 +44,7 @@ def mock_middleware() -> Mock:
     middleware.config = Mock()
     middleware.config.fail_secure = False
     middleware.config.passive_mode = False
+    middleware.config.on_block = None
     middleware.logger = Mock()
     middleware.event_bus = Mock()
     middleware.create_error_response = AsyncMock(return_value=Mock(status_code=500))

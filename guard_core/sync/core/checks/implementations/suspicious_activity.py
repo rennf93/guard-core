@@ -67,6 +67,7 @@ class SuspiciousActivityCheck(SecurityCheck):
             level=self.config.log_suspicious_level,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
+            on_block=self.config.on_block,
         )
 
         message = "Suspicious pattern detected (passive mode)"
@@ -115,6 +116,7 @@ class SuspiciousActivityCheck(SecurityCheck):
             level=self.config.log_suspicious_level,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
+            on_block=self.config.on_block,
         )
 
         self.middleware.event_bus.send_middleware_event(

@@ -403,6 +403,9 @@ class RateLimitManager:
             reason=f"{message} {client_ip} ({count} {detail}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
+            check_name="rate_limit",
+            muted_check_logs=self.config.muted_check_logs,
+            on_block=self.config.on_block,
         )
 
         if self.agent_handler:

@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable, Sized
 from typing import cast
 
+from guard_core._utils.block_events import fire_block_hook
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
@@ -119,6 +120,20 @@ class SecurityCheckPipeline:
 
         return None
 
+    async def _fire_block_hook(
+        self, check: SecurityCheck, request: GuardRequest, response: GuardResponse
+    ) -> None:
+        stash = getattr(request.state, "_guard_block_stash", None) or {}
+        await fire_block_hook(
+            check.config.on_block,
+            request,
+            check.check_name,
+            stash.get("reason", ""),
+            stash.get("trigger_info", ""),
+            False,
+            response.status_code,
+        )
+
     async def _handle_rebuild_error(
         self, request: GuardRequest, error: Exception
     ) -> GuardResponse | None:
@@ -162,6 +177,7 @@ class SecurityCheckPipeline:
                             f"Request blocked by {check.check_name}",
                             extra=self._log_extra(check, request),
                         )
+                    await self._fire_block_hook(check, request, response)
                     return response
 
             except Exception as e:

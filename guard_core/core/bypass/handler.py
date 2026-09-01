@@ -1,11 +1,14 @@
 from collections.abc import Awaitable, Callable
 from logging import Logger
 
+from guard_core._utils.block_events import fire_block_hook
 from guard_core.core.bypass.context import BypassContext
 from guard_core.decorators.base import RouteConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.utils import UNKNOWN_CLIENT_IDENTITY, extract_client_ip
+
+UNRESOLVABLE_CLIENT_ADDRESS_CHECK_NAME = "client_address_unresolved"
 
 _no_client_address_warned = False
 
@@ -49,9 +52,21 @@ class BypassHandler:
                     self.context.logger, rejected=self.context.config.fail_secure
                 )
                 if self.context.config.fail_secure:
-                    return await self.context.response_factory.create_error_response(
-                        403, "Client address could not be determined"
+                    response = (
+                        await self.context.response_factory.create_error_response(
+                            403, "Client address could not be determined"
+                        )
                     )
+                    await fire_block_hook(
+                        self.context.config.on_block,
+                        request,
+                        UNRESOLVABLE_CLIENT_ADDRESS_CHECK_NAME,
+                        "Client address could not be determined",
+                        "",
+                        False,
+                        response.status_code,
+                    )
+                    return response
 
         return None
 

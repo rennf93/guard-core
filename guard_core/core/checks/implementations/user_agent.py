@@ -65,6 +65,7 @@ class UserAgentCheck(SecurityCheck):
                 passive_mode=self.config.passive_mode,
                 check_name=self.check_name,
                 muted_check_logs=self.config.muted_check_logs,
+                on_block=self.config.on_block,
             )
 
             if route_config and route_config.blocked_user_agents:
