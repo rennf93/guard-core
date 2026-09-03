@@ -177,6 +177,46 @@ async def _fallback_pattern_check(
     return False, ""
 
 
+def _resolve_json_redact_all(
+    content_preview: str | None, json_redact_all: bool | None
+) -> bool:
+    if json_redact_all is not None:
+        return json_redact_all
+    return content_preview is not None
+
+
+async def _check_embedded_json_if_applicable(
+    value: str,
+    context: str,
+    client_ip: str,
+    correlation_id: str,
+    enabled_categories: set[str] | None,
+    scan_embedded_json: bool,
+    content_preview: str | None,
+    sensitive_body_fields: frozenset[str],
+    excluded_body_fields: frozenset[str],
+    json_redact_all: bool | None,
+) -> tuple[bool, str, list[dict], str | None] | None:
+    if not scan_embedded_json or context == "request_body":
+        return None
+
+    from guard_core._utils.embedded_json_scan import _check_embedded_json
+
+    json_result = await _check_embedded_json(
+        value,
+        context,
+        client_ip,
+        correlation_id,
+        enabled_categories,
+        excluded_body_fields,
+        sensitive_body_fields,
+        redact_all=_resolve_json_redact_all(content_preview, json_redact_all),
+    )
+    if json_result is None or not json_result[0]:
+        return None
+    return json_result
+
+
 async def _check_value_enhanced(
     value: str,
     context: str,
@@ -187,29 +227,27 @@ async def _check_value_enhanced(
     content_preview: str | None = None,
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    json_redact_all: bool | None = None,
 ) -> tuple[bool, str, list[dict], str | None]:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     if _scan_budget_exhausted(client_ip, value):
         return False, "", [], None
 
-    if scan_embedded_json and context != "request_body":
-        from guard_core._utils.embedded_json_scan import _check_embedded_json
-
-        json_result = await _check_embedded_json(
-            value,
-            context,
-            client_ip,
-            correlation_id,
-            enabled_categories,
-            excluded_body_fields,
-            sensitive_body_fields,
-            redact_all=content_preview is not None,
-        )
-        if json_result is not None:
-            json_detected, json_trigger, json_threats, json_display = json_result
-            if json_detected:
-                return json_detected, json_trigger, json_threats, json_display
+    json_hit = await _check_embedded_json_if_applicable(
+        value,
+        context,
+        client_ip,
+        correlation_id,
+        enabled_categories,
+        scan_embedded_json,
+        content_preview,
+        sensitive_body_fields,
+        excluded_body_fields,
+        json_redact_all,
+    )
+    if json_hit is not None:
+        return json_hit
 
     try:
         result = await sus_patterns_handler.detect(
@@ -265,6 +303,7 @@ async def _check_request_component(
     content_preview: str | None = None,
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    json_redact_all: bool | None = None,
 ) -> tuple[bool, str, list[dict]]:
     detected, trigger, threats, log_override = await _check_value_enhanced(
         value,
@@ -276,10 +315,12 @@ async def _check_request_component(
         content_preview=content_preview,
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
+        json_redact_all=json_redact_all,
     )
     if detected:
+        fallback = content_preview if content_preview is not None else value
         _log_detected_component(
-            log_override if log_override is not None else value,
+            log_override if log_override is not None else fallback,
             component_name,
             client_ip,
             log_level,

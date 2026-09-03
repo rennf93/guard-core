@@ -140,5 +140,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}-pytest-output
-          path: consumer/pytest-output.txt
+          path: |
+            consumer/pytest-output-base.txt
+            consumer/pytest-output-candidate.txt
           if-no-files-found: ignore

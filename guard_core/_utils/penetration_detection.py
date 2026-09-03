@@ -33,6 +33,7 @@ from guard_core._utils.ip_extraction import (
     _canonicalize_ip,
     extract_client_ip,
 )
+from guard_core._utils.request_logging import redact_url_for_display
 from guard_core.detection_result import DetectionResult
 from guard_core.protocols.request_protocol import GuardRequest
 
@@ -68,6 +69,9 @@ async def _scan_request_surface(
     if detected:
         return _build_detection_hit(trigger, threats)
 
+    redacted_url_path = redact_url_for_display(
+        request.url_path, sensitive_params, sensitive_body_fields
+    )
     detected, trigger, threats = await _check_request_component(
         request.url_path,
         "url_path",
@@ -76,8 +80,10 @@ async def _scan_request_surface(
         correlation_id,
         enabled_categories,
         log_level,
+        content_preview=redacted_url_path,
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
+        json_redact_all=False,
     )
     if detected:
         return _build_detection_hit(f"URL path: {trigger}", threats)

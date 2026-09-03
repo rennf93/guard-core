@@ -106,12 +106,24 @@ def _redact_path_segment(
     return ";".join([redacted_proper, *redacted_matrix_parts])
 
 
+def _redact_whole_path_as_json(
+    path: str, sensitive_body_fields: frozenset[str], max_depth: int
+) -> str | None:
+    prefix = "/" if path.startswith("/") else ""
+    decoded = _bounded_percent_decode(path[len(prefix) :], unquote)
+    redacted_text = _json_redact_text(decoded, sensitive_body_fields, max_depth)
+    return None if redacted_text is None else f"{prefix}{redacted_text}"
+
+
 def _redact_sensitive_path(
     path: str,
     sensitive_body_fields: frozenset[str],
     sensitive: frozenset[str],
     max_depth: int,
 ) -> str:
+    whole = _redact_whole_path_as_json(path, sensitive_body_fields, max_depth)
+    if whole is not None:
+        return whole
     return "/".join(
         _redact_path_segment(segment, sensitive_body_fields, sensitive, max_depth)
         for segment in path.split("/")
@@ -161,7 +173,9 @@ def _redact_sensitive_query_pair(
     name, _, value = pair.partition("=")
     if unquote_plus(name).lower() in sensitive:
         return f"{name}=[REDACTED]"
-    redacted_value = _redact_embedded_json_value(value, sensitive_body_fields, max_depth)
+    redacted_value = _redact_embedded_json_value(
+        value, sensitive_body_fields, max_depth
+    )
     if redacted_value == value:
         return pair
     return f"{name}={quote_plus(redacted_value)}"
@@ -180,7 +194,9 @@ def _redact_query_string(
     return "".join(
         token
         if token in ("&", ";")
-        else _redact_sensitive_query_pair(token, sensitive, sensitive_body_fields, max_depth)
+        else _redact_sensitive_query_pair(
+            token, sensitive, sensitive_body_fields, max_depth
+        )
         for token in tokens
     )
 
@@ -198,7 +214,9 @@ def _redact_fragment_query_string(
     return "".join(
         token
         if token in ("?", "&", ";")
-        else _redact_sensitive_query_pair(token, sensitive, sensitive_body_fields, max_depth)
+        else _redact_sensitive_query_pair(
+            token, sensitive, sensitive_body_fields, max_depth
+        )
         for token in tokens
     )
 
@@ -213,7 +231,7 @@ def _redact_netloc_password(netloc: str) -> str:
     return f"{user}:[REDACTED]@{hostport}"
 
 
-def _redact_sensitive_query_params(
+def redact_url_for_display(
     url: str,
     sensitive_params: frozenset[str] | None,
     sensitive_body_fields: frozenset[str] | None = None,
@@ -222,7 +240,9 @@ def _redact_sensitive_query_params(
     body_fields = _merge_sensitive_log_body_fields(sensitive_body_fields)
     sensitive = _merge_sensitive_names(_DEFAULT_SENSITIVE_LOG_FIELDS, sensitive_params)
     max_depth = _resolve_json_depth_cap()
-    redacted_path = _redact_sensitive_path(parts.path, body_fields, sensitive, max_depth)
+    redacted_path = _redact_sensitive_path(
+        parts.path, body_fields, sensitive, max_depth
+    )
     if (
         not parts.query
         and not parts.fragment
@@ -249,6 +269,9 @@ def _redact_sensitive_query_params(
             redacted_fragment,
         )
     )
+
+
+_redact_sensitive_query_params = redact_url_for_display
 
 
 def _extract_request_context(
@@ -324,6 +347,8 @@ async def _dispatch_block_hook(
     trigger_info: str,
     passive_mode: bool,
     on_block: Callable[[GuardRequest, dict[str, Any]], Any] | None,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None,
 ) -> None:
     if log_type != "suspicious":
         return
@@ -334,7 +359,15 @@ async def _dispatch_block_hook(
         }
         return
     await fire_block_hook(
-        on_block, request, check_name or "", reason, trigger_info, True, None
+        on_block,
+        request,
+        check_name or "",
+        reason,
+        trigger_info,
+        True,
+        None,
+        sensitive_params,
+        sensitive_body_fields,
     )
 
 
@@ -354,7 +387,15 @@ async def log_activity(
     sensitive_body_fields: frozenset[str] | None = None,
 ) -> None:
     await _dispatch_block_hook(
-        request, log_type, check_name, reason, trigger_info, passive_mode, on_block
+        request,
+        log_type,
+        check_name,
+        reason,
+        trigger_info,
+        passive_mode,
+        on_block,
+        sensitive_params,
+        sensitive_body_fields,
     )
     if level is None:
         return

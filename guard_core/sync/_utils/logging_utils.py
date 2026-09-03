@@ -21,6 +21,27 @@ def _sanitize_for_reporting(value: str) -> str:
     )
 
 
+def _redact_json_child(
+    key: Any,
+    item: Any,
+    source_is_dict: bool,
+    depth: int,
+    max_depth: int,
+    sensitive_body_fields: frozenset[str],
+    stack: list[tuple[Any, Any, int]],
+) -> Any:
+    if source_is_dict and str(key).lower() in sensitive_body_fields:
+        return "[REDACTED]"
+    if not isinstance(item, dict | list):
+        return item
+    child_depth = depth + 1
+    if child_depth >= max_depth:
+        return "[REDACTED]"
+    child: Any = {} if isinstance(item, dict) else []
+    stack.append((item, child, child_depth))
+    return child
+
+
 def _redact_sensitive_json(
     value: Any, sensitive_body_fields: frozenset[str], max_depth: int
 ) -> Any:
@@ -32,19 +53,18 @@ def _redact_sensitive_json(
     stack: list[tuple[Any, Any, int]] = [(value, root, 1)]
     while stack:
         source, target, depth = stack.pop()
-        entries = source.items() if isinstance(source, dict) else enumerate(source)
+        source_is_dict = isinstance(source, dict)
+        entries = source.items() if source_is_dict else enumerate(source)
         for key, item in entries:
-            if isinstance(source, dict) and str(key).lower() in sensitive_body_fields:
-                redacted_item: Any = "[REDACTED]"
-            elif isinstance(item, dict | list):
-                child_depth = depth + 1
-                if child_depth >= max_depth:
-                    redacted_item = "[REDACTED]"
-                else:
-                    redacted_item = {} if isinstance(item, dict) else []
-                    stack.append((item, redacted_item, child_depth))
-            else:
-                redacted_item = item
+            redacted_item = _redact_json_child(
+                key,
+                item,
+                source_is_dict,
+                depth,
+                max_depth,
+                sensitive_body_fields,
+                stack,
+            )
             if isinstance(target, dict):
                 target[key] = redacted_item
             else:

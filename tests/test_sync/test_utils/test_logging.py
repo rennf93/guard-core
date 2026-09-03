@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
@@ -10,6 +11,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
+from guard_core.sync._utils.logging_utils import _redact_sensitive_json
 from guard_core.sync._utils.request_logging import (
     _dispatch_block_hook,
     _redact_sensitive_headers,
@@ -576,7 +578,9 @@ def test_dispatch_block_hook_ignores_non_suspicious_log_types() -> None:
 
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
 
-    _dispatch_block_hook(request, "request", "ip_security", "r", "", False, hook)
+    _dispatch_block_hook(
+        request, "request", "ip_security", "r", "", False, hook, None, None
+    )
 
     assert calls == []
     assert getattr(request.state, "_guard_block_stash", None) is None
@@ -591,7 +595,15 @@ def test_dispatch_block_hook_stashes_block_dispatch_without_firing() -> None:
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
 
     _dispatch_block_hook(
-        request, "suspicious", "ip_security", "blacklisted", "IPMatch", False, hook
+        request,
+        "suspicious",
+        "ip_security",
+        "blacklisted",
+        "IPMatch",
+        False,
+        hook,
+        None,
+        None,
     )
 
     assert calls == []
@@ -610,7 +622,15 @@ def test_dispatch_block_hook_passive_mode_fires_hook_without_status_code() -> No
     request = SyncMockGuardRequest(path="/", method="GET", client_host="127.0.0.1")
 
     _dispatch_block_hook(
-        request, "suspicious", "ip_security", "blacklisted", "IPMatch", True, hook
+        request,
+        "suspicious",
+        "ip_security",
+        "blacklisted",
+        "IPMatch",
+        True,
+        hook,
+        None,
+        None,
     )
 
     assert len(calls) == 1
@@ -1470,3 +1490,170 @@ def test_redact_sensitive_query_params_non_json_value_stays_byte_identical() -> 
 def test_redact_sensitive_headers_json_scalar_value_unchanged() -> None:
     headers = {"X-Custom": "42"}
     assert _redact_sensitive_headers(headers, None) == headers
+
+
+def test_redact_sensitive_query_params_matrix_param_after_segment_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api;token=S/x", None)
+    assert result == "https://test/api;token=[REDACTED]/x"
+
+
+def test_redact_sensitive_query_params_multiple_matrix_params_each_handled() -> None:
+    result = _redact_sensitive_query_params("https://test/a;b=1;token=S", None)
+    assert result == "https://test/a;b=1;token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_matrix_param_without_equals_unchanged() -> None:
+    url = "https://test/a;token"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_json_segment_with_matrix_param_redacted() -> (
+    None
+):
+    segment = json.dumps({"note": "n"}, separators=(",", ":"))
+    url = f"https://test/api/{segment};token=S"
+    result = _redact_sensitive_query_params(url, None)
+    assert result == f"https://test/api/{segment};token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_path_segment_keeps_plus_literal() -> None:
+    segment = json.dumps({"a": "x+y", "password": "PS"}, separators=(",", ":"))
+    url = f"https://test/api/{segment}"
+    result = _redact_sensitive_query_params(url, None)
+    assert "PS" not in result
+    assert "x%2By" in result
+
+
+def test_redact_sensitive_query_params_query_value_space_round_trips_through_plus() -> (
+    None
+):
+    payload = json.dumps({"a": "x y", "password": "PS"}, separators=(",", ":"))
+    url = f"https://test/api?data={quote_plus(payload)}"
+    result = _redact_sensitive_query_params(url, None)
+    expected_payload = json.dumps(
+        {"a": "x y", "password": "[REDACTED]"}, separators=(",", ":")
+    )
+    assert result == f"https://test/api?data={quote_plus(expected_payload)}"
+
+
+def test_redact_sensitive_json_max_depth_one_redacts_entire_value() -> None:
+    assert _redact_sensitive_json({"a": 1}, frozenset(), 1) == "[REDACTED]"
+
+
+def test_redact_sensitive_json_container_at_cap_depth_collapses_to_redacted() -> None:
+    value = {"a": {"b": {"c": 1}}}
+    assert _redact_sensitive_json(value, frozenset(), 2) == {"a": "[REDACTED]"}
+
+
+def test_redact_sensitive_json_container_below_cap_depth_expands_normally() -> None:
+    value = {"a": {"b": 1}}
+    assert _redact_sensitive_json(value, frozenset(), 3) == {"a": {"b": 1}}
+
+
+def test_redact_sensitive_json_list_beyond_cap_collapses_to_redacted() -> None:
+    assert _redact_sensitive_json([1, [2, 3]], frozenset(), 2) == [1, "[REDACTED]"]
+
+
+def test_redact_sensitive_json_sensitive_key_inside_list_item_redacted() -> None:
+    value = {"items": [{"password": "S"}]}
+    result = _redact_sensitive_json(value, frozenset({"password"}), 10)
+    assert result == {"items": [{"password": "[REDACTED]"}]}
+
+
+def test_redact_sensitive_json_scalar_value_returned_unchanged() -> None:
+    assert _redact_sensitive_json("plain", frozenset(), 10) == "plain"
+    assert _redact_sensitive_json(42, frozenset(), 10) == 42
+
+
+def _nested_json_text(depth: int, key: str, leaf: dict[str, str]) -> str:
+    leaf_json = json.dumps(leaf)
+    prefix = f'{{"{key}":' * depth
+    suffix = "}" * depth
+    return prefix + leaf_json + suffix
+
+
+def test_log_activity_header_json_nested_200_redacts_deep_subtree(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    header_value = _nested_json_text(200, "n", {"value": "DEEPSECRET200"})
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Deep": header_value},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+
+    assert "DEEPSECRET200" not in caplog.text
+    assert "[REDACTED]" in caplog.text
+
+
+def test_log_activity_header_json_nested_600_does_not_raise_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    header_value = _nested_json_text(600, "n", {"value": "DEEPSECRET600"})
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Deep": header_value},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+
+    assert caplog.records, "log line was not emitted"
+    assert "DEEPSECRET600" not in caplog.text
+    assert "[REDACTED]" in caplog.text
+
+
+def test_log_activity_header_json_nested_5000_does_not_raise_and_logs_fast(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    header_value = _nested_json_text(5000, "n", {"value": "DEEPSECRET5000"})
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Deep": header_value},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    start = time.perf_counter()
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert caplog.records, "log line was not emitted"
+    assert "DEEPSECRET5000" not in caplog.text
+    assert "[REDACTED]" in caplog.text
+    assert elapsed_ms < 50
+
+
+def test_log_activity_query_json_nested_600_does_not_raise_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    query_value = quote_plus(_nested_json_text(600, "n", {"value": "DEEPSECRETQ600"}))
+    request = SyncMockGuardRequest(
+        path=f"/api?data={query_value}",
+        method="GET",
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+
+    assert caplog.records, "log line was not emitted"
+    assert "DEEPSECRETQ600" not in caplog.text
+    assert "REDACTED" in caplog.text
+
+
+def test_redact_sensitive_headers_recursion_guard_redacts_whole_value() -> None:
+    header_value = _nested_json_text(5000, "n", {"value": "S"})
+    result = _redact_sensitive_headers({"X-Deep": header_value}, None)
+    assert result == {"X-Deep": "[REDACTED]"}

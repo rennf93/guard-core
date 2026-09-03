@@ -132,6 +132,8 @@ class SecurityCheckPipeline:
             stash.get("trigger_info", ""),
             False,
             response.status_code,
+            check.config.log_sensitive_params,
+            check.config.log_sensitive_body_fields,
         )
 
     def _handle_rebuild_error(

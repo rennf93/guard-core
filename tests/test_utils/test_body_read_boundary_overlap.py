@@ -42,6 +42,7 @@ async def _fake_component_check(
     content_preview: str | None = None,
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    json_redact_all: bool | None = None,
 ) -> tuple[bool, str, list[dict], str | None]:
     if _MAGIC in value:
         return (

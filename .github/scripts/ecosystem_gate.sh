@@ -10,6 +10,8 @@ redis_prefix="${6:-}"
 consumer_ref="${7:-}"
 
 clone_dir="consumer"
+base_output="pytest-output-base.txt"
+candidate_output="pytest-output-candidate.txt"
 
 resolve_latest_release_tag() {
   local repo="$1" tag
@@ -27,6 +29,30 @@ resolve_latest_release_tag() {
     )"
   fi
   echo "$tag"
+}
+
+extract_failed_ids() {
+  local file="$1"
+  awk '
+    /^=+ short test summary info =+$/ { insummary=1; next }
+    insummary && /^=+.*=+$/ { insummary=0 }
+    insummary && (/^FAILED / || /^ERROR /) {
+      line = $0
+      sub(/^FAILED /, "", line)
+      sub(/^ERROR /, "", line)
+      sub(/ - .*/, "", line)
+      print line
+    }
+  ' "$file" | sort -u
+}
+
+run_pytest_pass() {
+  local outfile="$1"
+  set +e
+  # shellcheck disable=SC2086 # pytest_args is a deliberate multi-flag string, e.g. "-v --cov=guard --cov-branch"
+  env "${run_env[@]}" uv run pytest $pytest_args -rfE 2>&1 | tee "$outfile"
+  pass_status="${PIPESTATUS[0]}"
+  set -e
 }
 
 echo "::group::Resolve $repo ref (consumer_ref=${consumer_ref:-<default branch>})"
@@ -52,6 +78,17 @@ echo "::endgroup::"
 echo "::group::uv sync $sync_extra"
 # shellcheck disable=SC2086 # sync_extra is a deliberate multi-flag string, e.g. "--extra dev"
 uv sync $sync_extra
+echo "::endgroup::"
+
+run_env=(IPINFO_TOKEN="${IPINFO_TOKEN:-test_token}" REDIS_URL="${REDIS_URL:-redis://localhost:6379}")
+if [ -n "$redis_prefix" ]; then
+  run_env+=(REDIS_PREFIX="$redis_prefix")
+fi
+
+echo "::group::Run $repo's test suite (base: guard-core as resolved from PyPI)"
+run_pytest_pass "$base_output"
+base_status="$pass_status"
+echo "base pytest run exited with status $base_status"
 echo "::endgroup::"
 
 echo "::group::Force-install the PR guard-core wheel"
@@ -80,15 +117,53 @@ case "$guard_core_file" in
 esac
 echo "::endgroup::"
 
-echo "::group::Run $repo's test suite"
-run_env=(IPINFO_TOKEN="${IPINFO_TOKEN:-test_token}" REDIS_URL="${REDIS_URL:-redis://localhost:6379}")
-if [ -n "$redis_prefix" ]; then
-  run_env+=(REDIS_PREFIX="$redis_prefix")
-fi
-set +e
-# shellcheck disable=SC2086 # pytest_args is a deliberate multi-flag string, e.g. "-v --cov=guard --cov-branch"
-env "${run_env[@]}" uv run pytest $pytest_args 2>&1 | tee pytest-output.txt
-status="${PIPESTATUS[0]}"
-set -e
+echo "::group::Run $repo's test suite (candidate: PR wheel force-installed)"
+run_pytest_pass "$candidate_output"
+candidate_status="$pass_status"
+echo "candidate pytest run exited with status $candidate_status"
 echo "::endgroup::"
-exit "$status"
+
+echo "::group::Diff base vs candidate failures for $repo@$ref"
+work_dir="$(mktemp -d)"
+extract_failed_ids "$base_output" > "$work_dir/base_ids.txt"
+extract_failed_ids "$candidate_output" > "$work_dir/candidate_ids.txt"
+comm -13 "$work_dir/base_ids.txt" "$work_dir/candidate_ids.txt" > "$work_dir/candidate_only.txt"
+comm -23 "$work_dir/base_ids.txt" "$work_dir/candidate_ids.txt" > "$work_dir/base_only.txt"
+comm -12 "$work_dir/base_ids.txt" "$work_dir/candidate_ids.txt" > "$work_dir/both.txt"
+
+candidate_only_count="$(wc -l < "$work_dir/candidate_only.txt" | tr -d ' ')"
+base_only_count="$(wc -l < "$work_dir/base_only.txt" | tr -d ' ')"
+both_count="$(wc -l < "$work_dir/both.txt" | tr -d ' ')"
+
+job_status=0
+
+if [ "$candidate_only_count" -gt 0 ]; then
+  ids_joined="$(paste -sd ',' "$work_dir/candidate_only.txt")"
+  echo "::error::${repo}@${ref}: ${candidate_only_count} test(s) fail only with the PR wheel (regression): ${ids_joined}"
+  job_status=1
+fi
+
+if [ "$both_count" -gt 0 ]; then
+  ids_joined="$(paste -sd ',' "$work_dir/both.txt")"
+  echo "::warning::baseline broken on ${repo}@${ref}: ${both_count} tests fail without the PR wheel: ${ids_joined}"
+fi
+
+if [ "$base_only_count" -gt 0 ]; then
+  ids_joined="$(paste -sd ',' "$work_dir/base_only.txt")"
+  echo "::notice::${repo}@${ref}: ${base_only_count} test(s) only failed on base, fixed by the PR wheel: ${ids_joined}"
+fi
+
+if [ "$candidate_status" -ne 0 ] && [ "$candidate_status" -ne 1 ]; then
+  echo "::error::${repo}@${ref}: candidate pytest run exited abnormally (status $candidate_status), treating as a job failure"
+  job_status=1
+fi
+
+echo "Summary for ${repo}@${ref}"
+printf '%-68s %6s\n' "Category" "Count"
+printf '%-68s %6s\n' "--------------------------------------------------------------" "-----"
+printf '%-68s %6s\n' "Candidate-only failures (blocks the gate)" "$candidate_only_count"
+printf '%-68s %6s\n' "Failing on base and candidate (baseline already broken)" "$both_count"
+printf '%-68s %6s\n' "Base-only failures (fixed by the PR wheel)" "$base_only_count"
+echo "::endgroup::"
+
+exit "$job_status"

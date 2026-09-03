@@ -63,6 +63,8 @@ class BypassHandler:
                         "",
                         False,
                         response.status_code,
+                        self.context.config.log_sensitive_params,
+                        self.context.config.log_sensitive_body_fields,
                     )
                     return response
 
