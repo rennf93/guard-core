@@ -22,7 +22,7 @@ RUN pip install uv
 COPY pyproject.toml uv.lock* README.md /app/
 COPY Makefile /app/Makefile
 
-RUN uv sync --extra dev --extra otel --extra logfire --frozen
+RUN uv sync --extra dev --extra otel --extra logfire
 
 ENV PATH="/app/.venv/bin:$PATH"
 

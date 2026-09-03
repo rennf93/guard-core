@@ -11,6 +11,7 @@ def _scan_form_body(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     from urllib.parse import parse_qsl
 
@@ -40,6 +41,7 @@ def _scan_form_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params=sensitive_params,
         )
         if hit[0]:
             return hit
@@ -89,6 +91,7 @@ def _scan_multipart_part(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
     from guard_core.sync._utils.body_content_scan import _scan_body_field
 
@@ -113,6 +116,7 @@ def _scan_multipart_part(
         correlation_id,
         log_level,
         sensitive_body_fields,
+        sensitive_params=sensitive_params,
     )
     if hit[0]:
         return hit
@@ -128,6 +132,7 @@ def _scan_multipart_body(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     from guard_core.sync._utils.body_content_scan import _scan_blob_body
 
@@ -152,6 +157,7 @@ def _scan_multipart_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params,
         )
         if hit is not None:
             return hit

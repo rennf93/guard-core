@@ -187,6 +187,7 @@ async def _scan_json_value(
     context: str = "request_body",
     preview_override: str | None = None,
     redact_keys: bool = False,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     from guard_core._utils.body_content_scan import _scan_body_field
 
@@ -250,6 +251,7 @@ async def _scan_json_value(
             sensitive_body_fields,
             context=context,
             preview_override=leaf_preview,
+            sensitive_params=sensitive_params,
         )
         if scalar_hit[0]:
             return scalar_hit
@@ -264,6 +266,7 @@ async def _scan_json_content(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
     try:
         parsed_body = json.loads(raw_body)
@@ -279,5 +282,6 @@ async def _scan_json_content(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params=sensitive_params,
         )
     return None

@@ -467,6 +467,32 @@ _CASES: list[Case] = [
         lambda secret: _multipart_body_request("password", f"{secret} {_SQLI}"),
     ),
     Case(
+        "header_non_sensitive_name_plain_pair_value",
+        lambda secret: _header_request("X-Session", f"password={secret} {_XSS}"),
+    ),
+    Case(
+        "header_non_sensitive_name_cookie_style_pair_value",
+        lambda secret: _header_request("X-Session", f"a=1; password={secret} {_XSS}"),
+    ),
+    Case(
+        "query_param_non_sensitive_name_plain_pair_value",
+        lambda secret: _query_request("data", f"password={secret} {_XSS}"),
+    ),
+    Case(
+        "form_body_non_sensitive_field_name_plain_pair_value",
+        lambda secret: _form_body_request({"note": f"password={secret} {_SQLI}"}),
+    ),
+    Case(
+        "multipart_text_part_non_sensitive_field_name_plain_pair_value",
+        lambda secret: _multipart_body_request("note", f"password={secret} {_SQLI}"),
+    ),
+    Case(
+        "json_body_non_sensitive_key_plain_pair_in_string_value",
+        lambda secret: _json_body_request(
+            json.dumps({"note": f"password={secret} {_SQLI}"}).encode()
+        ),
+    ),
+    Case(
         "url_encoding_plain",
         lambda secret: _encoded_query_path_request(_plain_pair(secret)),
     ),

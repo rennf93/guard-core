@@ -52,6 +52,17 @@ __all__ = [
 ]
 
 
+def _non_sensitive_display(
+    value: str,
+    sensitive_params: frozenset[str],
+    sensitive_body_fields: frozenset[str],
+) -> tuple[str | None, bool | None]:
+    redacted = redact_blob_for_display(value, sensitive_params, sensitive_body_fields)
+    if redacted == value:
+        return None, None
+    return redacted, False
+
+
 async def _scan_query_param_value(
     key: str,
     value: str,
@@ -64,6 +75,11 @@ async def _scan_query_param_value(
     excluded_body_fields: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     is_sensitive = key.lower() in sensitive_params
+    content_preview, json_redact_all = (
+        ("[REDACTED]", None)
+        if is_sensitive
+        else _non_sensitive_display(value, sensitive_params, sensitive_body_fields)
+    )
     detected, trigger, threats = await _check_request_component(
         value,
         f"query_param:{key}",
@@ -72,9 +88,10 @@ async def _scan_query_param_value(
         correlation_id,
         enabled_categories,
         None if is_sensitive else log_level,
-        content_preview="[REDACTED]" if is_sensitive else None,
+        content_preview=content_preview,
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
+        json_redact_all=json_redact_all,
     )
     if detected and is_sensitive:
         _log_detected_component(
@@ -154,6 +171,7 @@ async def _scan_normal_header_component(
     content_preview: str | None = None,
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
     detected, trigger, threats = await _scan_component_name(
         key,
@@ -166,6 +184,11 @@ async def _scan_normal_header_component(
     )
     if detected:
         return True, f"Header name '{key}': {trigger}", threats
+    json_redact_all = None
+    if content_preview is None:
+        content_preview, json_redact_all = _non_sensitive_display(
+            value, sensitive_params, sensitive_body_fields
+        )
     detected, trigger, threats = await _check_request_component(
         value,
         f"header:{key}",
@@ -177,6 +200,7 @@ async def _scan_normal_header_component(
         content_preview=content_preview,
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
+        json_redact_all=json_redact_all,
     )
     if detected:
         return True, f"Header '{key}': {trigger}", threats
@@ -225,6 +249,7 @@ async def _scan_headers(
     sensitive_headers: frozenset[str] = frozenset(),
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     for key, value in request.headers.items():
         if key.strip().lower() in sensitive_headers:
@@ -253,6 +278,7 @@ async def _scan_headers(
                 log_level,
                 sensitive_body_fields=sensitive_body_fields,
                 excluded_body_fields=excluded_body_fields,
+                sensitive_params=sensitive_params,
             )
         if hit is not None:
             return hit
@@ -270,8 +296,13 @@ async def _scan_body_field(
     display: str | None = None,
     context: str = "request_body",
     preview_override: str | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     is_sensitive = label.lower() in sensitive_body_fields
+    if preview_override is None and display is None and not is_sensitive:
+        display, _ = _non_sensitive_display(
+            value, sensitive_params, sensitive_body_fields
+        )
     log_value = (
         preview_override
         if preview_override is not None
@@ -345,6 +376,7 @@ async def _scan_request_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params,
         )
     if "multipart/form-data" in lowered:
         return await _scan_multipart_body(
@@ -356,6 +388,7 @@ async def _scan_request_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params,
         )
 
     if "json" in lowered:
@@ -367,6 +400,7 @@ async def _scan_request_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params,
         )
         if json_hit is not None:
             return json_hit

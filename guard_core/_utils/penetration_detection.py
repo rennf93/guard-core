@@ -98,6 +98,7 @@ async def _scan_request_surface(
         sensitive_headers,
         sensitive_body_fields,
         excluded_body_fields,
+        sensitive_params,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
