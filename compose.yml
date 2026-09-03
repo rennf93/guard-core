@@ -17,7 +17,6 @@ services:
         - ./pyproject.toml:/app/pyproject.toml:z
         - ./Makefile:/app/Makefile:z
         - ./.git:/app/.git:ro
-        - ./uv.lock:/app/uv.lock:z
         - ./vulture_whitelist.py:/app/vulture_whitelist.py:z
       depends_on:
         redis:
