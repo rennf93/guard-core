@@ -23,6 +23,7 @@ COPY pyproject.toml uv.lock* README.md /app/
 COPY Makefile /app/Makefile
 
 RUN uv sync --extra dev --extra otel --extra logfire
+RUN git config --system --add safe.directory /app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
