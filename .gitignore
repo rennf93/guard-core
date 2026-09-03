@@ -213,3 +213,8 @@ ZZZ/
 CLAUDE.md
 tests/attack_simulation/out/
 .unasync_check_tmp_*/
+tests/live_smoke/stack/app/
+tests/live_smoke/stack/wheels/*.whl
+tests/live_smoke/stack/scenario_data/*
+!tests/live_smoke/stack/scenario_data/.keep
+tests/live_smoke/live-smoke-report/

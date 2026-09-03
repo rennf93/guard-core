@@ -53,6 +53,9 @@ class EmergencyModeCheck(SecurityCheck):
                 check_name=self.check_name,
                 muted_check_logs=self.config.muted_check_logs,
                 on_block=self.config.on_block,
+                sensitive_headers=self.config.log_sensitive_headers,
+                sensitive_params=self.config.log_sensitive_params,
+                sensitive_body_fields=self.config.log_sensitive_body_fields,
             )
 
             await self.middleware.event_bus.send_middleware_event(
@@ -82,6 +85,9 @@ class EmergencyModeCheck(SecurityCheck):
                 level="INFO",
                 check_name=self.check_name,
                 muted_check_logs=self.config.muted_check_logs,
+                sensitive_headers=self.config.log_sensitive_headers,
+                sensitive_params=self.config.log_sensitive_params,
+                sensitive_body_fields=self.config.log_sensitive_body_fields,
             )
 
         return None

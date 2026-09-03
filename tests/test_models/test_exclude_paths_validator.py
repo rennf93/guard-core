@@ -1,6 +1,7 @@
 import inspect
 import warnings
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -145,6 +146,15 @@ def test_exclude_paths_runtime_assignment_warning_points_at_assignment_site() ->
     assert len(matches) == 1
     assert Path(matches[0].filename).name == Path(__file__).name
     assert matches[0].lineno == expected_lineno
+
+
+def test_exclude_paths_runtime_assignment_rejects_bare_string() -> None:
+    config = SecurityConfig(exclude_paths=["/healthz"])
+
+    with pytest.raises(ValueError, match="exclude_paths must be a list of str"):
+        cast(Any, config).exclude_paths = "not-a-list"
+
+    assert config.exclude_paths == ["/healthz"]
 
 
 def test_exclude_paths_runtime_assignment_accepts_valid_value_and_bumps_revision() -> (

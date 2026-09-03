@@ -141,20 +141,118 @@ async def log_activity(
     passive_mode: bool = False,
     trigger_info: str = "",
     level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
+    check_name: str | None = None,
+    muted_check_logs: frozenset[str] | None = None,
+    on_block: Callable[[GuardRequest, dict[str, Any]], Any] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
+    sensitive_params: frozenset[str] | None = None,
 ) -> None
 ```
 
 **Log types and their message formats**:
 
 | `log_type`     | Message Format                                                    |
-|----------------|-------------------------------------------------------------------|
-| `"request"`    | `Request from {ip}: {method} {url} - Headers: {...}`             |
-| `"suspicious"` | `Suspicious activity detected from {ip}: {method} {url} - Reason: {reason}` |
-| Other          | `{Type} from {ip}: {method} {url} - Details: {reason}`          |
+|----------------|---------------------------------------------------------------------|
+| `"request"`    | `Request from {ip}: {method} {url} - Headers: {...}`               |
+| `"suspicious"` | `Suspicious activity detected from {ip}: {method} {url} - Reason: {reason} - Headers: {...}` |
+| Other          | `{Type} from {ip}: {method} {url} - Details: {reason} - Headers: {...}` |
 
-**Passive mode**: When `passive_mode=True` and `log_type="suspicious"`, the message is prefixed with `[PASSIVE MODE] Penetration attempt detected`.
+**Passive mode**: When `passive_mode=True` and `log_type="suspicious"`, the message is prefixed with `[PASSIVE MODE] Penetration attempt detected`, in the format `[PASSIVE MODE] Penetration attempt detected from {ip}: {method} {url} - Trigger: {trigger_info} - Headers: {...}`. The `Trigger: {trigger_info}` segment only appears when `trigger_info` is non-empty.
 
 **Level `None`**: When `level` is `None`, the function returns immediately without logging.
+
+___
+
+Sensitive Data Redaction
+------------------------
+
+Guard-core redacts sensitive values out of its own log lines, and only its own log lines. Coverage is limited to the surfaces named in this section: header values, query-string parameter values by name, and body-field values by name at any depth, including the subtree a JSON body is serialized into once it is deeper than `detection_max_json_depth`. Parameter and field names are never redacted, only the value behind a sensitive name. The raw-body and application-server access-log limitations documented further down are the edges of that coverage, not omissions.
+
+### Headers
+
+Header values are redacted before any of the message formats above are built, so the redaction applies everywhere `Headers: {...}` appears: the request line, the suspicious line (both active and passive mode), and the generic line. The detection engine's own per-header attack line is redacted separately, against the same sensitive-header set.
+
+The default redacted set matches the header name case-insensitively: `authorization`, `proxy-authorization`, `cookie`, `x-api-key`. A matched value is replaced with the literal string `[REDACTED]`; the header's own key casing is preserved in the output.
+
+When a header value trips a pattern match, the detection engine logs its own line at `log_suspicious_level`: `Potential attack detected from {ip}: {value} - Suspicious pattern in header '{name}'`. The default excluded-header set that keeps detection from scanning `Host`, `User-Agent`, `Accept`, and similar boilerplate headers does not include `authorization` or `cookie`, so both are scanned for patterns like any other header. When the header named in `{name}` is in the sensitive set, `{value}` is replaced with `[REDACTED]`:
+
+```text
+Potential attack detected from 203.0.113.9: [REDACTED] - Suspicious pattern in header 'Cookie'
+```
+
+Non-sensitive header values are still shown in that line on purpose, operators need to see the offending payload.
+
+### Query string
+
+Every guard log line carries the full URL, query string included, so a secret passed as a query parameter (`?access_token=...`, `?api_key=...`) used to reach the log verbatim. Query parameters whose name is in the sensitive set now have their value replaced with `[REDACTED]` in the URL segment of every `log_activity` line; the parameter's own name spelling and every other part of the URL, scheme, host, path, and the other parameters, are preserved byte for byte. Pairs are split on both `&` and `;`, with whichever separator was written preserved in the output, so `?foo=bar;token=SECRET` logs as `?foo=bar;token=[REDACTED]`. A parameter with no `=` (a bare flag) is left alone, and parameter names themselves are never redacted:
+
+```text
+Request from 203.0.113.9: GET https://api.example/v1/items?access_token=[REDACTED]&page=2 - Headers: {...}
+```
+
+The detection engine's per-parameter line is redacted the same way: `Potential attack detected from {ip}: {value} - Suspicious pattern in query param '{name}'` shows `[REDACTED]` in place of `{value}` when `{name}` is sensitive.
+
+The URL fragment is redacted as a query string (`#token=SECRET` becomes `#token=[REDACTED]`); a hash-routing fragment such as `#/route?token=SECRET` or `#token=SECRET?x=1` is tokenized on `?`, `&` and `;` so every `name=value` token inside it is checked and the rest is kept as written. A token whose `=` is percent-encoded (`token%3DSECRET`) is decoded for the name check and replaced entirely by `[REDACTED]` when the name is sensitive. Percent-decoding is repeated up to three times before the check, so a token that hides a second pair behind an encoded `&` or `;` (`a%3D1%26token%3DSECRET`) is replaced entirely, and double-encoded JSON is still recognized. A path segment that decodes to JSON containing a sensitive key is printed as its redacted serialization; any other path segment is printed as written. Matrix parameters inside a path segment (`/api;token=SECRET/x`) go through the same name check as query pairs. The log-line redactor walks JSON iteratively with the same depth cap as detection (`detection_max_json_depth`); anything nested deeper is replaced wholesale by `[REDACTED]`, so a pathologically nested value can never make a log call fail.
+
+### Body fields
+
+The detection engine's per-field line, raised when a JSON key at any depth, an `application/x-www-form-urlencoded` field, or a multipart text part trips a pattern, redacts the value the same way when the field's own name is in the sensitive set. Unlike the header and query-parameter lines, the body-field line names the field on its own, with no wrapping phrase:
+
+```text
+Potential attack detected from 203.0.113.9: [REDACTED] - Suspicious pattern in password
+```
+
+The field name itself is never redacted, so the line still names which field tripped detection, and non-sensitive field values are still shown.
+
+The same body-field name set also applies to JSON carried inside a header, query parameter or URL path value (`?data={"password": ...}`), for both the detection line and the telemetry preview. Such a value goes through the same recursive walker as a JSON body, so nested objects and arrays are covered, and the line for the enclosing header, parameter or path shows the JSON with every sensitive value replaced by `[REDACTED]`. When a sensitive key's own value is itself an object or array, that whole subtree is collapsed to one `[REDACTED]` rather than walked further, so every descendant it holds is covered by the parent key's name alone. The `Headers: {...}` segment and the URL segment of every guard log line apply the same body-field redaction: a header or query value that parses as JSON is printed with every value under a sensitive key, and every descendant of it, replaced by `[REDACTED]`, while a JSON value with no sensitive key is printed byte for byte.
+
+When a JSON body is deeper than `detection_max_json_depth`, the remaining subtree is serialized and scanned as one value under the parent key's label; the line's display text is built from a copy of that subtree in which every value under a sensitive key name, at any depth, is `[REDACTED]`, so a sensitive key nested inside a non-sensitive parent (`{"password": "..."}` under `wrapper`) no longer prints raw, while non-sensitive content in the subtree is still shown.
+
+### Telemetry
+
+The `log_sensitive_headers`, `log_sensitive_params`, and `log_sensitive_body_fields` sets also govern the `content_preview` field on the detection engine's `pattern_detected` telemetry event sent to `agent_handler`: a sensitive header, query parameter, or body field gets the same redacted display text there as in the log line, instead of the raw matched value.
+
+### Shared default set
+
+`log_sensitive_params` and `log_sensitive_body_fields` extend the same hardcoded default, `guard_core.utils._DEFAULT_SENSITIVE_LOG_FIELDS`: `access_token`, `refresh_token`, `api_key`, `apikey`, `token`, `password`, `secret`, `client_secret`, `signature`. `log_sensitive_headers` extends its own, smaller default set (see Headers above); the two default sets are independent of each other.
+
+### Config fields
+
+| Field | Type | Default | Redacts | Extend-only | Case-insensitive | Revalidated on reassignment |
+|-------|------|---------|---------|--------------|-------------------|------------------------------|
+| `log_sensitive_headers` | `frozenset[str]` | `frozenset()` | `Headers: {...}` segment and the detection engine's per-header line | Yes | Yes | Yes |
+| `log_sensitive_params` | `frozenset[str]` | `frozenset()` | URL segment and the detection engine's per-parameter line | Yes | Yes | Yes |
+| `log_sensitive_body_fields` | `frozenset[str]` | `frozenset()` | The detection engine's per-field line | Yes | Yes | Yes |
+
+```python
+SecurityConfig(
+    log_sensitive_headers={"x-internal-token"},
+    log_sensitive_params={"session_id"},
+    log_sensitive_body_fields={"ssn"},
+)
+```
+
+```text
+Request from 10.0.0.1: GET /api/data - Headers: {'authorization': '[REDACTED]', 'x-internal-token': '[REDACTED]', 'user-agent': 'curl/8.0'}
+```
+
+### Raw-body limitation
+
+A raw, non-JSON, non-form request body has no field name to redact against, so its detection line, `Request body: {trigger}`, is unchanged: this is a documented limitation, not an oversight.
+
+### Name and path limitation
+
+Field names are never redacted anywhere: a secret used as a JSON key or a query parameter name is disclosed as a name. The URL path is not redacted by name: a bare token embedded as a path segment is printed in full (only a path segment that decodes to JSON with a sensitive key is redacted); put such tokens in a header or query parameter with a sensitive name instead.
+
+### Application server access logs
+
+Redaction covers guard-core's own log lines only. The application server's access log (gunicorn, uvicorn, nginx) prints the raw request line, query string included, on its own; configure that logger separately if query-string secrets must not reach it.
+
+### Escape hatches
+
+`log_suspicious_level=None` and `muted_check_logs` still silence a line entirely; redaction is not a substitute for either, it only protects the lines that do get logged. `agent_sensitive_headers` is unrelated: it governs headers stripped from telemetry payloads sent to the agent, not guard log lines.
+
+All three fields are revalidated on reassignment and on `model_copy(update=...)`, the same as `muted_check_logs`: assigning a bare `str` or `bytes` value raises `ValidationError` instead of being iterated character by character and silently redacting nothing; a `list` or `set` is coerced to `frozenset`.
 
 ___
 

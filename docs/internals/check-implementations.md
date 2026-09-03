@@ -133,11 +133,14 @@ ___
 6. RequiredHeadersCheck
 -----------------------
 
-**Purpose**: Validates that required headers are present.
+**Purpose**: Validates that required headers are present, and where a specific value is configured, that they match it.
 
-**Blocks when**: A header in `RouteConfig.required_headers` with value `"required"` is missing from the request.
+**Blocks when**: A header in `RouteConfig.required_headers` is missing from the request, or, when the configured value is not the sentinel `"required"`, present but not equal to that value.
 
-**Response**: `400 Missing required header: {name}`
+**Response**: `400 Missing required header: {name}` when the header is absent; `400 Header 'X' does not match the required value` when present but mismatched -- the reason never echoes the expected or received value.
+
+!!! warning "Breaking Change"
+    Before this fix, a configured value other than `"required"` was never enforced -- the check was a silent no-op for it, and neither a missing header nor a mismatched value blocked the request. A route relying on that no-op now has the value enforced.
 
 ___
 

@@ -95,6 +95,20 @@ Provides authentication and authorization decorators.
 - `@guard_deco.api_key_auth(header_name="X-API-Key")` - API key authentication
 - `@guard_deco.require_headers(headers={})` - Require specific headers
 
+**`require_headers` semantics**
+
+Each key of `headers` is a header name; a missing header is always rejected. The value `"required"` keeps presence-only semantics: any value satisfies the check as long as the header is present. Any other configured value must match the request header's value exactly, or the request is rejected with the reason `Header 'X' does not match the required value`, which never echoes the expected or received value.
+
+```python
+@app.get("/api/internal")
+@guard_deco.require_headers({"X-Request-Id": "required", "X-Internal-Version": "2"})
+def internal_endpoint():
+    return {"data": "internal"}
+```
+
+!!! warning "Breaking Change"
+    Before this fix, a configured value other than `"required"` was never enforced: the decorator was a silent no-op for it, and neither a missing header nor a mismatched value was rejected. A route decorated with a non-`"required"` value now enforces it; audit any `require_headers()` call that used a placeholder or example string as the value.
+
 ### RateLimitingMixin
 
 Provides rate limiting decorators.
@@ -127,6 +141,10 @@ Provides content and request filtering decorators.
 - `@guard_deco.require_referrer(allowed_domains=[])` - Require specific referrers
 - `@guard_deco.custom_validation(validator)` - Add custom validation logic
 - `@guard_deco.detection_exclusion(headers=None, params=None, body_fields=None, categories=None, scan_body=None)` - Per-route detection scoping
+
+**`require_referrer` semantics**
+
+`allowed_domains` entries accept three forms: a bare host (`example.com`), a scheme-prefixed URL (`https://example.com`), or a scheme-prefixed URL with a port (`https://example.com:8443`). An entry containing `://` is reduced to its host (and port, if present) before comparison; a bare entry is lowercased with any trailing slash or path stripped. The request's `Referer` header is then matched against each configured entry, exactly or as a subdomain.
 
 **`detection_exclusion` semantics**
 

@@ -391,6 +391,9 @@ class RateLimitManager:
             check_name="rate_limit",
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
         if self.agent_handler:

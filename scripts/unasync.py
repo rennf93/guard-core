@@ -18,6 +18,8 @@ SKIP_SRC = {
     "_pydantic_plugin_mute.py",
     "_security_config_validators.py",
     "_security_config_field_validators.py",
+    "_security_config_typed_validators.py",
+    "_security_config_geo_validators.py",
     "_config_capabilities.py",
     "_config_field_revalidators.py",
     "_security_config_fields.py",
@@ -28,6 +30,7 @@ SKIP_TESTS = {
     "test_module_imports_standalone.py",
     "test_suspatterns_handler_module_surface.py",
     "test_gc_per_test_opt_in.py",
+    "test_maintainability_rank.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
@@ -318,7 +321,13 @@ TEST_SUBS: list[tuple[str, str]] = [
     (r"^\s+loop_task\s*$", ""),
 ]
 
-TEST_SKIP_DIRS = {"__pycache__", "test_sync", "attack_simulation", "detection_gate"}
+TEST_SKIP_DIRS = {
+    "__pycache__",
+    "test_sync",
+    "attack_simulation",
+    "detection_gate",
+    "live_smoke",
+}
 
 
 def apply_subs(content: str, subs: list[tuple[str, str]]) -> str:

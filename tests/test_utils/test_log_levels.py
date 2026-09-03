@@ -214,8 +214,8 @@ async def test_attack_detected_log_respects_level(
 
     async def fake_enhanced(
         *args: object, **kwargs: object
-    ) -> tuple[bool, str, list[dict]]:
-        return True, "trigger", [{"type": "regex", "category": "sqli"}]
+    ) -> tuple[bool, str, list[dict], str | None]:
+        return True, "trigger", [{"type": "regex", "category": "sqli"}], None
 
     monkeypatch.setattr(detection_scan, "_check_value_enhanced", fake_enhanced)
 
@@ -237,8 +237,8 @@ async def test_attack_detected_log_silenced_when_level_none(
 
     async def fake_enhanced(
         *args: object, **kwargs: object
-    ) -> tuple[bool, str, list[dict]]:
-        return True, "trigger", [{"type": "regex", "category": "sqli"}]
+    ) -> tuple[bool, str, list[dict], str | None]:
+        return True, "trigger", [{"type": "regex", "category": "sqli"}], None
 
     monkeypatch.setattr(detection_scan, "_check_value_enhanced", fake_enhanced)
 

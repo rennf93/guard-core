@@ -102,6 +102,7 @@ def _make_request(client_ip: str) -> MagicMock:
     request.state.is_whitelisted = False
     request.state.client_ip = client_ip
     request.state.route_config = None
+    request.url_full = "https://test/x"
     return request
 
 

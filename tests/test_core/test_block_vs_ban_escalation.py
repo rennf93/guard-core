@@ -32,6 +32,7 @@ def _make_request(client_ip: str | None = "1.2.3.4") -> MagicMock:
     request.state.route_config = None
     request.state.is_whitelisted = False
     request.headers = {"User-Agent": "badbot"}
+    request.url_full = "https://test/x"
     return request
 
 

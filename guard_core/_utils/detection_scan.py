@@ -117,71 +117,6 @@ def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
     )
 
 
-async def _check_json_fields(
-    data: dict,
-    context: str,
-    client_ip: str,
-    correlation_id: str,
-    enabled_categories: set[str] | None = None,
-) -> tuple[bool, str]:
-    from guard_core.handlers.suspatterns_handler import sus_patterns_handler
-
-    for k, v in data.items():
-        name_detected, name_trigger, _name_threats = await _scan_component_name(
-            k,
-            f"{context}:{k}",
-            f"JSON field name '{k}'",
-            enabled_categories,
-            client_ip,
-            correlation_id,
-            None,
-        )
-        if name_detected:
-            return True, f"JSON field name '{k}': {name_trigger}"
-        if isinstance(v, str):
-            if _scan_budget_exhausted(client_ip, v):
-                continue
-            result = await sus_patterns_handler.detect(
-                content=v,
-                ip_address=client_ip,
-                context=f"{context}:{k}",
-                correlation_id=correlation_id,
-            )
-            if result["is_threat"]:
-                if result["threats"]:
-                    threat = result["threats"][0]
-                    if threat["type"] == "regex":
-                        pattern = threat["pattern"]
-                        return True, f"JSON field '{k}' matched pattern '{pattern}'"
-                    else:
-                        threat_type = threat["type"]
-                        return True, f"JSON field '{k}' contains: {threat_type}"
-                return True, f"JSON field '{k}' contains threat"
-    return False, ""
-
-
-async def _try_check_json_value(
-    value: str,
-    context: str,
-    client_ip: str,
-    correlation_id: str,
-    enabled_categories: set[str] | None = None,
-) -> tuple[bool, str] | None:
-    try:
-        import json
-
-        data = json.loads(value)
-        if isinstance(data, dict):
-            return await _check_json_fields(
-                data, context, client_ip, correlation_id, enabled_categories
-            )
-    except json.JSONDecodeError:
-        pass
-    except RecursionError:
-        _warn_json_depth_cap_reached_once(client_ip)
-    return None
-
-
 def _build_threat_message(threat: dict[str, Any]) -> str:
     if threat["type"] == "regex":
         return f"Value matched pattern '{threat['pattern']}'"
@@ -249,20 +184,32 @@ async def _check_value_enhanced(
     correlation_id: str,
     enabled_categories: set[str] | None = None,
     scan_embedded_json: bool = True,
-) -> tuple[bool, str, list[dict]]:
+    content_preview: str | None = None,
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    excluded_body_fields: frozenset[str] = frozenset(),
+) -> tuple[bool, str, list[dict], str | None]:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     if _scan_budget_exhausted(client_ip, value):
-        return False, "", []
+        return False, "", [], None
 
     if scan_embedded_json and context != "request_body":
-        json_result = await _try_check_json_value(
-            value, context, client_ip, correlation_id, enabled_categories
+        from guard_core._utils.embedded_json_scan import _check_embedded_json
+
+        json_result = await _check_embedded_json(
+            value,
+            context,
+            client_ip,
+            correlation_id,
+            enabled_categories,
+            excluded_body_fields,
+            sensitive_body_fields,
+            redact_all=content_preview is not None,
         )
         if json_result is not None:
-            detected, trigger = json_result
-            if detected:
-                return detected, trigger, []
+            json_detected, json_trigger, json_threats, json_display = json_result
+            if json_detected:
+                return json_detected, json_trigger, json_threats, json_display
 
     try:
         result = await sus_patterns_handler.detect(
@@ -271,23 +218,24 @@ async def _check_value_enhanced(
             context=context,
             correlation_id=correlation_id,
             enabled_categories=enabled_categories,
+            content_preview=content_preview,
         )
 
         if not result["is_threat"]:
-            return False, "", []
+            return False, "", [], None
 
         threats: list[dict] = list(result.get("threats", []))
         if threats:
-            return True, _build_threat_message(threats[0]), threats
+            return True, _build_threat_message(threats[0]), threats, None
 
-        return True, "Threat detected", threats
+        return True, "Threat detected", threats, None
 
     except RecursionError:
         raise
     except Exception as e:
         logger.error(f"Enhanced detection failed: {e}, falling back to basic check")
         detected, trigger = await _fallback_pattern_check(value, client_ip, context)
-        return detected, trigger, []
+        return detected, trigger, [], None
 
 
 def _log_detected_component(
@@ -314,17 +262,28 @@ async def _check_request_component(
     enabled_categories: set[str] | None,
     log_level: str | None,
     scan_embedded_json: bool = True,
+    content_preview: str | None = None,
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    excluded_body_fields: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
-    detected, trigger, threats = await _check_value_enhanced(
+    detected, trigger, threats, log_override = await _check_value_enhanced(
         value,
         context,
         client_ip,
         correlation_id,
         enabled_categories,
         scan_embedded_json,
+        content_preview=content_preview,
+        sensitive_body_fields=sensitive_body_fields,
+        excluded_body_fields=excluded_body_fields,
     )
     if detected:
-        _log_detected_component(value, component_name, client_ip, log_level)
+        _log_detected_component(
+            log_override if log_override is not None else value,
+            component_name,
+            client_ip,
+            log_level,
+        )
     return detected, trigger, threats
 
 
@@ -336,6 +295,7 @@ async def _scan_component_name(
     client_ip: str,
     correlation_id: str,
     log_level: str | None,
+    content_preview: str | None = None,
 ) -> tuple[bool, str, list[dict]]:
     return await _check_request_component(
         name,
@@ -346,6 +306,7 @@ async def _scan_component_name(
         enabled_categories,
         log_level,
         scan_embedded_json=False,
+        content_preview=content_preview,
     )
 
 

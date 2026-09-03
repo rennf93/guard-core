@@ -86,9 +86,10 @@ class LastKnownRulesSnapshot(BaseModel):
 
 
 def dump_last_known_rules_snapshot(rules: DynamicRules) -> str:
+    mirrored_fields = rules.model_dump(include=set(DynamicRules.model_fields))
     snapshot = LastKnownRulesSnapshot(
         schema_version=LAST_KNOWN_RULES_SNAPSHOT_SCHEMA_VERSION,
-        rules=LastKnownDynamicRules.model_validate(rules.model_dump()),
+        rules=LastKnownDynamicRules.model_validate(mirrored_fields),
     )
     return snapshot.model_dump_json()
 

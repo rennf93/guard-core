@@ -1,16 +1,23 @@
+import json
 import logging
 import os
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import quote, quote_plus
 
 import pytest
 from pytest_mock import MockerFixture
 
 from guard_core.models import SecurityConfig
-from guard_core.sync._utils.request_logging import _dispatch_block_hook
+from guard_core.sync._utils.request_logging import (
+    _dispatch_block_hook,
+    _redact_sensitive_headers,
+    _redact_sensitive_query_params,
+)
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import (
+    UNKNOWN_CLIENT_IDENTITY,
     detect_penetration_attempt,
     is_ip_allowed,
     is_user_agent_allowed,
@@ -730,3 +737,736 @@ def test_behavior_tracker_passive_mode_logging(
             )
 
             mock_logger.assert_called_once_with(expected_message)
+
+
+_SENSITIVE_HEADERS_REQUEST = {
+    "Authorization": "Bearer tok123",
+    "Cookie": "sid=abc",
+    "X-API-Key": "sekrit",
+    "Proxy-Authorization": "Basic zzz",
+    "user-agent": "test-agent",
+}
+
+
+@pytest.mark.parametrize(
+    "log_kwargs",
+    [
+        pytest.param({"level": "INFO"}, id="request_at_info"),
+        pytest.param(
+            {"log_type": "suspicious", "reason": "Suspicious activity detected"},
+            id="suspicious_active",
+        ),
+        pytest.param(
+            {
+                "log_type": "suspicious",
+                "reason": "Suspicious activity detected",
+                "passive_mode": True,
+                "trigger_info": "SQL injection attempt",
+            },
+            id="suspicious_passive_with_trigger_info",
+        ),
+        pytest.param(
+            {"log_type": "blocked", "reason": "Blocked by policy"},
+            id="generic_blocked",
+        ),
+    ],
+)
+def test_log_activity_redacts_sensitive_headers_across_log_types(
+    caplog: pytest.LogCaptureFixture, log_kwargs: dict[str, Any]
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers=dict(_SENSITIVE_HEADERS_REQUEST),
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.DEBUG):
+        log_activity(request, logger, **log_kwargs)
+
+    assert caplog.text.count("[REDACTED]") == 4
+    assert "test-agent" in caplog.text
+    assert "tok123" not in caplog.text
+    assert "sid=abc" not in caplog.text
+    assert "sekrit" not in caplog.text
+    assert "zzz" not in caplog.text
+
+
+def test_log_activity_preserves_original_header_key_casing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-API-Key": "sekrit"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+
+    assert "'X-API-Key': '[REDACTED]'" in caplog.text
+
+
+def test_log_activity_custom_sensitive_headers_redact_case_insensitively(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={
+            "x-internal-token": "internal-secret",
+            "Authorization": "Bearer tok123",
+        },
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger, sensitive_headers=frozenset({"X-Internal-Token"}))
+
+    assert "internal-secret" not in caplog.text
+    assert "tok123" not in caplog.text
+    assert caplog.text.count("[REDACTED]") == 2
+
+
+def test_log_activity_sensitive_headers_none_still_redacts_defaults(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"Authorization": "Bearer tok123"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger, sensitive_headers=None)
+
+    assert "tok123" not in caplog.text
+    assert "[REDACTED]" in caplog.text
+
+
+def test_redact_sensitive_headers_empty_input_returns_empty_dict() -> None:
+    assert _redact_sensitive_headers({}, None) == {}
+
+
+def test_redact_sensitive_headers_with_no_sensitive_names_unchanged() -> None:
+    headers = {"user-agent": "test-agent", "accept": "*/*"}
+    assert _redact_sensitive_headers(headers, None) == headers
+
+
+def test_redact_sensitive_headers_none_uses_default_set_only() -> None:
+    headers = {"Authorization": "secret", "X-Internal-Token": "keepme"}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"Authorization": "[REDACTED]", "X-Internal-Token": "keepme"}
+
+
+def test_log_activity_falls_back_to_unknown_client_identity_without_ip(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"user-agent": "test-agent"},
+        client_host=None,
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger)
+
+    assert UNKNOWN_CLIENT_IDENTITY in caplog.text
+
+
+def test_log_suspicious_activity_passive_mode_without_trigger_info_omits_trigger(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"user-agent": "test-agent"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(
+            request,
+            logger,
+            log_type="suspicious",
+            reason="Suspicious activity detected",
+            passive_mode=True,
+            trigger_info="",
+        )
+
+    assert "[PASSIVE MODE] Penetration attempt detected from" in caplog.text
+    assert "Trigger:" not in caplog.text
+
+
+def test_redact_sensitive_headers_non_empty_frozenset_extends_default_set() -> None:
+    headers = {"Authorization": "secret", "X-Internal-Token": "keepme"}
+    result = _redact_sensitive_headers(headers, frozenset({"x-internal-token"}))
+    assert result == {
+        "Authorization": "[REDACTED]",
+        "X-Internal-Token": "[REDACTED]",
+    }
+
+
+def test_redact_sensitive_headers_embedded_json_sensitive_field_redacted() -> None:
+    headers = {"X-Custom": json.dumps({"password": "S1", "note": "n"})}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"X-Custom": '{"password":"[REDACTED]","note":"n"}'}
+
+
+def test_redact_sensitive_headers_embedded_json_without_sensitive_keys_unchanged() -> (
+    None
+):
+    value = json.dumps({"note": "n", "other": "x"})
+    headers = {"X-Custom": value}
+    assert _redact_sensitive_headers(headers, None) == headers
+
+
+def test_redact_sensitive_headers_non_json_value_unchanged() -> None:
+    headers = {"X-Custom": "not-json {still not json"}
+    assert _redact_sensitive_headers(headers, None) == headers
+
+
+def test_redact_sensitive_headers_custom_sensitive_body_fields_extends_default() -> (
+    None
+):
+    headers = {"X-Custom": json.dumps({"custom_secret": "S1", "note": "n"})}
+    result = _redact_sensitive_headers(
+        headers, None, sensitive_body_fields=frozenset({"custom_secret"})
+    )
+    assert result == {"X-Custom": '{"custom_secret":"[REDACTED]","note":"n"}'}
+
+
+_SENSITIVE_QUERY_REQUEST_PATH = "/api?token=SECRET-Q&q=hello&Api_Key=SECRET-K"
+
+
+@pytest.mark.parametrize(
+    "log_kwargs",
+    [
+        pytest.param({"level": "INFO"}, id="request_at_info"),
+        pytest.param(
+            {"log_type": "suspicious", "reason": "Suspicious activity detected"},
+            id="suspicious_active",
+        ),
+        pytest.param(
+            {
+                "log_type": "suspicious",
+                "reason": "Suspicious activity detected",
+                "passive_mode": True,
+                "trigger_info": "SQL injection attempt",
+            },
+            id="suspicious_passive_with_trigger_info",
+        ),
+        pytest.param(
+            {"log_type": "blocked", "reason": "Blocked by policy"},
+            id="generic_blocked",
+        ),
+    ],
+)
+def test_log_activity_redacts_sensitive_query_params_across_log_types(
+    caplog: pytest.LogCaptureFixture, log_kwargs: dict[str, Any]
+) -> None:
+    request = SyncMockGuardRequest(
+        path=_SENSITIVE_QUERY_REQUEST_PATH,
+        method="GET",
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.DEBUG):
+        log_activity(request, logger, **log_kwargs)
+
+    assert "token=[REDACTED]" in caplog.text
+    assert "Api_Key=[REDACTED]" in caplog.text
+    assert "q=hello" in caplog.text
+    assert "SECRET-Q" not in caplog.text
+    assert "SECRET-K" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "log_kwargs",
+    [
+        pytest.param({"level": "INFO"}, id="request_at_info"),
+        pytest.param(
+            {"log_type": "suspicious", "reason": "Suspicious activity detected"},
+            id="suspicious_active",
+        ),
+        pytest.param(
+            {
+                "log_type": "suspicious",
+                "reason": "Suspicious activity detected",
+                "passive_mode": True,
+                "trigger_info": "SQL injection attempt",
+            },
+            id="suspicious_passive_with_trigger_info",
+        ),
+        pytest.param(
+            {"log_type": "blocked", "reason": "Blocked by policy"},
+            id="generic_blocked",
+        ),
+    ],
+)
+def test_log_activity_redacts_json_field_in_non_sensitive_header_and_query(
+    caplog: pytest.LogCaptureFixture, log_kwargs: dict[str, Any]
+) -> None:
+    query_value = quote_plus(json.dumps({"password": "S2", "note": "n"}))
+    request = SyncMockGuardRequest(
+        path=f"/api?data={query_value}",
+        method="GET",
+        headers={"X-Custom": json.dumps({"password": "S1", "note": "n"})},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.DEBUG):
+        log_activity(request, logger, **log_kwargs)
+
+    assert '{"password":"[REDACTED]","note":"n"}' in caplog.text
+    expected_query_value = quote_plus(
+        json.dumps({"password": "[REDACTED]", "note": "n"}, separators=(",", ":"))
+    )
+    assert f"data={expected_query_value}" in caplog.text
+    assert "S1" not in caplog.text
+    assert "S2" not in caplog.text
+
+
+def test_log_activity_non_json_header_and_json_without_sensitive_keys_untouched(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    query_value = quote_plus(json.dumps({"note": "n"}))
+    request = SyncMockGuardRequest(
+        path=f"/api?data={query_value}",
+        method="GET",
+        headers={
+            "X-Plain": "plain-value",
+            "X-Json": json.dumps({"note": "n"}),
+        },
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger)
+
+    assert "'X-Plain': 'plain-value'" in caplog.text
+    assert f"'X-Json': '{json.dumps({'note': 'n'})}'" in caplog.text
+    assert f"data={query_value}" in caplog.text
+    assert "[REDACTED]" not in caplog.text
+
+
+def test_log_activity_custom_sensitive_body_fields_redacts_header_json_field(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Custom": json.dumps({"custom_secret": "S1", "note": "n"})},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(
+            request,
+            logger,
+            sensitive_body_fields=frozenset({"custom_secret"}),
+        )
+
+    assert '{"custom_secret":"[REDACTED]","note":"n"}' in caplog.text
+    assert "S1" not in caplog.text
+
+
+def test_log_activity_custom_sensitive_params_redact_case_insensitively(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/api?sig=SECRET-SIG&q=hello",
+        method="GET",
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger, sensitive_params=frozenset({"sig"}))
+
+    assert "sig=[REDACTED]" in caplog.text
+    assert "SECRET-SIG" not in caplog.text
+    assert "q=hello" in caplog.text
+
+
+def test_log_activity_sensitive_params_none_still_redacts_defaults(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/api?token=SECRET-TOK",
+        method="GET",
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.WARNING):
+        log_activity(request, logger, sensitive_params=None)
+
+    assert "SECRET-TOK" not in caplog.text
+    assert "token=[REDACTED]" in caplog.text
+
+
+def test_redact_sensitive_query_params_no_query_returns_url_unchanged() -> None:
+    url = "https://test/api"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_sensitive_pair_with_value_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?token=abc123", None)
+    assert result == "https://test/api?token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_sensitive_name_without_equals_left_as_is() -> (
+    None
+):
+    result = _redact_sensitive_query_params("https://test/api?token&q=1", None)
+    assert result == "https://test/api?token&q=1"
+
+
+def test_redact_sensitive_query_params_percent_encoded_name_keeps_spelling() -> None:
+    result = _redact_sensitive_query_params("https://test/api?api%5Fkey=abc", None)
+    assert result == "https://test/api?api%5Fkey=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_plus_encoded_name_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api?api+key=abc", frozenset({"api key"})
+    )
+    assert result == "https://test/api?api+key=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_blank_value_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?token=", None)
+    assert result == "https://test/api?token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_repeated_names_each_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?token=a&token=b", None)
+    assert result == "https://test/api?token=[REDACTED]&token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_fragment_and_path_preserved() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api/path?token=abc#section", None
+    )
+    assert result == "https://test/api/path?token=[REDACTED]#section"
+
+
+def test_redact_sensitive_query_params_unrelated_encoding_untouched() -> None:
+    result = _redact_sensitive_query_params("https://test/api?q=a%20b&token=x", None)
+    assert result == "https://test/api?q=a%20b&token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_uppercase_name_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?TOKEN=abc", None)
+    assert result == "https://test/api?TOKEN=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_custom_set_extends_default() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api?sig=abc&token=def", frozenset({"sig"})
+    )
+    assert result == "https://test/api?sig=[REDACTED]&token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_semicolon_separator_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api?foo=bar;token=SECRET", None
+    )
+    assert result == "https://test/api?foo=bar;token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_mixed_separators_redact_both() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api?a=1;token=S&api_key=K;b=2", None
+    )
+    assert result == "https://test/api?a=1;token=[REDACTED]&api_key=[REDACTED];b=2"
+
+
+def test_redact_sensitive_query_params_lone_semicolon_preserved() -> None:
+    result = _redact_sensitive_query_params("https://test/api?;", None)
+    assert result == "https://test/api?;"
+
+
+def test_redact_sensitive_query_params_trailing_semicolon_preserved() -> None:
+    result = _redact_sensitive_query_params("https://test/api?a=1;", None)
+    assert result == "https://test/api?a=1;"
+
+
+def test_redact_sensitive_query_params_fragment_pair_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api#token=SECRET", None)
+    assert result == "https://test/api#token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_fragment_without_equals_untouched() -> None:
+    url = "https://test/api#section"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_route_with_query_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api#/route?token=SECRET&x=1", None
+    )
+    assert result == "https://test/api#/route?token=[REDACTED]&x=1"
+
+
+def test_redact_sensitive_query_params_fragment_route_without_query_unchanged() -> None:
+    url = "https://test/api#/route"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_pair_then_question_mark_redacted() -> (
+    None
+):
+    result = _redact_sensitive_query_params("https://test/api#a=1?token=S", None)
+    assert result == "https://test/api#a=1?token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_userinfo_password_redacted() -> None:
+    result = _redact_sensitive_query_params("https://user:PASS@host/p?x=1", None)
+    assert result == "https://user:[REDACTED]@host/p?x=1"
+
+
+def test_redact_sensitive_query_params_userinfo_without_password_unchanged() -> None:
+    url = "https://user@host/"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_ipv6_host_with_port_and_userinfo() -> None:
+    result = _redact_sensitive_query_params(
+        "https://user:PASS@[2001:db8::1]:8443/p?x=1#token=SECRET", None
+    )
+    assert result == (
+        "https://user:[REDACTED]@[2001:db8::1]:8443/p?x=1#token=[REDACTED]"
+    )
+
+
+def test_redact_sensitive_query_params_fragment_route_then_two_question_marks() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api#/a?b=1?token=SECRET", None
+    )
+    assert result == "https://test/api#/a?b=1?token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_fragment_pair_then_question_mark() -> None:
+    result = _redact_sensitive_query_params("https://test/api#token=SECRET?x=1", None)
+    assert result == "https://test/api#token=[REDACTED]?x=1"
+
+
+def test_redact_sensitive_query_params_fragment_starting_with_question_mark() -> None:
+    result = _redact_sensitive_query_params("https://test/api#?token=SECRET", None)
+    assert result == "https://test/api#?token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_fragment_mixed_separators_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api#/route?x=1&token=SECRET;y=2", None
+    )
+    assert result == "https://test/api#/route?x=1&token=[REDACTED];y=2"
+
+
+def test_redact_sensitive_query_params_bare_hash_unchanged() -> None:
+    url = "https://test/api#"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_lone_question_mark_fragment_unchanged() -> None:
+    url = "https://test/api#?"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_route_only_unchanged() -> None:
+    url = "https://test/api#/route"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_pair_no_question_mark_redacted() -> (
+    None
+):
+    result = _redact_sensitive_query_params("https://test/api#token=SECRET", None)
+    assert result == "https://test/api#token=[REDACTED]"
+
+
+def test_redact_sensitive_query_params_embedded_json_sensitive_field_redacted() -> None:
+    value = quote_plus(json.dumps({"password": "S2", "note": "n"}))
+    result = _redact_sensitive_query_params(f"https://test/api?data={value}", None)
+    expected_value = quote_plus(
+        json.dumps({"password": "[REDACTED]", "note": "n"}, separators=(",", ":"))
+    )
+    assert result == f"https://test/api?data={expected_value}"
+
+
+def test_redact_sensitive_query_params_json_value_no_sensitive_key_unchanged() -> None:
+    value = quote_plus(json.dumps({"note": "n"}))
+    url = f"https://test/api?data={value}"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_custom_body_fields_extend_default() -> None:
+    value = quote_plus(json.dumps({"custom_secret": "S2"}))
+    result = _redact_sensitive_query_params(
+        f"https://test/api?data={value}",
+        None,
+        sensitive_body_fields=frozenset({"custom_secret"}),
+    )
+    expected_value = quote_plus(
+        json.dumps({"custom_secret": "[REDACTED]"}, separators=(",", ":"))
+    )
+    assert result == f"https://test/api?data={expected_value}"
+
+
+def test_redact_sensitive_query_params_percent_encoded_eq_sensitive_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?token%3DS", None)
+    assert result == "https://test/api?[REDACTED]"
+
+
+def test_redact_sensitive_query_params_percent_encoded_eq_non_sensitive_kept() -> None:
+    url = "https://test/api?a%3D1"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_percent_encoded_equals_redacted() -> (
+    None
+):
+    result = _redact_sensitive_query_params("https://test/api#token%3DS", None)
+    assert result == "https://test/api#[REDACTED]"
+
+
+def test_redact_sensitive_query_params_percent_encoded_no_equals_left_as_is() -> None:
+    url = "https://test/api?token%20name"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_percent_encoded_path_segment_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api/%7B%22password%22%3A%22S%22%7D/x", None
+    )
+    assert result == "https://test/api/%7B%22password%22%3A%22%5BREDACTED%5D%22%7D/x"
+
+
+def test_log_activity_redacts_sensitive_json_in_unencoded_url_path(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path='/api/{"password": "PATHSECRET777"}',
+        method="GET",
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger, level="INFO")
+
+    assert "PATHSECRET777" not in caplog.text
+    assert "REDACTED" in caplog.text
+
+
+def test_redact_sensitive_query_params_path_json_no_sensitive_key_unchanged() -> None:
+    url = 'https://test/api/{"note":"n"}/x'
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_path_non_json_segments_untouched() -> None:
+    url = "https://test/api/users/42"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_root_path_unchanged() -> None:
+    url = "https://test/"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_path_and_query_both_redacted() -> None:
+    segment = quote(json.dumps({"password": "PS"}), safe="")
+    url = f"https://test/api/{segment}?token=QS"
+
+    result = _redact_sensitive_query_params(url, None)
+
+    assert "PS" not in result
+    assert "QS" not in result
+    assert result.count("REDACTED") == 2
+
+
+def test_redact_sensitive_query_params_smuggled_amp_pair_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?a%3D1%26token%3DS", None)
+    assert result == "https://test/api?[REDACTED]"
+
+
+def test_redact_sensitive_query_params_smuggled_semicolon_pair_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api?token%3DS%3Bb%3D2", None)
+    assert result == "https://test/api?[REDACTED]"
+
+
+def test_redact_sensitive_query_params_smuggled_pair_not_sensitive_unchanged() -> None:
+    url = "https://test/api?a%3D1%26b%3D2"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_fragment_smuggled_pair_redacted() -> None:
+    result = _redact_sensitive_query_params("https://test/api#a%3D1%26token%3DS", None)
+    assert result == "https://test/api#[REDACTED]"
+
+
+def test_redact_sensitive_query_params_double_encoded_smuggled_pair_redacted() -> None:
+    result = _redact_sensitive_query_params(
+        "https://test/api?a%3D1%2526token%3DS", None
+    )
+    assert result == "https://test/api?[REDACTED]"
+
+
+def _quote_plus_n(text: str, times: int) -> str:
+    encoded = text
+    for _ in range(times):
+        encoded = quote_plus(encoded)
+    return encoded
+
+
+def test_redact_sensitive_query_params_single_encoded_json_value_redacted() -> None:
+    value = _quote_plus_n(json.dumps({"password": "S1"}), 1)
+    result = _redact_sensitive_query_params(f"https://test/api?data={value}", None)
+    assert "S1" not in result
+    assert "REDACTED" in result
+
+
+def test_redact_sensitive_query_params_double_encoded_json_value_redacted() -> None:
+    value = _quote_plus_n(json.dumps({"password": "S2"}), 2)
+    result = _redact_sensitive_query_params(f"https://test/api?data={value}", None)
+    assert "S2" not in result
+    assert "REDACTED" in result
+
+
+def test_redact_sensitive_query_params_triple_encoded_json_value_redacted() -> None:
+    value = _quote_plus_n(json.dumps({"password": "S3"}), 3)
+    result = _redact_sensitive_query_params(f"https://test/api?data={value}", None)
+    assert "S3" not in result
+    assert "REDACTED" in result
+
+
+def test_redact_sensitive_query_params_quadruple_encoded_json_value_stays_raw() -> None:
+    value = _quote_plus_n(json.dumps({"password": "S4"}), 4)
+    url = f"https://test/api?data={value}"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_query_params_non_json_value_stays_byte_identical() -> None:
+    value = _quote_plus_n("not-json-at-all", 3)
+    url = f"https://test/api?data={value}"
+    assert _redact_sensitive_query_params(url, None) == url
+
+
+def test_redact_sensitive_headers_json_scalar_value_unchanged() -> None:
+    headers = {"X-Custom": "42"}
+    assert _redact_sensitive_headers(headers, None) == headers

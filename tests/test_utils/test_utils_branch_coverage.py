@@ -1,3 +1,4 @@
+import json
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -7,7 +8,7 @@ from guard_core.models import SecurityConfig
 from guard_core.utils import (
     _build_log_message_for_suspicious,
     _check_blocked_countries,
-    _check_json_fields,
+    _check_embedded_json,
     _extract_request_context,
     _is_trusted_proxy,
     _log_at_level,
@@ -27,7 +28,7 @@ def test_extract_request_context_missing_client_host() -> None:
     request.method = "GET"
     request.url_full = "http://test/"
     request.headers = {}
-    ctx = _extract_request_context(request)
+    ctx = _extract_request_context(request, None, None)
     assert ctx["client_ip"] == "unknown"
 
 
@@ -38,7 +39,7 @@ def test_extract_request_context_uses_resolved_client_ip_from_state() -> None:
     request.method = "GET"
     request.url_full = "http://test/"
     request.headers = {}
-    ctx = _extract_request_context(request)
+    ctx = _extract_request_context(request, None, None)
     assert ctx["client_ip"] == "203.0.113.7"
 
 
@@ -49,7 +50,7 @@ def test_extract_request_context_falls_back_to_client_host_without_state_ip() ->
     request.method = "GET"
     request.url_full = "http://test/"
     request.headers = {}
-    ctx = _extract_request_context(request)
+    ctx = _extract_request_context(request, None, None)
     assert ctx["client_ip"] == "10.0.0.1"
 
 
@@ -135,7 +136,7 @@ async def test_check_blocked_countries_no_rules_skips_lookup() -> None:
     mock_check.assert_not_called()
 
 
-async def test_check_json_fields_ignores_non_string_entries() -> None:
+async def test_embedded_json_walker_scans_non_string_and_nested_values() -> None:
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     with patch.object(sus_patterns_handler, "detect") as mock_detect:
@@ -144,20 +145,23 @@ async def test_check_json_fields_ignores_non_string_entries() -> None:
             return {"is_threat": False, "threats": []}
 
         mock_detect.side_effect = _async_miss
-        detected, trigger = await _check_json_fields(
-            {"k1": 123, "k2": None, "k3": ["a"]},
-            context="test",
-            client_ip="1.2.3.4",
-            correlation_id="cid",
+        result = await _check_embedded_json(
+            json.dumps({"k1": 123, "k2": None, "k3": ["a"]}),
+            "test",
+            "1.2.3.4",
+            "cid",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
-    assert detected is False
-    assert trigger == ""
-    assert mock_detect.call_count == 3
+    assert result is not None
+    assert result[0] is False
     scanned_contents = {call.kwargs["content"] for call in mock_detect.call_args_list}
-    assert scanned_contents == {"k1", "k2", "k3"}
+    assert scanned_contents == {"k1", "k2", "123", "None", "k3", "a"}
 
 
-async def test_check_json_fields_nested_context_stays_a_known_context() -> None:
+async def test_embedded_json_key_nested_context_stays_a_known_context() -> None:
     from guard_core.handlers.suspatterns_handler import (
         SusPatternsManager,
         sus_patterns_handler,
@@ -169,15 +173,19 @@ async def test_check_json_fields_nested_context_stays_a_known_context() -> None:
             return {"is_threat": False, "threats": []}
 
         mock_detect.side_effect = _async_miss
-        await _check_json_fields(
-            {"username": "safe value"},
-            context="url_path",
-            client_ip="1.2.3.4",
-            correlation_id="cid",
+        await _check_embedded_json(
+            json.dumps({"username": "safe value"}),
+            "url_path",
+            "1.2.3.4",
+            "cid",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
 
     scanned_contexts = {call.kwargs["context"] for call in mock_detect.call_args_list}
-    assert scanned_contexts == {"url_path:username"}
+    assert scanned_contexts == {"url_path:username", "url_path"}
     normalized = {SusPatternsManager._normalize_context(c) for c in scanned_contexts}
     assert normalized == {"url_path"}
     assert "unknown" not in normalized

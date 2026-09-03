@@ -1,5 +1,11 @@
 from typing import TYPE_CHECKING
 
+from guard_core._utils.request_logging import (
+    _DEFAULT_SENSITIVE_LOG_FIELDS,
+    _merge_sensitive_log_headers,
+    _merge_sensitive_names,
+)
+
 if TYPE_CHECKING:
     from guard_core.decorators.base import RouteConfig
     from guard_core.models import SecurityConfig
@@ -66,6 +72,17 @@ _DEFAULT_EXCLUDED_HEADERS: frozenset[str] = frozenset(
         "sec-ch-ua",
         "sec-ch-ua-mobile",
         "sec-ch-ua-platform",
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+        "x-client-ip",
+        "x-cluster-client-ip",
+        "cf-connecting-ip",
+        "true-client-ip",
+        "fly-client-ip",
+        "x-envoy-external-address",
     }
 )
 
@@ -83,6 +100,28 @@ def _resolve_excluded_headers(
 
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
     return config.log_suspicious_level if config is not None else "WARNING"
+
+
+def _resolve_sensitive_log_headers(config: "SecurityConfig | None") -> frozenset[str]:
+    return _merge_sensitive_log_headers(
+        config.log_sensitive_headers if config is not None else None
+    )
+
+
+def _resolve_sensitive_log_params(config: "SecurityConfig | None") -> frozenset[str]:
+    return _merge_sensitive_names(
+        _DEFAULT_SENSITIVE_LOG_FIELDS,
+        config.log_sensitive_params if config is not None else None,
+    )
+
+
+def _resolve_sensitive_log_body_fields(
+    config: "SecurityConfig | None",
+) -> frozenset[str]:
+    return _merge_sensitive_names(
+        _DEFAULT_SENSITIVE_LOG_FIELDS,
+        config.log_sensitive_body_fields if config is not None else None,
+    )
 
 
 _DEFAULT_MAX_SCAN_VALUES = 512

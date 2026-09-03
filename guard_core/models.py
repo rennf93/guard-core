@@ -34,6 +34,7 @@ from guard_core._security_config_validators import (
     _validate_muted_event_types_value,
     _validate_muted_metric_types_value,
     _validate_return_pattern_body_scan,
+    _validate_sensitive_name_set_value,
     _validate_threat_ban_config_value,
     _warn_country_allowlist_shadows_blocklist,
     _warn_empty_enabled_detection_categories,
@@ -88,14 +89,12 @@ class SecurityConfig(_SecurityConfigFields):
     _revision: int = PrivateAttr(default=0)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "exclude_paths":
-            value = _validate_exclude_paths_value(value, stacklevel=3)
-        if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
-            _validate_global_behavior_rule_assignment(self, name, value)
         if name in _GEO_STATE_FIELDS:
             value = _apply_geo_ip_handler_assignment(self, name, value)
         if name in _FIELD_REVALIDATORS and not _skip_revalidation.get():
             value = _FIELD_REVALIDATORS[name](value)
+        if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
+            _validate_global_behavior_rule_assignment(self, name, value)
 
         should_warn = _country_shadow_should_warn(self, name, value)
 
@@ -282,6 +281,18 @@ class SecurityConfig(_SecurityConfigFields):
     @field_validator("muted_check_logs", mode="before")
     def validate_muted_check_logs(cls, v: Any) -> frozenset[str]:
         return _validate_muted_check_logs_value(v)
+
+    @field_validator("log_sensitive_headers", mode="before")
+    def validate_log_sensitive_headers(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_headers")
+
+    @field_validator("log_sensitive_params", mode="before")
+    def validate_log_sensitive_params(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_params")
+
+    @field_validator("log_sensitive_body_fields", mode="before")
+    def validate_log_sensitive_body_fields(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_body_fields")
 
     @field_validator("exclude_paths")
     def validate_exclude_paths(cls, v: list[str]) -> list[str]:

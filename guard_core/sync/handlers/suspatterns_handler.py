@@ -698,6 +698,8 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         context: str = "unknown",
         correlation_id: str | None = None,
         enabled_categories: set[str] | None = None,
+        *,
+        content_preview: str | None = None,
     ) -> dict[str, Any]:
         original_content = content
         execution_start = time.monotonic()
@@ -809,6 +811,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
                 total_execution_time,
                 correlation_id,
                 detection_method,
+                content_preview=content_preview,
             )
 
         return {
@@ -838,6 +841,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         execution_time: float,
         correlation_id: str | None,
         detection_method: str | None = None,
+        content_preview: str | None = None,
     ) -> None:
         from guard_core.sync.core.events.event_types import EVENT_PATTERN_DETECTED
 
@@ -850,6 +854,11 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         elif semantic_threats:
             pattern_info = f"semantic:{semantic_threats[0]['attack_type']}"
 
+        preview_source = content_preview if content_preview is not None else content
+        capped_preview = (
+            preview_source[:100] if len(preview_source) > 100 else preview_source
+        )
+
         self._send_pattern_event(
             event_type=EVENT_PATTERN_DETECTED,
             ip_address=ip_address,
@@ -857,9 +866,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
             reason=f"Threat detected in {context}",
             pattern=pattern_info,
             context=context,
-            content_preview=_sanitize_for_reporting(
-                content[:100] if len(content) > 100 else content
-            ),
+            content_preview=_sanitize_for_reporting(capped_preview),
             threat_score=threat_score,
             threats=len(threats),
             regex_threats=len(regex_threats),

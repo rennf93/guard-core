@@ -149,12 +149,21 @@ def extract_credential(auth_header: str, auth_type: str) -> tuple[str | None, st
     return auth_header, ""
 
 
+def _normalize_allowed_referrer_domain(entry: str) -> str:
+    if "://" in entry:
+        return urlparse(entry).netloc.lower()
+    normalized = entry.lower()
+    slash_index = normalized.find("/")
+    return normalized[:slash_index] if slash_index != -1 else normalized
+
+
 def is_referrer_domain_allowed(referrer: str, allowed_domains: list[str]) -> bool:
     try:
         referrer_domain = urlparse(referrer).netloc.lower()
         for allowed_domain in allowed_domains:
-            if referrer_domain == allowed_domain.lower() or referrer_domain.endswith(
-                f".{allowed_domain.lower()}"
+            normalized_allowed = _normalize_allowed_referrer_domain(allowed_domain)
+            if referrer_domain == normalized_allowed or referrer_domain.endswith(
+                f".{normalized_allowed}"
             ):
                 return True
         return False
@@ -310,6 +319,9 @@ async def _try_threshold_ban(
         check_name=check_name,
         muted_check_logs=muted_check_logs,
         on_block=config.on_block,
+        sensitive_headers=config.log_sensitive_headers,
+        sensitive_params=config.log_sensitive_params,
+        sensitive_body_fields=config.log_sensitive_body_fields,
     )
     return True
 

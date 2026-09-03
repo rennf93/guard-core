@@ -3,13 +3,16 @@ import logging
 from collections.abc import Generator, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from guard_agent.models import DynamicRules as AgentDynamicRules
 
 from guard_core._dynamic_rules import (
     LAST_KNOWN_RULES_SNAPSHOT_SCHEMA_VERSION,
     dump_last_known_rules_snapshot,
+    load_last_known_rules_snapshot,
 )
 from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync.handlers._dynamic_rule_persistence import (
@@ -34,6 +37,21 @@ def _rules(**kwargs: object) -> DynamicRules:
 
 def _snapshot(rules: DynamicRules) -> str:
     return dump_last_known_rules_snapshot(rules)
+
+
+def _agent_rules(**kwargs: object) -> DynamicRules:
+    base = {
+        "rule_id": "agent-rule",
+        "version": 3,
+        "timestamp": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "emergency_whitelist_only": True,
+        "message": "maintenance",
+        "ip_blacklist": ["1.2.3.4"],
+        "emergency_mode": False,
+    }
+    base.update(kwargs)
+    return cast(DynamicRules, AgentDynamicRules(**base))
 
 
 def _redis(payload: object) -> MagicMock:
@@ -469,3 +487,107 @@ def test_sync_hydrate_expiry_does_not_suppress_update_loop_warning(
     ]
     assert len(warnings) == 1
     assert manager.current_rules is None
+
+
+def test_sync_guard_core_dynamic_rules_mirror_is_a_subset_of_guard_agent_model() -> (
+    None
+):
+    assert set(DynamicRules.model_fields) <= set(AgentDynamicRules.model_fields)
+
+
+def test_sync_dump_last_known_rules_snapshot_excludes_guard_agent_only_fields() -> None:
+    agent_rules = _agent_rules()
+
+    payload = dump_last_known_rules_snapshot(agent_rules)
+    envelope = json.loads(payload)
+
+    assert "emergency_whitelist_only" not in envelope["rules"]
+    assert "message" not in envelope["rules"]
+
+    loaded = load_last_known_rules_snapshot(payload)
+    assert loaded.rule_id == "agent-rule"
+    assert loaded.version == 3
+    assert loaded.ip_blacklist == ["1.2.3.4"]
+    assert loaded.emergency_mode is False
+
+
+def test_sync_apply_rules_persists_snapshot_built_from_real_guard_agent_rules(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    cache_path = tmp_path / "dynamic_rules.json"
+    config = SecurityConfig(
+        auto_ban_threshold=5, dynamic_rules_cache_path=str(cache_path)
+    )
+    manager = DynamicRuleManager(config)
+    agent_rules = _agent_rules()
+
+    with caplog.at_level(logging.ERROR, logger=MANAGER_LOGGER):
+        manager._apply_rules(agent_rules)
+
+    assert cache_path.is_file()
+    loaded = load_last_known_rules_snapshot(cache_path.read_text(encoding="utf-8"))
+    assert loaded.rule_id == "agent-rule"
+    assert loaded.version == 3
+    assert loaded.ip_blacklist == ["1.2.3.4"]
+    assert loaded.emergency_mode is False
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+def test_sync_apply_rules_persists_snapshot_built_from_real_guard_agent_rules_to_redis(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(auto_ban_threshold=5)
+    manager = DynamicRuleManager(config)
+    redis = _redis(None)
+    manager.initialize_redis(redis)
+    agent_rules = _agent_rules()
+
+    with caplog.at_level(logging.ERROR, logger=MANAGER_LOGGER):
+        manager._apply_rules(agent_rules)
+
+    redis.set_key.assert_called_once()
+    payload = redis.set_key.call_args.args[2]
+    loaded = load_last_known_rules_snapshot(payload)
+    assert loaded.rule_id == "agent-rule"
+    assert loaded.version == 3
+    assert loaded.ip_blacklist == ["1.2.3.4"]
+    assert loaded.emergency_mode is False
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+def test_sync_apply_rules_survives_snapshot_build_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(
+        enable_dynamic_rules=True,
+        enable_agent=True,
+        agent_api_key="key",
+        auto_ban_threshold=5,
+    )
+    manager = DynamicRuleManager(config)
+    rules = _rules(auto_ban_threshold=7)
+    manager.agent_handler = MagicMock()
+    manager.agent_handler.get_dynamic_rules = MagicMock(return_value=rules)
+    manager.agent_handler.send_event = MagicMock()
+
+    with (
+        caplog.at_level(logging.ERROR, logger=MANAGER_LOGGER),
+        patch(
+            "guard_core.sync.handlers._dynamic_rule_snapshot."
+            "dump_last_known_rules_snapshot",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        manager.update_rules()
+
+    assert config.auto_ban_threshold == 7
+    assert manager.current_rules == rules
+    error_messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert (
+        sum(
+            "Failed to build last-known dynamic rules snapshot" in m
+            for m in error_messages
+        )
+        == 1
+    )
+    assert not any("Failed to update dynamic rules" in m for m in error_messages)

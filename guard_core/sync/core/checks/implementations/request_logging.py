@@ -28,5 +28,8 @@ class RequestLoggingCheck(SecurityCheck):
             level=self.config.log_request_level,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
         return None

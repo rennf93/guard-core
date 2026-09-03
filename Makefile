@@ -246,6 +246,17 @@ integration-test:
 	exit $$STATUS
 
 
+.PHONY: live-smoke
+live-smoke:
+	@uv build --wheel --out-dir tests/live_smoke/stack/wheels
+	@uv run python tests/live_smoke/fetch_example_app.py
+	@uv run python tests/live_smoke/patch_example_config.py
+	@LIVE_SMOKE=1 uv run pytest tests/live_smoke -m live_smoke -v; \
+	STATUS=$$?; \
+	(cd tests/live_smoke/stack && docker compose -p guard-core-live-smoke down -v --remove-orphans) >/dev/null 2>&1; \
+	exit $$STATUS
+
+
 .PHONY: serve-docs
 serve-docs:
 	@uv run mkdocs serve

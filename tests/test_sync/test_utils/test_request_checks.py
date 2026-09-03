@@ -801,7 +801,10 @@ def test_detect_penetration_json_non_regex_threat() -> None:
         result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
-        assert "JSON field 'password' contains: semantic" in trigger
+        assert (
+            "Request body field 'password': Semantic attack: credential_stuffing"
+            in (trigger)
+        )
 
 
 def test_detect_penetration_semantic_threat() -> None:
@@ -1013,7 +1016,7 @@ def test_detect_penetration_empty_threat_fallback() -> None:
         result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
-        assert "JSON field 'field' contains threat" in trigger
+        assert "Request body field 'field': Threat detected" in trigger
 
 
 def test_detect_penetration_unknown_threat_type() -> None:

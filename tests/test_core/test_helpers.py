@@ -301,6 +301,57 @@ async def test_referrer_domain_subdomain() -> None:
     )
 
 
+async def test_referrer_domain_allowed_scheme_prefixed_origin() -> None:
+    assert (
+        is_referrer_domain_allowed("https://example.com/page", ["https://example.com"])
+        is True
+    )
+
+
+async def test_referrer_domain_allowed_origin_with_port() -> None:
+    assert (
+        is_referrer_domain_allowed(
+            "https://example.com:8443/page", ["https://example.com:8443"]
+        )
+        is True
+    )
+
+
+async def test_referrer_domain_allowed_origin_with_path() -> None:
+    assert (
+        is_referrer_domain_allowed(
+            "https://example.com/page", ["https://example.com/some/path"]
+        )
+        is True
+    )
+
+
+async def test_referrer_domain_allowed_bare_domain_with_trailing_slash() -> None:
+    assert (
+        is_referrer_domain_allowed("https://example.com/page", ["example.com/"]) is True
+    )
+
+
+async def test_referrer_domain_allowed_scheme_prefixed_subdomain_match() -> None:
+    assert (
+        is_referrer_domain_allowed(
+            "https://sub.example.com/page", ["https://example.com"]
+        )
+        is True
+    )
+
+
+async def test_referrer_domain_allowed_scheme_prefixed_non_match() -> None:
+    assert (
+        is_referrer_domain_allowed("https://evil.com/page", ["https://example.com"])
+        is False
+    )
+
+
+async def test_referrer_domain_malformed_referrer_url_returns_false() -> None:
+    assert is_referrer_domain_allowed("http://[::1", ["example.com"]) is False
+
+
 async def test_referrer_domain_invalid() -> None:
     assert is_referrer_domain_allowed("https://evil.com/", ["example.com"]) is False
 

@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 logger = logging.getLogger("guard_core")
 
@@ -18,6 +19,37 @@ def _sanitize_for_reporting(value: str) -> str:
     return value.encode("utf-8", errors="surrogateescape").decode(
         "utf-8", errors="backslashreplace"
     )
+
+
+def _redact_sensitive_json(
+    value: Any, sensitive_body_fields: frozenset[str], max_depth: int
+) -> Any:
+    if not isinstance(value, dict | list):
+        return value
+    if max_depth <= 1:
+        return "[REDACTED]"
+    root: Any = {} if isinstance(value, dict) else []
+    stack: list[tuple[Any, Any, int]] = [(value, root, 1)]
+    while stack:
+        source, target, depth = stack.pop()
+        entries = source.items() if isinstance(source, dict) else enumerate(source)
+        for key, item in entries:
+            if isinstance(source, dict) and str(key).lower() in sensitive_body_fields:
+                redacted_item: Any = "[REDACTED]"
+            elif isinstance(item, dict | list):
+                child_depth = depth + 1
+                if child_depth >= max_depth:
+                    redacted_item = "[REDACTED]"
+                else:
+                    redacted_item = {} if isinstance(item, dict) else []
+                    stack.append((item, redacted_item, child_depth))
+            else:
+                redacted_item = item
+            if isinstance(target, dict):
+                target[key] = redacted_item
+            else:
+                target.append(redacted_item)
+    return root
 
 
 def _log_at_level(logger: logging.Logger, level: str, msg: str) -> None:
