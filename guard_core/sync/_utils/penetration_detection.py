@@ -115,6 +115,7 @@ def _scan_body_surface(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str],
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> DetectionResult:
     if not _resolve_scan_body(config, route_config):
         return _build_detection_miss()
@@ -135,6 +136,7 @@ def _scan_body_surface(
         correlation_id,
         log_level,
         sensitive_body_fields,
+        sensitive_params,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
@@ -212,4 +214,5 @@ def detect_penetration_attempt(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            sensitive_params,
         )

@@ -292,7 +292,14 @@ async def test_event_bus_attaches_tracestate_from_request_headers() -> None:
     agent = MagicMock()
     agent.send_event = capture_send
 
-    cfg = _cast(SecurityConfig, _SN(agent_enable_events=True))
+    cfg = _cast(
+        SecurityConfig,
+        _SN(
+            agent_enable_events=True,
+            log_sensitive_params=None,
+            log_sensitive_body_fields=None,
+        ),
+    )
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()
@@ -347,7 +354,14 @@ async def test_event_bus_attaches_traceparent_from_request_headers() -> None:
 
     agent.send_event = capture_send
 
-    cfg = _cast(SecurityConfig, SimpleNamespace(agent_enable_events=True))
+    cfg = _cast(
+        SecurityConfig,
+        SimpleNamespace(
+            agent_enable_events=True,
+            log_sensitive_params=None,
+            log_sensitive_body_fields=None,
+        ),
+    )
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
 
     request = MagicMock()

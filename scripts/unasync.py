@@ -31,6 +31,7 @@ SKIP_TESTS = {
     "test_suspatterns_handler_module_surface.py",
     "test_gc_per_test_opt_in.py",
     "test_maintainability_rank.py",
+    "test_config_docs_parity.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}

@@ -141,14 +141,13 @@ def _redact_sensitive_headers(
     headers: dict[str, str],
     sensitive_headers: frozenset[str] | None,
     sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_params: frozenset[str] | None = None,
 ) -> dict[str, str]:
     sensitive = _merge_sensitive_log_headers(sensitive_headers)
-    body_fields = _merge_sensitive_log_body_fields(sensitive_body_fields)
-    max_depth = _resolve_json_depth_cap()
     return {
         key: "[REDACTED]"
-        if key.lower() in sensitive
-        else _redact_embedded_json_value(value, body_fields, max_depth)
+        if key.strip().lower() in sensitive
+        else redact_blob_for_display(value, sensitive_params, sensitive_body_fields)
         for key, value in headers.items()
     }
 
@@ -277,6 +276,78 @@ def redact_url_for_display(
 _redact_sensitive_query_params = redact_url_for_display
 
 
+def redact_endpoint_for_display(
+    value: str,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None = None,
+) -> str:
+    return redact_url_for_display(value, sensitive_params, sensitive_body_fields)
+
+
+_XML_ELEMENT_RE = re.compile(r"<([A-Za-z_][\w.:-]*)>([^<]*)</\1>")
+
+
+def _redact_xml_elements(text: str, sensitive: frozenset[str]) -> str:
+    def _redact(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name.lower() not in sensitive:
+            return match.group(0)
+        return f"<{name}>[REDACTED]</{name}>"
+
+    return _XML_ELEMENT_RE.sub(_redact, text)
+
+
+_BLOB_PAIR_SEPARATOR_RE = re.compile(r"([&;?\n\t ])")
+_BLOB_PAIR_SEPARATORS = ("&", ";", "?", "\n", "\t", " ")
+
+
+def _redact_blob_pairs(
+    text: str,
+    sensitive: frozenset[str],
+    sensitive_body_fields: frozenset[str],
+    max_depth: int,
+) -> str:
+    tokens = _BLOB_PAIR_SEPARATOR_RE.split(text)
+    return "".join(
+        token
+        if token in _BLOB_PAIR_SEPARATORS
+        else _redact_sensitive_query_pair(
+            token, sensitive, sensitive_body_fields, max_depth
+        )
+        for token in tokens
+    )
+
+
+def redact_blob_for_display(
+    text: str,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None,
+) -> str:
+    max_depth = _resolve_json_depth_cap()
+    body_fields = _merge_sensitive_log_body_fields(sensitive_body_fields)
+    json_redacted = _json_redact_text(
+        _bounded_percent_decode(text), body_fields, max_depth
+    )
+    if json_redacted is not None:
+        return json_redacted
+    sensitive = (
+        _merge_sensitive_names(_DEFAULT_SENSITIVE_LOG_FIELDS, sensitive_params)
+        | body_fields
+    )
+    xml_redacted = _redact_xml_elements(text, sensitive)
+    return _redact_blob_pairs(xml_redacted, sensitive, body_fields, max_depth)
+
+
+def redact_header_value_for_display(
+    value: str,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None,
+) -> str:
+    if not value:
+        return value
+    return redact_blob_for_display(value, sensitive_params, sensitive_body_fields)
+
+
 def _extract_request_context(
     request: SyncGuardRequest,
     sensitive_headers: frozenset[str] | None,
@@ -298,7 +369,10 @@ def _extract_request_context(
             request.url_full, sensitive_params, sensitive_body_fields
         ),
         "headers": _redact_sensitive_headers(
-            dict(request.headers), sensitive_headers, sensitive_body_fields
+            dict(request.headers),
+            sensitive_headers,
+            sensitive_body_fields,
+            sensitive_params,
         ),
     }
 

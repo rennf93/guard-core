@@ -2,6 +2,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from guard_core._utils.request_logging import (
+    redact_endpoint_for_display,
+    redact_header_value_for_display,
+)
 from guard_core.core.events.event_types import (
     EVENT_DECORATOR_VIOLATION,
     EVENT_HTTPS_ENFORCED,
@@ -72,15 +76,26 @@ class SecurityEventBus:
 
         SecurityEvent = get_telemetry_model("SecurityEvent")
 
+        raw_user_agent = request.headers.get("User-Agent")
         return SecurityEvent(
             timestamp=datetime.now(timezone.utc),
             event_type=event_type,
             ip_address=client_ip,
             country=country,
-            user_agent=request.headers.get("User-Agent"),
+            user_agent=redact_header_value_for_display(
+                raw_user_agent,
+                self.config.log_sensitive_params,
+                self.config.log_sensitive_body_fields,
+            )
+            if raw_user_agent
+            else raw_user_agent,
             action_taken=action_taken,
             reason=reason,
-            endpoint=str(request.url_path),
+            endpoint=redact_endpoint_for_display(
+                str(request.url_path),
+                self.config.log_sensitive_params,
+                self.config.log_sensitive_body_fields,
+            ),
             method=request.method,
             response_time=get_pipeline_response_time(request),
             metadata=metadata,
@@ -115,7 +130,11 @@ class SecurityEventBus:
     async def send_https_violation_event(
         self, request: GuardRequest, route_config: RouteConfig | None
     ) -> None:
-        https_url = request.url_replace_scheme("https")
+        https_url = redact_endpoint_for_display(
+            request.url_replace_scheme("https"),
+            self.config.log_sensitive_params,
+            self.config.log_sensitive_body_fields,
+        )
 
         if route_config and route_config.require_https:
             await self.send_middleware_event(

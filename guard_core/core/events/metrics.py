@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from guard_core._utils.request_logging import redact_endpoint_for_display
 from guard_core.core.events.event_types import (
     METRIC_ERROR_RATE,
     METRIC_REQUEST_COUNT,
@@ -51,7 +52,11 @@ class MetricsCollector:
         if not self.agent_handler or not self.config.agent_enable_metrics:
             return
 
-        endpoint = str(request.url_path)
+        endpoint = redact_endpoint_for_display(
+            str(request.url_path),
+            self.config.log_sensitive_params,
+            self.config.log_sensitive_body_fields,
+        )
         method = request.method
 
         await self.send_metric(

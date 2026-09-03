@@ -72,28 +72,28 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
         shell: bash
+        env:
+          JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           touch detection-report.txt
-          {
-            echo '## Detection gate report'
-            echo
-            echo 'Per-category recall and false-positive movement for this PR.'
-            echo 'A red gate means a category regressed against its committed baseline'
-            echo 'or a benign string is newly flagged; the numbers below name it.'
-            echo 'Long documented-gap annotations are elided here; the job log has them.'
-            echo
-            echo '```'
-            awk 'length($0) <= 160' detection-report.txt | tail -n 150 | head -c 55000
-            echo '```'
-          } > detection-comment.md
+          uv run python .github/scripts/detection_gate_comment.py detection-report.txt "$JOB_URL" detection-comment.md
 
       - name: Post the report on the PR
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body-file detection-comment.md
+          marker='<!-- detection-gate-report -->'
+          cat > minimize.graphql <<'GRAPHQL'
+          mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) { minimizedComment { isMinimized } } }
+          GRAPHQL
+          for node_id in $(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate --jq ".[] | select(.body | contains(\"$marker\")) | .node_id"); do
+            gh api graphql -F query=@minimize.graphql -F id="$node_id" > /dev/null
+          done
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file detection-comment.md
 
   detection-corpus:
     runs-on: ubuntu-latest

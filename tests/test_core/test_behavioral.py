@@ -36,8 +36,11 @@ def mock_guard_decorator() -> Mock:
 def behavioral_context(
     mock_event_bus: Mock, mock_guard_decorator: Mock
 ) -> BehavioralContext:
+    config = Mock()
+    config.log_sensitive_params = frozenset()
+    config.log_sensitive_body_fields = frozenset()
     context = BehavioralContext(
-        config=Mock(),
+        config=config,
         logger=Mock(),
         event_bus=mock_event_bus,
         guard_decorator=mock_guard_decorator,

@@ -16,6 +16,8 @@ from guard_core.sync._utils.request_logging import (
     _dispatch_block_hook,
     _redact_sensitive_headers,
     _redact_sensitive_query_params,
+    redact_endpoint_for_display,
+    redact_header_value_for_display,
 )
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import (
@@ -965,6 +967,120 @@ def test_redact_sensitive_headers_custom_sensitive_body_fields_extends_default()
     assert result == {"X-Custom": '{"custom_secret":"[REDACTED]","note":"n"}'}
 
 
+def test_redact_sensitive_headers_referer_query_token_redacted() -> None:
+    headers = {"Referer": "https://evil.example/path?token=SECRET&x=1"}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"Referer": "https://evil.example/path?token=[REDACTED]&x=1"}
+
+
+def test_redact_sensitive_headers_ampersand_pair_in_non_sensitive_header_redacted() -> (
+    None
+):
+    headers = {"X-Custom": "a=1&token=SECRET"}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"X-Custom": "a=1&token=[REDACTED]"}
+
+
+def test_redact_sensitive_headers_pair_after_space_redacted() -> None:
+    headers = {"User-Agent": "Mozilla/5.0 password=SECRET"}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"User-Agent": "Mozilla/5.0 password=[REDACTED]"}
+
+
+def test_redact_sensitive_headers_xml_element_redacted() -> None:
+    headers = {"X-Custom": "<user>bob</user><password>SECRET</password>"}
+    result = _redact_sensitive_headers(headers, None)
+    assert result == {"X-Custom": "<user>bob</user><password>[REDACTED]</password>"}
+
+
+def test_redact_sensitive_headers_benign_user_agent_byte_identical() -> None:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    assert _redact_sensitive_headers(headers, None) == headers
+
+
+def test_redact_sensitive_headers_custom_sensitive_params_redacts_pair_value() -> None:
+    headers = {"X-Custom": "a=1&custom-param=SECRET"}
+    result = _redact_sensitive_headers(
+        headers, None, sensitive_params=frozenset({"custom-param"})
+    )
+    assert result == {"X-Custom": "a=1&custom-param=[REDACTED]"}
+
+
+def test_log_activity_referer_header_query_token_redacted_in_headers_dump(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"Referer": "https://evil.example/path?token=SECRET&x=1"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger, level="INFO")
+
+    assert "token=[REDACTED]" in caplog.text
+    assert "SECRET" not in caplog.text
+
+
+def test_log_activity_custom_header_ampersand_pair_redacted_in_headers_dump(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Custom": "a=1&token=SECRET"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger, level="INFO")
+
+    assert "token=[REDACTED]" in caplog.text
+    assert "SECRET" not in caplog.text
+
+
+def test_log_activity_user_agent_pair_after_space_redacted_in_headers_dump(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"User-Agent": "Mozilla/5.0 password=SECRET"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger, level="INFO")
+
+    assert "password=[REDACTED]" in caplog.text
+    assert "SECRET" not in caplog.text
+
+
+def test_log_activity_xml_header_value_redacted_in_headers_dump(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    request = SyncMockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Custom": "<user>bob</user><password>SECRET</password>"},
+        client_host="127.0.0.1",
+    )
+
+    logger = logging.getLogger(__name__)
+    with caplog.at_level(logging.INFO):
+        log_activity(request, logger, level="INFO")
+
+    assert "<password>[REDACTED]</password>" in caplog.text
+    assert "<user>bob</user>" in caplog.text
+    assert "SECRET" not in caplog.text
+
+
 _SENSITIVE_QUERY_REQUEST_PATH = "/api?token=SECRET-Q&q=hello&Api_Key=SECRET-K"
 
 
@@ -1657,3 +1773,42 @@ def test_redact_sensitive_headers_recursion_guard_redacts_whole_value() -> None:
     header_value = _nested_json_text(5000, "n", {"value": "S"})
     result = _redact_sensitive_headers({"X-Deep": header_value}, None)
     assert result == {"X-Deep": "[REDACTED]"}
+
+
+def test_redact_endpoint_for_display_leaves_bare_path_unchanged() -> None:
+    assert redact_endpoint_for_display("/api/test", None, None) == "/api/test"
+
+
+def test_redact_endpoint_for_display_redacts_matrix_parameter() -> None:
+    result = redact_endpoint_for_display("/items;token=S", None, None)
+    assert result == "/items;token=[REDACTED]"
+
+
+def test_redact_endpoint_for_display_redacts_json_path_segment() -> None:
+    result = redact_endpoint_for_display('/items/{"password":"S"}', None, None)
+    assert "S" not in result
+    assert "REDACTED" in result
+
+
+def test_redact_header_value_for_display_empty_value_unchanged() -> None:
+    assert redact_header_value_for_display("", None, None) == ""
+
+
+def test_redact_header_value_for_display_leaves_bare_value_unchanged() -> None:
+    assert redact_header_value_for_display("Mozilla/5.0", None, None) == "Mozilla/5.0"
+
+
+def test_redact_header_value_for_display_redacts_json_user_agent() -> None:
+    value = '{"password":"S"}'
+    result = redact_header_value_for_display(value, None, None)
+    assert result == '{"password":"[REDACTED]"}'
+
+
+def test_redact_header_value_for_display_pair_after_space_redacted() -> None:
+    result = redact_header_value_for_display("Bearer x token=SECRET", None, None)
+    assert result == "Bearer x token=[REDACTED]"
+
+
+def test_redact_header_value_for_display_pair_after_tab_redacted() -> None:
+    result = redact_header_value_for_display("x\ttoken=SECRET", None, None)
+    assert result == "x\ttoken=[REDACTED]"

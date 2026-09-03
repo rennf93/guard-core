@@ -1,6 +1,7 @@
 from typing import Any
 
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.request_logging import redact_endpoint_for_display
 from guard_core.sync.core.behavioral.context import BehavioralContext
 from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.decorators.base import RouteConfig
@@ -196,4 +197,9 @@ class BehavioralProcessor:
         endpoint_id: str | None = getattr(request.state, "guard_endpoint_id", None)
         if endpoint_id:
             return endpoint_id
-        return f"{request.method}:{request.url_path}"
+        safe_path = redact_endpoint_for_display(
+            str(request.url_path),
+            self.context.config.log_sensitive_params,
+            self.context.config.log_sensitive_body_fields,
+        )
+        return f"{request.method}:{safe_path}"

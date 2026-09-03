@@ -134,7 +134,12 @@ def _scan_multipart_body(
     parts = _multipart_text_parts(raw_body, content_type)
     if parts is None:
         return _scan_blob_body(
-            raw_body, enabled_categories, client_ip, correlation_id, log_level
+            raw_body,
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            log_level,
+            force_redacted=True,
         )
     for exclusion_key, label, value in parts:
         hit = _scan_multipart_part(

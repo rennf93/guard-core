@@ -22,6 +22,7 @@ from guard_core._utils.detection_scan import (
     _log_detected_component,
     _scan_component_name,
 )
+from guard_core._utils.request_logging import redact_blob_for_display
 from guard_core.protocols.request_protocol import GuardRequest
 
 __all__ = [
@@ -193,7 +194,7 @@ async def _scan_sensitive_header(
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
-    if key.lower() in excluded_headers:
+    if key.strip().lower() in excluded_headers:
         hit = _scan_excluded_header_component(
             key, value, enabled_categories, client_ip, None
         )
@@ -226,7 +227,7 @@ async def _scan_headers(
     excluded_body_fields: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     for key, value in request.headers.items():
-        if key.lower() in sensitive_headers:
+        if key.strip().lower() in sensitive_headers:
             hit = await _scan_sensitive_header(
                 key,
                 value,
@@ -238,7 +239,7 @@ async def _scan_headers(
                 sensitive_body_fields,
                 excluded_body_fields,
             )
-        elif key.lower() in excluded_headers:
+        elif key.strip().lower() in excluded_headers:
             hit = _scan_excluded_header_component(
                 key, value, enabled_categories, client_ip, log_level
             )
@@ -299,7 +300,15 @@ async def _scan_blob_body(
     client_ip: str,
     correlation_id: str,
     log_level: str | None,
+    sensitive_params: frozenset[str] = frozenset(),
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    force_redacted: bool = False,
 ) -> tuple[bool, str, list[dict]]:
+    content_preview = (
+        "[REDACTED]"
+        if force_redacted
+        else redact_blob_for_display(raw_body, sensitive_params, sensitive_body_fields)
+    )
     detected, trigger, threats = await _check_request_component(
         raw_body,
         "request_body",
@@ -308,6 +317,7 @@ async def _scan_blob_body(
         correlation_id,
         enabled_categories,
         log_level,
+        content_preview=content_preview,
     )
     if detected:
         return True, f"Request body: {trigger}", threats
@@ -323,6 +333,7 @@ async def _scan_request_body(
     correlation_id: str,
     log_level: str | None,
     sensitive_body_fields: frozenset[str] = frozenset(),
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     lowered = content_type.lower()
     if "application/x-www-form-urlencoded" in lowered:
@@ -360,5 +371,11 @@ async def _scan_request_body(
         if json_hit is not None:
             return json_hit
     return await _scan_blob_body(
-        raw_body, enabled_categories, client_ip, correlation_id, log_level
+        raw_body,
+        enabled_categories,
+        client_ip,
+        correlation_id,
+        log_level,
+        sensitive_params,
+        sensitive_body_fields,
     )

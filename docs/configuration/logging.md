@@ -204,7 +204,7 @@ Potential attack detected from 203.0.113.9: [REDACTED] - Suspicious pattern in p
 
 The field name itself is never redacted, so the line still names which field tripped detection, and non-sensitive field values are still shown.
 
-The same body-field name set also applies to JSON carried inside a header, query parameter or URL path value (`?data={"password": ...}`), for both the detection line and the telemetry preview. Such a value goes through the same recursive walker as a JSON body, so nested objects and arrays are covered, and the line for the enclosing header, parameter or path shows the JSON with every sensitive value replaced by `[REDACTED]`. When a sensitive key's own value is itself an object or array, that whole subtree is collapsed to one `[REDACTED]` rather than walked further, so every descendant it holds is covered by the parent key's name alone. The `Headers: {...}` segment and the URL segment of every guard log line apply the same body-field redaction: a header or query value that parses as JSON is printed with every value under a sensitive key, and every descendant of it, replaced by `[REDACTED]`, while a JSON value with no sensitive key is printed byte for byte.
+The same body-field name set also applies to JSON carried inside a header, query parameter or URL path value (`?data={"password": ...}`), for both the detection line and the telemetry preview. Such a value goes through the same recursive walker as a JSON body, so nested objects and arrays are covered, and the line for the enclosing header, parameter or path shows the JSON with every sensitive value replaced by `[REDACTED]`. When a sensitive key's own value is itself an object or array, that whole subtree is collapsed to one `[REDACTED]` rather than walked further, so every descendant it holds is covered by the parent key's name alone. The `Headers: {...}` segment and the URL segment of every guard log line apply the same body-field redaction: a header or query value that parses as JSON is printed with every value under a sensitive key, and every descendant of it, replaced by `[REDACTED]`, while a JSON value with no sensitive key is printed byte for byte. The same applies to any other structured content inside a header value: `name=value` pairs separated by `&`, `;`, `?`, newlines or whitespace, and XML elements, are redacted by name, so a Referer carrying `?token=SECRET` or a user agent carrying `password=SECRET` is printed with `[REDACTED]` in place of the value.
 
 When a JSON body is deeper than `detection_max_json_depth`, the remaining subtree is serialized and scanned as one value under the parent key's label; the line's display text is built from a copy of that subtree in which every value under a sensitive key name, at any depth, is `[REDACTED]`, so a sensitive key nested inside a non-sensitive parent (`{"password": "..."}` under `wrapper`) no longer prints raw, while non-sensitive content in the subtree is still shown.
 
@@ -236,9 +236,17 @@ SecurityConfig(
 Request from 10.0.0.1: GET /api/data - Headers: {'authorization': '[REDACTED]', 'x-internal-token': '[REDACTED]', 'user-agent': 'curl/8.0'}
 ```
 
-### Raw-body limitation
+### Bodies of other content types
 
-A raw, non-JSON, non-form request body has no field name to redact against, so its detection line, `Request body: {trigger}`, is unchanged: this is a documented limitation, not an oversight.
+A body that is not JSON, form or multipart (text/plain, XML, no content type) is scanned as one value; its detection line and telemetry preview are built from a redacted copy: the text is tried as JSON first, then as `name=value` pairs split on `&`, `;`, `?` and newlines, and XML elements `<name>value</name>`, with every sensitive name's value replaced by `[REDACTED]` and other content still shown. A body declared multipart whose parts cannot be parsed (for example a boundary that does not match the declared one) is never shown raw: its line and preview are `[REDACTED]`.
+
+### Proxy identity headers in warnings
+
+The `X-Forwarded-For` spoof warning and its telemetry event show only the tokens of the header that parse as IP addresses; anything else in that header is `[REDACTED]`. Header names are matched after stripping surrounding whitespace, so an adapter that hands guard-core a header name with trailing whitespace still gets the value redacted.
+
+### Telemetry event fields
+
+Every event, metric and hook payload field that carries a URL or path (`endpoint`, `endpoint_id`, `excluded_path`, `redirect_url`, the on_block `path`, CSP report URIs) goes through the same URL redaction as the log lines, and every displayed header value (user agent and referrer block reasons, content-type violations, decorator events) goes through the same value redaction. Error logs from a failing check print the exception type and a redacted message, never the raw exception text, so a header value that breaks parsing cannot reach the log through the error.
 
 ### Name and path limitation
 

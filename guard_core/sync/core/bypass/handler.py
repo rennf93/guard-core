@@ -3,6 +3,7 @@ from logging import Logger
 
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync._utils.block_events import fire_block_hook
+from guard_core.sync._utils.request_logging import redact_endpoint_for_display
 from guard_core.sync.core.bypass.context import BypassContext
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -87,7 +88,11 @@ class BypassHandler:
             action_taken="all_checks_bypassed",
             reason="Route configured to bypass all security checks",
             bypassed_checks=list(route_config.bypassed_checks),
-            endpoint=str(request.url_path),
+            endpoint=redact_endpoint_for_display(
+                str(request.url_path),
+                self.context.config.log_sensitive_params,
+                self.context.config.log_sensitive_body_fields,
+            ),
         )
 
         if not self.context.config.passive_mode:

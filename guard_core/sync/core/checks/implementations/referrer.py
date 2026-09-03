@@ -2,6 +2,7 @@ from collections.abc import Collection
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.request_logging import redact_url_for_display
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     is_referrer_domain_allowed,
@@ -67,11 +68,16 @@ class ReferrerCheck(SecurityCheck):
     def _handle_invalid_referrer(
         self, request: SyncGuardRequest, referrer: str, route_config: RouteConfig
     ) -> GuardResponse | None:
+        redacted_referrer = redact_url_for_display(
+            referrer,
+            self.config.log_sensitive_params,
+            self.config.log_sensitive_body_fields,
+        )
         log_activity(
             request,
             self.logger,
             log_type="suspicious",
-            reason=f"Invalid referrer: {referrer}",
+            reason=f"Invalid referrer: {redacted_referrer}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
             check_name=self.check_name,
@@ -88,10 +94,10 @@ class ReferrerCheck(SecurityCheck):
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",
-            reason=f"Referrer '{referrer}' not in allowed domains",
+            reason=f"Referrer '{redacted_referrer}' not in allowed domains",
             decorator_type="content_filtering",
             violation_type="require_referrer",
-            referrer=referrer,
+            referrer=redacted_referrer,
             allowed_domains=route_config.require_referrer,
         )
 

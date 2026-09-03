@@ -187,3 +187,24 @@ jobs:
             .
           COLOR: danger
           SLACK_THREAD_TS: ${{ steps.send_initial_slack_ci.outputs.SLACK_THREAD_TS }}
+
+  docker-test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run tests in Docker
+        run: |
+          COMPOSE_BAKE=true PYTHON_VERSION=3.10 docker compose run --rm --build guard-core pytest -q -p no:cacheprovider -W error --ignore=tests/live_smoke --cov=guard_core --cov-branch --cov-fail-under=100
+
+      - name: Tear down Docker Compose
+        if: always()
+        run: |
+          docker compose down -v --remove-orphans

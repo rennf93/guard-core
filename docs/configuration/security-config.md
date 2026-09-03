@@ -16,10 +16,12 @@ Core Settings
 | Field                     | Type                        | Default  | Description                                            |
 |---------------------------|-----------------------------|----------|--------------------------------------------------------|
 | `passive_mode`            | `bool`                      | `False`  | Log-only mode. Logs and emits events but never blocks. |
+| `fail_secure`             | `bool`                      | `True`   | Block the request with `500` when any security check raises an unexpected exception. `False` logs and falls through (fail-open); opt-in only for staging diagnostics. |
 | `exclude_paths`           | `list[str]`                 | See below| Paths that skip detection and behavioral analysis; ban enforcement and rate limiting still apply. See [Ban Configuration](../api/ban-config.md#exclude_paths-enforces-bans-and-rate-limits-not-evidence-gathering). |
 | `custom_error_responses`  | `dict[int, str]`            | `{}`     | Override error messages for specific HTTP status codes. |
 | `enforce_https`           | `bool`                      | `False`  | Redirect HTTP requests to HTTPS globally.              |
 | `custom_request_check`    | `Callable \| None`          | `None`   | Global async function for custom request validation.   |
+| `auth_verifier`           | `Any`                       | `None`   | Global default verifier for `require_auth`/`api_key_auth` routes with no per-route `verifier=`: `verifier(request, credential) -> Principal \| None`. Sync or async in async deployments; sync-only under WSGI. |
 | `custom_response_modifier`| `Callable \| None`          | `None`   | Global async function to modify responses.             |
 | `route_resolution_strict` | `bool`                      | `False`  | Block with `500` when the adapter reports it could not resolve the route, instead of running the pipeline with no per-route config. Also turns requests to paths the app does not serve into `500`s rather than `404`s. See [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match). |
 | `on_error`                | `Callable[[str, BaseException, dict], None] \| None` | `None` | Best-effort callback invoked when a middleware/agent step fails, receiving `(stage, exception, context)`. `stage` is one of `agent_init`, `geoip`, `transport_send`, `encryption`. Also forwarded to `AgentConfig.on_error` when the agent is enabled; see [Agent / Telemetry](#agent-telemetry). |
@@ -121,6 +123,7 @@ Global Behavior Rules
 | `behavior_scan_response_body`                  | `bool`                        | `False`    | Read response bodies to evaluate `return_pattern` rules whose pattern is not `status:` (`json:`, `regex:`, or a bare substring). Off by default: no response body is ever read for pattern matching, and constructing a `return_pattern` rule with a non-`status:` pattern while this is `False` raises `ValueError` instead of silently accepting a rule that can never match. `status:` patterns match on `status_code` alone and are unaffected. |
 | `behavior_max_response_body_inspect_bytes`     | `int`                         | `262144`   | Maximum bytes read from the start of a response body and held for `return_pattern` inspection when `behavior_scan_response_body` is `True`. Bounds what guard-core retains, not what the application produces; a streaming response stays streaming to the client. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader). |
 | `body_read_timeout`                            | `float`                       | `3.0`      | Seconds to wait for an adapter's `read_body_prefix`/`body` call before giving up. Bounds the request-body detection read and the response-body behaviour-rule read against a stalled or misbehaving adapter/stream; on timeout the body is treated as unavailable, the same fail-closed outcome already used when the adapter raises. The async `guard_core` tree bounds the wait via `asyncio.wait_for`. The sync tree (`guard_core.sync`) cannot cancel a blocking call from the outside, so each read attempt runs on its own daemon thread and this value bounds how long the caller joins that thread instead; see `sync_body_read_max_concurrent` for the concurrent-thread budget. |
+| `sync_body_read_max_concurrent`                | `int`                         | `64`       | Maximum daemon threads the sync (`guard_core.sync`) tree may have blocked at once inside an adapter's `read_body_prefix`/`body` call. Once that many threads are already blocked on a stalled read, further attempts queue for the same `body_read_timeout` budget and then give up, logging the exhaustion, instead of spawning without limit. |
 
 When to use:
 
@@ -381,6 +384,8 @@ Detection Engine
 | `detection_preserve_attack_patterns`| `bool`  | `True`  | N/A           | Preserve attack patterns during truncation.  |
 | `detection_semantic_threshold`      | `float` | `0.7`   | 0.0 - 1.0    | Threshold for semantic attack detection.     |
 | `detection_anomaly_threshold`       | `float` | `3.0`   | 1.0 - 10.0   | Std deviations slower than average to flag an anomaly (never faster). |
+| `detection_anomaly_emission_cooldown` | `float` | `60.0` | 1.0 - 3600.0 | Minimum seconds between anomaly events for the same pattern. Raise to reduce noise on low-traffic apps. |
+| `detection_min_samples_for_anomaly` | `int`   | `30`    | 10 - 1000     | Minimum samples recorded for a pattern before statistical-anomaly detection engages. Raise to reduce false fires on low-traffic apps. |
 | `detection_slow_pattern_threshold`  | `float` | `0.1`   | 0.01 - 1.0   | Seconds to consider a pattern slow.          |
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
@@ -403,6 +408,7 @@ Logging
 | `log_suspicious_level`| `"INFO" \| "DEBUG" \| "WARNING" \| "ERROR" \| "CRITICAL" \| None` | `"WARNING"` | Log level for suspicious requests. `None` disables. |
 | `log_request_level`   | Same as above                                   | `None`     | Log level for all requests. `None` disables. |
 | `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits log at `log_suspicious_level` instead (default `WARNING`); no-rules / no-geolocation always log at `DEBUG`. |
+| `muted_check_logs`      | `frozenset[str]`                              | `frozenset()` | Security check names to mute from pipeline logging entirely. Validator rejects unknown check names. |
 | `log_sensitive_headers` | `frozenset[str]`                              | `frozenset()` | Header names redacted from guard log lines, matched case-insensitively. Merged with the hardcoded default set (`authorization`, `proxy-authorization`, `cookie`, `x-api-key`). Also redacts the value in the detection engine's per-header `Potential attack detected` line. |
 | `log_sensitive_params` | `frozenset[str]`                              | `frozenset()` | Query-parameter names whose values are redacted from guard log lines, matched case-insensitively. Merged with the hardcoded default set (`access_token`, `refresh_token`, `api_key`, `apikey`, `token`, `password`, `secret`, `client_secret`, `signature`). Redacts the URL segment of `log_activity` lines and the value in the detection engine's per-parameter `Potential attack detected` line. |
 | `log_sensitive_body_fields` | `frozenset[str]`                          | `frozenset()` | JSON key, form-field, and multipart text-part names whose values are redacted, matched case-insensitively. Merged with the same hardcoded default set as `log_sensitive_params`. Redacts only the value in the detection engine's per-field `Potential attack detected` line. |
@@ -445,8 +451,17 @@ Agent / Telemetry
 | `agent_compression_threshold`     | `int \| None`                                | `None`                          | Minimum body size in bytes before gzip compression applies. `None` defers to the agent's own default. |
 | `agent_install_id`                | `str \| None`                                | `None`                          | Override the agent install ID. `None` auto-generates one. |
 | `agent_payload_signing_secret`    | `str \| None`                                | `None`                          | HMAC-SHA256 secret used to sign the `X-Payload-Signature` header. |
+| `enable_enrichment`               | `bool`                                       | `False`                         | Populate `guard.*` metadata on every event and metric with project identity, deterministic threat score, matched dynamic rule, and per-IP behavioral correlation keys. Requires `enable_agent=True`. |
+| `muted_event_types`               | `frozenset[str]`                             | `frozenset()`                   | Event types to mute from telemetry dispatch. Validator rejects unknown values. |
+| `muted_metric_types`              | `frozenset[str]`                             | `frozenset()`                   | Metric types to mute from telemetry dispatch. Validator rejects unknown values. |
+| `enable_otel`                     | `bool`                                       | `False`                         | Enable OpenTelemetry span/metric export. Requires the `otel` extra. |
+| `otel_service_name`               | `str`                                         | `"guard-core"`                  | Service name reported on the OpenTelemetry resource. |
+| `otel_exporter_endpoint`          | `str \| None`                                | `None`                          | OTLP HTTP endpoint for OpenTelemetry export. |
+| `otel_resource_attributes`        | `dict[str, str]`                             | `{}`                            | Additional OpenTelemetry resource attributes (e.g. `deployment.environment`, `service.version`). |
+| `enable_logfire`                  | `bool`                                       | `False`                         | Enable Logfire span/metric export. Requires the `logfire` extra. |
+| `logfire_service_name`            | `str`                                         | `"guard-core"`                  | Service name reported to Logfire. |
 
-**Validator**: `agent_api_key` is required when `enable_agent` is `True`. `agent_buffer_overflow_policy` rejects any value other than `"drop"`, `"block"`, or `"raise"` at construction time.
+**Validator**: `agent_api_key` is required when `enable_agent` is `True`. `agent_buffer_overflow_policy` rejects any value other than `"drop"`, `"block"`, or `"raise"` at construction time. `enable_enrichment=True` without `enable_agent=True` raises `ValueError`.
 
 `SecurityConfig.on_error` (documented under [Core Settings](#core-settings) hooks) is also forwarded to `AgentConfig.on_error` when the agent is enabled, so the same callback receives agent-side `transport_send` and `encryption` failures in addition to guard-core's own `agent_init` and `geoip` failures.
 

@@ -154,8 +154,12 @@ if [ "$base_only_count" -gt 0 ]; then
 fi
 
 if [ "$candidate_status" -ne 0 ] && [ "$candidate_status" -ne 1 ]; then
-  echo "::error::${repo}@${ref}: candidate pytest run exited abnormally (status $candidate_status), treating as a job failure"
-  job_status=1
+  if [ "$candidate_status" -eq "$base_status" ]; then
+    echo "::warning::${repo}@${ref}: both runs exited abnormally with status $candidate_status (baseline already broken at collection)"
+  else
+    echo "::error::${repo}@${ref}: candidate pytest run exited abnormally (status $candidate_status) while base exited $base_status, treating as a job failure"
+    job_status=1
+  fi
 fi
 
 echo "Summary for ${repo}@${ref}"
