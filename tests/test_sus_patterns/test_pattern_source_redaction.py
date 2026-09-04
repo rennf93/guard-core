@@ -468,3 +468,38 @@ def test_behavior_body_unavailable_warning_redacts_secret_pattern() -> None:
     logged = " ".join(str(call) for call in mock_logger.warning.call_args_list)
     assert "hunter2" not in logged
     assert "[REDACTED]" in logged
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        r"password\s*=\s*hunter2SECRET",
+        r"password[:=]hunter2SECRET",
+        r"password\s+:\s*hunter2SECRET",
+        r"password(?:=|:)hunter2SECRET",
+        r"password\ =hunter2SECRET",
+        r"password={1}hunter2SECRET",
+        r"(?:password)\s*=\s*hunter2SECRET$",
+        r"password[ \t]*=[ \t]*hunter2SECRET",
+        r"password.{0,3}=hunter2SECRET",
+    ],
+)
+def test_pattern_source_with_regex_syntax_between_name_and_value_is_redacted(
+    source: str,
+) -> None:
+    from guard_core._utils.detection_scan import _redact_pattern_source
+
+    redacted = _redact_pattern_source(source)
+    assert "hunter2" not in redacted
+    assert "[REDACTED]" in redacted
+
+
+@pytest.mark.parametrize(
+    "source", [r"<script[^>]*>", r"(?i)union\s+select", r"note\s*=\s*\w+", r"\.env"]
+)
+def test_pattern_source_without_a_sensitive_pair_is_displayed_unchanged(
+    source: str,
+) -> None:
+    from guard_core._utils.detection_scan import _redact_pattern_source
+
+    assert _redact_pattern_source(source) == source

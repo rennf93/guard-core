@@ -118,16 +118,21 @@ def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
 
 
 def _redact_pattern_source(pattern_source: str) -> str:
+    from guard_core._utils.pattern_source_display import regex_source_as_pair_text
     from guard_core._utils.request_logging import redact_blob_for_display
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     config = sus_patterns_handler._config
-    return redact_blob_for_display(
-        pattern_source,
+    sets = (
         getattr(config, "log_sensitive_params", None),
         getattr(config, "log_sensitive_body_fields", None),
         getattr(config, "log_sensitive_headers", None),
     )
+    as_pairs = regex_source_as_pair_text(pattern_source)
+    redacted_pairs = redact_blob_for_display(as_pairs, *sets)
+    if redacted_pairs != as_pairs:
+        return redacted_pairs
+    return redact_blob_for_display(pattern_source, *sets)
 
 
 def _build_threat_message(threat: dict[str, Any]) -> str:

@@ -407,6 +407,28 @@ def test_pattern_detected_event_redacts_pattern_matched_for_custom_secret_patter
         sus_patterns_handler.remove_pattern("password=hunter2", custom=True)
 
 
+def test_pattern_detected_event_redacts_regex_separated_custom_secret_pattern(
+    mock_agent: MagicMock,
+) -> None:
+    config = SecurityConfig()
+    source = r"password\s*=\s*hunter2"
+    sus_patterns_handler.add_pattern(source, custom=True)
+    try:
+        mock_agent.reset_mock()
+
+        request = SyncMockGuardRequest(headers={"X-Custom": "password = hunter2"})
+        result = detect_penetration_attempt(request, config)
+
+        assert result.is_threat is True
+        assert "hunter2" not in result.trigger_info
+        event = _single_threat_event(mock_agent)
+        assert "hunter2" not in event.pattern_matched
+        assert "hunter2" not in event.metadata["pattern"]
+        assert "[REDACTED]" in event.pattern_matched
+    finally:
+        sus_patterns_handler.remove_pattern(source, custom=True)
+
+
 def test_pattern_detected_event_metadata_pattern_matches_pattern_matched(
     mock_agent: MagicMock,
 ) -> None:

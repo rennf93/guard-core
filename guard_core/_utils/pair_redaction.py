@@ -112,6 +112,7 @@ def _redact_pairs_in_text_ex(
     i = 0
     n = len(text)
     dangling = False
+    gap_cache: dict[int, int] = {}
     while i < n:
         dangling = False
         head_match = pair_head_re.match(text, i)
@@ -131,6 +132,7 @@ def _redact_pairs_in_text_ex(
                 i,
                 sensitive_body_fields,
                 max_depth,
+                gap_cache,
             )
             if value_start is None:
                 continue

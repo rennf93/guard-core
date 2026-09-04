@@ -889,7 +889,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         detection_method: str | None = None,
         content_preview: str | None = None,
     ) -> None:
-        from guard_core.sync._utils.request_logging import redact_blob_for_display
+        from guard_core.sync._utils.detection_scan import _redact_pattern_source
         from guard_core.sync.core.events.event_types import EVENT_PATTERN_DETECTED
 
         if detection_method is None:
@@ -908,12 +908,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
 
         threat_categories = _collect_threat_categories(threats)
 
-        pattern_matched = redact_blob_for_display(
-            pattern_info,
-            getattr(self._config, "log_sensitive_params", None),
-            getattr(self._config, "log_sensitive_body_fields", None),
-            getattr(self._config, "log_sensitive_headers", None),
-        )
+        pattern_matched = _redact_pattern_source(pattern_info)
 
         self._send_pattern_event(
             event_type=EVENT_PATTERN_DETECTED,

@@ -3,6 +3,8 @@ import multiprocessing as mp
 import time
 from urllib.parse import quote
 
+import pytest
+
 from guard_core.sync._utils.pair_hidden_assign import (
     _close_dangling_quote_in_continuation,
     _open_quote_at_end,
@@ -413,16 +415,21 @@ def _time_one_redact_blob(text: str) -> float:
     return time.process_time() - start
 
 
-def _redact_blob_min_duration_child(repeats: int, q: "mp.Queue[float]") -> None:
-    text = "a=" * repeats
+_BUDGET_ADVERSARIAL_UNITS = ("a=", "\\\\t", "\\N{TAB}", "\\u{9}", 'password\t:"')
+
+
+def _redact_blob_min_duration_child(
+    repeats: int, q: "mp.Queue[float]", unit: str = "a="
+) -> None:
+    text = unit * repeats
     durations = [_time_one_redact_blob(text) for _ in range(_BUDGET_SAMPLE_COUNT)]
     q.put(min(durations))
 
 
-def _measure_redact_blob_min_duration(repeats: int) -> float | None:
+def _measure_redact_blob_min_duration(repeats: int, unit: str = "a=") -> float | None:
     ctx = mp.get_context("forkserver")
     q: mp.Queue[float] = ctx.Queue()
-    proc = ctx.Process(target=_redact_blob_min_duration_child, args=(repeats, q))
+    proc = ctx.Process(target=_redact_blob_min_duration_child, args=(repeats, q, unit))
     proc.start()
     proc.join(_BUDGET_DEADLINE_SECONDS)
     if proc.is_alive():
@@ -466,3 +473,15 @@ def test_redact_blob_for_display_adversarial_pairs_stay_linear() -> None:
         _assert_redact_blob_adversarial_pairs_stay_linear()
     except AssertionError:
         _assert_redact_blob_adversarial_pairs_stay_linear()
+
+
+@pytest.mark.parametrize("unit", _BUDGET_ADVERSARIAL_UNITS[1:])
+def test_redact_blob_for_display_escape_runs_stay_linear(unit: str) -> None:
+    large_repeats = 200_000 // len(unit)
+    small_repeats = large_repeats // 2
+    large = _measure_redact_blob_min_duration(large_repeats, unit)
+    small = _measure_redact_blob_min_duration(small_repeats, unit)
+    assert large is not None and small is not None, unit
+    assert large < _BUDGET_MAX_DURATION_SECONDS, (unit, large)
+    assert small > 0.0005, (unit, small)
+    assert large / small < _BUDGET_MAX_RATIO, (unit, large, small)

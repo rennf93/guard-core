@@ -75,25 +75,37 @@ def _match_hidden_assign_token(text: str, pos: int) -> int | None:
     return None
 
 
-def _skip_hidden_assign_gap(text: str, pos: int) -> int:
+def _skip_hidden_assign_gap(text: str, pos: int, gap_cache: dict[int, int]) -> int:
     cursor = pos
+    visited = [pos]
     while True:
+        cached = gap_cache.get(cursor)
+        if cached is not None:
+            cursor = cached
+            break
         next_cursor = _skip_soft_whitespace(text, cursor)
         next_cursor += _escaped_gap_length(text, next_cursor)
         if next_cursor == cursor:
-            return cursor
+            break
         cursor = next_cursor
+        visited.append(cursor)
+    for boundary in visited:
+        gap_cache[boundary] = cursor
+    return cursor
 
 
-def _match_hidden_assign(text: str, pos: int) -> int | None:
-    cursor = _skip_hidden_assign_gap(text, pos)
+def _match_hidden_assign(
+    text: str, pos: int, gap_cache: dict[int, int] | None = None
+) -> int | None:
+    cache = {} if gap_cache is None else gap_cache
+    cursor = _skip_hidden_assign_gap(text, pos, cache)
     matched = False
     while True:
         token_end = _match_hidden_assign_token(text, cursor)
         if token_end is None:
             break
         matched = True
-        cursor = _skip_hidden_assign_gap(text, token_end)
+        cursor = _skip_hidden_assign_gap(text, token_end, cache)
     return cursor if matched else None
 
 
@@ -226,8 +238,9 @@ def _handle_no_literal_assign(
     i: int,
     sensitive_body_fields: frozenset[str] = frozenset(),
     max_depth: int = 32,
+    gap_cache: dict[int, int] | None = None,
 ) -> tuple[int, int, int | None]:
-    value_start = _match_hidden_assign(text, run_end)
+    value_start = _match_hidden_assign(text, run_end, gap_cache)
     if value_start is not None:
         return i, flush_start, value_start
     result = _redact_hidden_encoded_pair(
