@@ -103,6 +103,8 @@ def test_add_pattern_with_agent_event(
     assert sent_event.ip_address == "system"
     assert sent_event.action_taken == "pattern_added"
     assert sent_event.reason == "Custom pattern added to detection system"
+    assert sent_event.handler_name == "sus_patterns"
+    assert sent_event.pattern_matched is None
     assert sent_event.metadata["pattern"] == pattern
     assert sent_event.metadata["pattern_type"] == "custom"
     assert sent_event.metadata["total_patterns"] == 1
@@ -137,6 +139,8 @@ def test_remove_pattern_with_agent_event(
     assert sent_event.ip_address == "system"
     assert sent_event.action_taken == "pattern_removed"
     assert sent_event.reason == "Custom pattern removed from detection system"
+    assert sent_event.handler_name == "sus_patterns"
+    assert sent_event.pattern_matched is None
     assert sent_event.metadata["pattern"] == pattern
     assert sent_event.metadata["pattern_type"] == "custom"
     assert sent_event.metadata["total_patterns"] == 0

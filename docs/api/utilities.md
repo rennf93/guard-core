@@ -167,10 +167,10 @@ Parameters:
 
 Returns a [`DetectionResult`](detection-result.md) dataclass:
 
-- `is_threat: bool` — `True` if any pattern (regex or semantic) matched.
-- `trigger_info: str` — Human-readable description of what triggered the hit, or empty string when `is_threat` is `False`.
-- `threat_categories: list[str]` — Ordered list of categories that matched (e.g. `["sqli", "xss"]`). Categories with no `category` label (legacy semantic threats) are skipped.
-- `threat_scores: dict[str, float]` — Maximum score recorded per category. Regex matches contribute `1.0`; semantic matches contribute their probability or threat score.
+- `is_threat: bool`, `True` if any pattern (regex or semantic) matched.
+- `trigger_info: str`, Human-readable description of what triggered the hit, or empty string when `is_threat` is `False`.
+- `threat_categories: list[str]`, Ordered list of categories that matched (e.g. `["sqli", "xss"]`). Categories with no `category` label (legacy semantic threats) are skipped.
+- `threat_scores: dict[str, float]`, Maximum score recorded per category. Regex matches contribute `1.0`; semantic matches contribute their probability or threat score.
 
 The Detection Engine provides:
 

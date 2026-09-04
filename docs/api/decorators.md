@@ -159,13 +159,13 @@ def detection_exclusion(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 ```
 
-All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset — the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
+All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset, the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
 
-- `headers` — header names skipped by detection. Merged with `SecurityConfig.excluded_detection_headers` and the hardcoded default exclusion list.
-- `params` — query parameter names skipped by detection. Replaces (does not merge with) the global set when set.
-- `body_fields` — top-level JSON body keys skipped by detection. Replaces the global set when set.
-- `categories` — categories the regex scanner runs at this route. Replaces the global `enabled_detection_categories`. Custom user patterns always run regardless.
-- `scan_body` — whether to scan the request body at this route. Replaces the global `detection_scan_body` when set.
+- `headers`, header names skipped by detection. Merged with `SecurityConfig.excluded_detection_headers` and the hardcoded default exclusion list.
+- `params`, query parameter names skipped by detection. Replaces (does not merge with) the global set when set.
+- `body_fields`, top-level JSON body keys skipped by detection. Replaces the global set when set.
+- `categories`, categories the regex scanner runs at this route. Replaces the global `enabled_detection_categories`. Custom user patterns always run regardless.
+- `scan_body`, whether to scan the request body at this route. Replaces the global `detection_scan_body` when set.
 
 ```python
 @app.post("/api/markdown-editor/save")
@@ -339,4 +339,4 @@ Security settings are applied in the following priority order:
 
 This allows for flexible override behavior where routes can customize their security requirements while maintaining global defaults.
 
-Decorator settings override global settings only for the aspects they configure — they do not shadow the global settings wholesale. This matters most for IP and country access control, where the IP and country aspects are evaluated independently: a route-level `ip_whitelist` match suppresses only the global IP-list gate (it does not exempt the request from country enforcement), and only an actual `whitelist_countries` match for the resolved country suppresses the global country gate. A route-level deny (`ip_blacklist` or `blocked_countries`) is enforced at the route step and, on its own, never disables the global IP or country rules, which still run afterward. Within the IP aspect, a route `ip_whitelist` match wins over that same route's own `ip_blacklist`.
+Decorator settings override global settings only for the aspects they configure, they do not shadow the global settings wholesale. This matters most for IP and country access control, where the IP and country aspects are evaluated independently: a route-level `ip_whitelist` match suppresses only the global IP-list gate (it does not exempt the request from country enforcement), and only an actual `whitelist_countries` match for the resolved country suppresses the global country gate. A route-level deny (`ip_blacklist` or `blocked_countries`) is enforced at the route step and, on its own, never disables the global IP or country rules, which still run afterward. Within the IP aspect, a route `ip_whitelist` match wins over that same route's own `ip_blacklist`.

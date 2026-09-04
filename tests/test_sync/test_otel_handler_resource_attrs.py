@@ -298,6 +298,7 @@ def test_event_bus_attaches_tracestate_from_request_headers() -> None:
             agent_enable_events=True,
             log_sensitive_params=None,
             log_sensitive_body_fields=None,
+            log_sensitive_headers=None,
         ),
     )
     bus = SecurityEventBus(agent_handler=agent, config=cfg)
@@ -360,6 +361,7 @@ def test_event_bus_attaches_traceparent_from_request_headers() -> None:
             agent_enable_events=True,
             log_sensitive_params=None,
             log_sensitive_body_fields=None,
+            log_sensitive_headers=None,
         ),
     )
     bus = SecurityEventBus(agent_handler=agent, config=cfg)

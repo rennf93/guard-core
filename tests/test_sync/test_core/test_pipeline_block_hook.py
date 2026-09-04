@@ -29,6 +29,7 @@ def make_pipeline(hook: None | object) -> tuple[SecurityCheckPipeline, BlockingC
     middleware.config.redis_fail_open = False
     middleware.config.log_sensitive_params = frozenset()
     middleware.config.log_sensitive_body_fields = frozenset()
+    middleware.config.log_sensitive_headers = frozenset()
     middleware.logger = Mock()
     middleware.event_bus = Mock()
     middleware.create_error_response = Mock()

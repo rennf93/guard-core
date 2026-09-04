@@ -136,6 +136,7 @@ async def test_initialize_redacts_redis_url_password_on_connect_event() -> None:
 
     assert "secret-pw" not in sent_event.metadata["redis_url"]
     assert sent_event.metadata["redis_url"] == "redis://127.0.0.1:6399"
+    assert sent_event.handler_name == "redis"
 
 
 @pytest.mark.asyncio
@@ -164,6 +165,7 @@ async def test_initialize_redacts_redis_url_password_on_error_event() -> None:
 
     assert "secret-pw" not in sent_event.metadata["redis_url"]
     assert sent_event.metadata["redis_url"] == "redis://127.0.0.1:6399"
+    assert sent_event.handler_name == "redis"
 
 
 @pytest.mark.asyncio

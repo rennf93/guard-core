@@ -42,19 +42,32 @@ class BehavioralProcessor:
                     details = f"{rule.threshold} calls in {rule.window}s"
                     message = f"Behavioral {rule.rule_type}"
                     reason = "threshold exceeded"
+                    violation_reason = f"{message} {reason}: {details}"
 
-                    self.context.event_bus.send_middleware_event(
-                        event_type=EVENT_DECORATOR_VIOLATION,
-                        request=request,
-                        action_taken="behavioral_action_triggered",
-                        reason=f"{message} {reason}: {details}",
-                        decorator_type="behavioral",
-                        violation_type=rule.rule_type,
-                        threshold=rule.threshold,
-                        window=rule.window,
-                        action=rule.action,
-                        endpoint_id=endpoint_id,
-                    )
+                    guard_decorator = self.context.guard_decorator
+                    if guard_decorator is not None:
+                        guard_decorator.send_decorator_violation_event(
+                            request,
+                            violation_type=rule.rule_type,
+                            reason=violation_reason,
+                            threshold=rule.threshold,
+                            window=rule.window,
+                            action=rule.action,
+                            endpoint_id=endpoint_id,
+                        )
+                    else:
+                        self.context.event_bus.send_middleware_event(
+                            event_type=EVENT_DECORATOR_VIOLATION,
+                            request=request,
+                            action_taken="behavioral_action_triggered",
+                            reason=violation_reason,
+                            decorator_type="behavioral",
+                            violation_type=rule.rule_type,
+                            threshold=rule.threshold,
+                            window=rule.window,
+                            action=rule.action,
+                            endpoint_id=endpoint_id,
+                        )
 
                     behavior_tracker.apply_action(
                         rule,
@@ -82,20 +95,34 @@ class BehavioralProcessor:
                 )
                 if pattern_detected:
                     details = f"{rule.threshold} for '{rule.pattern}' in {rule.window}s"
+                    violation_reason = f"Return pattern threshold exceeded: {details}"
 
-                    self.context.event_bus.send_middleware_event(
-                        event_type=EVENT_DECORATOR_VIOLATION,
-                        request=request,
-                        action_taken="behavioral_action_triggered",
-                        reason=f"Return pattern threshold exceeded: {details}",
-                        decorator_type="behavioral",
-                        violation_type="return_pattern",
-                        threshold=rule.threshold,
-                        window=rule.window,
-                        pattern=rule.pattern,
-                        action=rule.action,
-                        endpoint_id=endpoint_id,
-                    )
+                    guard_decorator = self.context.guard_decorator
+                    if guard_decorator is not None:
+                        guard_decorator.send_decorator_violation_event(
+                            request,
+                            violation_type="return_pattern",
+                            reason=violation_reason,
+                            threshold=rule.threshold,
+                            window=rule.window,
+                            pattern=rule.pattern,
+                            action=rule.action,
+                            endpoint_id=endpoint_id,
+                        )
+                    else:
+                        self.context.event_bus.send_middleware_event(
+                            event_type=EVENT_DECORATOR_VIOLATION,
+                            request=request,
+                            action_taken="behavioral_action_triggered",
+                            reason=violation_reason,
+                            decorator_type="behavioral",
+                            violation_type="return_pattern",
+                            threshold=rule.threshold,
+                            window=rule.window,
+                            pattern=rule.pattern,
+                            action=rule.action,
+                            endpoint_id=endpoint_id,
+                        )
 
                     behavior_tracker.apply_action(
                         rule,
@@ -201,5 +228,6 @@ class BehavioralProcessor:
             str(request.url_path),
             self.context.config.log_sensitive_params,
             self.context.config.log_sensitive_body_fields,
+            self.context.config.log_sensitive_headers,
         )
         return f"{request.method}:{safe_path}"

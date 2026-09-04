@@ -23,7 +23,7 @@ def test_threat_scorer_high_events() -> None:
 def test_threat_scorer_medium_events() -> None:
     for et in (
         "ip_blocked",
-        "behavior_violation",
+        "behavioral_violation",
         "cloud_blocked",
         "country_blocked",
         "decorator_violation",

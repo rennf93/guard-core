@@ -13,6 +13,10 @@ from redis.backoff import ExponentialBackoff
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from guard_core.core.events.event_types import (
+    EVENT_REDIS_CONNECTION,
+    EVENT_REDIS_ERROR,
+)
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 
@@ -40,6 +44,9 @@ def _redact_redis_url(url: str | None) -> str | None:
     if port is not None:
         netloc = f"{netloc}:{port}"
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+_REDIS_HANDLER_NAME = "redis"
 
 
 class RedisManager:
@@ -80,13 +87,16 @@ class RedisManager:
                 ip_address="system",
                 action_taken=action_taken,
                 reason=reason,
+                handler_name=_REDIS_HANDLER_NAME,
                 metadata=kwargs,
             )
             await self.agent_handler.send_event(event)
         except Exception as e:
             self.logger.error(f"Failed to send Redis event to agent: {e}")
 
-    def _connection_kwargs(self) -> dict[str, Any]:
+    def _connection_kwargs(
+        self, config: SecurityConfig | None = None
+    ) -> dict[str, Any]:
         """Connection tuning passed to ``Redis.from_url``.
 
         Without bounded timeouts a partitioned Redis blocks every request that
@@ -94,15 +104,16 @@ class RedisManager:
         encoded in ``redis_url`` query params still wins (redis-py applies URL
         params last), so this only sets a floor.
         """
+        cfg = config if config is not None else self.config
         kwargs: dict[str, Any] = {
-            "socket_connect_timeout": self.config.redis_socket_connect_timeout,
-            "socket_timeout": self.config.redis_socket_timeout,
-            "health_check_interval": self.config.redis_health_check_interval,
+            "socket_connect_timeout": cfg.redis_socket_connect_timeout,
+            "socket_timeout": cfg.redis_socket_timeout,
+            "health_check_interval": cfg.redis_health_check_interval,
         }
-        if self.config.redis_max_connections is not None:
-            kwargs["max_connections"] = self.config.redis_max_connections
-        if self.config.redis_retries > 0:
-            kwargs["retry"] = Retry(ExponentialBackoff(), self.config.redis_retries)
+        if cfg.redis_max_connections is not None:
+            kwargs["max_connections"] = cfg.redis_max_connections
+        if cfg.redis_retries > 0:
+            kwargs["retry"] = Retry(ExponentialBackoff(), cfg.redis_retries)
             kwargs["retry_on_error"] = [RedisConnectionError, RedisTimeoutError]
         return kwargs
 
@@ -118,7 +129,8 @@ class RedisManager:
             await self._safe_aclose(old_redis)
 
     async def initialize(self) -> None:
-        if not self.config.enable_redis:
+        config = self.config
+        if not config.enable_redis:
             async with self._connection_lock:
                 await self._discard_client()
             return
@@ -130,11 +142,11 @@ class RedisManager:
 
             new_redis: Redis | None = None
             try:
-                if self.config.redis_url is not None:
+                if config.redis_url is not None:
                     new_redis = Redis.from_url(
-                        self.config.redis_url,
+                        config.redis_url,
                         decode_responses=True,
-                        **self._connection_kwargs(),
+                        **self._connection_kwargs(config),
                     )
                     if new_redis is not None:
                         await new_redis.ping()
@@ -142,10 +154,10 @@ class RedisManager:
                         self.logger.info("Redis connection established")
 
                         await self._send_redis_event(
-                            event_type="redis_connection",
+                            event_type=EVENT_REDIS_CONNECTION,
                             action_taken="connection_established",
                             reason="Redis connection successfully established",
-                            redis_url=_redact_redis_url(self.config.redis_url),
+                            redis_url=_redact_redis_url(config.redis_url),
                         )
                 else:
                     self.logger.warning("Redis URL is None, skipping connection")
@@ -154,10 +166,10 @@ class RedisManager:
                 self.logger.error(f"Redis connection failed: {str(e)}")
 
                 await self._send_redis_event(
-                    event_type="redis_error",
+                    event_type=EVENT_REDIS_ERROR,
                     action_taken="connection_failed",
                     reason=f"Redis connection failed: {str(e)}",
-                    redis_url=_redact_redis_url(self.config.redis_url),
+                    redis_url=_redact_redis_url(config.redis_url),
                     error_type="connection_error",
                 )
 
@@ -172,7 +184,7 @@ class RedisManager:
             self.logger.info("Redis connection closed")
 
             await self._send_redis_event(
-                event_type="redis_connection",
+                event_type=EVENT_REDIS_CONNECTION,
                 action_taken="connection_closed",
                 reason="Redis connection closed gracefully",
             )
@@ -183,7 +195,7 @@ class RedisManager:
         try:
             if self._closed:
                 await self._send_redis_event(
-                    event_type="redis_error",
+                    event_type=EVENT_REDIS_ERROR,
                     action_taken="operation_failed",
                     reason="Attempted to use closed Redis connection",
                     error_type="connection_closed",
@@ -195,7 +207,7 @@ class RedisManager:
 
             if self._redis is None:
                 await self._send_redis_event(
-                    event_type="redis_error",
+                    event_type=EVENT_REDIS_ERROR,
                     action_taken="operation_failed",
                     reason="Redis connection is None after initialization",
                     error_type="initialization_failed",
@@ -207,7 +219,7 @@ class RedisManager:
             self.logger.error(f"Redis operation failed: {str(e)}")
 
             await self._send_redis_event(
-                event_type="redis_error",
+                event_type=EVENT_REDIS_ERROR,
                 action_taken="operation_failed",
                 reason=f"Redis operation failed: {str(e)}",
                 error_type="operation_error",
@@ -226,7 +238,7 @@ class RedisManager:
             self.logger.error(f"Redis operation failed: {str(e)}")
 
             await self._send_redis_event(
-                event_type="redis_error",
+                event_type=EVENT_REDIS_ERROR,
                 action_taken="safe_operation_failed",
                 reason=f"Redis safe operation failed: {str(e)}",
                 error_type="safe_operation_error",

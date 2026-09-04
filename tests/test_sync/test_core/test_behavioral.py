@@ -29,6 +29,7 @@ def mock_guard_decorator() -> Mock:
     decorator.behavior_tracker.track_endpoint_usage = MagicMock(return_value=False)
     decorator.behavior_tracker.track_return_pattern = MagicMock(return_value=False)
     decorator.behavior_tracker.apply_action = MagicMock()
+    decorator.send_decorator_violation_event = MagicMock()
     return decorator
 
 
@@ -39,6 +40,7 @@ def behavioral_context(
     config = Mock()
     config.log_sensitive_params = frozenset()
     config.log_sensitive_body_fields = frozenset()
+    config.log_sensitive_headers = frozenset()
     context = BehavioralContext(
         config=config,
         logger=Mock(),
@@ -108,15 +110,53 @@ def test_process_usage_rules_threshold_exceeded(
 
     processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
 
-    mock_event_bus.send_middleware_event.assert_called_once()
-    call_kwargs = mock_event_bus.send_middleware_event.call_args[1]
-    assert call_kwargs["event_type"] == "decorator_violation"
-    assert call_kwargs["action_taken"] == "behavioral_action_triggered"
+    mock_event_bus.send_middleware_event.assert_not_called()
+    processor.context.guard_decorator.send_decorator_violation_event.assert_called_once()
+    call_kwargs = (
+        processor.context.guard_decorator.send_decorator_violation_event.call_args[1]
+    )
+    assert call_kwargs["violation_type"] == "usage"
     assert "threshold exceeded" in call_kwargs["reason"]
     assert call_kwargs["threshold"] == 5
     assert call_kwargs["window"] == 60
 
     processor.context.guard_decorator.behavior_tracker.apply_action.assert_called_once()
+
+
+def test_process_usage_rules_threshold_exceeded_without_decorator_uses_event_bus(
+    mock_request: Mock, mock_event_bus: Mock
+) -> None:
+    owned_tracker = Mock()
+    owned_tracker.track_endpoint_usage = MagicMock(return_value=True)
+    owned_tracker.apply_action = MagicMock()
+
+    context = BehavioralContext(
+        config=Mock(
+            log_sensitive_params=frozenset(),
+            log_sensitive_body_fields=frozenset(),
+            log_sensitive_headers=frozenset(),
+        ),
+        logger=Mock(),
+        event_bus=mock_event_bus,
+        guard_decorator=None,
+        behavior_tracker=owned_tracker,
+    )
+    processor = BehavioralProcessor(context)
+
+    rule = BehaviorRule(rule_type="usage", threshold=5, window=60, action="ban")
+    route_config = create_route_config_with_rules([rule])
+
+    processor.process_usage_rules(mock_request, "1.2.3.4", route_config)
+
+    mock_event_bus.send_middleware_event.assert_called_once()
+    call_kwargs = mock_event_bus.send_middleware_event.call_args[1]
+    assert call_kwargs["event_type"] == "decorator_violation"
+    assert call_kwargs["action_taken"] == "behavioral_action_triggered"
+    assert call_kwargs["decorator_type"] == "behavioral"
+    assert call_kwargs["violation_type"] == "usage"
+    assert "threshold exceeded" in call_kwargs["reason"]
+
+    owned_tracker.apply_action.assert_called_once()
 
 
 def test_process_usage_rules_frequency_type(
@@ -198,14 +238,59 @@ def test_process_return_rules_pattern_detected(
 
     processor.process_return_rules(mock_request, mock_response, "1.2.3.4", route_config)
 
-    mock_event_bus.send_middleware_event.assert_called_once()
-    call_kwargs = mock_event_bus.send_middleware_event.call_args[1]
-    assert call_kwargs["event_type"] == "decorator_violation"
+    mock_event_bus.send_middleware_event.assert_not_called()
+    processor.context.guard_decorator.send_decorator_violation_event.assert_called_once()
+    call_kwargs = (
+        processor.context.guard_decorator.send_decorator_violation_event.call_args[1]
+    )
     assert call_kwargs["violation_type"] == "return_pattern"
     assert call_kwargs["pattern"] == "error"
     assert "Return pattern threshold exceeded" in call_kwargs["reason"]
 
     processor.context.guard_decorator.behavior_tracker.apply_action.assert_called_once()
+
+
+def test_process_return_rules_pattern_detected_without_decorator_uses_event_bus(
+    mock_request: Mock,
+    mock_response: Mock,
+    mock_event_bus: Mock,
+) -> None:
+    owned_tracker = Mock()
+    owned_tracker.track_return_pattern = MagicMock(return_value=True)
+    owned_tracker.apply_action = MagicMock()
+
+    context = BehavioralContext(
+        config=Mock(
+            log_sensitive_params=frozenset(),
+            log_sensitive_body_fields=frozenset(),
+            log_sensitive_headers=frozenset(),
+        ),
+        logger=Mock(),
+        event_bus=mock_event_bus,
+        guard_decorator=None,
+        behavior_tracker=owned_tracker,
+    )
+    processor = BehavioralProcessor(context)
+
+    rule = BehaviorRule(
+        rule_type="return_pattern",
+        pattern="error",
+        threshold=3,
+        window=60,
+        action="ban",
+    )
+    route_config = create_route_config_with_rules([rule])
+
+    processor.process_return_rules(mock_request, mock_response, "1.2.3.4", route_config)
+
+    mock_event_bus.send_middleware_event.assert_called_once()
+    call_kwargs = mock_event_bus.send_middleware_event.call_args[1]
+    assert call_kwargs["event_type"] == "decorator_violation"
+    assert call_kwargs["decorator_type"] == "behavioral"
+    assert call_kwargs["violation_type"] == "return_pattern"
+    assert "Return pattern threshold exceeded" in call_kwargs["reason"]
+
+    owned_tracker.apply_action.assert_called_once()
 
 
 def test_process_return_rules_ignores_non_return_pattern(

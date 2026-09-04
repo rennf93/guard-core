@@ -105,6 +105,7 @@ async def test_send_cloud_detection_event_with_agent() -> None:
     assert sent_event.reason == "IP belongs to blocked cloud provider: AWS"
     assert sent_event.metadata["cloud_provider"] == "AWS"
     assert sent_event.metadata["network"] == "192.168.0.0/16"
+    assert sent_event.handler_name == "cloud"
 
 
 @pytest.mark.asyncio

@@ -100,6 +100,9 @@ async def _fetch_provider_ranges(
     return result, {}
 
 
+_CLOUD_HANDLER_NAME = "cloud"
+
+
 class CloudManager:
     _instance = None
     ip_ranges: dict[str, set[ipaddress.IPv4Network | ipaddress.IPv6Network]]
@@ -157,7 +160,7 @@ class CloudManager:
         flight, further calls are no-ops. The gate is lock-guarded so concurrent
         callers (multi-threaded sync deployments) can't start duplicate refreshes.
         Passing ``refresh`` runs that callable as the background refresh instead of
-        this manager's own ``refresh_async`` — middleware callers use it to keep
+        this manager's own ``refresh_async``, middleware callers use it to keep
         adapter overrides of ``refresh_cloud_ip_ranges`` on the periodic path.
         Returns True if a task was started.
         """
@@ -413,6 +416,7 @@ class CloudManager:
                 ip_address=ip_address,
                 action_taken=action_taken,
                 reason=reason,
+                handler_name=_CLOUD_HANDLER_NAME,
                 metadata=kwargs,
             )
             await self.agent_handler.send_event(event)

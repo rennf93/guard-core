@@ -97,7 +97,8 @@ def test_send_decorator_event_scenarios(
     )
 
     with patch(
-        "guard_core.sync.utils.extract_client_ip", MagicMock(return_value=expected_ip)
+        "guard_core.sync.core.events.middleware_events.extract_client_ip",
+        MagicMock(return_value=expected_ip),
     ):
         decorator.send_decorator_event(
             event_type, request, action, reason, decorator_type, **metadata
@@ -111,7 +112,7 @@ def test_send_decorator_event_scenarios(
         assert sent_event.event_type == event_type
         assert sent_event.ip_address == expected_ip
         assert sent_event.decorator_type == decorator_type
-        assert sent_event.metadata == metadata
+        assert sent_event.metadata == {**metadata, "decorator_type": decorator_type}
         assert sent_event.action_taken == action
         assert sent_event.reason == reason
         assert sent_event.endpoint == "/api/test"
@@ -212,12 +213,12 @@ def test_helper_methods(
         (
             "agent_exception",
             Exception("Network error"),
-            "Failed to send decorator event to agent",
+            "Failed to send security event to agent",
         ),
         (
             "ip_extraction_failure",
             "ip_extraction_error",
-            "Failed to send decorator event to agent",
+            "Failed to send security event to agent",
         ),
     ],
 )
@@ -240,7 +241,7 @@ def test_error_conditions(
     if error_scenario == "agent_exception":
         decorator.agent_handler.send_event.side_effect = side_effect
         with patch(
-            "guard_core.sync.utils.extract_client_ip",
+            "guard_core.sync.core.events.middleware_events.extract_client_ip",
             MagicMock(return_value="192.168.1.1"),
         ):
             decorator.send_decorator_event(
@@ -248,7 +249,7 @@ def test_error_conditions(
             )
     else:
         with patch(
-            "guard_core.sync.utils.extract_client_ip",
+            "guard_core.sync.core.events.middleware_events.extract_client_ip",
             MagicMock(side_effect=Exception("IP extraction failed")),
         ):
             decorator.send_decorator_event(
@@ -280,7 +281,7 @@ def test_multiple_event_sends(config: SecurityConfig, mock_guard_agent: Any) -> 
     )
 
     with patch(
-        "guard_core.sync.utils.extract_client_ip",
+        "guard_core.sync.core.events.middleware_events.extract_client_ip",
         MagicMock(return_value="192.168.1.1"),
     ):
         decorator.send_decorator_event(

@@ -56,6 +56,7 @@ class MetricsCollector:
             str(request.url_path),
             self.config.log_sensitive_params,
             self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
         )
         method = request.method
 

@@ -211,9 +211,11 @@ async def _handle_untrusted_proxy(
             f"({safe_forwarded_for}) received from untrusted IP "
             f"{_sanitize_for_log(connecting_ip)}"
         )
+        from guard_core.core.events.event_types import EVENT_SUSPICIOUS_REQUEST
+
         await send_agent_event(
             agent_handler,
-            "suspicious_request",
+            EVENT_SUSPICIOUS_REQUEST,
             canonical_connecting_ip,
             "spoofing_detected",
             "Potential IP spoof attempt: X-Forwarded-For header "

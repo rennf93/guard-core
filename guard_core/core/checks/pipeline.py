@@ -106,6 +106,7 @@ class SecurityCheckPipeline:
                 str(error),
                 check.config.log_sensitive_params,
                 check.config.log_sensitive_body_fields,
+                check.config.log_sensitive_headers,
             )
             self.logger.error(
                 f"Error in security check {check.check_name} "
@@ -140,6 +141,7 @@ class SecurityCheckPipeline:
             response.status_code,
             check.config.log_sensitive_params,
             check.config.log_sensitive_body_fields,
+            check.config.log_sensitive_headers,
         )
 
     async def _handle_rebuild_error(

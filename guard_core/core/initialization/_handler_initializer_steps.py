@@ -97,6 +97,47 @@ class _HandlerInitializerStepsMixin:
             return False
         return True
 
+    def _guard_decorator_has_behavior_rules(self) -> bool:
+        if self.guard_decorator is None:
+            return False
+        route_configs = getattr(self.guard_decorator, "_route_configs", {})
+        return any(
+            route_config.behavior_rules for route_config in route_configs.values()
+        )
+
+    async def _initialize_cloud_and_geo_redis(self) -> None:
+        from guard_core.handlers.cloud_handler import cloud_handler
+
+        if self.config.lazy_init:
+            self._lazy_init_task = asyncio.create_task(self._run_lazy_init())
+            return
+        if self.config.block_cloud_providers:
+            await cloud_handler.initialize_redis(
+                self.redis_handler,
+                self.config.block_cloud_providers,
+                ttl=self.config.cloud_ip_refresh_interval,
+            )
+        if self.geo_ip_handler is not None:
+            await self.geo_ip_handler.initialize_redis(self.redis_handler)
+
+    async def _initialize_connected_redis_handlers(self) -> None:
+        from guard_core.handlers.cloud_handler import cloud_handler
+        from guard_core.handlers.ipban_handler import ip_ban_manager
+        from guard_core.handlers.suspatterns_handler import sus_patterns_handler
+
+        if self.config.cloud_ip_store is not None:
+            cloud_handler.set_store(self._resolve_cloud_ip_store())
+
+        await self._initialize_cloud_and_geo_redis()
+        await ip_ban_manager.initialize_redis(self.redis_handler)
+
+        if self.rate_limit_handler is not None:
+            await self.rate_limit_handler.initialize_redis(self.redis_handler)
+        await sus_patterns_handler.initialize_redis(self.redis_handler)
+
+        if self._guard_decorator_has_behavior_rules():
+            await self.guard_decorator.initialize_behavior_tracking(self.redis_handler)
+
     async def initialize_redis_handlers(self) -> None:
         self._configure_detection()
 
@@ -111,30 +152,7 @@ class _HandlerInitializerStepsMixin:
             await self._load_cloud_and_geo_without_redis()
             return
 
-        from guard_core.handlers.cloud_handler import cloud_handler
-        from guard_core.handlers.ipban_handler import ip_ban_manager
-        from guard_core.handlers.suspatterns_handler import sus_patterns_handler
-
-        if self.config.cloud_ip_store is not None:
-            cloud_handler.set_store(self._resolve_cloud_ip_store())
-
-        if self.config.lazy_init:
-            self._lazy_init_task = asyncio.create_task(self._run_lazy_init())
-        else:
-            if self.config.block_cloud_providers:
-                await cloud_handler.initialize_redis(
-                    self.redis_handler,
-                    self.config.block_cloud_providers,
-                    ttl=self.config.cloud_ip_refresh_interval,
-                )
-            if self.geo_ip_handler is not None:
-                await self.geo_ip_handler.initialize_redis(self.redis_handler)
-
-        await ip_ban_manager.initialize_redis(self.redis_handler)
-
-        if self.rate_limit_handler is not None:
-            await self.rate_limit_handler.initialize_redis(self.redis_handler)
-        await sus_patterns_handler.initialize_redis(self.redis_handler)
+        await self._initialize_connected_redis_handlers()
 
     async def initialize_agent_for_handlers(self) -> None:
         telemetry = self.composite_handler or self.agent_handler

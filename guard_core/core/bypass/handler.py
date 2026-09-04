@@ -4,6 +4,7 @@ from logging import Logger
 from guard_core._utils.block_events import fire_block_hook
 from guard_core._utils.request_logging import redact_endpoint_for_display
 from guard_core.core.bypass.context import BypassContext
+from guard_core.core.events.event_types import EVENT_SECURITY_BYPASS
 from guard_core.decorators.base import RouteConfig
 from guard_core.protocols.request_protocol import GuardRequest
 from guard_core.protocols.response_protocol import GuardResponse
@@ -68,6 +69,7 @@ class BypassHandler:
                         response.status_code,
                         self.context.config.log_sensitive_params,
                         self.context.config.log_sensitive_body_fields,
+                        self.context.config.log_sensitive_headers,
                     )
                     return response
 
@@ -85,7 +87,7 @@ class BypassHandler:
             return None
 
         await self.context.event_bus.send_middleware_event(
-            event_type="security_bypass",
+            event_type=EVENT_SECURITY_BYPASS,
             request=request,
             action_taken="all_checks_bypassed",
             reason="Route configured to bypass all security checks",
@@ -94,6 +96,7 @@ class BypassHandler:
                 str(request.url_path),
                 self.context.config.log_sensitive_params,
                 self.context.config.log_sensitive_body_fields,
+                self.context.config.log_sensitive_headers,
             ),
         )
 

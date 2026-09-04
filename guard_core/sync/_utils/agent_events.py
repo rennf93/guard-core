@@ -9,6 +9,8 @@ from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 
 logger = logging.getLogger("guard_core")
 
+_IP_EXTRACTION_HANDLER_NAME = "ip_extraction"
+
 
 def invoke_error_hook(
     hook: Callable[[str, BaseException, dict[str, Any]], None] | None,
@@ -61,6 +63,14 @@ def send_agent_event(
 
         SecurityEvent = get_telemetry_model("SecurityEvent")
 
+        decorator_type = kwargs.pop("decorator_type", None)
+        rule_type = kwargs.pop("rule_type", None)
+        metadata: dict[str, Any] = kwargs.pop("metadata", {})
+        if decorator_type is not None:
+            metadata = {**metadata, "decorator_type": decorator_type}
+        if rule_type is not None:
+            metadata = {**metadata, "rule_type": rule_type}
+
         event = SecurityEvent(
             timestamp=datetime.now(timezone.utc),
             event_type=event_type,
@@ -72,6 +82,10 @@ def send_agent_event(
             endpoint=endpoint,
             method=method,
             response_time=get_pipeline_response_time(request),
+            decorator_type=decorator_type,
+            rule_type=rule_type,
+            handler_name=_IP_EXTRACTION_HANDLER_NAME,
+            metadata=metadata,
             **kwargs,
         )
 

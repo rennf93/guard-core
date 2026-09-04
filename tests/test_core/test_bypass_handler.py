@@ -56,6 +56,7 @@ def mock_config() -> Mock:
     config.trusted_proxy_depth = 1
     config.log_sensitive_params = frozenset()
     config.log_sensitive_body_fields = frozenset()
+    config.log_sensitive_headers = frozenset()
     return config
 
 

@@ -19,6 +19,7 @@ def mock_config() -> Any:
     config.exclude_paths = ["/health", "/metrics"]
     config.log_sensitive_params = frozenset()
     config.log_sensitive_body_fields = frozenset()
+    config.log_sensitive_headers = frozenset()
     return config
 
 

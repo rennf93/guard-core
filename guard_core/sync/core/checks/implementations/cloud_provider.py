@@ -4,7 +4,11 @@ from typing import TYPE_CHECKING, ClassVar
 from guard_core.models import SecurityConfig, cloud_blocking_enabled
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import route_config_applies
+from guard_core.sync.core.checks.helpers import (
+    emit_access_denied_event,
+    route_config_applies,
+)
+from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
@@ -75,13 +79,8 @@ class CloudProviderCheck(SecurityCheck):
             sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_cloud_detection_events(
-            request,
-            client_ip,
-            cloud_providers_to_check,
-            route_config,
-            self.cloud_handler,
-            self.config.passive_mode,
+        self._emit_cloud_block_events(
+            request, client_ip, cloud_providers_to_check, route_config
         )
 
         if not self.config.passive_mode:
@@ -91,3 +90,35 @@ class CloudProviderCheck(SecurityCheck):
             )
 
         return None
+
+    def _emit_cloud_block_events(
+        self,
+        request: SyncGuardRequest,
+        client_ip: str,
+        cloud_providers_to_check: list[str],
+        route_config: RouteConfig | None,
+    ) -> None:
+        route_blocks_clouds = bool(route_config and route_config.block_cloud_providers)
+
+        self.middleware.event_bus.send_cloud_detection_events(
+            request,
+            client_ip,
+            cloud_providers_to_check,
+            None if route_blocks_clouds else route_config,
+            self.cloud_handler,
+            self.config.passive_mode,
+        )
+
+        if not route_blocks_clouds:
+            return
+
+        emit_access_denied_event(
+            self.middleware,
+            request,
+            event_type=EVENT_DECORATOR_VIOLATION,
+            reason=f"Cloud provider IP {client_ip} blocked",
+            decorator_type="block_clouds",
+            passive_mode=self.config.passive_mode,
+            violation_type="cloud_provider",
+            blocked_providers=list(cloud_providers_to_check),
+        )

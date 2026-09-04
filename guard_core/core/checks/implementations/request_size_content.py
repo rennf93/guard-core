@@ -2,7 +2,7 @@ from collections.abc import Collection
 
 from guard_core._utils.request_logging import redact_header_value_for_display
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import route_config_applies
+from guard_core.core.checks.helpers import emit_decorator_event, route_config_applies
 from guard_core.core.events.event_types import EVENT_CONTENT_FILTERED
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -56,9 +56,10 @@ class RequestSizeContentCheck(SecurityCheck):
             sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        await self.middleware.event_bus.send_middleware_event(
+        await emit_decorator_event(
+            self.middleware,
+            request,
             event_type=EVENT_CONTENT_FILTERED,
-            request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",
@@ -89,6 +90,7 @@ class RequestSizeContentCheck(SecurityCheck):
             content_type,
             self.config.log_sensitive_params,
             self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
         )
         await log_activity(
             request,
@@ -106,9 +108,10 @@ class RequestSizeContentCheck(SecurityCheck):
         )
 
         allowed_types = route_config.allowed_content_types
-        await self.middleware.event_bus.send_middleware_event(
+        await emit_decorator_event(
+            self.middleware,
+            request,
             event_type=EVENT_CONTENT_FILTERED,
-            request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",

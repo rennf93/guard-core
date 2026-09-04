@@ -122,19 +122,14 @@ def _build_mmdb(entries: dict[str, str]) -> bytes:
 _GEO_DIR = STACK_DIR / "scenario_data"
 _GEO_US_HOST_PATH = _GEO_DIR / "geo_smoke_us.mmdb"
 _GEO_CN_HOST_PATH = _GEO_DIR / "geo_smoke_cn.mmdb"
-_GEO_US_LOOPBACK_HOST_PATH = _GEO_DIR / "geo_smoke_us_loopback.mmdb"
 GEO_US_CONTAINER_PATH = "/smoke/geo_smoke_us.mmdb"
 GEO_CN_CONTAINER_PATH = "/smoke/geo_smoke_cn.mmdb"
-GEO_US_LOOPBACK_CONTAINER_PATH = "/smoke/geo_smoke_us_loopback.mmdb"
 
 
 def _write_geo_fixtures() -> None:
     _GEO_DIR.mkdir(parents=True, exist_ok=True)
     _GEO_US_HOST_PATH.write_bytes(_build_mmdb({CLIENT_IP: "US"}))
     _GEO_CN_HOST_PATH.write_bytes(_build_mmdb({CLIENT_IP: "CN"}))
-    _GEO_US_LOOPBACK_HOST_PATH.write_bytes(
-        _build_mmdb({CLIENT_IP: "US", "127.0.0.1": "US"})
-    )
 
 
 def _geo_fixtures_path(path: Path) -> str:
@@ -338,7 +333,7 @@ def geo_country_rules_block_a_matching_resolved_country(ctx: ScenarioContext) ->
 GEO_CONFIG_WHITELIST = {
     "whitelist_countries": ["US"],
     "ipinfo_token": "smoke-token",
-    "ipinfo_db_path": _geo_fixtures_path(Path(GEO_US_LOOPBACK_CONTAINER_PATH)),
+    "ipinfo_db_path": _geo_fixtures_path(Path(GEO_US_CONTAINER_PATH)),
     "excluded_detection_headers": EXCLUDED_HEADERS,
 }
 

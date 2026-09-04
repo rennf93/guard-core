@@ -5,6 +5,7 @@ from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync._utils.request_logging import redact_url_for_display
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
+    emit_access_denied_event,
     is_referrer_domain_allowed,
     route_config_applies,
 )
@@ -45,14 +46,13 @@ class ReferrerCheck(SecurityCheck):
             sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_middleware_event(
+        emit_access_denied_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason="Missing referrer header",
             decorator_type="content_filtering",
+            passive_mode=self.config.passive_mode,
             violation_type="require_referrer",
             allowed_domains=route_config.require_referrer,
         )
@@ -72,6 +72,7 @@ class ReferrerCheck(SecurityCheck):
             referrer,
             self.config.log_sensitive_params,
             self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
         )
         log_activity(
             request,
@@ -88,14 +89,13 @@ class ReferrerCheck(SecurityCheck):
             sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_middleware_event(
+        emit_access_denied_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=f"Referrer '{redacted_referrer}' not in allowed domains",
             decorator_type="content_filtering",
+            passive_mode=self.config.passive_mode,
             violation_type="require_referrer",
             referrer=redacted_referrer,
             allowed_domains=route_config.require_referrer,

@@ -1,7 +1,7 @@
 from collections.abc import Collection
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import route_config_applies
+from guard_core.core.checks.helpers import emit_decorator_event, route_config_applies
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -48,9 +48,10 @@ class CustomValidatorsCheck(SecurityCheck):
                     sensitive_body_fields=self.config.log_sensitive_body_fields,
                 )
 
-                await self.middleware.event_bus.send_middleware_event(
+                await emit_decorator_event(
+                    self.middleware,
+                    request,
                     event_type=EVENT_DECORATOR_VIOLATION,
-                    request=request,
                     action_taken="request_blocked"
                     if not self.config.passive_mode
                     else "logged_only",

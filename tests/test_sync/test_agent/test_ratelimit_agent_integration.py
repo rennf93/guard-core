@@ -54,8 +54,6 @@ def cleanup_ratelimit_singleton() -> Generator[Any, Any, Any]:
 
 
 def test_initialize_agent() -> None:
-    RateLimitManager._instance = None
-
     config = SecurityConfig()
     manager = RateLimitManager(config)
     mock_agent = MagicMock()
@@ -66,8 +64,6 @@ def test_initialize_agent() -> None:
 
 
 def test_send_rate_limit_event_success() -> None:
-    RateLimitManager._instance = None
-
     config = SecurityConfig(
         enable_rate_limiting=True, rate_limit=100, rate_limit_window=60
     )
@@ -98,8 +94,6 @@ def test_send_rate_limit_event_success() -> None:
 def test_send_rate_limit_event_exception_handling(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    RateLimitManager._instance = None
-
     config = SecurityConfig(
         enable_rate_limiting=True, rate_limit=100, rate_limit_window=60
     )
@@ -120,8 +114,6 @@ def test_send_rate_limit_event_exception_handling(
 
 
 def test_check_rate_limit_agent_event_called() -> None:
-    RateLimitManager._instance = None
-
     config = SecurityConfig(
         enable_rate_limiting=True,
         enable_redis=False,
@@ -160,12 +152,12 @@ def test_check_rate_limit_agent_event_called() -> None:
         assert result2.message == "Too many requests"
         assert result2.headers["Retry-After"] == "60"
 
-        mock_send_event.assert_called_once_with(mock_request, "192.168.1.100", 2)
+        mock_send_event.assert_called_once_with(
+            mock_request, "192.168.1.100", 2, config=config
+        )
 
 
 def test_check_rate_limit_redis_path_with_agent() -> None:
-    RateLimitManager._instance = None
-
     config = SecurityConfig(
         enable_rate_limiting=True,
         enable_redis=True,
@@ -219,3 +211,67 @@ def test_check_rate_limit_redis_path_with_agent() -> None:
         assert sent_event.endpoint == "/api/test"
         assert sent_event.method == "POST"
         assert sent_event.metadata["request_count"] == 15
+        assert sent_event.handler_name == "rate_limit"
+
+
+def test_send_rate_limit_event_redacts_sensitive_endpoint_matrix_params() -> None:
+    config = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=100,
+        rate_limit_window=60,
+        log_sensitive_params=frozenset({"token"}),
+    )
+    manager = RateLimitManager(config)
+    mock_agent = MagicMock()
+    manager.agent_handler = mock_agent
+
+    mock_request = SyncMockGuardRequest(
+        path="/api/data;token=supersecret", method="GET"
+    )
+
+    manager._send_rate_limit_event(
+        request=mock_request, client_ip="192.168.1.100", request_count=150
+    )
+
+    sent_event = mock_agent.send_event.call_args[0][0]
+    assert sent_event.endpoint == "/api/data;token=[REDACTED]"
+
+
+def test_handle_rate_limit_exceeded_uses_the_passed_configs_sensitive_sets() -> None:
+
+    config_a = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        log_sensitive_params=frozenset({"token_a"}),
+    )
+    config_b = SecurityConfig(
+        enable_rate_limiting=True,
+        rate_limit=1,
+        rate_limit_window=60,
+        log_sensitive_params=frozenset({"token_b"}),
+    )
+
+    manager = RateLimitManager(config_a)
+    RateLimitManager(config_b)
+    assert manager.config is config_b
+
+    mock_request = SyncMockGuardRequest(path="/api/endpoint", method="GET")
+
+    def mock_error_response(status_code: int, message: str) -> Any:
+        return _FakeErrorResponse(status_code, message)
+
+    with patch(
+        "guard_core.sync.handlers.ratelimit_handler.log_activity"
+    ) as mock_log_activity:
+        manager._handle_rate_limit_exceeded(
+            mock_request,
+            "192.168.1.50",
+            2,
+            mock_error_response,
+            config=config_a,
+        )
+
+    assert mock_log_activity.call_args.kwargs["sensitive_params"] == frozenset(
+        {"token_a"}
+    )

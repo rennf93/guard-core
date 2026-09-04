@@ -20,6 +20,8 @@ from guard_core.sync.utils import (
     invoke_error_hook,
 )
 
+_MIDDLEWARE_HANDLER_NAME = "middleware"
+
 
 class SecurityEventBus:
     def __init__(
@@ -86,6 +88,7 @@ class SecurityEventBus:
                 raw_user_agent,
                 self.config.log_sensitive_params,
                 self.config.log_sensitive_body_fields,
+                self.config.log_sensitive_headers,
             )
             if raw_user_agent
             else raw_user_agent,
@@ -95,9 +98,13 @@ class SecurityEventBus:
                 str(request.url_path),
                 self.config.log_sensitive_params,
                 self.config.log_sensitive_body_fields,
+                self.config.log_sensitive_headers,
             ),
             method=request.method,
             response_time=get_pipeline_response_time(request),
+            decorator_type=metadata.get("decorator_type"),
+            rule_type=metadata.get("rule_type"),
+            handler_name=_MIDDLEWARE_HANDLER_NAME,
             metadata=metadata,
         )
 
@@ -132,6 +139,7 @@ class SecurityEventBus:
             request.url_replace_scheme("https"),
             self.config.log_sensitive_params,
             self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
         )
 
         if route_config and route_config.require_https:

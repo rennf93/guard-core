@@ -44,6 +44,7 @@ async def test_send_ban_event_success(cleanup_ipban_singleton: None) -> None:
     assert sent_event.action_taken == "banned"
     assert sent_event.reason == "test_reason"
     assert sent_event.metadata["duration"] == 3600
+    assert sent_event.handler_name == "ip_ban"
 
 
 @pytest.mark.asyncio
@@ -100,6 +101,7 @@ async def test_send_unban_event_success(cleanup_ipban_singleton: None) -> None:
     assert sent_event.action_taken == "unbanned"
     assert sent_event.reason == "dynamic_rule_whitelist"
     assert sent_event.metadata == {"action": "unban"}
+    assert sent_event.handler_name == "ip_ban"
 
 
 @pytest.mark.asyncio

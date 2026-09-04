@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from datetime import datetime, timezone
 from typing import (
     Any,
     Protocol,
@@ -8,10 +7,6 @@ from typing import (
 )
 
 from guard_core.models import SecurityConfig
-from guard_core.sync._utils.request_logging import (
-    redact_endpoint_for_display,
-    redact_header_value_for_display,
-)
 from guard_core.sync.decorators.route_config import (
     _REVISION_EXEMPT_ATTRS,
     _TRACKED_DICT_FIELDS,
@@ -72,6 +67,7 @@ class BaseSecurityDecorator:
         self._route_config_revision = RouteConfigRevision()
         self.behavior_tracker = BehaviorTracker(config)
         self.agent_handler: Any = None
+        self.geo_ip_handler: Any = None
 
     @property
     def route_config_revision(self) -> int:
@@ -103,8 +99,9 @@ class BaseSecurityDecorator:
         if redis_handler:
             self.behavior_tracker.initialize_redis(redis_handler)
 
-    def initialize_agent(self, agent_handler: Any) -> None:
+    def initialize_agent(self, agent_handler: Any, geo_ip_handler: Any = None) -> None:
         self.agent_handler = agent_handler
+        self.geo_ip_handler = geo_ip_handler
         self.behavior_tracker.initialize_agent(agent_handler)
 
     def send_decorator_event(
@@ -119,52 +116,21 @@ class BaseSecurityDecorator:
         if not self.agent_handler:
             return
 
-        try:
-            from guard_core.sync.utils import (
-                extract_client_ip,
-                get_pipeline_response_time,
-            )
+        from guard_core.sync.core.events.middleware_events import SecurityEventBus
 
-            client_ip = extract_client_ip(request, self.config, self.agent_handler)
-
-            from guard_core._pydantic_plugin_mute import get_telemetry_model
-
-            SecurityEvent = get_telemetry_model("SecurityEvent")
-
-            raw_user_agent = request.headers.get("User-Agent")
-            event = SecurityEvent(
-                timestamp=datetime.now(timezone.utc),
-                event_type=event_type,
-                ip_address=client_ip,
-                country=None,
-                user_agent=redact_header_value_for_display(
-                    raw_user_agent,
-                    self.config.log_sensitive_params,
-                    self.config.log_sensitive_body_fields,
-                )
-                if raw_user_agent
-                else raw_user_agent,
-                action_taken=action_taken,
-                reason=reason,
-                endpoint=redact_endpoint_for_display(
-                    str(request.url_path),
-                    self.config.log_sensitive_params,
-                    self.config.log_sensitive_body_fields,
-                ),
-                method=request.method,
-                response_time=get_pipeline_response_time(request),
-                decorator_type=decorator_type,
-                metadata=kwargs,
-            )
-
-            self.agent_handler.send_event(event)
-
-        except Exception as e:
-            import logging
-
-            logging.getLogger("guard_core.decorators.base").error(
-                f"Failed to send decorator event to agent: {e}"
-            )
+        event_bus = SecurityEventBus(
+            agent_handler=self.agent_handler,
+            config=self.config,
+            geo_ip_handler=self.geo_ip_handler,
+        )
+        event_bus.send_middleware_event(
+            event_type=event_type,
+            request=request,
+            action_taken=action_taken,
+            reason=reason,
+            decorator_type=decorator_type,
+            **kwargs,
+        )
 
     def send_access_denied_event(
         self,
@@ -173,8 +139,10 @@ class BaseSecurityDecorator:
         decorator_type: str,
         **metadata: Any,
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_ACCESS_DENIED
+
         self.send_decorator_event(
-            event_type="access_denied",
+            event_type=EVENT_ACCESS_DENIED,
             request=request,
             action_taken="blocked",
             reason=reason,
@@ -189,8 +157,10 @@ class BaseSecurityDecorator:
         auth_type: str,
         **metadata: Any,
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_AUTHENTICATION_FAILED
+
         self.send_decorator_event(
-            event_type="authentication_failed",
+            event_type=EVENT_AUTHENTICATION_FAILED,
             request=request,
             action_taken="blocked",
             reason=reason,
@@ -206,8 +176,10 @@ class BaseSecurityDecorator:
         window: int,
         **metadata: Any,
     ) -> None:
+        from guard_core.sync.core.events.event_types import EVENT_RATE_LIMITED
+
         self.send_decorator_event(
-            event_type="rate_limited",
+            event_type=EVENT_RATE_LIMITED,
             request=request,
             action_taken="blocked",
             reason=f"Rate limit exceeded: {limit} requests per {window}s",

@@ -161,6 +161,28 @@ def test_event_bus_https_violation_global() -> None:
     assert call_kwargs.kwargs["event_type"] == "https_enforced"
 
 
+def test_event_bus_https_violation_promotes_decorator_type_and_handler_name() -> None:
+    agent = MagicMock()
+    agent.send_event = MagicMock()
+    bus = SecurityEventBus(agent, _config(agent_enable_events=True))
+    req = SyncMockGuardRequest(scheme="http")
+    rc = RouteConfig()
+    rc.require_https = True
+
+    with patch(
+        "guard_core.sync.core.events.middleware_events.extract_client_ip",
+        return_value="1.2.3.4",
+    ):
+        bus.send_https_violation_event(req, rc)
+
+    agent.send_event.assert_called_once()
+    sent_event = agent.send_event.call_args[0][0]
+    assert sent_event.decorator_type == "authentication"
+    assert sent_event.rule_type is None
+    assert sent_event.handler_name == "middleware"
+    assert sent_event.metadata["decorator_type"] == "authentication"
+
+
 def test_event_bus_cloud_detection_with_details() -> None:
     agent = MagicMock()
     bus = SecurityEventBus(agent, _config(agent_enable_events=True))

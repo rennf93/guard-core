@@ -3,7 +3,11 @@ from typing import Any
 
 from guard_core.core.checks._verifier import resolve_verifier_result
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import extract_credential, route_config_applies
+from guard_core.core.checks.helpers import (
+    emit_authentication_failed_event,
+    extract_credential,
+    route_config_applies,
+)
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -54,17 +58,19 @@ class AuthenticationCheck(SecurityCheck):
             sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        await self.middleware.event_bus.send_middleware_event(
+        auth_type = (
+            route_config.auth_required
+            or route_config.authorization_header_required
+            or "api_key"
+        )
+        await emit_authentication_failed_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=auth_reason,
-            decorator_type="authentication",
+            auth_type=auth_type,
             violation_type=violation_type,
-            auth_type=route_config.auth_required
-            or route_config.authorization_header_required,
+            passive_mode=self.config.passive_mode,
         )
 
         if not self.config.passive_mode:

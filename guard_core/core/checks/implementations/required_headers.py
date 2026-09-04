@@ -1,7 +1,10 @@
 from collections.abc import Collection
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import route_config_applies
+from guard_core.core.checks.helpers import (
+    emit_access_denied_event,
+    route_config_applies,
+)
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -58,14 +61,13 @@ class RequiredHeadersCheck(SecurityCheck):
 
         decorator_type, violation_type = _classify_header_violation(header)
 
-        await self.middleware.event_bus.send_middleware_event(
+        await emit_access_denied_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=reason,
             decorator_type=decorator_type,
+            passive_mode=self.config.passive_mode,
             violation_type=violation_type,
             **{header_field: header},
         )

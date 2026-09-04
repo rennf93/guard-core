@@ -121,3 +121,5 @@ def test_apply_action_with_behavior_event() -> None:
     assert sent_event.metadata["rule_type"] == "usage"
     assert sent_event.metadata["threshold"] == 5
     assert sent_event.metadata["window"] == 300
+    assert sent_event.rule_type == "usage"
+    assert sent_event.handler_name == "behavior"

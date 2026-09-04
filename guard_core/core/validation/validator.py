@@ -5,6 +5,7 @@ from ipaddress import ip_address, ip_network
 from cachetools import TTLCache
 
 from guard_core._utils.request_logging import redact_endpoint_for_display
+from guard_core.core.events.event_types import EVENT_PATH_EXCLUDED
 from guard_core.core.validation.context import ValidationContext
 from guard_core.core.validation.path_matching import (
     normalize_exclude_paths,
@@ -90,9 +91,10 @@ class RequestValidator:
                 str(request.url_path),
                 self.context.config.log_sensitive_params,
                 self.context.config.log_sensitive_body_fields,
+                self.context.config.log_sensitive_headers,
             )
             await self.context.event_bus.send_middleware_event(
-                event_type="path_excluded",
+                event_type=EVENT_PATH_EXCLUDED,
                 request=request,
                 action_taken="security_checks_bypassed",
                 reason=f"Path {safe_path} excluded from security checks",

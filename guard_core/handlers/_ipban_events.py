@@ -2,6 +2,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+_IP_BAN_HANDLER_NAME = "ip_ban"
+
 
 class IpBanEventMixin:
     agent_handler: Any = None
@@ -24,6 +26,7 @@ class IpBanEventMixin:
                 ip_address=ip,
                 action_taken="banned",
                 reason=reason,
+                handler_name=_IP_BAN_HANDLER_NAME,
                 metadata={"duration": duration},
             )
             await self.agent_handler.send_event(event)
@@ -44,6 +47,7 @@ class IpBanEventMixin:
                 ip_address=ip,
                 action_taken="unbanned",
                 reason="dynamic_rule_whitelist",
+                handler_name=_IP_BAN_HANDLER_NAME,
                 metadata={"action": "unban"},
             )
             await self.agent_handler.send_event(event)
