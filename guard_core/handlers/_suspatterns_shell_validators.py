@@ -112,7 +112,8 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
         return True
     if _strong_sql_keyword_glued_to_pair(content, start, end):
         return False
-    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS or appended_clause
+    normalized = context.split(":", 1)[0]
+    return normalized in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS or appended_clause
 
 
 def _dollar_substitution_token_is_implausible(token: str, delimiter: str) -> bool:
@@ -143,7 +144,7 @@ def _dollar_substitution_pair_is_injection(match: re.Match, context: str) -> boo
         return True
     if _strong_sql_keyword_glued_to_pair(content, start, end):
         return False
-    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+    return context.split(":", 1)[0] in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
 
 
 def _quote_splice_token_is_dangerous_command(match: re.Match) -> bool:

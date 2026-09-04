@@ -858,17 +858,6 @@ _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
     "stays correctly benign in request_body, where the branch never fires"
 )
 
-_JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
-    "a JSON body whose entire value for a field is itself a bare internal "
-    "source-file path (path: /opt/app/worker.py) is character-identical, "
-    "once the embedded-JSON field scanner isolates the field value and "
-    "re-scans it on its own under an unrestricted context, to the "
-    "sensitive_file bare-path shape that pattern exists to catch; an "
-    "ordinary file-watch or build-event payload cannot be told apart from a "
-    "sensitive-file probe by shape alone, and the same JSON body stays "
-    "correctly benign when scanned as a whole string instead of field-by-field"
-)
-
 _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
     "template_fp_call_branch_helper_format": (
         _SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON,
@@ -925,10 +914,6 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
     "cmd_injection_glued_kebab_identifier_config_well_known": (
         _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
         "query_param",
-    ),
-    "sensitive_file_json_payload_ending_source_path": (
-        _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON,
-        "url_path",
     ),
     "cmd_injection_shell_docs_var_expansion": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,

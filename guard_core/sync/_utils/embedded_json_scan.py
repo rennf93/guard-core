@@ -9,6 +9,9 @@ from guard_core.sync._utils.detection_scan import (
     _json_depth_cap_value,
     _warn_json_depth_cap_reached_once,
 )
+from guard_core.sync.handlers._suspatterns_sources import (
+    _EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX,
+)
 
 
 def _parse_embedded_json(value: str, client_ip: str) -> Any | None:
@@ -65,7 +68,7 @@ def _check_embedded_json(
         correlation_id,
         None,
         sensitive_body_fields,
-        context=context,
+        context=f"{context}{_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX}",
         preview_override="[REDACTED]" if redact_all else None,
         redact_keys=redact_all,
         sensitive_params=sensitive_params,

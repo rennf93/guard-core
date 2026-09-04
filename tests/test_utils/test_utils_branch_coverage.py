@@ -185,7 +185,10 @@ async def test_embedded_json_key_nested_context_stays_a_known_context() -> None:
         )
 
     scanned_contexts = {call.kwargs["context"] for call in mock_detect.call_args_list}
-    assert scanned_contexts == {"url_path:username", "url_path"}
+    assert scanned_contexts == {
+        "url_path:embedded_json:username",
+        "url_path:embedded_json",
+    }
     normalized = {SusPatternsManager._normalize_context(c) for c in scanned_contexts}
     assert normalized == {"url_path"}
     assert "unknown" not in normalized

@@ -90,6 +90,7 @@ from guard_core.handlers._suspatterns_sources import (
     _PROTO_POLLUTION_SET_PROTOTYPE_OF_RE,
     _SELECT_FROM_RE,
     _SELECT_STAR_RE,
+    _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
     _SQLI_COMMENT_TERMINATOR_RE,
     _SQLI_EXEC_STRONG_RE,
     _SQLI_ORDER_BY_STRONG_RE,
@@ -487,9 +488,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "sensitive_file",
     ),
     (
-        _path_only_pattern(
-            rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
-        ),
+        _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
         _CTX_SENSITIVE_FILE,
         "sensitive_file",
     ),

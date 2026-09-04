@@ -56,6 +56,13 @@ _CTX_HTTP_SPLIT = frozenset(
     {"header", "query_param", "url_path", "request_body", "unknown"}
 )
 _CTX_SENSITIVE_FILE = frozenset({"url_path", "query_param", "request_body", "unknown"})
+_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX = ":embedded_json"
+
+
+def _source_extension_path_is_probe(context: str) -> bool:
+    return not context.endswith(_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX)
+
+
 _CTX_CMS_PROBING = frozenset({"url_path", "query_param", "request_body", "unknown"})
 _CTX_RECON = frozenset({"url_path", "query_param", "request_body", "unknown"})
 _CTX_PROTO_POLLUTION = frozenset(
@@ -138,6 +145,11 @@ def _path_only_pattern(required: str, trailing: str = "") -> str:
         rf"{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
         rf"{required}{trailing}{_PATH_ONLY_SUFFIX_RE}"
     )
+
+
+_SENSITIVE_SOURCE_EXTENSION_PATH_RE = _path_only_pattern(
+    rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+)
 
 
 def _nested_path_pattern(required: str) -> str:
