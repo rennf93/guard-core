@@ -119,12 +119,24 @@ def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
 
 
 _PATTERN_SOURCE_NON_TOKEN_RE = re.compile(r"[^a-z0-9_-]+")
+_PATTERN_SOURCE_ESCAPE_RE = re.compile(
+    r"\\(?:[xX]([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|([0-7]{1,3}))"
+)
+
+
+def _decode_pattern_source_escape(match: re.Match[str]) -> str:
+    hex_body = match.group(1) or match.group(2) or match.group(3)
+    code = int(hex_body, 16) if hex_body else int(match.group(4), 8)
+    return chr(code) if code <= 0x10FFFF else match.group(0)
 
 
 def _pattern_source_names_a_sensitive_field(
     pattern_source: str, sensitive_names: frozenset[str]
 ) -> bool:
-    normalized = _PATTERN_SOURCE_NON_TOKEN_RE.sub("", pattern_source.lower())
+    decoded = _PATTERN_SOURCE_ESCAPE_RE.sub(
+        _decode_pattern_source_escape, pattern_source
+    )
+    normalized = _PATTERN_SOURCE_NON_TOKEN_RE.sub("", decoded.lower())
     return any(name in normalized for name in sensitive_names)
 
 

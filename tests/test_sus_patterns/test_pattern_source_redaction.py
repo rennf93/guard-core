@@ -499,6 +499,9 @@ def test_pattern_source_with_regex_syntax_between_name_and_value_is_redacted(
     "source",
     [
         r"password(?:\s|%20)*=hunter2",
+        r"PASS\x57ORD=hunter2",
+        r"pass\167ord=hunter2",
+        r"pass\u0077ord=hunter2",
         r"password\x20*=hunter2",
         r"[pP]assword\s*=hunter2",
         r"password\s*(?P<eq>=)\s*hunter2",

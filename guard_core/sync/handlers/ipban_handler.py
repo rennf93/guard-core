@@ -71,4 +71,8 @@ ip_ban_manager = IPBanManager()
 
 def reset_global_state() -> None:
     global ip_ban_manager
-    ip_ban_manager = IPBanManager()
+    manager = IPBanManager()
+    manager.banned_ips.clear()
+    manager.banned_networks = []
+    manager.evictions_count = 0
+    ip_ban_manager = manager

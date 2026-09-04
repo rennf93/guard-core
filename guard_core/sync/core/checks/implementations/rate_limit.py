@@ -150,6 +150,7 @@ class RateLimitCheck(SecurityCheck):
                 endpoint_path=endpoint_path,
                 rate_limit=rate_limit,
                 rate_limit_window=window,
+                config=self.config,
             )
         )
 
