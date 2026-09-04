@@ -7,6 +7,8 @@ from guard_core._utils.request_logging import (
     redact_header_value_for_display,
 )
 
+_SECURITY_HEADERS_HANDLER_NAME = "security_headers"
+
 
 def _safe_csp_uri(value: Any) -> str:
     return redact_endpoint_for_display(str(value), None, None)
@@ -14,6 +16,13 @@ def _safe_csp_uri(value: Any) -> str:
 
 def _safe_csp_directive(value: Any) -> str:
     return redact_header_value_for_display(str(value), None, None)
+
+
+def _safe_csp_line_number(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class SecurityHeadersEventsMixin:
@@ -37,6 +46,7 @@ class SecurityHeadersEventsMixin:
                 timestamp=datetime.now(timezone.utc),
                 event_type=EVENT_SECURITY_HEADERS_APPLIED,
                 action_taken="headers_added",
+                handler_name=_SECURITY_HEADERS_HANDLER_NAME,
                 metadata={
                     "path": redact_endpoint_for_display(path, None, None),
                     "headers_count": len(headers),
@@ -81,16 +91,20 @@ class SecurityHeadersEventsMixin:
                 timestamp=datetime.now(timezone.utc),
                 event_type=EVENT_CSP_VIOLATION,
                 action_taken="logged",
+                handler_name=_SECURITY_HEADERS_HANDLER_NAME,
                 metadata={
                     "document_uri": _safe_csp_uri(report.get("document-uri")),
                     "violated_directive": _safe_csp_directive(
                         report.get("violated-directive")
                     ),
                     "blocked_uri": _safe_csp_uri(report.get("blocked-uri")),
-                    "source_file": report.get("source-file"),
-                    "line_number": report.get("line-number"),
+                    "source_file": _safe_csp_uri(report.get("source-file")),
+                    "line_number": _safe_csp_line_number(report.get("line-number")),
                 },
             )
             await self.agent_handler.send_event(event)
         except Exception as e:
-            self.logger.debug(f"Failed to send CSP violation event to agent: {e}")
+            safe_error = redact_header_value_for_display(str(e), None, None)
+            self.logger.debug(
+                f"Failed to send CSP violation event to agent: {safe_error}"
+            )

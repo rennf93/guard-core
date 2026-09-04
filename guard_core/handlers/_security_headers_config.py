@@ -2,6 +2,8 @@ import logging
 import re
 from typing import Any
 
+from cachetools import TTLCache
+
 
 class SecurityHeadersConfigMixin:
     logger: logging.Logger
@@ -11,6 +13,7 @@ class SecurityHeadersConfigMixin:
     hsts_config: dict[str, Any] | None
     cors_config: dict[str, Any] | None
     default_headers: dict[str, str]
+    headers_cache: TTLCache
 
     _HEADER_NAME_TOKEN_RE = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 
@@ -29,6 +32,7 @@ class SecurityHeadersConfigMixin:
 
     def _configure_csp(self, csp: dict[str, list[str]] | None) -> None:
         if not csp:
+            self.csp_config = None
             return
 
         self.csp_config = csp
@@ -45,6 +49,7 @@ class SecurityHeadersConfigMixin:
         hsts_preload: bool,
     ) -> None:
         if hsts_max_age is None:
+            self.hsts_config = None
             return
 
         if hsts_preload:
@@ -69,6 +74,7 @@ class SecurityHeadersConfigMixin:
         cors_allow_headers: list[str] | None,
     ) -> None:
         if not cors_origins:
+            self.cors_config = None
             return
 
         if "*" in cors_origins and cors_allow_credentials:
@@ -84,6 +90,15 @@ class SecurityHeadersConfigMixin:
             "allow_headers": cors_allow_headers or ["*"],
         }
 
+    def _reset_or_apply_header(
+        self, header_name: str, override: str | None, class_default: str
+    ) -> None:
+        self.default_headers[header_name] = (
+            self._validate_header_value(override)
+            if override is not None
+            else class_default
+        )
+
     def _update_default_headers(
         self,
         frame_options: str | None,
@@ -92,31 +107,35 @@ class SecurityHeadersConfigMixin:
         referrer_policy: str | None,
         permissions_policy: str | None,
     ) -> None:
-        if frame_options is not None:
-            self.default_headers["X-Frame-Options"] = self._validate_header_value(
-                frame_options
+        class_defaults = self.__class__.default_headers
+        self._reset_or_apply_header(
+            "X-Frame-Options", frame_options, class_defaults["X-Frame-Options"]
+        )
+        self._reset_or_apply_header(
+            "X-Content-Type-Options",
+            content_type_options,
+            class_defaults["X-Content-Type-Options"],
+        )
+        self._reset_or_apply_header(
+            "X-XSS-Protection", xss_protection, class_defaults["X-XSS-Protection"]
+        )
+        self._reset_or_apply_header(
+            "Referrer-Policy", referrer_policy, class_defaults["Referrer-Policy"]
+        )
+
+        if permissions_policy == "UNSET":
+            self.default_headers["Permissions-Policy"] = class_defaults[
+                "Permissions-Policy"
+            ]
+        elif permissions_policy:
+            self.default_headers["Permissions-Policy"] = self._validate_header_value(
+                permissions_policy
             )
-        if content_type_options is not None:
-            self.default_headers["X-Content-Type-Options"] = (
-                self._validate_header_value(content_type_options)
-            )
-        if xss_protection is not None:
-            self.default_headers["X-XSS-Protection"] = self._validate_header_value(
-                xss_protection
-            )
-        if referrer_policy is not None:
-            self.default_headers["Referrer-Policy"] = self._validate_header_value(
-                referrer_policy
-            )
-        if permissions_policy != "UNSET":
-            if permissions_policy:
-                self.default_headers["Permissions-Policy"] = (
-                    self._validate_header_value(permissions_policy)
-                )
-            else:
-                self.default_headers.pop("Permissions-Policy", None)
+        else:
+            self.default_headers.pop("Permissions-Policy", None)
 
     def _add_custom_headers(self, custom_headers: dict[str, str] | None) -> None:
+        self.custom_headers = {}
         if not custom_headers:
             return
 
@@ -144,6 +163,7 @@ class SecurityHeadersConfigMixin:
         cors_allow_headers: list[str] | None = None,
     ) -> None:
         self.enabled = enabled
+        self.headers_cache.clear()
 
         self._configure_csp(csp)
         self._configure_hsts(hsts_max_age, hsts_include_subdomains, hsts_preload)

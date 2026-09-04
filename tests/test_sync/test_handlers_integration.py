@@ -136,7 +136,6 @@ def test_ipban_unban_agent_exception() -> None:
 
 
 def test_ratelimit_initialize_redis() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
 
@@ -155,7 +154,6 @@ def test_ratelimit_initialize_redis() -> None:
 
 
 def test_ratelimit_initialize_redis_exception() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
 
@@ -167,7 +165,6 @@ def test_ratelimit_initialize_redis_exception() -> None:
 
 
 def test_ratelimit_redis_count_with_script() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
@@ -190,7 +187,6 @@ def test_ratelimit_redis_count_with_script() -> None:
 
 
 def test_ratelimit_redis_count_without_script() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = None
@@ -222,7 +218,6 @@ def test_ratelimit_redis_count_without_script() -> None:
 def test_ratelimit_redis_error_raises_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
@@ -240,7 +235,6 @@ def test_ratelimit_redis_error_raises_when_fail_open_false() -> None:
 def test_ratelimit_redis_error_falls_back_when_fail_open_true() -> None:
     from redis.exceptions import RedisError
 
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
     )
@@ -258,7 +252,6 @@ def test_ratelimit_redis_error_falls_back_when_fail_open_true() -> None:
 
 
 def test_ratelimit_generic_error_raises_when_fail_open_false() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
@@ -274,7 +267,6 @@ def test_ratelimit_generic_error_raises_when_fail_open_false() -> None:
 
 
 def test_ratelimit_generic_error_falls_back_when_fail_open_true() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", redis_fail_open=True
     )
@@ -292,7 +284,6 @@ def test_ratelimit_generic_error_falls_back_when_fail_open_true() -> None:
 
 
 def test_ratelimit_in_memory_with_endpoint() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     current = time.time()
@@ -301,7 +292,6 @@ def test_ratelimit_in_memory_with_endpoint() -> None:
 
 
 def test_ratelimit_check_disabled() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False, enable_rate_limiting=False)
     mgr = RateLimitManager(config)
     req = SyncMockGuardRequest()
@@ -310,7 +300,6 @@ def test_ratelimit_check_disabled() -> None:
 
 
 def test_ratelimit_check_redis_exceeded() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", rate_limit=5
     )
@@ -342,7 +331,6 @@ def test_ratelimit_check_redis_exceeded() -> None:
 
 
 def test_ratelimit_check_redis_ok() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
     )
@@ -370,7 +358,6 @@ def test_ratelimit_check_redis_ok() -> None:
 def test_ratelimit_check_raises_on_redis_error_when_fail_open_false() -> None:
     from redis.exceptions import RedisError
 
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True, redis_url="redis://localhost:6379", rate_limit=100
     )
@@ -392,7 +379,6 @@ def test_ratelimit_check_raises_on_redis_error_when_fail_open_false() -> None:
 def test_ratelimit_check_falls_back_to_memory_when_fail_open_true() -> None:
     from redis.exceptions import RedisError
 
-    RateLimitManager._instance = None
     config = SecurityConfig(
         enable_redis=True,
         redis_url="redis://localhost:6379",
@@ -415,7 +401,6 @@ def test_ratelimit_check_falls_back_to_memory_when_fail_open_true() -> None:
 
 
 def test_ratelimit_reset_redis() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     redis = MagicMock()
@@ -427,7 +412,6 @@ def test_ratelimit_reset_redis() -> None:
 
 
 def test_ratelimit_reset_redis_exception() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     redis = MagicMock()
@@ -437,7 +421,6 @@ def test_ratelimit_reset_redis_exception() -> None:
 
 
 def test_ratelimit_send_event() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     agent = MagicMock()
@@ -453,7 +436,6 @@ def test_ratelimit_send_event() -> None:
 
 
 def test_ratelimit_send_event_exception() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     agent = MagicMock()
@@ -465,7 +447,6 @@ def test_ratelimit_send_event_exception() -> None:
 
 
 def test_ratelimit_redis_count_with_endpoint() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=True, redis_url="redis://localhost:6379")
     mgr = RateLimitManager(config)
     mgr.rate_limit_script_sha = "sha123"
@@ -681,7 +662,6 @@ def test_redis_handler_delete_pattern_with_redis() -> None:
 
 
 def test_ratelimit_handle_exceeded_with_agent() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     agent = MagicMock()

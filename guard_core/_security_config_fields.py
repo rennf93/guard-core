@@ -996,8 +996,10 @@ class _SecurityConfigFields(BaseModel):
     excluded_detection_headers: set[str] = Field(
         default_factory=set,
         description=(
-            "Headers to exclude from penetration detection scanning. "
-            "Merged with the hardcoded default exclusion set."
+            "Headers exempted from the categories known to false-positive on "
+            "their typical values (identity/proxy headers skip ssrf only); "
+            "every other detection category still scans them. Merged with "
+            "the hardcoded default exclusion set."
         ),
     )
     excluded_detection_params: set[str] = Field(

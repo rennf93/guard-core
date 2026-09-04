@@ -88,6 +88,12 @@ class SecurityConfig(_SecurityConfigFields):
 
     _revision: int = PrivateAttr(default=0)
 
+    def _current_revision(self) -> int:
+        private = self.__pydantic_private__
+        fallback = private.get("_revision", 0) if private is not None else 0
+        stored = self.__dict__.get("_revision", fallback)
+        return stored if isinstance(stored, int) else 0
+
     def __setattr__(self, name: str, value: Any) -> None:
         if name in _GEO_STATE_FIELDS:
             value = _apply_geo_ip_handler_assignment(self, name, value)
@@ -100,7 +106,7 @@ class SecurityConfig(_SecurityConfigFields):
 
         super().__setattr__(name, value)
         if name != "_revision":
-            object.__setattr__(self, "_revision", self._revision + 1)
+            object.__setattr__(self, "_revision", self._current_revision() + 1)
         if should_warn:
             _warn_country_allowlist_shadows_blocklist(stacklevel=3)
 
@@ -113,7 +119,7 @@ class SecurityConfig(_SecurityConfigFields):
 
     @property
     def revision(self) -> int:
-        return self._revision
+        return self._current_revision()
 
     def model_copy(
         self, *, update: Mapping[str, Any] | None = None, deep: bool = False

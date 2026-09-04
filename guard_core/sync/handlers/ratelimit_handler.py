@@ -13,11 +13,14 @@ from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.scripts.rate_lua import RATE_LIMIT_SCRIPT
+from guard_core.sync._utils.identity_hash import _hash_identity_segment
 from guard_core.sync._utils.lru_store import _lru_pop_or_create
+from guard_core.sync._utils.request_logging import redact_endpoint_for_display
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from guard_core.sync.utils import log_activity
 
 _by_ip_logger = logging.getLogger("guard_core.sync.handlers.ratelimit")
+_RATE_LIMIT_HANDLER_NAME = "rate_limit"
 _by_ip_request_timestamps: defaultdict[str, deque[float]] = defaultdict(deque)
 _by_ip_lock = threading.Lock()
 _by_ip_autoban_counts: defaultdict[str, int] = defaultdict(int)
@@ -69,7 +72,9 @@ def _redis_request_count(
         return None, rate_limit_script_sha
 
     rate_key = (
-        f"rate:{client_ip}:{endpoint_path}" if endpoint_path else f"rate:{client_ip}"
+        f"rate:{client_ip}:{_hash_identity_segment(endpoint_path)}"
+        if endpoint_path
+        else f"rate:{client_ip}"
     )
     key_name = f"{redis_handler.config.redis_prefix}rate_limit:{rate_key}"
 
@@ -129,7 +134,11 @@ def _in_memory_request_count(
     current_time: float,
     endpoint_path: str = "",
 ) -> int:
-    key = f"{client_ip}:{endpoint_path}" if endpoint_path else client_ip
+    key = (
+        f"{client_ip}:{_hash_identity_segment(endpoint_path)}"
+        if endpoint_path
+        else client_ip
+    )
 
     with lock:
         timestamps = _lru_pop_or_create(
@@ -254,9 +263,15 @@ def check_rate_limit_by_ip(
     except ValueError as exc:
         raise ValueError(f"check_rate_limit_by_ip: invalid ip {ip!r}") from exc
     if ":" in endpoint_path:
+        safe_endpoint_path = redact_endpoint_for_display(
+            endpoint_path,
+            config.log_sensitive_params,
+            config.log_sensitive_body_fields,
+            config.log_sensitive_headers,
+        )
         raise ValueError(
             f"check_rate_limit_by_ip: endpoint_path must not contain ':' "
-            f"(got {endpoint_path!r})"
+            f"(got {safe_endpoint_path!r})"
         )
 
     if not config.enable_rate_limiting:
@@ -347,15 +362,19 @@ class RateLimitManager:
             return
         try:
             from guard_core._pydantic_plugin_mute import get_telemetry_model
+            from guard_core.sync.core.events.event_types import (
+                EVENT_RATE_LIMIT_SCRIPT_RELOADED,
+            )
 
             SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="rate_limit_script_reloaded",
+                event_type=EVENT_RATE_LIMIT_SCRIPT_RELOADED,
                 ip_address="system",
                 action_taken="script_reloaded",
                 reason="NOSCRIPT recovery: Lua script re-cached on Redis",
+                handler_name=_RATE_LIMIT_HANDLER_NAME,
             )
             self.agent_handler.send_event(event)
         except Exception as e:
@@ -369,6 +388,7 @@ class RateLimitManager:
         endpoint_path: str = "",
         rate_limit_window: int | None = None,
         rate_limit: int | None = None,
+        redis_fail_open: bool | None = None,
     ) -> int | None:
         count, self.rate_limit_script_sha = _redis_request_count(
             self.redis_handler,
@@ -381,7 +401,9 @@ class RateLimitManager:
             self.rate_limit_script_sha,
             self._emit_script_reloaded_event,
             endpoint_path,
-            self.config.redis_fail_open,
+            redis_fail_open
+            if redis_fail_open is not None
+            else self.config.redis_fail_open,
         )
         return count
 
@@ -392,8 +414,10 @@ class RateLimitManager:
         count: int,
         create_error_response: Callable[[int, str], GuardResponse],
         rate_limit_window: int | None = None,
+        config: SecurityConfig | None = None,
     ) -> GuardResponse:
-        window = rate_limit_window or self.config.rate_limit_window
+        display_config = config or self.config
+        window = rate_limit_window or display_config.rate_limit_window
         message = "Rate limit exceeded for IP:"
         detail = f"requests in {window}s window)"
         log_activity(
@@ -401,18 +425,20 @@ class RateLimitManager:
             self.logger,
             log_type="suspicious",
             reason=f"{message} {client_ip} ({count} {detail}",
-            level=self.config.log_suspicious_level,
-            passive_mode=self.config.passive_mode,
+            level=display_config.log_suspicious_level,
+            passive_mode=display_config.passive_mode,
             check_name="rate_limit",
-            muted_check_logs=self.config.muted_check_logs,
-            on_block=self.config.on_block,
-            sensitive_headers=self.config.log_sensitive_headers,
-            sensitive_params=self.config.log_sensitive_params,
-            sensitive_body_fields=self.config.log_sensitive_body_fields,
+            muted_check_logs=display_config.muted_check_logs,
+            on_block=display_config.on_block,
+            sensitive_headers=display_config.log_sensitive_headers,
+            sensitive_params=display_config.log_sensitive_params,
+            sensitive_body_fields=display_config.log_sensitive_body_fields,
         )
 
         if self.agent_handler:
-            self._send_rate_limit_event(request, client_ip, count)
+            self._send_rate_limit_event(
+                request, client_ip, count, config=display_config
+            )
 
         response = create_error_response(
             429,
@@ -445,23 +471,25 @@ class RateLimitManager:
         endpoint_path: str = "",
         rate_limit: int | None = None,
         rate_limit_window: int | None = None,
+        config: SecurityConfig | None = None,
     ) -> GuardResponse | None:
-        if not self.config.enable_rate_limiting:
+        display_config = config or self.config
+        if not display_config.enable_rate_limiting:
             return None
 
         effective_limit = (
-            rate_limit if rate_limit is not None else self.config.rate_limit
+            rate_limit if rate_limit is not None else display_config.rate_limit
         )
         effective_window = (
             rate_limit_window
             if rate_limit_window is not None
-            else self.config.rate_limit_window
+            else display_config.rate_limit_window
         )
 
         current_time = time.time()
         window_start = current_time - effective_window
 
-        if self.config.enable_redis and self.redis_handler:
+        if display_config.enable_redis and self.redis_handler:
             count = self._get_redis_request_count(
                 client_ip,
                 current_time,
@@ -469,6 +497,7 @@ class RateLimitManager:
                 endpoint_path=endpoint_path,
                 rate_limit_window=effective_window,
                 rate_limit=effective_limit,
+                redis_fail_open=display_config.redis_fail_open,
             )
 
             if count is not None:
@@ -479,6 +508,7 @@ class RateLimitManager:
                         count,
                         create_error_response,
                         rate_limit_window=effective_window,
+                        config=display_config,
                     )
                 return None
 
@@ -493,37 +523,51 @@ class RateLimitManager:
                 request_count + 1,
                 create_error_response,
                 rate_limit_window=effective_window,
+                config=display_config,
             )
 
         return None
 
     def _send_rate_limit_event(
-        self, request: SyncGuardRequest, client_ip: str, request_count: int
+        self,
+        request: SyncGuardRequest,
+        client_ip: str,
+        request_count: int,
+        config: SecurityConfig | None = None,
     ) -> None:
+        display_config = config or self.config
         try:
             message = "Rate limit exceeded"
             details = (
-                f"{request_count} requests in {self.config.rate_limit_window}s window"
+                f"{request_count} requests in "
+                f"{display_config.rate_limit_window}s window"
             )
 
             from guard_core._pydantic_plugin_mute import get_telemetry_model
+            from guard_core.sync.core.events.event_types import EVENT_RATE_LIMITED
             from guard_core.sync.utils import get_pipeline_response_time
 
             SecurityEvent = get_telemetry_model("SecurityEvent")
 
             event = SecurityEvent(
                 timestamp=datetime.now(timezone.utc),
-                event_type="rate_limited",
+                event_type=EVENT_RATE_LIMITED,
                 ip_address=client_ip,
                 action_taken="request_blocked",
                 reason=f"{message}: {details}",
-                endpoint=str(request.url_path),
+                endpoint=redact_endpoint_for_display(
+                    str(request.url_path),
+                    display_config.log_sensitive_params,
+                    display_config.log_sensitive_body_fields,
+                    display_config.log_sensitive_headers,
+                ),
                 method=request.method,
                 response_time=get_pipeline_response_time(request),
+                handler_name=_RATE_LIMIT_HANDLER_NAME,
                 metadata={
                     "request_count": request_count,
-                    "rate_limit": self.config.rate_limit,
-                    "window": self.config.rate_limit_window,
+                    "rate_limit": display_config.rate_limit,
+                    "window": display_config.rate_limit_window,
                 },
             )
             self.agent_handler.send_event(event)

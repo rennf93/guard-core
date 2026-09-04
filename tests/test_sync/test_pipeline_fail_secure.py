@@ -28,7 +28,6 @@ class _FailingConnection:
 
 
 def _rate_limit_check_with_broken_redis(config: SecurityConfig) -> RateLimitCheck:
-    RateLimitManager._instance = None
     rate_limit_manager = RateLimitManager(config)
     rate_limit_manager.rate_limit_script_sha = "sha123"
     redis = MagicMock()

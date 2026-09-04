@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -126,6 +127,94 @@ async def test_send_csp_violation_event_with_mock_agent(
     await headers_manager._send_csp_violation_event(csp_report)
 
     assert headers_manager.agent_handler == mock_agent
+
+
+@pytest.mark.asyncio
+async def test_send_csp_violation_event_redacts_source_file(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    headers_manager.agent_handler = mock_agent
+
+    csp_report: dict[str, Any] = {
+        "document-uri": "https://example.com/page",
+        "violated-directive": "script-src",
+        "blocked-uri": "https://evil.com/script.js",
+        "source-file": "https://cdn.example/app.js?api_key=SECRET-source-file-test",
+        "line-number": 42,
+    }
+
+    await headers_manager._send_csp_violation_event(csp_report)
+
+    event = mock_agent.send_event.call_args[0][0]
+    assert "SECRET-source-file-test" not in event.metadata["source_file"]
+    assert event.metadata["line_number"] == 42
+
+
+@pytest.mark.asyncio
+async def test_send_csp_violation_event_coerces_string_line_number_to_int(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    headers_manager.agent_handler = mock_agent
+
+    csp_report: dict[str, Any] = {
+        "document-uri": "https://example.com/page",
+        "violated-directive": "script-src",
+        "blocked-uri": "https://evil.com/script.js",
+        "line-number": "17",
+    }
+
+    await headers_manager._send_csp_violation_event(csp_report)
+
+    event = mock_agent.send_event.call_args[0][0]
+    assert event.metadata["line_number"] == 17
+
+
+@pytest.mark.asyncio
+async def test_send_csp_violation_event_drops_non_numeric_line_number(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    mock_agent = MagicMock()
+    mock_agent.send_event = AsyncMock()
+    headers_manager.agent_handler = mock_agent
+
+    csp_report: dict[str, Any] = {
+        "document-uri": "https://example.com/page",
+        "violated-directive": "script-src",
+        "blocked-uri": "https://evil.com/script.js",
+        "line-number": "not-a-number",
+    }
+
+    await headers_manager._send_csp_violation_event(csp_report)
+
+    event = mock_agent.send_event.call_args[0][0]
+    assert event.metadata["line_number"] is None
+
+
+@pytest.mark.asyncio
+async def test_send_csp_violation_event_exception_text_redacted(
+    headers_manager: SecurityHeadersManager,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_agent = MagicMock()
+    secret = "password=hunter2topsecretvalue"
+    mock_agent.send_event = AsyncMock(side_effect=Exception(f"send failed: {secret}"))
+    headers_manager.agent_handler = mock_agent
+
+    csp_report: dict[str, Any] = {
+        "document-uri": "https://example.com/page",
+        "violated-directive": "script-src",
+        "blocked-uri": "https://evil.com/script.js",
+    }
+
+    with caplog.at_level(logging.DEBUG, logger="guard_core.handlers.security_headers"):
+        await headers_manager._send_csp_violation_event(csp_report)
+
+    assert "hunter2" not in caplog.text
+    assert "[REDACTED]" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -284,6 +373,29 @@ async def test_csp_violation_reaches_transport_once_wired_through_handler_initia
     assert result is True
     assert len(transport.events) == 1
     assert transport.events[0].event_type == "csp_violation"
+    assert transport.events[0].handler_name == "security_headers"
+
+    await initializer.shutdown_agent_integrations()
+    headers_manager.agent_handler = None
+
+
+@pytest.mark.asyncio
+async def test_headers_applied_event_sets_handler_name(
+    headers_manager: SecurityHeadersManager,
+) -> None:
+    transport = _RecordingTransport()
+    config = SecurityConfig()
+    initializer = HandlerInitializer(config=config, agent_handler=transport)
+
+    await initializer.initialize_agent_integrations()
+
+    assert headers_manager.agent_handler is not None
+
+    await headers_manager.get_headers("/handler-name-path")
+
+    assert len(transport.events) == 1
+    assert transport.events[0].event_type == "security_headers_applied"
+    assert transport.events[0].handler_name == "security_headers"
 
     await initializer.shutdown_agent_integrations()
     headers_manager.agent_handler = None
