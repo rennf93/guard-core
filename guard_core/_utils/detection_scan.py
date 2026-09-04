@@ -1,5 +1,6 @@
 import contextvars
 import logging
+import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -117,22 +118,39 @@ def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
     )
 
 
+_PATTERN_SOURCE_NON_TOKEN_RE = re.compile(r"[^a-z0-9_-]+")
+
+
+def _pattern_source_names_a_sensitive_field(
+    pattern_source: str, sensitive_names: frozenset[str]
+) -> bool:
+    normalized = _PATTERN_SOURCE_NON_TOKEN_RE.sub("", pattern_source.lower())
+    return any(name in normalized for name in sensitive_names)
+
+
 def _redact_pattern_source(pattern_source: str) -> str:
-    from guard_core._utils.pattern_source_display import regex_source_as_pair_text
-    from guard_core._utils.request_logging import redact_blob_for_display
+    from guard_core._utils.request_logging import (
+        _merge_sensitive_log_body_fields,
+        _merged_sensitive_names,
+        redact_blob_for_display,
+    )
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
-    config = sus_patterns_handler._config
-    sets = (
-        getattr(config, "log_sensitive_params", None),
-        getattr(config, "log_sensitive_body_fields", None),
-        getattr(config, "log_sensitive_headers", None),
+    sensitive_params = sus_patterns_handler._sensitive_params_union
+    sensitive_body_fields = sus_patterns_handler._sensitive_body_fields_union
+    sensitive_headers = sus_patterns_handler._sensitive_headers_union
+
+    sensitive_names = _merged_sensitive_names(
+        sensitive_params,
+        _merge_sensitive_log_body_fields(sensitive_body_fields),
+        sensitive_headers,
     )
-    as_pairs = regex_source_as_pair_text(pattern_source)
-    redacted_pairs = redact_blob_for_display(as_pairs, *sets)
-    if redacted_pairs != as_pairs:
-        return redacted_pairs
-    return redact_blob_for_display(pattern_source, *sets)
+    if _pattern_source_names_a_sensitive_field(pattern_source, sensitive_names):
+        return "[REDACTED]"
+
+    return redact_blob_for_display(
+        pattern_source, sensitive_params, sensitive_body_fields, sensitive_headers
+    )
 
 
 def _build_threat_message(threat: dict[str, Any]) -> str:

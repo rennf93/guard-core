@@ -1,3 +1,4 @@
+import asyncio
 import concurrent.futures
 import re
 import time
@@ -291,7 +292,7 @@ def test_build_anomaly_event_data_redacts_secret_shaped_pattern() -> None:
     anomaly = {"type": "timeout", "pattern": _SECRET_PATTERN, "content_length": 10}
     event_data = build_anomaly_event_data(anomaly, "corr-1")
     assert "hunter2" not in str(event_data["metadata"]["pattern"])
-    assert event_data["metadata"]["pattern"] == "password=[REDACTED]"
+    assert event_data["metadata"]["pattern"] == "[REDACTED]"
 
 
 def test_build_anomaly_event_data_without_pattern_key() -> None:
@@ -304,7 +305,7 @@ def test_sanitize_anomaly_data_redacts_secret_shaped_pattern() -> None:
     anomaly = {"type": "timeout", "pattern": _SECRET_PATTERN}
     safe = sanitize_anomaly_data(anomaly)
     assert "hunter2" not in safe["pattern"]
-    assert safe["pattern"] == "password=[REDACTED]"
+    assert safe["pattern"] == "[REDACTED]"
 
 
 def test_build_pattern_report_redacts_secret_shaped_pattern() -> None:
@@ -491,7 +492,35 @@ def test_pattern_source_with_regex_syntax_between_name_and_value_is_redacted(
 
     redacted = _redact_pattern_source(source)
     assert "hunter2" not in redacted
-    assert "[REDACTED]" in redacted
+    assert redacted == "[REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        r"password(?:\s|%20)*=hunter2",
+        r"password\x20*=hunter2",
+        r"[pP]assword\s*=hunter2",
+        r"password\s*(?P<eq>=)\s*hunter2",
+        r"password\s*=\s*(?:hunter2|other)",
+        r"password\s*=\s*(hunter2|topsecret|swordfish)",
+        r"(?<=user:)password\s*=\s*hunter2",
+        r"password\s*=\s*hunter2(?=;)",
+        r"hunter2\s*=\s*password",
+        r"password\s*=\s*hunter2(?!;)",
+        r"(?i)password\s*=\s*hunter2",
+    ],
+)
+def test_pattern_source_adversarial_regex_shapes_are_fully_redacted(
+    source: str,
+) -> None:
+    from guard_core._utils.detection_scan import _redact_pattern_source
+
+    redacted = _redact_pattern_source(source)
+    assert "hunter2" not in redacted
+    assert "topsecret" not in redacted
+    assert "swordfish" not in redacted
+    assert redacted == "[REDACTED]"
 
 
 @pytest.mark.parametrize(
@@ -503,3 +532,62 @@ def test_pattern_source_without_a_sensitive_pair_is_displayed_unchanged(
     from guard_core._utils.detection_scan import _redact_pattern_source
 
     assert _redact_pattern_source(source) == source
+
+
+def test_builtin_pattern_table_redaction_count() -> None:
+    from guard_core._utils.detection_scan import _redact_pattern_source
+    from guard_core.handlers._suspatterns_pattern_table import _PATTERN_DEFINITIONS
+
+    redacted_categories = []
+    for pattern, _contexts, category in _PATTERN_DEFINITIONS:
+        redacted = _redact_pattern_source(pattern)
+        if redacted == "[REDACTED]":
+            redacted_categories.append(category)
+        else:
+            assert redacted == pattern
+
+    assert len(_PATTERN_DEFINITIONS) == 157
+    assert sorted(redacted_categories) == ["http_split", "recon"]
+
+
+async def test_concurrent_configure_redacts_both_custom_names(  # async-only
+    fresh_legacy_singleton: SusPatternsManager,
+) -> None:
+    from guard_core._utils.detection_scan import _redact_pattern_source
+    from guard_core._utils.penetration_detection import (
+        _ensure_detection_singleton_configured,
+    )
+
+    config_a = SecurityConfig(
+        enable_penetration_detection=True, log_sensitive_headers={"x-secret-a"}
+    )
+    config_b = SecurityConfig(
+        enable_penetration_detection=True, log_sensitive_headers={"x-secret-b"}
+    )
+
+    pattern_a = r"x-secret-a\s*=\s*hunter2aaa"
+    pattern_b = r"x-secret-b\s*=\s*hunter2bbb"
+
+    leaked = []
+
+    async def probe_a(i: int) -> None:
+        _ensure_detection_singleton_configured(config_a)
+        await asyncio.sleep(0)
+        redacted = _redact_pattern_source(pattern_a)
+        if "hunter2aaa" in redacted:
+            leaked.append(("A", i, redacted))
+
+    async def probe_b(i: int) -> None:
+        _ensure_detection_singleton_configured(config_b)
+        await asyncio.sleep(0)
+        redacted = _redact_pattern_source(pattern_b)
+        if "hunter2bbb" in redacted:
+            leaked.append(("B", i, redacted))
+
+    tasks = []
+    for i in range(200):
+        tasks.append(probe_a(i))
+        tasks.append(probe_b(i))
+    await asyncio.gather(*tasks)
+
+    assert leaked == []

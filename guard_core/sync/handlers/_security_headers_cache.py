@@ -6,6 +6,7 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.models import SecurityConfig
 from guard_core.sync._utils.logging_utils import _sanitize_for_log
 
 
@@ -26,12 +27,16 @@ class SecurityHeadersCacheMixin:
     @abstractmethod
     def _validate_header_value(self, value: str) -> str: ...
 
-    def _generate_cache_key(self, request_path: str | None) -> str:
+    def _generate_cache_key(
+        self, request_path: str | None, config: SecurityConfig | None = None
+    ) -> str:
         if not request_path:
-            return "default"
-        normalized = request_path.lower().strip("/")
-        hash_obj = hashlib.sha256(normalized.encode())
-        return f"path_{hash_obj.hexdigest()[:16]}"
+            base = "default"
+        else:
+            normalized = request_path.lower().strip("/")
+            hash_obj = hashlib.sha256(normalized.encode())
+            base = f"path_{hash_obj.hexdigest()[:16]}"
+        return base if config is None else f"cfg_{id(config)}_{base}"
 
     def initialize_redis(self, redis_handler: Any) -> None:
         self.redis_handler = redis_handler

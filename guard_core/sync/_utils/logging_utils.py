@@ -176,11 +176,16 @@ class _YieldToHostRootHandlers(logging.Filter):
         return not logging.getLogger().handlers
 
 
+_OWN_HANDLER_ATTR = "_guard_core_installed"
+
+
 def setup_custom_logging(
     log_file: str | None = None, log_format: str = "text"
 ) -> logging.Logger:
     logger = logging.getLogger("guard_core")
     for handler in logger.handlers[:]:
+        if not getattr(handler, _OWN_HANDLER_ATTR, False):
+            continue
         handler.close()
         logger.removeHandler(handler)
 
@@ -189,6 +194,7 @@ def setup_custom_logging(
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.addFilter(_YieldToHostRootHandlers())
+    setattr(console_handler, _OWN_HANDLER_ATTR, True)
     logger.addHandler(console_handler)
 
     if log_file:
@@ -201,6 +207,7 @@ def setup_custom_logging(
 
             file_handler = logging.FileHandler(log_file)
             file_handler.setFormatter(formatter)
+            setattr(file_handler, _OWN_HANDLER_ATTR, True)
             logger.addHandler(file_handler)
         except Exception as e:
             logger.warning(f"Failed to create log file {log_file}: {e}")

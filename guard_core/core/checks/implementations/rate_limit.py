@@ -264,7 +264,12 @@ class RateLimitCheck(SecurityCheck):
         result: (
             GuardResponse | None
         ) = await self.middleware.rate_limit_handler.check_rate_limit(
-            request, client_ip, self.middleware.create_error_response
+            request,
+            client_ip,
+            self.middleware.create_error_response,
+            rate_limit=self.config.rate_limit,
+            rate_limit_window=self.config.rate_limit_window,
+            config=self.config,
         )
 
         if result is None:

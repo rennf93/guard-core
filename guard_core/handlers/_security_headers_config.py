@@ -4,6 +4,8 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.models import SecurityConfig
+
 
 class SecurityHeadersConfigMixin:
     logger: logging.Logger
@@ -30,27 +32,30 @@ class SecurityHeadersConfigMixin:
         sanitized = "".join(char for char in value if ord(char) >= 32 or char == "\t")
         return sanitized
 
-    def _configure_csp(self, csp: dict[str, list[str]] | None) -> None:
+    def _compute_csp_config(
+        self, csp: dict[str, list[str]] | None
+    ) -> dict[str, list[str]] | None:
         if not csp:
-            self.csp_config = None
-            return
+            return None
 
-        self.csp_config = csp
         for directive, sources in csp.items():
             if "'unsafe-inline'" in sources or "'unsafe-eval'" in sources:
                 self.logger.warning(
                     f"CSP directive '{directive}' contains unsafe sources"
                 )
+        return csp
 
-    def _configure_hsts(
+    def _configure_csp(self, csp: dict[str, list[str]] | None) -> None:
+        self.csp_config = self._compute_csp_config(csp)
+
+    def _compute_hsts_config(
         self,
         hsts_max_age: int | None,
         hsts_include_subdomains: bool,
         hsts_preload: bool,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         if hsts_max_age is None:
-            self.hsts_config = None
-            return
+            return None
 
         if hsts_preload:
             if hsts_max_age < 31536000:
@@ -60,10 +65,43 @@ class SecurityHeadersConfigMixin:
                 self.logger.warning("HSTS preload requires includeSubDomains")
                 hsts_include_subdomains = True
 
-        self.hsts_config = {
+        return {
             "max_age": hsts_max_age,
             "include_subdomains": hsts_include_subdomains,
             "preload": hsts_preload,
+        }
+
+    def _configure_hsts(
+        self,
+        hsts_max_age: int | None,
+        hsts_include_subdomains: bool,
+        hsts_preload: bool,
+    ) -> None:
+        self.hsts_config = self._compute_hsts_config(
+            hsts_max_age, hsts_include_subdomains, hsts_preload
+        )
+
+    def _compute_cors_config(
+        self,
+        cors_origins: list[str] | None,
+        cors_allow_credentials: bool,
+        cors_allow_methods: list[str] | None,
+        cors_allow_headers: list[str] | None,
+    ) -> dict[str, Any] | None:
+        if not cors_origins:
+            return None
+
+        if "*" in cors_origins and cors_allow_credentials:
+            self.logger.error(
+                "CORS config error: Wildcard origin disallowed with credentials"
+            )
+            cors_allow_credentials = False
+
+        return {
+            "origins": cors_origins,
+            "allow_credentials": cors_allow_credentials,
+            "allow_methods": cors_allow_methods or ["GET", "POST"],
+            "allow_headers": cors_allow_headers or ["*"],
         }
 
     def _configure_cors(
@@ -73,31 +111,65 @@ class SecurityHeadersConfigMixin:
         cors_allow_methods: list[str] | None,
         cors_allow_headers: list[str] | None,
     ) -> None:
-        if not cors_origins:
-            self.cors_config = None
-            return
-
-        if "*" in cors_origins and cors_allow_credentials:
-            self.logger.error(
-                "CORS config error: Wildcard origin disallowed with credentials"
-            )
-            cors_allow_credentials = False
-
-        self.cors_config = {
-            "origins": cors_origins,
-            "allow_credentials": cors_allow_credentials,
-            "allow_methods": cors_allow_methods or ["GET", "POST"],
-            "allow_headers": cors_allow_headers or ["*"],
-        }
+        self.cors_config = self._compute_cors_config(
+            cors_origins, cors_allow_credentials, cors_allow_methods, cors_allow_headers
+        )
 
     def _reset_or_apply_header(
-        self, header_name: str, override: str | None, class_default: str
+        self,
+        headers: dict[str, str],
+        header_name: str,
+        override: str | None,
+        class_default: str,
     ) -> None:
-        self.default_headers[header_name] = (
+        headers[header_name] = (
             self._validate_header_value(override)
             if override is not None
             else class_default
         )
+
+    def _compute_default_headers(
+        self,
+        frame_options: str | None,
+        content_type_options: str | None,
+        xss_protection: str | None,
+        referrer_policy: str | None,
+        permissions_policy: str | None,
+    ) -> dict[str, str]:
+        class_defaults = self.__class__.default_headers
+        headers = class_defaults.copy()
+        self._reset_or_apply_header(
+            headers, "X-Frame-Options", frame_options, class_defaults["X-Frame-Options"]
+        )
+        self._reset_or_apply_header(
+            headers,
+            "X-Content-Type-Options",
+            content_type_options,
+            class_defaults["X-Content-Type-Options"],
+        )
+        self._reset_or_apply_header(
+            headers,
+            "X-XSS-Protection",
+            xss_protection,
+            class_defaults["X-XSS-Protection"],
+        )
+        self._reset_or_apply_header(
+            headers,
+            "Referrer-Policy",
+            referrer_policy,
+            class_defaults["Referrer-Policy"],
+        )
+
+        if permissions_policy == "UNSET":
+            headers["Permissions-Policy"] = class_defaults["Permissions-Policy"]
+        elif permissions_policy:
+            headers["Permissions-Policy"] = self._validate_header_value(
+                permissions_policy
+            )
+        else:
+            headers.pop("Permissions-Policy", None)
+
+        return headers
 
     def _update_default_headers(
         self,
@@ -107,41 +179,76 @@ class SecurityHeadersConfigMixin:
         referrer_policy: str | None,
         permissions_policy: str | None,
     ) -> None:
-        class_defaults = self.__class__.default_headers
-        self._reset_or_apply_header(
-            "X-Frame-Options", frame_options, class_defaults["X-Frame-Options"]
-        )
-        self._reset_or_apply_header(
-            "X-Content-Type-Options",
+        self.default_headers = self._compute_default_headers(
+            frame_options,
             content_type_options,
-            class_defaults["X-Content-Type-Options"],
-        )
-        self._reset_or_apply_header(
-            "X-XSS-Protection", xss_protection, class_defaults["X-XSS-Protection"]
-        )
-        self._reset_or_apply_header(
-            "Referrer-Policy", referrer_policy, class_defaults["Referrer-Policy"]
+            xss_protection,
+            referrer_policy,
+            permissions_policy,
         )
 
-        if permissions_policy == "UNSET":
-            self.default_headers["Permissions-Policy"] = class_defaults[
-                "Permissions-Policy"
-            ]
-        elif permissions_policy:
-            self.default_headers["Permissions-Policy"] = self._validate_header_value(
-                permissions_policy
-            )
-        else:
-            self.default_headers.pop("Permissions-Policy", None)
+    def _compute_custom_headers(
+        self, custom_headers: dict[str, str] | None
+    ) -> dict[str, str]:
+        if not custom_headers:
+            return {}
+
+        return {
+            self._validate_header_name(name): self._validate_header_value(value)
+            for name, value in custom_headers.items()
+        }
 
     def _add_custom_headers(self, custom_headers: dict[str, str] | None) -> None:
-        self.custom_headers = {}
-        if not custom_headers:
-            return
+        self.custom_headers = self._compute_custom_headers(custom_headers)
 
-        for name, value in custom_headers.items():
-            validated_name = self._validate_header_name(name)
-            self.custom_headers[validated_name] = self._validate_header_value(value)
+    def _resolve_headers_state(
+        self, config: SecurityConfig | None
+    ) -> tuple[
+        dict[str, list[str]] | None,
+        dict[str, Any] | None,
+        dict[str, str],
+        dict[str, str],
+    ]:
+        if config is None:
+            return (
+                self.csp_config,
+                self.hsts_config,
+                self.default_headers,
+                self.custom_headers,
+            )
+
+        headers_config = config.security_headers or {}
+        hsts_cfg = headers_config.get("hsts") or {}
+
+        csp_config = self._compute_csp_config(headers_config.get("csp"))
+        hsts_config = self._compute_hsts_config(
+            hsts_cfg.get("max_age"),
+            hsts_cfg.get("include_subdomains", True),
+            hsts_cfg.get("preload", False),
+        )
+        default_headers = self._compute_default_headers(
+            headers_config.get("frame_options"),
+            headers_config.get("content_type_options"),
+            headers_config.get("xss_protection"),
+            headers_config.get("referrer_policy"),
+            headers_config.get("permissions_policy", "UNSET"),
+        )
+        custom_headers = self._compute_custom_headers(headers_config.get("custom"))
+
+        return csp_config, hsts_config, default_headers, custom_headers
+
+    def _resolve_cors_state(
+        self, config: SecurityConfig | None
+    ) -> dict[str, Any] | None:
+        if config is None:
+            return self.cors_config
+
+        return self._compute_cors_config(
+            config.cors_allow_origins if config.enable_cors else None,
+            config.cors_allow_credentials,
+            config.cors_allow_methods,
+            config.cors_allow_headers,
+        )
 
     def configure(
         self,

@@ -407,6 +407,26 @@ def test_repeated_setup_does_not_stack_handlers_or_filters() -> None:
     assert logger.level == logging.INFO
 
 
+def test_setup_custom_logging_keeps_a_foreign_handler_across_repeated_setup() -> None:
+    guard_logger = logging.getLogger("guard_core")
+    foreign_handler = _RecordingHandler()
+    guard_logger.addHandler(foreign_handler)
+
+    try:
+        setup_custom_logging(None)
+        logger = setup_custom_logging(None)
+
+        assert foreign_handler in logger.handlers
+        own_handlers = [h for h in logger.handlers if h is not foreign_handler]
+        assert len(own_handlers) == 1
+
+        logger.warning("still-attached")
+        assert len(foreign_handler.records) == 1
+        assert foreign_handler.records[0].getMessage() == "still-attached"
+    finally:
+        guard_logger.removeHandler(foreign_handler)
+
+
 def test_no_duplicate_logs(caplog: pytest.LogCaptureFixture, tmp_path: Any) -> None:
     log_file = tmp_path / "test_no_duplicates.log"
 

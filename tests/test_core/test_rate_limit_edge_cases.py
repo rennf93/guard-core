@@ -450,9 +450,10 @@ async def test_route_rate_limit_passes_path(
         assert call_kwargs["endpoint_path"] == "/api/test"
 
 
-async def test_global_rate_limit_has_no_endpoint_path(
+async def test_global_rate_limit_passes_its_own_config_and_no_endpoint_path(
     rate_limit_check: RateLimitCheck,
     mock_request: Mock,
+    security_config: SecurityConfig,
 ) -> None:
     mock_handler = Mock()
     mock_handler.check_rate_limit = AsyncMock(return_value=None)
@@ -461,8 +462,15 @@ async def test_global_rate_limit_has_no_endpoint_path(
     await rate_limit_check._check_global_rate_limit(mock_request, "1.2.3.4")
 
     mock_handler.check_rate_limit.assert_awaited_once_with(
-        mock_request, "1.2.3.4", rate_limit_check.middleware.create_error_response
+        mock_request,
+        "1.2.3.4",
+        rate_limit_check.middleware.create_error_response,
+        rate_limit=security_config.rate_limit,
+        rate_limit_window=security_config.rate_limit_window,
+        config=security_config,
     )
+    call_kwargs = mock_handler.check_rate_limit.call_args[1]
+    assert "endpoint_path" not in call_kwargs
 
 
 async def test_initialize_redis_noop_when_redis_disabled() -> None:

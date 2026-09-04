@@ -770,19 +770,25 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
     "handlers/_security_headers_cache.py:SecurityHeadersCacheMixin.reset": (
         "line 121: Redis-reset failure, not a request"
     ),
-    "handlers/_security_headers_config.py:SecurityHeadersConfigMixin._configure_cors": (
-        "line 75: CORS config validation error at construction time, not a request"
+    "handlers/_security_headers_config.py:"
+    "SecurityHeadersConfigMixin._compute_cors_config": (
+        "line 95: CORS config validation error at construction time or "
+        "per-config header resolution, not a request"
     ),
-    "handlers/_security_headers_config.py:SecurityHeadersConfigMixin._configure_csp": (
-        "line 37: CSP config validation warning at construction time, not a request"
+    "handlers/_security_headers_config.py:"
+    "SecurityHeadersConfigMixin._compute_csp_config": (
+        "line 43: CSP config validation warning at construction time or "
+        "per-config header resolution, not a request"
     ),
-    "handlers/_security_headers_config.py:SecurityHeadersConfigMixin._configure_hsts": (
-        "lines 52,55: HSTS config validation warnings at construction "
-        "time, not a request"
+    "handlers/_security_headers_config.py:"
+    "SecurityHeadersConfigMixin._compute_hsts_config": (
+        "lines 62,65: HSTS config validation warnings at construction "
+        "time or per-config header resolution, not a request"
     ),
     "handlers/_security_headers_cors.py:"
     "SecurityHeadersCorsMixin._is_wildcard_with_credentials": (
-        "line 14: CORS config validation warning at construction time, not a request"
+        "line 27: CORS config validation warning at construction time or "
+        "per-config header resolution, not a request"
     ),
     "handlers/_suspatterns_regex.py:"
     "_SusPatternsRegexMixin._check_pattern_with_timeout": (

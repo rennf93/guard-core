@@ -56,11 +56,17 @@ def _isolate_detection_singleton() -> Any:
     saved_instance = SusPatternsManager._instance
     saved_config = SusPatternsManager._config
     saved_global = _suspatterns_module.sus_patterns_handler
+    saved_sensitive_headers_union = SusPatternsManager._sensitive_headers_union
+    saved_sensitive_params_union = SusPatternsManager._sensitive_params_union
+    saved_sensitive_body_fields_union = SusPatternsManager._sensitive_body_fields_union
     yield
     handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
+    SusPatternsManager._sensitive_headers_union = saved_sensitive_headers_union
+    SusPatternsManager._sensitive_params_union = saved_sensitive_params_union
+    SusPatternsManager._sensitive_body_fields_union = saved_sensitive_body_fields_union
 
 
 def _restore_submodule_identity(module: Any) -> None:

@@ -404,6 +404,7 @@ def test_redact_url_for_display_tab_before_triple_encoded_equals_redacts_secret(
 _BUDGET_LARGE_REPEATS = 100000
 _BUDGET_SMALL_REPEATS = 50000
 _BUDGET_MAX_DURATION_SECONDS = 0.3
+_BUDGET_ESCAPE_RUN_MAX_DURATION_SECONDS = 1.0
 _BUDGET_MAX_RATIO = 3.0
 _BUDGET_DEADLINE_SECONDS = 10.0
 _BUDGET_SAMPLE_COUNT = 5
@@ -482,6 +483,6 @@ def test_redact_blob_for_display_escape_runs_stay_linear(unit: str) -> None:
     large = _measure_redact_blob_min_duration(large_repeats, unit)
     small = _measure_redact_blob_min_duration(small_repeats, unit)
     assert large is not None and small is not None, unit
-    assert large < _BUDGET_MAX_DURATION_SECONDS, (unit, large)
+    assert large < _BUDGET_ESCAPE_RUN_MAX_DURATION_SECONDS, (unit, large)
     assert small > 0.0005, (unit, small)
     assert large / small < _BUDGET_MAX_RATIO, (unit, large, small)

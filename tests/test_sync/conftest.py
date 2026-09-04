@@ -46,7 +46,7 @@ REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
 
-_DetectionSingletonSnapshot = tuple[Any, Any, Any, Any]
+_DetectionSingletonSnapshot = tuple[Any, Any, Any, Any, Any, Any, Any]
 _detection_singleton_snapshots: dict[int, _DetectionSingletonSnapshot] = {}
 
 
@@ -57,16 +57,30 @@ def _snapshot_detection_singleton() -> _DetectionSingletonSnapshot:
         SusPatternsManager._instance,
         SusPatternsManager._config,
         _suspatterns_module.sus_patterns_handler,
+        SusPatternsManager._sensitive_headers_union,
+        SusPatternsManager._sensitive_params_union,
+        SusPatternsManager._sensitive_body_fields_union,
     )
 
 
 def _restore_detection_singleton(snapshot: _DetectionSingletonSnapshot) -> None:
-    saved_state, saved_instance, saved_config, saved_global = snapshot
+    (
+        saved_state,
+        saved_instance,
+        saved_config,
+        saved_global,
+        saved_sensitive_headers_union,
+        saved_sensitive_params_union,
+        saved_sensitive_body_fields_union,
+    ) = snapshot
     handler = _suspatterns_module.sus_patterns_handler
     handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
+    SusPatternsManager._sensitive_headers_union = saved_sensitive_headers_union
+    SusPatternsManager._sensitive_params_union = saved_sensitive_params_union
+    SusPatternsManager._sensitive_body_fields_union = saved_sensitive_body_fields_union
 
 
 def _restore_submodule_identity(module: Any) -> None:

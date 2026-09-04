@@ -401,8 +401,8 @@ def test_pattern_detected_event_redacts_pattern_matched_for_custom_secret_patter
 
         assert result.is_threat is True
         event = _single_threat_event(mock_agent)
-        assert event.pattern_matched == "password=[REDACTED]"
-        assert event.metadata["pattern"] == "password=[REDACTED]"
+        assert event.pattern_matched == "[REDACTED]"
+        assert event.metadata["pattern"] == "[REDACTED]"
     finally:
         sus_patterns_handler.remove_pattern("password=hunter2", custom=True)
 
