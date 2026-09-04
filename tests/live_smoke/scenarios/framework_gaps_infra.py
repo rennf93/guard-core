@@ -11,7 +11,7 @@ from tests.live_smoke.registry import scenario
 from tests.live_smoke.scenarios.access_control import _build_mmdb
 
 EXCLUDED_HEADERS = ["x-real-ip", "x-forwarded-for"]
-CLIENT_IP = "192.168.65.1"
+CLIENT_IP = "192.168.50.50"
 
 _GEO_HANDLER_HOST_PATH = STACK_DIR / "scenario_data" / "geo_smoke_handler.mmdb"
 GEO_HANDLER_CONTAINER_PATH = "/smoke/geo_smoke_handler.mmdb"

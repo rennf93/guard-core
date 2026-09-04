@@ -6,7 +6,7 @@ from tests.live_smoke.driver import STACK_DIR, ScenarioContext, wait_until
 from tests.live_smoke.registry import scenario
 
 EXCLUDED_HEADERS = ["x-real-ip", "x-forwarded-for"]
-CLIENT_IP = "192.168.65.1"
+CLIENT_IP = "192.168.50.50"
 
 _TYPE_STRING = 2
 _TYPE_UINT16 = 5

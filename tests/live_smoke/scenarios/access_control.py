@@ -4,7 +4,7 @@ from pathlib import Path
 from tests.live_smoke.driver import STACK_DIR, ScenarioContext, wait_until
 from tests.live_smoke.registry import scenario
 
-CLIENT_IP = "192.168.65.1"
+CLIENT_IP = "192.168.50.50"
 EXCLUDED_HEADERS = ["x-real-ip", "x-forwarded-for"]
 
 _TYPE_STRING = 2
