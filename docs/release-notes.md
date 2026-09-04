@@ -10,7 +10,7 @@ Release Notes
 
 ___
 
-v4.0.0 (2026-09-03)
+v4.0.0 (2026-09-04)
 -------------------
 
 Grammar-based secret redaction across log lines and events, expanded detection context coverage, dynamic rules persistence fixes, and thread-safe singleton state (v4.0.0)
