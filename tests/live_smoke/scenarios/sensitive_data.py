@@ -114,7 +114,12 @@ def _agent_events_seen(ctx: ScenarioContext) -> dict[str, Any] | None:
     if response.status_code != 200:
         return None
     state: dict[str, Any] = response.json()
-    return state if state.get("events") else None
+    detections = [
+        event
+        for event in state.get("events", [])
+        if event.get("event_type") == "pattern_detected"
+    ]
+    return state if detections else None
 
 
 def _assert_no_secret_in_telemetry(ctx: ScenarioContext) -> None:

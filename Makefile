@@ -248,6 +248,7 @@ integration-test:
 
 .PHONY: live-smoke
 live-smoke:
+	@mkdir -p tests/live_smoke/stack/wheels && find tests/live_smoke/stack/wheels -name 'guard_core-*.whl' -delete
 	@uv build --wheel --out-dir tests/live_smoke/stack/wheels
 	@uv run python tests/live_smoke/fetch_example_app.py
 	@uv run python tests/live_smoke/patch_example_config.py
