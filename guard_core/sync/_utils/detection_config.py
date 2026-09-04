@@ -98,6 +98,72 @@ def _resolve_excluded_headers(
     return excluded
 
 
+_ADDRESS_HEADER_SKIP_CATEGORIES: frozenset[str] = frozenset({"ssrf"})
+
+_GENERIC_EXCLUDED_HEADER_SKIP_CATEGORIES: frozenset[str] = frozenset()
+
+_HEADER_CATEGORY_EXCLUSIONS: dict[str, frozenset[str]] = {
+    "host": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "origin": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-forwarded-for": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-forwarded-host": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-real-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-client-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-cluster-client-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "cf-connecting-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "true-client-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "fly-client-ip": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "x-envoy-external-address": _ADDRESS_HEADER_SKIP_CATEGORIES,
+    "via": _ADDRESS_HEADER_SKIP_CATEGORIES,
+}
+
+
+def _address_chain_token_is_address(token: str) -> bool:
+    from ipaddress import ip_address
+
+    from guard_core.sync._utils.ip_extraction import _strip_forwarded_entry_port
+
+    try:
+        ip_address(_strip_forwarded_entry_port(token))
+    except ValueError:
+        return False
+    return True
+
+
+def _value_looks_like_address_chain(value: str) -> bool:
+    tokens = [token.strip() for token in value.split(",") if token.strip()]
+    if not tokens:
+        return False
+    return all(_address_chain_token_is_address(token) for token in tokens)
+
+
+def _excluded_header_skip_categories(key: str, value: str) -> frozenset[str]:
+    normalized = key.strip().lower()
+    mapped = _HEADER_CATEGORY_EXCLUSIONS.get(normalized)
+    if mapped is not None:
+        return mapped
+    if _value_looks_like_address_chain(value):
+        return _ADDRESS_HEADER_SKIP_CATEGORIES
+    return _GENERIC_EXCLUDED_HEADER_SKIP_CATEGORIES
+
+
+def _excluded_header_effective_categories(
+    key: str, value: str, enabled_categories: set[str] | None
+) -> set[str] | None:
+    skip = _excluded_header_skip_categories(key, value)
+    if not skip:
+        return enabled_categories
+
+    from guard_core.sync.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
+
+    base = (
+        set(enabled_categories)
+        if enabled_categories is not None
+        else set(ALL_DETECTION_CATEGORIES)
+    )
+    return base - skip
+
+
 def _resolve_log_level(config: "SecurityConfig | None") -> str | None:
     return config.log_suspicious_level if config is not None else "WARNING"
 

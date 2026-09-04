@@ -203,6 +203,14 @@ COVERED_PRODUCERS: dict[str, frozenset[str]] = {
     "core/checks/helpers.py:_try_threshold_ban": frozenset(
         {"suspicious_auto_ban_threshold_1", "blacklist_hit"}
     ),
+    "core/checks/helpers.py:emit_access_denied_event": frozenset(
+        {"route_ip_restricted"}
+    ),
+    "core/checks/helpers.py:emit_authentication_failed_event": frozenset(
+        {"auth_invalid"}
+    ),
+    "core/checks/helpers.py:emit_decorator_event": frozenset({"custom_validator_echo"}),
+    "core/checks/helpers.py:emit_rate_limit_event": frozenset({"rate_limit_exceeded"}),
     "core/checks/helpers.py:escalate_identity_violation": frozenset({"blacklist_hit"}),
     "core/checks/implementations/authentication.py:"
     "AuthenticationCheck._handle_auth_failure": frozenset(
@@ -681,7 +689,9 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
     ),
     "handlers/_dynamic_rule_application.py:"
     "DynamicRuleApplicationMixin._apply_pattern_rules": (
-        "lines 140,144: applying SaaS-pushed suspicious-pattern policy, not a request"
+        "lines 142,147: applying SaaS-pushed suspicious-pattern policy, not a "
+        "request; the logged pattern text is also now redacted via "
+        "_redact_pattern_source, in case a pushed pattern's source is secret-shaped"
     ),
     "handlers/_dynamic_rule_application.py:"
     "DynamicRuleApplicationMixin._apply_rate_limit_rules": (
@@ -776,16 +786,17 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
     ),
     "handlers/_suspatterns_regex.py:"
     "_SusPatternsRegexMixin._check_pattern_with_timeout": (
-        "lines 435,444: interpolates pattern.pattern[:50] (the compiled "
-        "rule text) and ip_address only; the scanned request value is "
-        "never referenced"
+        "lines 439,448: interpolates _redact_pattern_source(pattern.pattern)[:50] "
+        "(the compiled rule text, redacted) and ip_address only; the scanned "
+        "request value is never referenced"
     ),
     "handlers/_suspatterns_regex.py:_SusPatternsRegexMixin._check_regex_pattern": (
-        "line 337: interpolates pattern.pattern[:50] only, never the scanned value"
+        "line 339: interpolates _redact_pattern_source(pattern.pattern)[:50] "
+        "only, never the scanned value"
     ),
     "handlers/_suspatterns_regex.py:_SusPatternsRegexMixin._check_windowed_pattern": (
-        "lines 370,375: interpolates pattern.pattern[:50] and the regex "
-        "engine's own exception text, never the scanned value"
+        "lines 372,379: interpolates _redact_pattern_source(pattern.pattern)[:50] "
+        "and the regex engine's own exception text, never the scanned value"
     ),
     "handlers/_suspatterns_registry.py:_SusPatternsRegistryMixin._send_pattern_event": (
         "lines 53,55: reports on an admin add_pattern/remove_pattern "
@@ -956,6 +967,11 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
     "handlers/_suspatterns_registry.py:_SusPatternsRegistryMixin.initialize_redis": (
         "lines 69,74: Redis-backed pattern-registry initialization "
         "lifecycle log, not a request"
+    ),
+    "handlers/suspatterns_handler.py:_warn_if_legacy_detection": (
+        "line 344: logs the fixed _LEGACY_DETECTION_WARNING deprecation "
+        "text, identical to the stacklevel-3 warnings.warn call two lines "
+        "above; no request in scope, module-level state only"
     ),
     "models.py:SecurityConfig.warn_unknown_fields": (
         "line 139: pydantic model-validator warning about unrecognized "

@@ -16,6 +16,9 @@ from guard_core.sync._utils.body_json_scan import (
     _scan_json_entry_frame,
     _scan_json_value,
 )
+from guard_core.sync._utils.detection_config import (
+    _excluded_header_effective_categories,
+)
 from guard_core.sync._utils.detection_scan import (
     _check_always_scan_header,
     _check_request_component,
@@ -56,8 +59,11 @@ def _non_sensitive_display(
     value: str,
     sensitive_params: frozenset[str],
     sensitive_body_fields: frozenset[str],
+    sensitive_headers: frozenset[str] = frozenset(),
 ) -> tuple[str | None, bool | None]:
-    redacted = redact_blob_for_display(value, sensitive_params, sensitive_body_fields)
+    redacted = redact_blob_for_display(
+        value, sensitive_params, sensitive_body_fields, sensitive_headers
+    )
     if redacted == value:
         return None, None
     return redacted, False
@@ -65,6 +71,7 @@ def _non_sensitive_display(
 
 def _scan_query_param_value(
     key: str,
+    key_preview: str,
     value: str,
     enabled_categories: set[str] | None,
     client_ip: str,
@@ -73,17 +80,23 @@ def _scan_query_param_value(
     sensitive_params: frozenset[str],
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    sensitive_headers: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
-    is_sensitive = key.lower() in sensitive_params
+    normalized_key = key.strip().lower()
+    is_sensitive = (
+        normalized_key in sensitive_params or normalized_key in sensitive_headers
+    )
     content_preview, json_redact_all = (
         ("[REDACTED]", None)
         if is_sensitive
-        else _non_sensitive_display(value, sensitive_params, sensitive_body_fields)
+        else _non_sensitive_display(
+            value, sensitive_params, sensitive_body_fields, sensitive_headers
+        )
     )
     detected, trigger, threats = _check_request_component(
         value,
-        f"query_param:{key}",
-        f"query param '{key}'",
+        f"query_param:{key_preview}",
+        f"query param '{key_preview}'",
         client_ip,
         correlation_id,
         enabled_categories,
@@ -92,10 +105,11 @@ def _scan_query_param_value(
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
         json_redact_all=json_redact_all,
+        sensitive_params=sensitive_params,
     )
     if detected and is_sensitive:
         _log_detected_component(
-            "[REDACTED]", f"query param '{key}'", client_ip, log_level
+            "[REDACTED]", f"query param '{key_preview}'", client_ip, log_level
         )
     return detected, trigger, threats
 
@@ -110,23 +124,29 @@ def _scan_query_params(
     sensitive_params: frozenset[str] = frozenset(),
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
+    sensitive_headers: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     for key, value in request.query_params.items():
         if key.lower() in excluded_params:
             continue
+        key_preview = redact_blob_for_display(
+            key, sensitive_params, sensitive_body_fields, sensitive_headers
+        )
         detected, trigger, threats = _scan_component_name(
             key,
-            f"query_param:{key}",
-            f"query param name '{key}'",
+            f"query_param:{key_preview}",
+            f"query param name '{key_preview}'",
             enabled_categories,
             client_ip,
             correlation_id,
             log_level,
+            content_preview=key_preview,
         )
         if detected:
-            return True, f"Query param name '{key}': {trigger}", threats
+            return True, f"Query param name '{key_preview}': {trigger}", threats
         detected, trigger, threats = _scan_query_param_value(
             key,
+            key_preview,
             value,
             enabled_categories,
             client_ip,
@@ -135,9 +155,10 @@ def _scan_query_params(
             sensitive_params,
             sensitive_body_fields,
             excluded_body_fields,
+            sensitive_headers,
         )
         if detected:
-            return True, f"Query param '{key}': {trigger}", threats
+            return True, f"Query param '{key_preview}': {trigger}", threats
     return False, "", []
 
 
@@ -146,19 +167,43 @@ def _scan_excluded_header_component(
     value: str,
     enabled_categories: set[str] | None,
     client_ip: str,
+    correlation_id: str,
     log_level: str | None,
+    sensitive_params: frozenset[str] = frozenset(),
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    excluded_body_fields: frozenset[str] = frozenset(),
+    sensitive_headers: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
-    if enabled_categories is not None and "cmd_injection" not in enabled_categories:
+    if enabled_categories is None or "cmd_injection" in enabled_categories:
+        detected, trigger, threats = _check_always_scan_header(key)
+        if detected:
+            _log_detected_component(key, f"header name '{key}'", client_ip, log_level)
+            return True, f"Header name '{key}': {trigger}", threats
+        detected, trigger, threats = _check_always_scan_header(value)
+        if detected:
+            display = redact_blob_for_display(
+                value, sensitive_params, sensitive_body_fields, sensitive_headers
+            )
+            _log_detected_component(display, f"header '{key}'", client_ip, log_level)
+            return True, f"Header '{key}': {trigger}", threats
+
+    effective_categories = _excluded_header_effective_categories(
+        key, value, enabled_categories
+    )
+    if effective_categories is not None and not effective_categories:
         return None
-    detected, trigger, threats = _check_always_scan_header(key)
-    if detected:
-        _log_detected_component(key, f"header name '{key}'", client_ip, log_level)
-        return True, f"Header name '{key}': {trigger}", threats
-    detected, trigger, threats = _check_always_scan_header(value)
-    if detected:
-        _log_detected_component(value, f"header '{key}'", client_ip, log_level)
-        return True, f"Header '{key}': {trigger}", threats
-    return None
+    return _scan_normal_header_component(
+        key,
+        value,
+        effective_categories,
+        client_ip,
+        correlation_id,
+        log_level,
+        sensitive_body_fields=sensitive_body_fields,
+        excluded_body_fields=excluded_body_fields,
+        sensitive_params=sensitive_params,
+        sensitive_headers=sensitive_headers,
+    )
 
 
 def _scan_normal_header_component(
@@ -172,6 +217,7 @@ def _scan_normal_header_component(
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
     sensitive_params: frozenset[str] = frozenset(),
+    sensitive_headers: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
     detected, trigger, threats = _scan_component_name(
         key,
@@ -187,7 +233,7 @@ def _scan_normal_header_component(
     json_redact_all = None
     if content_preview is None:
         content_preview, json_redact_all = _non_sensitive_display(
-            value, sensitive_params, sensitive_body_fields
+            value, sensitive_params, sensitive_body_fields, sensitive_headers
         )
     detected, trigger, threats = _check_request_component(
         value,
@@ -201,6 +247,7 @@ def _scan_normal_header_component(
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
         json_redact_all=json_redact_all,
+        sensitive_params=sensitive_params,
     )
     if detected:
         return True, f"Header '{key}': {trigger}", threats
@@ -220,7 +267,14 @@ def _scan_sensitive_header(
 ) -> tuple[bool, str, list[dict]] | None:
     if key.strip().lower() in excluded_headers:
         hit = _scan_excluded_header_component(
-            key, value, enabled_categories, client_ip, None
+            key,
+            value,
+            enabled_categories,
+            client_ip,
+            correlation_id,
+            None,
+            sensitive_body_fields=sensitive_body_fields,
+            excluded_body_fields=excluded_body_fields,
         )
     else:
         hit = _scan_normal_header_component(
@@ -266,7 +320,16 @@ def _scan_headers(
             )
         elif key.strip().lower() in excluded_headers:
             hit = _scan_excluded_header_component(
-                key, value, enabled_categories, client_ip, log_level
+                key,
+                value,
+                enabled_categories,
+                client_ip,
+                correlation_id,
+                log_level,
+                sensitive_params,
+                sensitive_body_fields,
+                excluded_body_fields,
+                sensitive_headers,
             )
         else:
             hit = _scan_normal_header_component(
@@ -279,6 +342,7 @@ def _scan_headers(
                 sensitive_body_fields=sensitive_body_fields,
                 excluded_body_fields=excluded_body_fields,
                 sensitive_params=sensitive_params,
+                sensitive_headers=sensitive_headers,
             )
         if hit is not None:
             return hit
@@ -317,6 +381,7 @@ def _scan_body_field(
         enabled_categories,
         None if log_value is not None else log_level,
         content_preview=log_value,
+        sensitive_params=sensitive_params,
     )
     if not detected:
         return False, "", []

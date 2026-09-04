@@ -2,6 +2,9 @@ from typing import Any
 
 from guard_core._utils.detection_scan import _scan_component_name
 
+_FORM_FIELD_CONTEXT = "request_body:form_field"
+_MULTIPART_FIELD_CONTEXT = "request_body:multipart_field"
+
 
 async def _scan_form_body(
     raw_body: str,
@@ -41,6 +44,7 @@ async def _scan_form_body(
             correlation_id,
             log_level,
             sensitive_body_fields,
+            context=_FORM_FIELD_CONTEXT,
             sensitive_params=sensitive_params,
         )
         if hit[0]:
@@ -57,6 +61,8 @@ def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
     if filename is not None:
         sanitized_filename = filename.replace('"', "").replace("'", "")
         entries.append((exclusion_key, label, f'filename="{sanitized_filename}"'))
+    for header_name, header_value in part.items():
+        entries.append((exclusion_key, label, f"{header_name}: {header_value}"))
     payload = getattr(part, "_payload", None)
     if isinstance(payload, str):
         entries.append((exclusion_key, label, payload))
@@ -116,6 +122,7 @@ async def _scan_multipart_part(
         correlation_id,
         log_level,
         sensitive_body_fields,
+        context=_MULTIPART_FIELD_CONTEXT,
         sensitive_params=sensitive_params,
     )
     if hit[0]:

@@ -75,13 +75,14 @@ async def _scan_capped_json_subtree(
     sensitive_body_fields: frozenset[str] = frozenset(),
     context: str = "request_body",
     preview_override: str | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     from guard_core._utils.body_content_scan import _scan_body_field
 
     _warn_json_depth_cap_reached_once(client_ip)
     serialized = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
     redacted = _redact_sensitive_json(
-        value, sensitive_body_fields, _json_depth_cap_value()
+        value, sensitive_params, sensitive_body_fields, _json_depth_cap_value()
     )
     display = json.dumps(redacted, separators=(",", ":"), ensure_ascii=False)
     return await _scan_body_field(
@@ -112,6 +113,7 @@ async def _scan_json_container_frame(
     sensitive_body_fields: frozenset[str] = frozenset(),
     context: str = "request_body",
     preview_override: str | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]] | None:
     if depth >= max_depth:
         capped_preview = (
@@ -129,6 +131,7 @@ async def _scan_json_container_frame(
             sensitive_body_fields,
             context,
             capped_preview,
+            sensitive_params,
         )
         return hit if hit[0] else None
     if isinstance(current, dict):
@@ -232,6 +235,7 @@ async def _scan_json_value(
                 sensitive_body_fields,
                 context,
                 preview_override,
+                sensitive_params,
             )
             if hit is not None:
                 return hit

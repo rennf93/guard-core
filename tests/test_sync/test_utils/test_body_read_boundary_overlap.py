@@ -43,6 +43,7 @@ def _fake_component_check(
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
     json_redact_all: bool | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict], str | None]:
     if _MAGIC in value:
         return (

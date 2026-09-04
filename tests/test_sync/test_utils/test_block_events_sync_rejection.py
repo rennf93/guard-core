@@ -7,6 +7,7 @@ import pytest
 from guard_core.sync._utils.block_events import (
     ON_BLOCK_EXCLUDED_CHECK_NAMES,
     fire_block_hook,
+    invoke_block_hook,
 )
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
 from tests.test_sync.conftest import SyncMockGuardRequest
@@ -15,6 +16,12 @@ from tests.test_sync.conftest import SyncMockGuardRequest
 class AwaitableSignal:
     def __await__(self) -> Iterator[None]:
         return iter(())
+
+
+def test_sync_invoke_block_hook_with_no_hook_is_a_total_no_op() -> None:
+    request = SyncMockGuardRequest(path="/a", method="POST", client_host="10.0.0.1")
+
+    invoke_block_hook(None, request, {})
 
 
 def test_sync_fire_block_hook_rejects_awaitable_hook() -> None:

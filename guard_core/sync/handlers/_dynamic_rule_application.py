@@ -1,7 +1,18 @@
 from typing import Any
 
 from guard_core.models import VALID_CLOUD_PROVIDERS, DynamicRules, SecurityConfig
+from guard_core.sync._utils.detection_scan import _redact_pattern_source
 from guard_core.sync.handlers._dynamic_rule_events import DynamicRuleEventSenderMixin
+
+
+def _redact_pattern_list(patterns: list[str]) -> list[str]:
+    return [_redact_pattern_source(pattern) for pattern in patterns]
+
+
+def _redact_rejected_patterns(
+    rejected: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    return [(_redact_pattern_source(pattern), reason) for pattern, reason in rejected]
 
 
 class DynamicRuleApplicationMixin(DynamicRuleEventSenderMixin):
@@ -126,20 +137,26 @@ class DynamicRuleApplicationMixin(DynamicRuleEventSenderMixin):
         if rejected:
             self.logger.warning(
                 f"Dynamic rule: rejected blocked_user_agents patterns failing the "
-                f"ReDoS validator: {rejected}"
+                f"ReDoS validator: {_redact_rejected_patterns(rejected)}"
             )
-        self.logger.info(f"Dynamic rule: Blocked user agents {valid}")
+        self.logger.info(
+            f"Dynamic rule: Blocked user agents {_redact_pattern_list(valid)}"
+        )
 
     def _apply_pattern_rules(self, patterns: list[str]) -> None:
         from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
         added = [p for p in patterns if sus_patterns_handler.add_pattern(p)]
         if added:
-            self.logger.info(f"Dynamic rule: Added suspicious patterns {added}")
+            self.logger.info(
+                f"Dynamic rule: Added suspicious patterns {_redact_pattern_list(added)}"
+            )
 
         rejected = [p for p in patterns if p not in added]
         if rejected:
-            self.logger.warning(f"Dynamic rule: rejected patterns {rejected}")
+            self.logger.warning(
+                f"Dynamic rule: rejected patterns {_redact_pattern_list(rejected)}"
+            )
 
     def _apply_feature_toggles(self, rules: DynamicRules) -> None:
         if rules.enable_penetration_detection is not None:

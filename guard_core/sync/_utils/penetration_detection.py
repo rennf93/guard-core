@@ -65,12 +65,13 @@ def _scan_request_surface(
         sensitive_params,
         sensitive_body_fields,
         excluded_body_fields,
+        sensitive_headers,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
 
     redacted_url_path = redact_url_for_display(
-        request.url_path, sensitive_params, sensitive_body_fields
+        request.url_path, sensitive_params, sensitive_body_fields, sensitive_headers
     )
     detected, trigger, threats = _check_request_component(
         request.url_path,

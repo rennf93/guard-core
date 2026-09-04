@@ -328,6 +328,7 @@ TEST_SKIP_DIRS = {
     "attack_simulation",
     "detection_gate",
     "live_smoke",
+    "redaction_gate",
 }
 
 

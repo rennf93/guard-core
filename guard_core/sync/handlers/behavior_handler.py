@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import threading
 import time
@@ -10,6 +9,7 @@ from cachetools import TTLCache
 
 from guard_core.models import BehaviorRuleConfig, SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.identity_hash import _hash_identity_segment
 from guard_core.sync._utils.lru_store import _lru_pop_or_create
 from guard_core.sync.handlers._behavior_action_dispatch import (
     BehaviorActionDispatchMixin,
@@ -47,10 +47,6 @@ class BehaviorRule:
         self.custom_action = custom_action
         self.ban_duration = ban_duration
         self.correlate_with_detection = correlate_with_detection
-
-
-def _hash_identity_segment(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
 
 
 _MAX_TRACKED_ENDPOINTS = 10_000

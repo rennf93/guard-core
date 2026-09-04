@@ -1659,32 +1659,84 @@ def test_redact_sensitive_query_params_query_value_space_round_trips_through_plu
 
 
 def test_redact_sensitive_json_max_depth_one_redacts_entire_value() -> None:
-    assert _redact_sensitive_json({"a": 1}, frozenset(), 1) == "[REDACTED]"
+    assert _redact_sensitive_json({"a": 1}, frozenset(), frozenset(), 1) == "[REDACTED]"
 
 
 def test_redact_sensitive_json_container_at_cap_depth_collapses_to_redacted() -> None:
     value = {"a": {"b": {"c": 1}}}
-    assert _redact_sensitive_json(value, frozenset(), 2) == {"a": "[REDACTED]"}
+    assert _redact_sensitive_json(value, frozenset(), frozenset(), 2) == {
+        "a": "[REDACTED]"
+    }
 
 
 def test_redact_sensitive_json_container_below_cap_depth_expands_normally() -> None:
     value = {"a": {"b": 1}}
-    assert _redact_sensitive_json(value, frozenset(), 3) == {"a": {"b": 1}}
+    assert _redact_sensitive_json(value, frozenset(), frozenset(), 3) == {"a": {"b": 1}}
 
 
 def test_redact_sensitive_json_list_beyond_cap_collapses_to_redacted() -> None:
-    assert _redact_sensitive_json([1, [2, 3]], frozenset(), 2) == [1, "[REDACTED]"]
+    result = _redact_sensitive_json([1, [2, 3]], frozenset(), frozenset(), 2)
+    assert result == [1, "[REDACTED]"]
 
 
 def test_redact_sensitive_json_sensitive_key_inside_list_item_redacted() -> None:
     value = {"items": [{"password": "S"}]}
-    result = _redact_sensitive_json(value, frozenset({"password"}), 10)
+    result = _redact_sensitive_json(value, frozenset(), frozenset({"password"}), 10)
     assert result == {"items": [{"password": "[REDACTED]"}]}
 
 
 def test_redact_sensitive_json_scalar_value_returned_unchanged() -> None:
-    assert _redact_sensitive_json("plain", frozenset(), 10) == "plain"
-    assert _redact_sensitive_json(42, frozenset(), 10) == 42
+    assert _redact_sensitive_json("plain", frozenset(), frozenset(), 10) == "plain"
+    assert _redact_sensitive_json(42, frozenset(), frozenset(), 10) == 42
+
+
+def test_redact_sensitive_json_string_leaf_non_json_shaped_value_unchanged() -> None:
+    result = _redact_sensitive_json(
+        {"note": "plain text"}, frozenset({"password"}), frozenset(), 10
+    )
+    assert result == {"note": "plain text"}
+
+
+def test_redact_sensitive_json_string_leaf_invalid_nested_json_falls_back() -> None:
+    result = _redact_sensitive_json(
+        {"note": "{not valid json"}, frozenset({"password"}), frozenset(), 10
+    )
+    assert result == {"note": "{not valid json"}
+
+
+def test_redact_sensitive_json_string_leaf_nested_json_sensitive_key_redacted() -> None:
+    result = _redact_sensitive_json(
+        {"note": '{"password": "SECRET"}'}, frozenset(), frozenset({"password"}), 10
+    )
+    assert result == {"note": '{"password":"[REDACTED]"}'}
+
+
+def test_redact_sensitive_json_string_leaf_nested_json_no_sensitive_key_unchanged() -> (
+    None
+):
+    text = '{"note": "plain"}'
+    result = _redact_sensitive_json(
+        {"note": text}, frozenset({"password"}), frozenset(), 10
+    )
+    assert result == {"note": text}
+
+
+def test_redact_sensitive_json_string_leaf_percent_encoded_nested_json_redacted() -> (
+    None
+):
+    value = "%7B%22password%22%3A%22SECRET%22%7D"
+    result = _redact_sensitive_json(
+        {"note": value}, frozenset(), frozenset({"password"}), 10
+    )
+    assert result == {"note": '{"password":"[REDACTED]"}'}
+
+
+def test_redact_sensitive_json_percent_encoded_value_not_nested_json() -> None:
+    value = "%68ello"
+    result = _redact_sensitive_json(
+        {"note": value}, frozenset({"password"}), frozenset(), 10
+    )
+    assert result == {"note": value}
 
 
 def _nested_json_text(depth: int, key: str, leaf: dict[str, str]) -> str:

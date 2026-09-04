@@ -37,6 +37,7 @@ def build_block_payload(
     status_code: int | None,
     sensitive_params: frozenset[str] | None = None,
     sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     from guard_core._utils.request_logging import redact_url_for_display
 
@@ -55,7 +56,7 @@ def build_block_payload(
         "passive_mode": passive_mode,
         "client_ip": client_ip,
         "path": redact_url_for_display(
-            request.url_path, sensitive_params, sensitive_body_fields
+            request.url_path, sensitive_params, sensitive_body_fields, sensitive_headers
         ),
         "method": request.method,
         "status_code": status_code,
@@ -72,6 +73,7 @@ async def fire_block_hook(
     status_code: int | None,
     sensitive_params: frozenset[str] | None = None,
     sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
 ) -> None:
     if hook is None or check_name in ON_BLOCK_EXCLUDED_CHECK_NAMES:
         return
@@ -84,5 +86,6 @@ async def fire_block_hook(
         status_code,
         sensitive_params,
         sensitive_body_fields,
+        sensitive_headers,
     )
     await invoke_block_hook(hook, request, payload)

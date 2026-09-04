@@ -44,7 +44,6 @@ def test_ipban_reset_global_state() -> None:
 
 
 def test_ratelimit_popleft_stale_timestamps() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     old_time = time.time() - 120
@@ -361,6 +360,7 @@ def test_utils_detect_penetration_header_match() -> None:
             sensitive_body_fields: frozenset[str] = frozenset(),
             excluded_body_fields: frozenset[str] = frozenset(),
             json_redact_all: bool | None = None,
+            sensitive_params: frozenset[str] = frozenset(),
         ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1

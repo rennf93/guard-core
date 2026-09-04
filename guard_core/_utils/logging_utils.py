@@ -1,7 +1,12 @@
+import json
 import logging
 from typing import Any
 
+from guard_core._utils.pair_value_scan import _bounded_percent_decode
+
 logger = logging.getLogger("guard_core")
+
+_JSON_LEAF_START_CHARS = frozenset("{[")
 
 
 def _sanitize_for_log(value: str) -> str:
@@ -21,17 +26,73 @@ def _sanitize_for_reporting(value: str) -> str:
     )
 
 
+def _nested_json_leaf_candidate(value: str) -> str | None:
+    if value[:1] in _JSON_LEAF_START_CHARS:
+        return value
+    if value[:1] != "%":
+        return None
+    decoded = _bounded_percent_decode(value)
+    return decoded if decoded[:1] in _JSON_LEAF_START_CHARS else None
+
+
+def _try_redact_nested_json_leaf(
+    value: str,
+    leaf_sensitive: frozenset[str],
+    sensitive_body_fields: frozenset[str],
+    max_depth: int,
+) -> str | None:
+    candidate = _nested_json_leaf_candidate(value)
+    if candidate is None:
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except ValueError:
+        return None
+    redacted = _redact_sensitive_json(
+        parsed, leaf_sensitive, sensitive_body_fields, max_depth
+    )
+    if redacted == parsed:
+        return None
+    return json.dumps(redacted, separators=(",", ":"), ensure_ascii=False)
+
+
+def _redact_json_string_leaf(
+    value: str,
+    leaf_sensitive: frozenset[str],
+    sensitive_body_fields: frozenset[str],
+    max_depth: int,
+) -> str:
+    from guard_core._utils.pair_redaction import _redact_pairs_in_text
+    from guard_core._utils.request_logging import _redact_xml_elements
+
+    nested_json = _try_redact_nested_json_leaf(
+        value, leaf_sensitive, sensitive_body_fields, max_depth
+    )
+    if nested_json is not None:
+        return nested_json
+
+    xml_redacted = _redact_xml_elements(value, leaf_sensitive)
+    return _redact_pairs_in_text(
+        xml_redacted, leaf_sensitive, sensitive_body_fields, max_depth
+    )
+
+
 def _redact_json_child(
     key: Any,
     item: Any,
     source_is_dict: bool,
     depth: int,
     max_depth: int,
+    leaf_sensitive: frozenset[str],
     sensitive_body_fields: frozenset[str],
     stack: list[tuple[Any, Any, int]],
 ) -> Any:
     if source_is_dict and str(key).lower() in sensitive_body_fields:
         return "[REDACTED]"
+    if isinstance(item, str):
+        return _redact_json_string_leaf(
+            item, leaf_sensitive, sensitive_body_fields, max_depth
+        )
     if not isinstance(item, dict | list):
         return item
     child_depth = depth + 1
@@ -43,12 +104,16 @@ def _redact_json_child(
 
 
 def _redact_sensitive_json(
-    value: Any, sensitive_body_fields: frozenset[str], max_depth: int
+    value: Any,
+    sensitive: frozenset[str],
+    sensitive_body_fields: frozenset[str],
+    max_depth: int,
 ) -> Any:
     if not isinstance(value, dict | list):
         return value
     if max_depth <= 1:
         return "[REDACTED]"
+    leaf_sensitive = sensitive | sensitive_body_fields
     root: Any = {} if isinstance(value, dict) else []
     stack: list[tuple[Any, Any, int]] = [(value, root, 1)]
     while stack:
@@ -62,6 +127,7 @@ def _redact_sensitive_json(
                 source_is_dict,
                 depth,
                 max_depth,
+                leaf_sensitive,
                 sensitive_body_fields,
                 stack,
             )

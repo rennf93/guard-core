@@ -535,6 +535,7 @@ def test_resolve_sensitive_log_body_fields_with_config_extras() -> None:
 def test_redact_sensitive_json_int_key_kept_and_string_key_redacted() -> None:
     result = _redact_sensitive_json(
         {1: "keep-me", "password": _SQLI_PAYLOAD},
+        frozenset(),
         frozenset({"password"}),
         _json_depth_cap_value(),
     )

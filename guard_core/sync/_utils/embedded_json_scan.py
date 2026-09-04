@@ -25,12 +25,17 @@ def _parse_embedded_json(value: str, client_ip: str) -> Any | None:
 
 
 def _embedded_json_display(
-    data: Any, sensitive_body_fields: frozenset[str], redact_all: bool
+    data: Any,
+    sensitive_body_fields: frozenset[str],
+    redact_all: bool,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> str:
     if redact_all:
         return "[REDACTED]"
     return json.dumps(
-        _redact_sensitive_json(data, sensitive_body_fields, _json_depth_cap_value()),
+        _redact_sensitive_json(
+            data, sensitive_params, sensitive_body_fields, _json_depth_cap_value()
+        ),
         separators=(",", ":"),
         ensure_ascii=False,
     )
@@ -45,6 +50,7 @@ def _check_embedded_json(
     excluded_body_fields: frozenset[str],
     sensitive_body_fields: frozenset[str],
     redact_all: bool,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict], str | None] | None:
     data = _parse_embedded_json(value, client_ip)
     if data is None:
@@ -62,9 +68,12 @@ def _check_embedded_json(
         context=context,
         preview_override="[REDACTED]" if redact_all else None,
         redact_keys=redact_all,
+        sensitive_params=sensitive_params,
     )
     if not detected:
         return False, "", [], None
 
-    display = _embedded_json_display(data, sensitive_body_fields, redact_all)
+    display = _embedded_json_display(
+        data, sensitive_body_fields, redact_all, sensitive_params
+    )
     return True, trigger, threats, display

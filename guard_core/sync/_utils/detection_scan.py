@@ -117,15 +117,31 @@ def _warn_json_depth_cap_reached_once(client_ip: str) -> None:
     )
 
 
+def _redact_pattern_source(pattern_source: str) -> str:
+    from guard_core.sync._utils.request_logging import redact_blob_for_display
+    from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
+
+    config = sus_patterns_handler._config
+    return redact_blob_for_display(
+        pattern_source,
+        getattr(config, "log_sensitive_params", None),
+        getattr(config, "log_sensitive_body_fields", None),
+        getattr(config, "log_sensitive_headers", None),
+    )
+
+
 def _build_threat_message(threat: dict[str, Any]) -> str:
     if threat["type"] == "regex":
-        return f"Value matched pattern '{threat['pattern']}'"
+        return f"Value matched pattern '{_redact_pattern_source(threat['pattern'])}'"
     elif threat["type"] == "semantic":
         attack_type = threat.get("attack_type", "suspicious")
         score = threat.get("probability", threat.get("threat_score", 0))
         return f"Semantic attack: {attack_type} (score: {score:.2f})"
     elif threat["type"] == "pattern_timeout":
-        return f"Pattern exceeded scan time budget: '{threat['pattern']}'"
+        return (
+            f"Pattern exceeded scan time budget: "
+            f"'{_redact_pattern_source(threat['pattern'])}'"
+        )
     return "Threat detected"
 
 
@@ -167,7 +183,7 @@ def _fallback_pattern_check(
                 "Fallback pattern search hit the regex engine's recursion "
                 "limit on pattern %r; skipping it and continuing the "
                 "fallback scan",
-                pattern.pattern,
+                _redact_pattern_source(pattern.pattern),
             )
             continue
         if threat:
@@ -194,6 +210,7 @@ def _check_embedded_json_if_applicable(
     sensitive_body_fields: frozenset[str],
     excluded_body_fields: frozenset[str],
     json_redact_all: bool | None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict], str | None] | None:
     if not scan_embedded_json or context == "request_body":
         return None
@@ -209,6 +226,7 @@ def _check_embedded_json_if_applicable(
         excluded_body_fields,
         sensitive_body_fields,
         redact_all=_resolve_json_redact_all(content_preview, json_redact_all),
+        sensitive_params=sensitive_params,
     )
     if json_result is None or not json_result[0]:
         return None
@@ -226,6 +244,7 @@ def _check_value_enhanced(
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
     json_redact_all: bool | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict], str | None]:
     from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
@@ -243,6 +262,7 @@ def _check_value_enhanced(
         sensitive_body_fields,
         excluded_body_fields,
         json_redact_all,
+        sensitive_params,
     )
     if json_hit is not None:
         return json_hit
@@ -302,6 +322,7 @@ def _check_request_component(
     sensitive_body_fields: frozenset[str] = frozenset(),
     excluded_body_fields: frozenset[str] = frozenset(),
     json_redact_all: bool | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> tuple[bool, str, list[dict]]:
     detected, trigger, threats, log_override = _check_value_enhanced(
         value,
@@ -314,6 +335,7 @@ def _check_request_component(
         sensitive_body_fields=sensitive_body_fields,
         excluded_body_fields=excluded_body_fields,
         json_redact_all=json_redact_all,
+        sensitive_params=sensitive_params,
     )
     if detected:
         fallback = content_preview if content_preview is not None else value
@@ -362,5 +384,8 @@ def _check_always_scan_header(value: str) -> tuple[bool, str, list[dict]]:
                 "position": match.start(),
                 "category": "cmd_injection",
             }
-            return True, f"Value matched pattern '{pattern.pattern}'", [threat]
+            trigger = (
+                f"Value matched pattern '{_redact_pattern_source(pattern.pattern)}'"
+            )
+            return True, trigger, [threat]
     return False, "", []

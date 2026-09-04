@@ -218,3 +218,7 @@ tests/live_smoke/stack/wheels/*.whl
 tests/live_smoke/stack/scenario_data/*
 !tests/live_smoke/stack/scenario_data/.keep
 tests/live_smoke/live-smoke-report/
+
+# redaction harness outputs written into the tree by tests/redaction_gate
+tests/redaction_gate/genprobe_results.json
+tests/redaction_gate/scenario_tmp/

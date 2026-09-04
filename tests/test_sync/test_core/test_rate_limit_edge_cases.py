@@ -264,6 +264,76 @@ def test_check_geo_rate_limit_no_country(
         assert result == response
 
 
+def test_check_geo_rate_limit_exceeded_without_decorator_uses_event_bus(
+    rate_limit_check: RateLimitCheck,
+    mock_middleware: Mock,
+    mock_request: Mock,
+    security_config: SecurityConfig,
+) -> None:
+    geo_handler = Mock()
+    geo_handler.get_country.return_value = "US"
+    security_config.geo_ip_handler = geo_handler
+    mock_middleware.rate_limit_handler.check_rate_limit = MagicMock(
+        return_value=Mock(status_code=429)
+    )
+
+    route_config = Mock()
+    route_config.geo_rate_limits = {"US": (10, 60)}
+
+    result = rate_limit_check._check_geo_rate_limit(
+        mock_request, "1.2.3.4", route_config
+    )
+
+    assert result is not None
+    mock_middleware.event_bus.send_middleware_event.assert_called_once()
+    call_kwargs = mock_middleware.event_bus.send_middleware_event.call_args[1]
+    assert call_kwargs["decorator_type"] == "geo_rate_limiting"
+    assert call_kwargs["violation_type"] == "geo_rate_limit"
+    assert call_kwargs["rate_limit"] == 10
+    assert call_kwargs["window"] == 60
+
+
+def test_check_geo_rate_limit_exceeded_with_decorator_uses_send_decorator_event(
+    rate_limit_check: RateLimitCheck,
+    mock_middleware: Mock,
+    security_config: SecurityConfig,
+) -> None:
+    from guard_core.sync.core.routing.context import RoutingContext
+    from guard_core.sync.core.routing.resolver import RouteConfigResolver
+    from guard_core.sync.decorators.base import BaseSecurityDecorator
+    from tests.test_sync.conftest import SyncMockGuardRequest
+
+    geo_handler = Mock()
+    geo_handler.get_country.return_value = "US"
+    security_config.geo_ip_handler = geo_handler
+    mock_middleware.rate_limit_handler.check_rate_limit = MagicMock(
+        return_value=Mock(status_code=429)
+    )
+
+    decorator = BaseSecurityDecorator(security_config)
+    recording_agent = MagicMock()
+    decorator.initialize_agent(recording_agent)
+    mock_middleware.route_resolver = RouteConfigResolver(
+        RoutingContext(config=security_config, logger=Mock(), guard_decorator=decorator)
+    )
+
+    route_config = Mock()
+    route_config.geo_rate_limits = {"US": (10, 60)}
+    request = SyncMockGuardRequest(client_host="1.2.3.4")
+
+    result = rate_limit_check._check_geo_rate_limit(request, "1.2.3.4", route_config)
+
+    assert result is not None
+    mock_middleware.event_bus.send_middleware_event.assert_not_called()
+    recording_agent.send_event.assert_called_once()
+    event = recording_agent.send_event.call_args[0][0]
+    assert event.event_type == "decorator_violation"
+    assert event.decorator_type == "geo_rate_limiting"
+    assert event.metadata["violation_type"] == "geo_rate_limit"
+    assert event.metadata["rate_limit"] == 10
+    assert event.metadata["window"] == 60
+
+
 def test_check_returns_geo_rate_limit_response(
     rate_limit_check: RateLimitCheck,
     mock_request: Mock,
@@ -324,6 +394,27 @@ def test_endpoint_rate_limit_passes_path(
         )
         call_kwargs = mock_apply.call_args[1]
         assert call_kwargs["endpoint_path"] == "/api/test"
+
+
+def test_endpoint_rate_limit_redacts_sensitive_endpoint_path(
+    rate_limit_check: RateLimitCheck,
+    mock_request: Mock,
+    security_config: SecurityConfig,
+) -> None:
+    secret_path = "/resource;token=super-secret-value"
+    security_config.endpoint_rate_limits = {secret_path: (5, 60)}
+    security_config.log_sensitive_params = frozenset({"token"})
+
+    with patch.object(rate_limit_check, "_apply_rate_limit_check") as mock_apply:
+        mock_apply.return_value = None
+        rate_limit_check._check_endpoint_rate_limit(
+            mock_request, "1.2.3.4", secret_path
+        )
+        call_args, call_kwargs = mock_apply.call_args
+        event_kwargs = call_args[5]
+        assert "super-secret-value" not in event_kwargs["reason"]
+        assert "super-secret-value" not in event_kwargs["endpoint"]
+        assert call_kwargs["endpoint_path"] == secret_path
 
 
 def test_route_rate_limit_passes_path(
