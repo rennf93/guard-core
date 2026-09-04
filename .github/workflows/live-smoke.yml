@@ -21,6 +21,17 @@ jobs:
   live-smoke:
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -57,6 +68,7 @@ jobs:
           docker compose -p guard-core-live-smoke up --build --wait
 
       - name: Run the live-smoke driver
+        shell: bash
         env:
           LIVE_SMOKE: '1'
           LIVE_SMOKE_BASELINE: ${{ github.event.inputs.baseline }}
