@@ -38,15 +38,15 @@ What it's useful for
 
 It catches the HTTP-layer attacks an automated, AI-orchestrated attacker runs at scale:
 
-- **Polymorphic payloads** — variation-based SQLi/XSS that defeats signature WAFs (token-overlap scoring catches them)
-- **Reconnaissance** — endpoint enumeration, 404 spam, honeypot probing, banner grabbing
-- **Distributed attacks** — when paired with behavioral patterns enabled (per-IP rate limits alone are not enough)
-- **Known bad actors** — country/cloud/tor blocking, IP reputation
-- **Layer-7 abuse** — auto-ban thresholds, custom rate limits per route, CORS enforcement, security headers
+- **Polymorphic payloads**, variation-based SQLi/XSS that defeats signature WAFs (token-overlap scoring catches them)
+- **Reconnaissance**, endpoint enumeration, 404 spam, honeypot probing, banner grabbing
+- **Distributed attacks**, when paired with behavioral patterns enabled (per-IP rate limits alone are not enough)
+- **Known bad actors**, country/cloud/tor blocking, IP reputation
+- **Layer-7 abuse**, auto-ban thresholds, custom rate limits per route, CORS enforcement, security headers
 
-It does **not** cover prompt injection against LLM endpoints, model-output exfiltration, application-logic vulnerabilities (auth bypass, IDOR, business-logic flaws), or network-layer DDoS — those are out-of-scope by design and belong to other layers of your stack.
+It does **not** cover prompt injection against LLM endpoints, model-output exfiltration, application-logic vulnerabilities (auth bypass, IDOR, business-logic flaws), or network-layer DDoS, those are out-of-scope by design and belong to other layers of your stack.
 
-If you're integrating into FastAPI, jump straight to the [**fastapi-guard Integration Guide**](https://rennf93.github.io/fastapi-guard/latest/tutorial/integration/) — it has the decision tree across standalone / SaaS / encrypted-SaaS paths and the common pitfalls.
+If you're integrating into FastAPI, jump straight to the [**fastapi-guard Integration Guide**](https://rennf93.github.io/fastapi-guard/latest/tutorial/integration/), it has the decision tree across standalone / SaaS / encrypted-SaaS paths and the common pitfalls.
 
 ___
 

@@ -315,7 +315,7 @@ async def test_full_pipeline_direct_send_respects_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Simulate a subsystem (handler/decorator) calling agent_handler.send_event
-    directly — the composite must still apply the mute filter.
+    directly, the composite must still apply the mute filter.
     """
     exporter = InMemorySpanExporter()
     config = SecurityConfig(

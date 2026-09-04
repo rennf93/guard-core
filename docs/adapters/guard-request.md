@@ -298,7 +298,7 @@ self._state = SimpleNamespace()
 The `scope` Dictionary
 ----------------------
 
-guard-core itself never reads `scope`. The `RouteConfigResolver`, `get_route_decorator_config()`, and `BehavioralProcessor` read only `request.state` — specifically `request.state.guard_decorator`, `request.state.guard_route_id`, `request.state.guard_endpoint_id`, and `request.state.guard_route_unresolved`. Reading `scope` and translating it into those `request.state` values is the **adapter's** job. The `scope` dictionary should contain at least two keys so the adapter has the data it needs:
+guard-core itself never reads `scope`. The `RouteConfigResolver`, `get_route_decorator_config()`, and `BehavioralProcessor` read only `request.state`, specifically `request.state.guard_decorator`, `request.state.guard_route_id`, `request.state.guard_endpoint_id`, and `request.state.guard_route_unresolved`. Reading `scope` and translating it into those `request.state` values is the **adapter's** job. The `scope` dictionary should contain at least two keys so the adapter has the data it needs:
 
 - **`app`**: The application instance. The adapter reads `request.scope.get("app")` to access the app's route table and copies the `guard_decorator` stored on `app.state` into `request.state.guard_decorator`.
 - **`route`**: The matched route object. Must have an `endpoint` attribute with `_guard_route_id` set by guard-core's decorator system. The adapter copies `endpoint._guard_route_id` into `request.state.guard_route_id` and derives `request.state.guard_endpoint_id` from the endpoint. These `request.state` values are what `get_route_decorator_config()` and `BehavioralProcessor.get_endpoint_id()` then read.
@@ -331,4 +331,4 @@ async def body(self) -> bytes:
     return self._request.get_data()
 ```
 
-Python's `async def` returning a synchronous value works — the `await` completes immediately. guard-core's pipeline is always `async`, so even sync frameworks must provide async protocol methods. The adapter's middleware is responsible for running the async pipeline (using `asyncio.run()`, `asgiref.sync_to_async`, or the framework's own async support).
+Python's `async def` returning a synchronous value works, the `await` completes immediately. guard-core's pipeline is always `async`, so even sync frameworks must provide async protocol methods. The adapter's middleware is responsible for running the async pipeline (using `asyncio.run()`, `asgiref.sync_to_async`, or the framework's own async support).

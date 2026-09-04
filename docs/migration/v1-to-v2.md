@@ -35,7 +35,7 @@ result = await detect_penetration_attempt(request)
 detected, trigger = result.is_threat, result.trigger_info
 ```
 
-Read `result.threat_categories` and `result.threat_scores` for the new per-category metadata. The dataclass is forward-compatible — additional fields can be added without breaking call sites that read by attribute.
+Read `result.threat_categories` and `result.threat_scores` for the new per-category metadata. The dataclass is forward-compatible, additional fields can be added without breaking call sites that read by attribute.
 
 ___
 
@@ -54,7 +54,7 @@ counts[category] = counts.get(category, 0) + 1
 total = sum(self.suspicious_request_counts.get(ip, {}).values())
 ```
 
-Every adapter middleware that read or wrote this attribute must migrate. The built-in `SuspiciousActivityCheck` already does this — only adapter-side reads need attention.
+Every adapter middleware that read or wrote this attribute must migrate. The built-in `SuspiciousActivityCheck` already does this, only adapter-side reads need attention.
 
 ___
 
@@ -96,7 +96,7 @@ Additive (no migration required)
 
 These additions ship in v2.0.0 but do not require any migration:
 
-- `excluded_detection_headers`, `excluded_detection_params`, `excluded_detection_body_fields` default to empty sets — existing detection coverage is unchanged.
+- `excluded_detection_headers`, `excluded_detection_params`, `excluded_detection_body_fields` default to empty sets, existing detection coverage is unchanged.
 - `enabled_detection_categories` defaults to the full `ALL_DETECTION_CATEGORIES` set.
 - `threat_ban_config` defaults to `{}` and falls back to the existing flat `auto_ban_threshold` / `auto_ban_duration` policy.
 - `global_behavior_rules` defaults to `[]`.

@@ -144,7 +144,7 @@ class MockGuardResponseFactory:
 
 ### Pytest Fixtures
 
-`MockGuardRequest`, `MockGuardResponse`, and `MockGuardResponseFactory` are plain classes — instantiate them directly in your tests. The only `SecurityConfig` fixtures `conftest.py` exposes are `security_config` (in-memory) and `security_config_redis` (Redis-backed):
+`MockGuardRequest`, `MockGuardResponse`, and `MockGuardResponseFactory` are plain classes, instantiate them directly in your tests. The only `SecurityConfig` fixtures `conftest.py` exposes are `security_config` (in-memory) and `security_config_redis` (Redis-backed):
 
 ```python
 @pytest.fixture
