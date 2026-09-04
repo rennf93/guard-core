@@ -84,7 +84,7 @@ _skip_revalidation: contextvars.ContextVar[bool] = contextvars.ContextVar(
 
 
 class SecurityConfig(_SecurityConfigFields):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, hide_input_in_errors=True)
 
     _revision: int = PrivateAttr(default=0)
 

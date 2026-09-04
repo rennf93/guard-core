@@ -1,4 +1,6 @@
 import re
+import unicodedata
+from collections.abc import Callable
 
 from guard_core._utils.pair_value_scan import (
     _HARD_SEP_CHARS,
@@ -15,19 +17,49 @@ _REDACTED_MARKER = "[REDACTED]"
 
 _HIDDEN_ASSIGN_TOKEN_LENGTHS = (3, 5, 7)
 _SMUGGLED_SEPARATOR_RE = re.compile(r"[&;,?|]")
-_ESCAPED_GAP_RE = re.compile(r"\\+([tnrfvb\"']|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})")
+_ESCAPED_GAP_RE = re.compile(
+    r"\\+(?:(?P<short>[tnrfvb\"'])|(?P<octal>[0-7]{1,3})"
+    r"|[xX](?P<hex>[0-9A-Fa-f]{2})|u(?P<u4>[0-9A-Fa-f]{4})"
+    r"|u\{(?P<ubrace>[0-9A-Fa-f]{1,6})\}|U(?P<u8>[0-9A-Fa-f]{8})"
+    r"|N\{(?P<named>[A-Za-z0-9 -]+)\})"
+)
+
+
+def _codepoint(body: str, base: int) -> str | None:
+    code = int(body, base)
+    return chr(code) if code <= 0x10FFFF else None
+
+
+def _named_codepoint(body: str) -> str | None:
+    try:
+        return unicodedata.lookup(body)
+    except KeyError:
+        return None
+
+
+_ESCAPE_DECODERS: dict[str, Callable[[str], str | None]] = {
+    "short": lambda _body: "\x00",
+    "octal": lambda body: _codepoint(body, 8),
+    "hex": lambda body: _codepoint(body, 16),
+    "u4": lambda body: _codepoint(body, 16),
+    "ubrace": lambda body: _codepoint(body, 16),
+    "u8": lambda body: _codepoint(body, 16),
+    "named": _named_codepoint,
+}
+
+
+def _is_gap_char(decoded: str | None) -> bool:
+    return decoded is not None and (
+        decoded.isspace() or decoded in _QUOTE_CHARS or ord(decoded) < 32
+    )
 
 
 def _escaped_gap_length(text: str, pos: int) -> int:
     match = _ESCAPED_GAP_RE.match(text, pos)
-    if match is None:
+    if match is None or match.lastgroup is None:
         return 0
-    body = match.group(1)
-    if body[0] in "xu":
-        decoded = chr(int(body[1:], 16))
-        if not (decoded.isspace() or decoded in _QUOTE_CHARS or ord(decoded) < 32):
-            return 0
-    return match.end() - pos
+    decoded = _ESCAPE_DECODERS[match.lastgroup](match.group(match.lastgroup))
+    return match.end() - pos if _is_gap_char(decoded) else 0
 
 
 def _match_hidden_assign_token(text: str, pos: int) -> int | None:

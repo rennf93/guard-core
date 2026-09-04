@@ -36,6 +36,11 @@ WHITESPACE_MAP = {
     "escaped_hex_tab_before": ("\\x09", ""),
     "escaped_unicode_space_before": ("\\u0020", ""),
     "escaped_quote_before": ('\\"', ""),
+    "escaped_nul_before": ("\\0", ""),
+    "escaped_octal_tab_before": ("\\011", ""),
+    "escaped_upper_hex_tab_before": ("\\X09", ""),
+    "escaped_long_unicode_tab_before": ("\\U00000009", ""),
+    "escaped_named_tab_before": ("\\N{TAB}", ""),
 }
 SEPARATOR_MAP = {
     "amp": "&",

@@ -107,8 +107,11 @@ def _validate_return_pattern_requires_scan(
         return
     if scan_response_body:
         return
+    from guard_core._utils.detection_scan import _redact_pattern_source
+
     raise ValueError(
-        f"return_pattern rule with pattern {pattern!r} requires reading the "
+        f"return_pattern rule with pattern {_redact_pattern_source(pattern)!r} "
+        "requires reading the "
         "response body, but behavior_scan_response_body is False. This rule "
         "would never match: set behavior_scan_response_body=True to enable "
         "response-body inspection, or use a status: pattern instead."
@@ -309,6 +312,7 @@ def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
 
 
 def _validate_blocked_user_agents_value(v: Any) -> list[str]:
+    from guard_core._utils.detection_scan import _redact_pattern_source
     from guard_core.detection_engine.compiler import PatternCompiler
     from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
 
@@ -321,7 +325,7 @@ def _validate_blocked_user_agents_value(v: Any) -> list[str]:
         if not is_safe:
             raise ValueError(
                 f"blocked_user_agents pattern rejected by ReDoS validator: "
-                f"{pattern!r} ({reason})"
+                f"{_redact_pattern_source(pattern)!r} ({reason})"
             )
     return patterns
 

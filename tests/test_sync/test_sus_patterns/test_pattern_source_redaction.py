@@ -8,6 +8,10 @@ import pytest
 
 from guard_core.models import DynamicRules, SecurityConfig
 from guard_core.sync._utils.detection_scan import _fallback_pattern_check
+from guard_core.sync.decorators.content_filtering import ContentFilteringMixin
+from guard_core.sync.detection_engine._redos_cost_arbiter import (
+    _log_structural_disagreement,
+)
 from guard_core.sync.detection_engine.monitor import PerformanceMonitor
 from guard_core.sync.detection_engine.monitor_anomalies import (
     build_anomaly_event_data,
@@ -16,6 +20,9 @@ from guard_core.sync.detection_engine.monitor_anomalies import (
 from guard_core.sync.detection_engine.monitor_reporting import build_pattern_report
 from guard_core.sync.detection_engine.monitor_types import PatternStats
 from guard_core.sync.handlers import suspatterns_handler as sph
+from guard_core.sync.handlers._behavior_response_pattern import (
+    BehaviorResponsePatternMixin,
+)
 from guard_core.sync.handlers._dynamic_rule_application import (
     DynamicRuleApplicationMixin,
 )
@@ -389,6 +396,79 @@ def test_fallback_pattern_check_recursion_log_redacts_secret_shaped_pattern(
         )
 
     assert detected is False
+    logged = " ".join(str(call) for call in mock_logger.warning.call_args_list)
+    assert "hunter2" not in logged
+    assert "[REDACTED]" in logged
+
+
+def test_structural_disagreement_log_redacts_secret_shaped_pattern(
+    fresh_legacy_singleton: SusPatternsManager,
+) -> None:
+    with patch(
+        "guard_core.sync.detection_engine._redos_cost_arbiter.logger"
+    ) as mock_logger:
+        _log_structural_disagreement(_SECRET_PATTERN, "nested quantifier", 64, "timing")
+
+    logged = " ".join(str(call) for call in mock_logger.warning.call_args_list)
+    assert "hunter2" not in logged
+    assert "[REDACTED]" in logged
+
+
+_CATASTROPHIC_SECRET_PATTERN = "(a+)+" + _SECRET_PATTERN + "$"
+
+
+def test_security_config_blocked_user_agents_rejection_redacts_secret_pattern() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        SecurityConfig(blocked_user_agents=[_CATASTROPHIC_SECRET_PATTERN])
+    assert "hunter2" not in str(excinfo.value)
+    assert "[REDACTED]" in str(excinfo.value)
+
+
+def test_security_config_return_pattern_without_body_scan_redacts_secret_pattern() -> (
+    None
+):
+    with pytest.raises(ValueError) as excinfo:
+        SecurityConfig(
+            global_behavior_rules=[
+                {
+                    "rule_type": "return_pattern",
+                    "threshold": 1,
+                    "window": 60,
+                    "pattern": _SECRET_PATTERN,
+                    "action": "log",
+                }
+            ],
+            behavior_scan_response_body=False,
+        )
+    assert "hunter2" not in str(excinfo.value)
+    assert "[REDACTED]" in str(excinfo.value)
+
+
+def test_block_user_agents_decorator_rejection_redacts_secret_pattern() -> None:
+    class _Decorator(ContentFilteringMixin):
+        def __init__(self) -> None:
+            self.config = SecurityConfig()
+
+    with pytest.raises(ValueError) as excinfo:
+        _Decorator().block_user_agents([_CATASTROPHIC_SECRET_PATTERN])
+    assert "hunter2" not in str(excinfo.value)
+    assert "[REDACTED]" in str(excinfo.value)
+
+
+def test_behavior_body_unavailable_warning_redacts_secret_pattern() -> None:
+    from cachetools import TTLCache
+
+    class _Mixin(BehaviorResponsePatternMixin):
+        def __init__(self) -> None:
+            import logging
+
+            self.config = SecurityConfig()
+            self.logger = logging.getLogger("guard_core.test_body_unavailable")
+            self._body_unavailable_log_cache = TTLCache(maxsize=8, ttl=60)
+
+    mixin = _Mixin()
+    with patch.object(mixin, "logger") as mock_logger:
+        mixin._log_body_unavailable(_SECRET_PATTERN)
     logged = " ".join(str(call) for call in mock_logger.warning.call_args_list)
     assert "hunter2" not in logged
     assert "[REDACTED]" in logged

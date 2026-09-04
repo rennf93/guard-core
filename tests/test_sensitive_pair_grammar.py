@@ -563,7 +563,22 @@ def test_hidden_assign_nested_quote_inside_encoded_outer_wrapper_preserves_benig
 _JSON_LEAF_SPLIT_INNER_NAME = "password"
 _JSON_LEAF_SPLIT_BENIGN_INNER_NAME = _BENIGN_NAME
 _JSON_LEAF_SPLIT_ASSIGN_CHARS = ["=", ":"]
-_ESCAPED_GAPS = ["\\t", "\\n", "\\r", "\\f", "\\x09", "\\u0020", '\\"', "\\'"]
+_ESCAPED_GAPS = [
+    "\\t",
+    "\\n",
+    "\\r",
+    "\\f",
+    "\\x09",
+    "\\X09",
+    "\\u0020",
+    "\\u{9}",
+    "\\U00000009",
+    "\\N{TAB}",
+    "\\0",
+    "\\011",
+    '\\"',
+    "\\'",
+]
 _JSON_LEAF_SPLIT_WS_COMBOS = [
     ("", ""),
     ("\t", ""),
@@ -724,3 +739,39 @@ def test_escaped_gap_length_ignores_escapes_that_decode_to_content() -> None:
     assert _escaped_gap_length("\\x09=1", 0) == 4
     assert _escaped_gap_length("\\u0009=1", 0) == 6
     assert _escaped_gap_length("\\n=1", 0) == 2
+    assert _escaped_gap_length("\\101=1", 0) == 0
+    assert _escaped_gap_length("\\011=1", 0) == 4
+    assert _escaped_gap_length("\\N{LATIN SMALL LETTER A}=1", 0) == 0
+    assert _escaped_gap_length("\\N{NO SUCH NAME}=1", 0) == 0
+    assert _escaped_gap_length("\\N{TAB}=1", 0) == 7
+    assert _escaped_gap_length("\\U0001F600=1", 0) == 0
+    assert _escaped_gap_length("\\U00110000=1", 0) == 0
+    assert _escaped_gap_length("\\u{20}=1", 0) == 6
+
+
+_NESTED_QUOTE_PATH_SECRET = "SECRET-nested-quote-path"
+_NESTED_QUOTE_PATH_URL = (
+    'https://test/filename="x=1%2520password%2520:%2520"'
+    + _NESTED_QUOTE_PATH_SECRET
+    + '%2520<script>alert(1)</script>"%2520y=2"'
+)
+
+
+def test_quoted_value_cut_by_a_slash_in_the_nested_value_redacts_to_segment_end() -> (
+    None
+):
+    result = redact_url_for_display(_NESTED_QUOTE_PATH_URL, frozenset(), frozenset())
+    assert _NESTED_QUOTE_PATH_SECRET not in result
+
+
+def test_quoted_value_cut_by_a_slash_preserves_a_benign_twin() -> None:
+    url = _NESTED_QUOTE_PATH_URL.replace("password", "note")
+    assert redact_url_for_display(url, frozenset(), frozenset()) == url
+
+
+def test_restart_value_extent_consumes_to_the_end_when_the_quote_never_closes() -> None:
+    from guard_core._utils.pair_value_scan import _restart_value_extent_at_quote
+
+    assert _restart_value_extent_at_quote('x"rest of text', 1, "", True) == ('"', 14)
+    assert _restart_value_extent_at_quote('x"rest of text', 1, "", False) == ("", 1)
+    assert _restart_value_extent_at_quote('x"a"b', 1, "", False) == ('"', 3)

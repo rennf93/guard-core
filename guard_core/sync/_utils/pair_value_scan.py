@@ -77,12 +77,12 @@ def _sensitive_value_extent(text: str, start: int, quote_char: str) -> int:
 
 
 def _restart_value_extent_at_quote(
-    text: str, body_end: int, quote_char: str
+    text: str, body_end: int, quote_char: str, blank_before: bool
 ) -> tuple[str, int]:
     candidate_quote = text[body_end]
     closing_idx = text.find(candidate_quote, body_end + 1)
     if closing_idx == -1:
-        return quote_char, body_end
+        return (candidate_quote, len(text)) if blank_before else (quote_char, body_end)
     return candidate_quote, closing_idx
 
 
@@ -106,8 +106,9 @@ def _redact_sensitive_pair_value(text: str, value_start: int) -> tuple[str, int]
     body_start = value_start + (1 if quote_char else 0)
     body_end = _sensitive_value_extent(text, body_start, quote_char)
     if not quote_char and body_end < n and text[body_end] in _QUOTE_CHARS:
+        blank_before = not _bounded_percent_decode(text[body_start:body_end]).strip()
         quote_char, body_end = _restart_value_extent_at_quote(
-            text, body_end, quote_char
+            text, body_end, quote_char, blank_before
         )
     return _build_redaction_result(text, quote_char, body_end)
 
