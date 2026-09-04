@@ -39,6 +39,7 @@ from guard_core.handlers._suspatterns_sources import (
     _LDAP_NULL_BYTE_DECODED_BARE_RE,
     _PATH_TRAVERSAL_ENCODED_DOT_RE,
     _SQLI_COMMENT_TERMINATOR_RE,
+    _SQLI_ORDER_BY_STRONG_RE,
     _SQLI_ORDER_BY_TERMINATOR_RE,
     _SSTI_HASH_BRACE_SHAPE_RE,
     _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
@@ -89,6 +90,7 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _FILE_UPLOAD_DECODED_TRUNCATION_RE,
         _LDAP_NULL_BYTE_DECODED_ATTR_RE,
         _LDAP_NULL_BYTE_DECODED_BARE_RE,
+        _SQLI_ORDER_BY_STRONG_RE,
     }
 )
 
@@ -135,7 +137,7 @@ _BARE_SHELL_PARAMETER_NAME_RE = re.compile(
 _SHELL_SPECIAL_PARAMETER_NAMES = frozenset({"ifs"})
 _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS = frozenset({"query_param", "url_path"})
 _CTX_CMD_INJECTION_WITH_URL_PATH = frozenset(
-    {"query_param", "url_path", "request_body", "unknown"}
+    {"query_param", "header", "url_path", "request_body", "unknown"}
 )
 _CTX_LOG4SHELL = frozenset(
     {"query_param", "header", "request_body", "url_path", "unknown"}

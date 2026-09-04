@@ -21,7 +21,7 @@ _REACH_PROBE_UNITS: dict[str, str] = {
     r"\.\.;[^/\\]*[/\\]": "..;",
     (
         r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)(?![a-zA-Z0-9])"
     ): "=http://",
     r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>": "<!ENTITY",
     r"(?:<!\[CDATA\[.*?\]\]>)": "<![CDATA[",

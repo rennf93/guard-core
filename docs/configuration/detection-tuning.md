@@ -80,7 +80,7 @@ Minimum score from the `SemanticAnalyzer` to classify content as a threat. The s
 
 **Type**: `float` | **Default**: `3.0` | **Range**: 1.0 - 10.0
 
-Number of standard deviations slower than the mean execution time to flag a pattern as anomalous; a faster-than-average execution is never flagged. This tracks performance anomalies, not security threats. Anomaly events sent to the agent handler are additionally rate-limited per pattern by `PerformanceMonitor`'s `anomaly_emission_cooldown` (default 60s), so a host-wide stall cannot burst thousands of events at once — see `docs/internals/detection-engine.md`.
+Number of standard deviations slower than the mean execution time to flag a pattern as anomalous; a faster-than-average execution is never flagged. This tracks performance anomalies, not security threats. Anomaly events sent to the agent handler are additionally rate-limited per pattern by `PerformanceMonitor`'s `anomaly_emission_cooldown` (default 60s), so a host-wide stall cannot burst thousands of events at once, see `docs/internals/detection-engine.md`.
 
 | Value    | Tradeoff                                                     |
 |----------|--------------------------------------------------------------|
@@ -116,7 +116,7 @@ Anomaly/threat score required to flag a request as a threat.
 
 **Type**: `bool` | **Default**: `True`
 
-Whether to scan the request body during detection. Set to `False` to restrict detection to the URL path, query parameters, and headers — the body is then never read or matched, regardless of its shape.
+Whether to scan the request body during detection. Set to `False` to restrict detection to the URL path, query parameters, and headers: the body is then never read or matched, regardless of its shape.
 
 ___
 
@@ -221,3 +221,34 @@ Known Limitations
 - **Command execution aliases.** Node's `execFile`/`execFileSync`, Ruby's `Kernel#spawn` and backtick literals, Perl's list-form `system`, Go's `os/exec.Command`, PowerShell's `Invoke-Expression`, and any project-local wrapper function around any of these are not covered. Use a language-aware static analyzer or a runtime sandbox for code paths that execute external processes.
 - **Python dynamic dispatch.** `os.__dict__ ['system'](...)`, `globals() ['os'].system(...)`, `operator.attrgetter(...)`, and chained `importlib` indirection are not covered. Avoid resolving dangerous stdlib callables from request-controlled strings; use an explicit allowlist of callable names if dynamic dispatch is required.
 - **Dynamic code execution.** String-concatenated property access such as `window['ev'+'al']`, an alias bound earlier such as `var x = eval; x(...)`, and a non-literal argument such as `Function(atob(encoded))` are not covered. Use a Content-Security-Policy that disallows `unsafe-eval` as the enforcement layer; pattern matching cannot resolve an expression it does not evaluate.
+
+___
+
+Request Contexts per Category
+-----------------------------
+
+Every pattern category runs only on the request contexts it is scoped to. A payload in a context outside the category's set is never matched, whatever the pattern. The sets, as shipped:
+
+| Category | Contexts |
+|----------|----------|
+| `cmd_injection` | `header`, `query_param`, `request_body` (the glued-shell substitution patterns also run on `url_path`) |
+| `cms_probing` | `query_param`, `request_body`, `url_path` |
+| `code_injection` | `header`, `query_param`, `request_body`, `url_path` |
+| `deserialization` | `header`, `query_param`, `request_body`, `url_path` |
+| `dir_traversal` | `header`, `query_param`, `request_body`, `url_path` |
+| `file_inclusion` | `header`, `query_param`, `request_body`, `url_path` |
+| `file_upload` | `header`, `query_param`, `request_body` |
+| `http_split` | `header`, `query_param`, `request_body`, `url_path` |
+| `ldap` | `header`, `query_param`, `request_body`, `url_path` |
+| `nosql` | `header`, `query_param`, `request_body`, `url_path` |
+| `path_traversal` | `header`, `query_param`, `request_body`, `url_path` |
+| `proto_pollution` | `header`, `query_param`, `request_body`, `url_path` |
+| `recon` | `query_param`, `request_body`, `url_path` |
+| `sensitive_file` | `query_param`, `request_body`, `url_path` |
+| `sqli` | `header`, `query_param`, `request_body`, `url_path` (three noise-prone rows, the bare `ORDER BY n` terminator, the glued comment and the bare `EXEC sp_`/`xp_`, stay on `query_param` and `request_body`; a quote- or digit-prefixed `ORDER BY n` and a `;`- or quote-prefixed `EXEC` run everywhere) |
+| `ssrf` | `header`, `query_param`, `request_body`, `url_path` |
+| `template` | `header`, `query_param`, `request_body`, `url_path` |
+| `xml` | `header`, `query_param`, `request_body`, `url_path` |
+| `xss` | `header`, `query_param`, `request_body`, `url_path` |
+
+Every category also runs on the `unknown` context, which is what a direct `SusPatternsManager.detect()` call without a context uses. Multipart parts, form fields and JSON values scan as `request_body`; a cookie value scans as `header`; a matrix parameter or path segment scans as `url_path`. 4.0.0 reviewed the whole matrix pair by pair with the per-context benchmark: nineteen (category, context) pairs that were never scanned gained coverage where the malicious corpus fired and the benign corpus stayed clean (three of them extend an already-disclosed false-positive class into one more context, with the corpus ids named in the benchmark), `sqli` gained `header` and `url_path` with three noise-prone rows kept narrow at pattern level, and every pair still excluded (`cmd_injection` on paths beyond the substitution patterns, `file_upload` on paths, `cms_probing`, `recon` and `sensitive_file` on headers) is one where the malicious corpus gains nothing on that context. That benchmark (`tests/test_sus_patterns/test_detection_benchmark.py`, run by the Detection Gate workflow) now measures recall and false positives per context for every category, so a change to any set shows up as a number, not a surprise.

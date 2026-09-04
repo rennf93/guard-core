@@ -224,7 +224,7 @@ Same logic as `is_cloud_ip()` but returns a `(provider, network)` tuple on match
 
 ### Provider Status
 
-Before ranges are fetched, `ip_ranges[provider]` is an empty set and `is_cloud_ip()` trivially returns `False` for that provider — not blocked, but also not evaluated. The first `is_cloud_ip()` call to observe this logs a `WARNING` (rate-limited to at most once every `_EMPTY_RANGES_WARNING_COOLDOWN` seconds — 300 by default — per provider, so a busy server cannot turn this into a log flood), and `get_status()` makes the same condition queryable instead of only discoverable in logs:
+Before ranges are fetched, `ip_ranges[provider]` is an empty set and `is_cloud_ip()` trivially returns `False` for that provider, not blocked, but also not evaluated. The first `is_cloud_ip()` call to observe this logs a `WARNING` (rate-limited to at most once every `_EMPTY_RANGES_WARNING_COOLDOWN` seconds, 300 by default, per provider, so a busy server cannot turn this into a log flood), and `get_status()` makes the same condition queryable instead of only discoverable in logs:
 
 ```python
 def get_status(self) -> dict[str, dict[str, Any]]:
@@ -238,7 +238,7 @@ def get_status(self) -> dict[str, dict[str, Any]]:
     }
 ```
 
-`ready` reflects whether the provider currently has any cached ranges to check against — not just whether a refresh was ever attempted, so a provider that later starts failing shows `ready=False` again while `last_refreshed` still shows the last time it worked. See [Provider Status](../configuration/security-config.md#provider-status) for the combined cloud + geo-IP payload, exposed by your adapter's status surface.
+`ready` reflects whether the provider currently has any cached ranges to check against, not just whether a refresh was ever attempted, so a provider that later starts failing shows `ready=False` again while `last_refreshed` still shows the last time it worked. See [Provider Status](../configuration/security-config.md#provider-status) for the combined cloud + geo-IP payload, exposed by your adapter's status surface.
 
 ___
 
@@ -375,7 +375,7 @@ Two security checks in the pipeline handle cloud provider logic:
 
 `CloudProviderCheck` respects:
 
-- **Whitelisted IPs**: Skipped if `request.state.is_whitelisted` is `True` — set only for a **global** `whitelist` match; a route-level `ip_whitelist` match alone does not set it, so it does not skip this check.
+- **Whitelisted IPs**: Skipped if `request.state.is_whitelisted` is `True`, set only for a **global** `whitelist` match; a route-level `ip_whitelist` match alone does not set it, so it does not skip this check.
 - **Route-level bypass**: Skipped if the route config disables the `clouds` check.
 - **Provider scoping**: Only checks providers returned by `get_cloud_providers_to_check()`, which can be narrowed per-route via decorators.
 - **Passive mode**: Logs but does not block when `config.passive_mode` is enabled.

@@ -50,6 +50,7 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _CTX_RECON,
     _CTX_SENSITIVE_FILE,
     _CTX_SQLI,
+    _CTX_SQLI_NARROW,
     _CTX_SSRF,
     _CTX_TEMPLATE,
     _CTX_XML,
@@ -90,8 +91,11 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _SELECT_FROM_RE,
     _SELECT_STAR_RE,
     _SQLI_COMMENT_TERMINATOR_RE,
+    _SQLI_EXEC_STRONG_RE,
+    _SQLI_ORDER_BY_STRONG_RE,
     _SQLI_ORDER_BY_TERMINATOR_RE,
     _SQLI_TAUTOLOGY_RE,
+    _SQLI_WAITFOR_RE,
     _SSRF_BARE_METADATA_ALIAS_RE,
     _SSTI_HASH_BRACE_SHAPE_RE,
     _TERMINAL_PATH_SUFFIX_RE,
@@ -99,6 +103,7 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _WHERE_CLAUSE_RE,
     _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
     _XSS_JS_SCHEME_CTRL_CHAR_RE,
+    _embedded_prose_pattern,
     _nested_path_pattern,
     _path_only_pattern,
 )
@@ -169,7 +174,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         _CTX_SQLI,
         "sqli",
     ),
-    (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI, "sqli"),
+    (r"\w/\*(?!!)[^*]*\*/\w", _CTX_SQLI_NARROW, "sqli"),
     (
         r"(?i)(?:OR|AND)\s+(?:'[\w\d]*'='[\w\d]*'?|"
         r"[@:$][A-Za-z_]\w*\s*=\s*[@:$][A-Za-z_]\w*)",
@@ -189,13 +194,24 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     ),
     (
         r"(?i)\bEXEC(?:UTE)?\s+(?:xp_\w+|sp_\w+)",
-        _CTX_SQLI,
+        _CTX_SQLI_NARROW,
         "sqli",
     ),
-    (_SQLI_ORDER_BY_TERMINATOR_RE, _CTX_SQLI, "sqli"),
+    (_SQLI_EXEC_STRONG_RE, _CTX_SQLI, "sqli"),
+    (_SQLI_ORDER_BY_TERMINATOR_RE, _CTX_SQLI_NARROW, "sqli"),
+    (_SQLI_ORDER_BY_STRONG_RE, _CTX_SQLI, "sqli"),
     (_SQLI_COMMENT_TERMINATOR_RE, _CTX_SQLI, "sqli"),
+    (_SQLI_WAITFOR_RE, _CTX_SQLI, "sqli"),
     (r"(?:\.\.\/|\.\.\\)(?:\.\.\/|\.\.\\)+", _CTX_DIR_TRAVERSAL, "dir_traversal"),
     (_DIR_TRAVERSAL_ETC_SENSITIVE_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
+    (
+        _embedded_prose_pattern(
+            r"etc/(?:passwd|shadow|group|hosts|motd|issue|mysql/my\.cnf"
+            r"|ssh/ssh_config)"
+        ),
+        _CTX_DIR_TRAVERSAL,
+        "dir_traversal",
+    ),
     (_DIR_TRAVERSAL_WINDOWS_INI_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
     (_DIR_TRAVERSAL_PROC_ENVIRON_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
     (_DIR_TRAVERSAL_VAR_LOG_RE, _CTX_DIR_TRAVERSAL, "dir_traversal"),
@@ -333,7 +349,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     ),
     (
         r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*\.(?:phtml|php[3-5]?|"
-        r"phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])",
+        r"phar|jsp|aspx?|pl|py|txt|inc)(?![a-zA-Z0-9])",
         _CTX_FILE_INCLUSION,
         "file_inclusion",
     ),
@@ -454,6 +470,11 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "sensitive_file",
     ),
     (
+        _embedded_prose_pattern(r"\.env(?:\.\w+)?"),
+        _CTX_SENSITIVE_FILE,
+        "sensitive_file",
+    ),
+    (
         _path_only_pattern(
             r"(?:(?!config)[\w-])*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
         ),
@@ -478,6 +499,11 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "sensitive_file",
     ),
     (
+        _embedded_prose_pattern(r"\.(?:git|svn|hg|bzr)"),
+        _CTX_SENSITIVE_FILE,
+        "sensitive_file",
+    ),
+    (
         _PATH_ONLY_PREFIX_RE + rf"{_PATH_ONLY_CHAR_RE}*\.\w+~(?:\?\S*)?\s*\Z",
         _CTX_SENSITIVE_FILE,
         "sensitive_file",
@@ -491,7 +517,20 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "cms_probing",
     ),
     (
+        _embedded_prose_pattern(
+            r"(?:wp-(?:admin|login|content|includes|config)|administrator|xmlrpc)"
+            r"\.?(?:php)?"
+        ),
+        _CTX_CMS_PROBING,
+        "cms_probing",
+    ),
+    (
         _path_only_pattern(r"(?:phpinfo|info|test|php_info)\.php"),
+        _CTX_CMS_PROBING,
+        "cms_probing",
+    ),
+    (
+        _embedded_prose_pattern(r"(?:phpinfo|info|test|php_info)\.php"),
         _CTX_CMS_PROBING,
         "cms_probing",
     ),
@@ -504,6 +543,14 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     ),
     (
         _path_only_pattern(
+            r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
+            r"|\.npmrc|\.dockerenv|web\.config)"
+        ),
+        _CTX_CMS_PROBING,
+        "cms_probing",
+    ),
+    (
+        _embedded_prose_pattern(
             r"(?:\.htaccess|\.htpasswd|\.DS_Store|Thumbs\.db"
             r"|\.npmrc|\.dockerenv|web\.config)"
         ),

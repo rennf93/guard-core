@@ -52,14 +52,14 @@ def test_sqli_fires_on_query_param() -> None:
     assert result["is_threat"] is True
 
 
-def test_sqli_does_not_fire_on_url_path() -> None:
+def test_sqli_fires_on_url_path() -> None:
     manager = SusPatternsManager()
     result = manager.detect(
         "SELECT * FROM users",
         "127.0.0.1",
         context="url_path",
     )
-    assert result["is_threat"] is False
+    assert result["is_threat"] is True
 
 
 def test_sensitive_file_fires_on_url_path() -> None:
@@ -72,14 +72,14 @@ def test_sensitive_file_fires_on_url_path() -> None:
     assert result["is_threat"] is True
 
 
-def test_sensitive_file_does_not_fire_on_query_param() -> None:
+def test_sensitive_file_fires_on_query_param() -> None:
     manager = SusPatternsManager()
     result = manager.detect(
         "/.env",
         "127.0.0.1",
         context="query_param:file",
     )
-    assert result["is_threat"] is False
+    assert result["is_threat"] is True
 
 
 def test_all_patterns_fire_on_unknown() -> None:
@@ -142,14 +142,14 @@ def test_xml_injection_fires_on_header() -> None:
     assert result["is_threat"] is True
 
 
-def test_xml_injection_does_not_fire_on_url_path() -> None:
+def test_xml_injection_fires_on_url_path() -> None:
     manager = SusPatternsManager()
     result = manager.detect(
         "<![CDATA[malicious]]>",
         "127.0.0.1",
         context="url_path",
     )
-    assert result["is_threat"] is False
+    assert result["is_threat"] is True
 
 
 def test_xml_injection_fires_on_query_param() -> None:
@@ -222,11 +222,11 @@ def test_deserialization_fires_on_header() -> None:
     assert result["is_threat"] is True
 
 
-def test_sqli_still_does_not_fire_on_url_path_after_widening_round() -> None:
+def test_sqli_union_select_fires_on_url_path() -> None:
     manager = SusPatternsManager()
     result = manager.detect(
         "' UNION SELECT username,password FROM users--",
         "127.0.0.1",
         context="url_path",
     )
-    assert result["is_threat"] is False
+    assert result["is_threat"] is True

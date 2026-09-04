@@ -99,7 +99,9 @@ _ATTR_EQUALS_WHITESPACE_RE = r"\s{0,20}"
 _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE = r"\s*"
 _HTML_TAG_OPEN_RE = r"<[A-Za-z/]"
 _FILE_UPLOAD_FILENAME_EQUALS_RE = (
-    r"(?i)filename"
+    r"(?:\A|[;,:\n])"
+    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
+    + r"filename"
     + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
     + r"="
     + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
@@ -327,8 +329,10 @@ def _template_dollar_brace_scan_matches(
 
 
 _TEMPLATE_CURLY_CALL_RE = (
-    r"\{\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
-    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}\}"
+    r"\{\{(?![^\}]*\d{4}-\d{1,2}-\d{1,2}(?!\d))"
+    r"(?=[^\}]*(?:@[\w.]+@|\b\w+\(\s*\)"
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?))"
+    r"[^\}]*\}\}"
 )
 
 

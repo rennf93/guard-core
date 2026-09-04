@@ -209,12 +209,11 @@ def test_detect_penetration_attempt_no_client_host() -> None:
     assert detected is False
 
 
-def test_detect_penetration_attempt_excluded_header_skipped() -> None:
+def test_detect_penetration_attempt_excluded_header_still_detects_xss() -> None:
     request = MagicMock()
     request.client_host = "1.2.3.4"
     request.query_params = {}
     request.url_path = "/"
-    # Excluded header with malicious-looking content — should be skipped.
     request.headers = {"User-Agent": "<script>alert(1)</script>"}
 
     def _body() -> bytes:
@@ -225,7 +224,7 @@ def test_detect_penetration_attempt_excluded_header_skipped() -> None:
     _dpa = detect_penetration_attempt(request)
 
     detected = _dpa.is_threat
-    assert detected is False
+    assert detected is True
 
 
 def test_detect_penetration_attempt_non_excluded_header_hit() -> None:

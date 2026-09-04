@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from guard_core.handlers import suspatterns_handler as _suspatterns_module
 from guard_core.handlers.redis_handler import RedisManager
 from guard_core.handlers.suspatterns_handler import (
+    _LEGACY_DETECTION_WARNING,
     SusPatternsManager,
     sus_patterns_handler,
 )
@@ -284,6 +286,45 @@ async def test_init_with_config_missing_new_fields_falls_back_to_legacy() -> Non
     assert manager._threat_score_threshold == 1.0
 
     SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_detection_warns_once_with_deprecation_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    assert manager._compiler is None
+    _suspatterns_module._legacy_detection_warned = False
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="guard_core.handlers.suspatterns"):
+            with pytest.warns(
+                DeprecationWarning, match=re.escape(_LEGACY_DETECTION_WARNING)
+            ):
+                await manager.detect("hello", "127.0.0.1", "test_legacy_warning")
+        assert _LEGACY_DETECTION_WARNING in caplog.text
+
+        caplog.clear()
+        await manager.detect("hello again", "127.0.0.1", "test_legacy_warning")
+        assert _LEGACY_DETECTION_WARNING not in caplog.text
+    finally:
+        _suspatterns_module._legacy_detection_warned = True
+        SusPatternsManager._instance = None
+
+
+@pytest.mark.asyncio
+async def test_configured_detection_never_warns() -> None:
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager(SecurityConfig())
+    assert manager._compiler is not None
+    _suspatterns_module._legacy_detection_warned = False
+
+    try:
+        await manager.detect("hello", "127.0.0.1", "test_no_legacy_warning")
+    finally:
+        _suspatterns_module._legacy_detection_warned = True
+        SusPatternsManager._instance = None
 
 
 @pytest.mark.asyncio

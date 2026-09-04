@@ -2,15 +2,22 @@ from collections.abc import Callable, Iterable
 from statistics import mean
 from typing import Any
 
+from guard_core.sync._utils.detection_scan import _redact_pattern_source
+
 from .monitor_types import PatternStats, PerformanceMetric
 
 
 def build_pattern_report(pattern: str, stats: PatternStats) -> dict[str, Any]:
-    safe_pattern = pattern[:50] + "..." if len(pattern) > 50 else pattern
+    redacted_pattern = _redact_pattern_source(pattern)
+    safe_pattern = (
+        redacted_pattern[:50] + "..."
+        if len(redacted_pattern) > 50
+        else redacted_pattern
+    )
 
     return {
         "pattern": safe_pattern,
-        "pattern_hash": str(hash(pattern))[:8],
+        "pattern_hash": str(hash(redacted_pattern))[:8],
         "total_executions": stats.total_executions,
         "total_matches": stats.total_matches,
         "total_timeouts": stats.total_timeouts,

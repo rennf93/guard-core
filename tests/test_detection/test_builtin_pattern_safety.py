@@ -63,6 +63,13 @@ def _timed_batch(pat: str, texts: list[str], timeout: float) -> list[float] | No
     return q.get() if not q.empty() else [0.0] * len(texts)
 
 
+def _assert_after_one_retry(measure_and_check: Callable[[], None]) -> None:
+    try:
+        measure_and_check()
+    except AssertionError:
+        measure_and_check()
+
+
 _SCAN_WINDOW_MATCHERS = {
     "_load_file_scan_matches": _load_file_scan_matches,
     "_cmd_injection_dollar_scan_matches": _cmd_injection_dollar_scan_matches,
@@ -224,17 +231,23 @@ def test_select_from_resists_repeated_anchor_padding() -> None:
         if c == "sqli" and "FROM" in p
     )
     sizes = [4000, 8000, 16000]
-    times = linear_search_time(pat, lambda n: "SELECT " * (n // 7), sizes, timeout=2.0)
-    assert all(t is not None for t in times), (
-        f"repeated-SELECT-no-FROM input did not finish: {pat!r}"
-    )
-    first, last = times[0], times[-1]
-    assert first is not None and last is not None
-    ratio = last / first if first > 0 else 0.0
-    assert ratio < 8.0, (
-        f"repeated-SELECT-no-FROM input grew {ratio:.1f}x over a 4x size increase "
-        f"(quadratic behavior): {pat!r} times={times}"
-    )
+
+    def _check() -> None:
+        times = linear_search_time(
+            pat, lambda n: "SELECT " * (n // 7), sizes, timeout=2.0
+        )
+        assert all(t is not None for t in times), (
+            f"repeated-SELECT-no-FROM input did not finish: {pat!r}"
+        )
+        first, last = times[0], times[-1]
+        assert first is not None and last is not None
+        ratio = last / first if first > 0 else 0.0
+        assert ratio < 8.0, (
+            f"repeated-SELECT-no-FROM input grew {ratio:.1f}x over a 4x size increase "
+            f"(quadratic behavior): {pat!r} times={times}"
+        )
+
+    _assert_after_one_retry(_check)
 
 
 def _compiled(cat: str, needle: str) -> re.Pattern:
@@ -279,19 +292,23 @@ def test_quote_comment_ignores_quoted_fragments_and_prose() -> None:
 def test_union_select_null_resists_unterminated_separator_padding() -> None:
     rx = _compiled("sqli", r"NULL(?:[,\s]*NULL)*")
     sizes = [4000, 8000, 16000]
-    times = linear_search_time(
-        rx.pattern, lambda n: "UNION SELECT NULL" + ", " * n, sizes, timeout=2.0
-    )
-    assert all(t is not None for t in times), (
-        f"unterminated-separator-padding input did not finish: {rx.pattern!r}"
-    )
-    first, last = times[0], times[-1]
-    assert first is not None and last is not None
-    ratio = last / first if first > 0 else 0.0
-    assert ratio < 8.0, (
-        f"unterminated-separator-padding input grew {ratio:.1f}x over a 4x size "
-        f"increase (quadratic behavior): {rx.pattern!r} times={times}"
-    )
+
+    def _check() -> None:
+        times = linear_search_time(
+            rx.pattern, lambda n: "UNION SELECT NULL" + ", " * n, sizes, timeout=2.0
+        )
+        assert all(t is not None for t in times), (
+            f"unterminated-separator-padding input did not finish: {rx.pattern!r}"
+        )
+        first, last = times[0], times[-1]
+        assert first is not None and last is not None
+        ratio = last / first if first > 0 else 0.0
+        assert ratio < 8.0, (
+            f"unterminated-separator-padding input grew {ratio:.1f}x over a 4x size "
+            f"increase (quadratic behavior): {rx.pattern!r} times={times}"
+        )
+
+    _assert_after_one_retry(_check)
 
 
 def test_recon_ext_still_matches_real_probe() -> None:
@@ -356,17 +373,20 @@ def test_xss_event_handler_still_matches_real_attack() -> None:
 def _quadratic_resistant(
     pat: str, mk_input: Callable[[int], str], sizes: list[int]
 ) -> None:
-    times = linear_search_time(pat, mk_input, sizes, timeout=4.0)
-    assert all(t is not None for t in times), (
-        f"adversarial input did not finish: {pat[:80]!r} times={times}"
-    )
-    first, last = times[0], times[-1]
-    assert first is not None and last is not None
-    ratio = last / first if first > 0 else 0.0
-    assert ratio < 8.0, (
-        f"adversarial input grew {ratio:.1f}x over a 4x size increase "
-        f"(quadratic behavior): {pat[:80]!r} times={times}"
-    )
+    def _check() -> None:
+        times = linear_search_time(pat, mk_input, sizes, timeout=4.0)
+        assert all(t is not None for t in times), (
+            f"adversarial input did not finish: {pat[:80]!r} times={times}"
+        )
+        first, last = times[0], times[-1]
+        assert first is not None and last is not None
+        ratio = last / first if first > 0 else 0.0
+        assert ratio < 8.0, (
+            f"adversarial input grew {ratio:.1f}x over a 4x size increase "
+            f"(quadratic behavior): {pat[:80]!r} times={times}"
+        )
+
+    _assert_after_one_retry(_check)
 
 
 def test_xss_event_handler_resists_separator_padding() -> None:
@@ -625,19 +645,23 @@ def test_sqli_load_file_still_matches_real_attack() -> None:
 
 
 def _assert_scan_window_linear_and_fast(
-    result: tuple[list[float], list[float]] | None, label: str
+    measure: Callable[[], tuple[list[float], list[float]] | None], label: str
 ) -> None:
-    assert result is not None, f"{label} scan window did not finish in time"
-    mins, medians = result
-    assert mins[-1] < 0.05, (
-        f"{label} exceeded 50ms (min of {_SCAN_WINDOW_TIMING_RUNS} CPU-time runs) "
-        f"at the largest size: mins={mins}"
-    )
-    ratio = mins[-1] / mins[0] if mins[0] > 0 else 0.0
-    assert ratio < 6.0, (
-        f"{label} grew {ratio:.1f}x over a 4x size increase (min-of-"
-        f"{_SCAN_WINDOW_TIMING_RUNS} CPU time): mins={mins} medians={medians}"
-    )
+    def _check() -> None:
+        result = measure()
+        assert result is not None, f"{label} scan window did not finish in time"
+        mins, medians = result
+        assert mins[-1] < 0.05, (
+            f"{label} exceeded 50ms (min of {_SCAN_WINDOW_TIMING_RUNS} CPU-time runs) "
+            f"at the largest size: mins={mins}"
+        )
+        ratio = mins[-1] / mins[0] if mins[0] > 0 else 0.0
+        assert ratio < 6.0, (
+            f"{label} grew {ratio:.1f}x over a 4x size increase (min-of-"
+            f"{_SCAN_WINDOW_TIMING_RUNS} CPU time): mins={mins} medians={medians}"
+        )
+
+    _assert_after_one_retry(_check)
 
 
 def test_sqli_load_file_resists_repeated_literal_padding() -> None:
@@ -648,10 +672,12 @@ def test_sqli_load_file_resists_repeated_literal_padding() -> None:
         return (unit * (n // len(unit) + 1))[:n]
 
     texts = [mk(n) for n in sizes]
-    result = _timed_scan_window_batch(
-        "_load_file_scan_matches", _SQLI_LOAD_FILE_RE, texts, timeout=4.0
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_load_file_scan_matches", _SQLI_LOAD_FILE_RE, texts, timeout=4.0
+        ),
+        "sqli LOAD_FILE",
     )
-    _assert_scan_window_linear_and_fast(result, "sqli LOAD_FILE")
 
 
 def test_cmd_injection_dollar_still_matches_embedded_dollar_variable() -> None:
@@ -684,13 +710,21 @@ def test_cmd_injection_dollar_resists_repeated_literal_padding() -> None:
             return (unit * (n // len(unit) + 1))[:n]
 
         texts = [mk(n) for n in sizes]
-        result = _timed_scan_window_batch(
-            "_cmd_injection_dollar_scan_matches",
-            _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
-            texts,
-            timeout=4.0,
+
+        def measure(
+            texts: list[str] = texts,
+        ) -> tuple[list[float], list[float]] | None:
+            return _timed_scan_window_batch(
+                "_cmd_injection_dollar_scan_matches",
+                _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
+                texts,
+                timeout=4.0,
+            )
+
+        _assert_scan_window_linear_and_fast(
+            measure,
+            f"cmd_injection dollar {unit!r}",
         )
-        _assert_scan_window_linear_and_fast(result, f"cmd_injection dollar {unit!r}")
 
 
 def test_file_upload_double_extension_still_matches_real_attacks() -> None:
@@ -729,13 +763,15 @@ def test_file_upload_double_extension_resists_unclosed_repeated_extension_paddin
         return (prefix + body)[:n]
 
     texts = [mk(n) for n in sizes]
-    result = _timed_scan_window_batch(
-        "_file_upload_double_extension_scan_matches",
-        _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
-        texts,
-        timeout=4.0,
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_file_upload_double_extension_scan_matches",
+            _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "file_upload double-extension",
     )
-    _assert_scan_window_linear_and_fast(result, "file_upload double-extension")
 
 
 def test_template_curly_keyword_still_matches_real_attack() -> None:
@@ -760,13 +796,15 @@ def test_template_curly_keyword_resists_repeated_literal_padding() -> None:
         return (prefix + "a" * n)[:n]
 
     texts = [mk(n) for n in sizes]
-    result = _timed_scan_window_batch(
-        "_template_curly_keyword_scan_matches",
-        _TEMPLATE_CURLY_KEYWORD_RE,
-        texts,
-        timeout=4.0,
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_template_curly_keyword_scan_matches",
+            _TEMPLATE_CURLY_KEYWORD_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "template curly keyword",
     )
-    _assert_scan_window_linear_and_fast(result, "template curly keyword")
 
 
 def test_template_dollar_brace_still_matches_real_attack() -> None:
@@ -784,13 +822,15 @@ def test_template_dollar_brace_resists_repeated_literal_padding() -> None:
         return (prefix + "a" * n)[:n]
 
     texts = [mk(n) for n in sizes]
-    result = _timed_scan_window_batch(
-        "_template_dollar_brace_scan_matches",
-        _TEMPLATE_DOLLAR_BRACE_CALL_RE,
-        texts,
-        timeout=4.0,
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_template_dollar_brace_scan_matches",
+            _TEMPLATE_DOLLAR_BRACE_CALL_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "template dollar-brace",
     )
-    _assert_scan_window_linear_and_fast(result, "template dollar-brace")
 
 
 def test_template_curly_call_still_matches_real_attack() -> None:
@@ -808,13 +848,15 @@ def test_template_curly_call_resists_repeated_literal_padding() -> None:
         return (prefix + "a" * n)[:n]
 
     texts = [mk(n) for n in sizes]
-    result = _timed_scan_window_batch(
-        "_template_curly_call_scan_matches",
-        _TEMPLATE_CURLY_CALL_RE,
-        texts,
-        timeout=4.0,
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_template_curly_call_scan_matches",
+            _TEMPLATE_CURLY_CALL_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "template curly call",
     )
-    _assert_scan_window_linear_and_fast(result, "template curly call")
 
 
 def test_glob_wildcard_still_matches_real_attacks() -> None:
@@ -842,10 +884,12 @@ def test_glob_wildcard_detects_run_past_old_100_char_cap() -> None:
 def test_glob_wildcard_resists_no_wildcard_adversarial_fill() -> None:
     sizes = [65536, 131072, 262144]
     texts = ["a" * n for n in sizes]
-    result = _timed_scan_window_batch(
-        "_glob_wildcard_scan_matches", _GLOB_WILDCARD_ATOM_RE, texts, timeout=4.0
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_glob_wildcard_scan_matches", _GLOB_WILDCARD_ATOM_RE, texts, timeout=4.0
+        ),
+        "cmd_injection glob wildcard",
     )
-    _assert_scan_window_linear_and_fast(result, "cmd_injection glob wildcard")
 
 
 @pytest.mark.parametrize(

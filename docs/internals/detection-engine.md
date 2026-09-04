@@ -46,9 +46,9 @@ flowchart TD
     INJECT --> AGG
 ```
 
-Built-in (compile-time-vetted) patterns match directly via `pattern.search()`, with no per-match thread or timeout. Only custom patterns (added via `add_pattern(..., custom=True)`) are routed through the safe-matcher timeout wrapper — a custom-pattern match is flagged as timed out once elapsed time reaches `0.9 * compiler.default_timeout` (i.e. `0.9 * detection_compiler_timeout` when a `SecurityConfig` is wired; legacy/no-compiler mode falls back to a hardcoded 2.0s field default).
+Built-in (compile-time-vetted) patterns match directly via `pattern.search()`, with no per-match thread or timeout. Only custom patterns (added via `add_pattern(..., custom=True)`) are routed through the safe-matcher timeout wrapper, a custom-pattern match is flagged as timed out once elapsed time reaches `0.9 * compiler.default_timeout` (i.e. `0.9 * detection_compiler_timeout` when a `SecurityConfig` is wired; legacy/no-compiler mode falls back to a hardcoded 2.0s field default).
 
-When no `SecurityConfig` is wired at construction (legacy mode), `SusPatternsManager` builds neither a `PatternCompiler` nor a `ContentPreprocessor`; content is instead truncated to `detection_max_content_length` (default 10000) via direct slicing before matching, and every pattern — including what would otherwise be a "custom" pattern — runs through the same shared-executor timeout path described above (`_check_pattern_with_timeout`), reporting to the same success/timeout counters.
+When no `SecurityConfig` is wired at construction (legacy mode), `SusPatternsManager` builds neither a `PatternCompiler` nor a `ContentPreprocessor`; content is instead truncated to `detection_max_content_length` (default 10000) via direct slicing before matching, and every pattern, including what would otherwise be a "custom" pattern, runs through the same shared-executor timeout path described above (`_check_pattern_with_timeout`), reporting to the same success/timeout counters. Running detection unconfigured this way is deprecated and will be removed in a future major release: the first time `detect()` actually executes in this state, it raises a `DeprecationWarning` and logs an identical `logger.warning` naming the reason (`_LEGACY_DETECTION_WARNING`, checked by the `_warn_if_legacy_detection` helper in `guard_core/handlers/suspatterns_handler.py`), once per process, a module-level flag shared by every `SusPatternsManager` instance, not a per-instance one. The check runs from inside `detect()` itself, not at construction or at `configure()`, since the module-level singleton is always built unconfigured at import time and only gets a `SecurityConfig` later from the pipeline; a normally initialised pipeline configures the singleton (directly via `sus_patterns_handler.configure(config)`, or implicitly through `detect_penetration_attempt(request, config)`) before it ever runs detection, so it never warns.
 
 ___
 
@@ -83,9 +83,9 @@ Synchronous compilation without caching. Used internally by validators and safe 
 Validates a pattern against ReDoS vulnerability:
 
 1. Checks for known dangerous constructs: `(.*)+`, `(.+)+`, nested quantifiers.
-2. Runs the pattern against test strings (default: varying lengths of `'a'`, `'x'+'y'`, `'<'+'>'`) on a dedicated single-worker `validation_regex_executor()` — isolated from the shared `shared_regex_executor()` scan pool used for live request matching, so a busy scan pool can no longer starve or falsely fail a validation probe.
+2. Runs the pattern against test strings (default: varying lengths of `'a'`, `'x'+'y'`, `'<'+'>'`) on a dedicated single-worker `validation_regex_executor()`, isolated from the shared `shared_regex_executor()` scan pool used for live request matching, so a busy scan pool can no longer starve or falsely fail a validation probe.
 3. Elapsed time is measured *inside* the submitted callable, i.e. execution time only, not time spent queued behind other probes. The outer `future.result(timeout=1.0)` call bounds total wait to 1.0s, but the pattern is flagged unsafe as soon as a probe's own execution exceeds the stricter 50ms threshold.
-4. Any timeout (queue-bound or per-probe), exception, or a probe over 50ms rejects the pattern — validation is fail-closed.
+4. Any timeout (queue-bound or per-probe), exception, or a probe over 50ms rejects the pattern, validation is fail-closed.
 
 `SusPatternsManager.add_pattern` (the async API used by Redis custom-pattern restore and dynamic-rule pattern pushes) runs this validation via `asyncio.to_thread`, so up to ~1s of ReDoS probing never blocks the event loop. The sync API's `add_pattern` calls `validate_pattern_safety` directly on the calling thread.
 
@@ -98,7 +98,7 @@ safe_match = compiler.create_safe_matcher(r"<script.*?>", timeout=2.0)
 result = safe_match(user_input)  # None if timed out
 ```
 
-Every `safe_match` call — and the legacy no-compiler `_check_pattern_with_timeout` path — reports its outcome to module-level success/timeout counters. Four consecutive timed-out submissions replace the shared pool with a fresh one: the stale pool is shut down non-blocking (`shutdown(wait=False)`) and a warning is logged naming the leaked-worker count, so one pathological custom pattern can no longer wedge every worker permanently. Any successful match resets the counter to zero.
+Every `safe_match` call, and the legacy no-compiler `_check_pattern_with_timeout` path, reports its outcome to module-level success/timeout counters. Four consecutive timed-out submissions replace the shared pool with a fresh one: the stale pool is shut down non-blocking (`shutdown(wait=False)`) and a warning is logged naming the leaked-worker count, so one pathological custom pattern can no longer wedge every worker permanently. Any successful match resets the counter to zero.
 
 **`batch_compile(patterns, validate) -> dict[str, re.Pattern]`** (async)
 

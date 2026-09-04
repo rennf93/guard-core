@@ -35,6 +35,30 @@ def _backtick_pair_glued(content: str, start: int, end: int) -> bool:
     return prefix_glued or suffix_glued
 
 
+_BACKTICK_CLAUSE_BOUNDARY_CHARS = ".!?;&|"
+
+
+def _backtick_pair_tail_anchored(content: str, end: int) -> bool:
+    return content[end:].strip() == ""
+
+
+def _backtick_pair_clause_initial(content: str, start: int) -> bool:
+    if start == 0:
+        return False
+    if content[start - 1] not in " \t\r\n":
+        return False
+    prefix = content[:start].rstrip()
+    if not prefix:
+        return False
+    return prefix[-1] in _BACKTICK_CLAUSE_BOUNDARY_CHARS
+
+
+def _backtick_pair_appended_clause(content: str, start: int, end: int) -> bool:
+    return _backtick_pair_tail_anchored(content, end) and _backtick_pair_clause_initial(
+        content, start
+    )
+
+
 def _backtick_window_start(content: str, position: int) -> int:
     index = position
     while index > 0 and content[index - 1] not in _BACKTICK_WINDOW_DELIMITER_CHARS:
@@ -78,7 +102,8 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
         return False
     if _backtick_token_has_chained_shell_operators(token):
         return True
-    if not _backtick_pair_glued(content, start, end):
+    appended_clause = _backtick_pair_appended_clause(content, start, end)
+    if not _backtick_pair_glued(content, start, end) and not appended_clause:
         return False
     if _backtick_token_is_implausible_sql_identifier(token):
         return True
@@ -87,7 +112,7 @@ def _glued_backtick_pair_is_injection(match: re.Match, context: str) -> bool:
         return True
     if _strong_sql_keyword_glued_to_pair(content, start, end):
         return False
-    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS
+    return context in _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS or appended_clause
 
 
 def _dollar_substitution_token_is_implausible(token: str, delimiter: str) -> bool:

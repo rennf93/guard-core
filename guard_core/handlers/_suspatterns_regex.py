@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+from guard_core._utils.detection_scan import _redact_pattern_source
 from guard_core.detection_engine.compiler import (
     report_scan_success,
     report_scan_timeout,
@@ -203,11 +204,11 @@ _SCAN_WINDOW_BOUND_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
     r"\.\.;[^/\\]*[/\\]": ((r"\.\.;", r"[/\\]"),),
     (
         r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)(?![a-zA-Z0-9])"
     ): (
         (
             r"=(?:https?|ftp):\/\/",
-            r"\.(?:phtml|php\d*|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)[a-zA-Z0-9]*",
+            r"\.(?:phtml|php\d*|phar|jsp|aspx?|pl|py|txt|inc)[a-zA-Z0-9]*",
         ),
     ),
     r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>": ((r"<!(?:ENTITY|DOCTYPE)", r">"),),
@@ -334,7 +335,8 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             timeout_threshold = 0.9 * compiler.default_timeout
             if not matches and time.monotonic() - pattern_start >= timeout_threshold:
                 timeout_occurred = True
-                logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+                safe_pattern = _redact_pattern_source(pattern.pattern)[:50]
+                logger.warning(f"Pattern timeout: {safe_pattern}...")
 
             threat = _first_accepted_regex_threat(
                 iter(matches), pattern, category, pattern_start, context
@@ -367,14 +369,16 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             matches = future.result(timeout=timeout)
             report_scan_success()
         except concurrent.futures.TimeoutError:
-            logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+            logger.warning(
+                f"Pattern timeout: {_redact_pattern_source(pattern.pattern)[:50]}..."
+            )
             future.cancel()
             report_scan_timeout()
             return None, True
         except Exception as e:
             logger.error(
                 f"Error in windowed regex search for pattern "
-                f"{pattern.pattern[:50]}...: {e}"
+                f"{_redact_pattern_source(pattern.pattern)[:50]}...: {e}"
             )
             return None, False
 
@@ -434,7 +438,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         except concurrent.futures.TimeoutError:
             logger.warning(
                 f"Regex timeout exceeded for pattern: "
-                f"{pattern.pattern[:50]}... "
+                f"{_redact_pattern_source(pattern.pattern)[:50]}... "
                 f"Potential ReDoS attack blocked. IP: {ip_address}"
             )
             future.cancel()
@@ -442,7 +446,8 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             return None, True
         except Exception as e:
             logger.error(
-                f"Error in regex search for pattern {pattern.pattern[:50]}...: {e}"
+                f"Error in regex search for pattern "
+                f"{_redact_pattern_source(pattern.pattern)[:50]}...: {e}"
             )
             return None, False
 

