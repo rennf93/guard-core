@@ -73,6 +73,14 @@ def test_dynamic_rules_cache_path_runtime_assignment_accepts_valid_value() -> No
     assert config.revision == revision_before + 1
 
 
+def test_dynamic_rules_cache_path_runtime_reassignment_to_none_is_accepted() -> None:
+    config = SecurityConfig(dynamic_rules_cache_path="/tmp/rules.json")
+
+    config.dynamic_rules_cache_path = None
+
+    assert config.dynamic_rules_cache_path is None
+
+
 def test_model_copy_update_rejects_invalid_dynamic_rules_cache_path() -> None:
     base = SecurityConfig(dynamic_rules_cache_path="/tmp/rules.json")
 

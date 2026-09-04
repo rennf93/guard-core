@@ -34,6 +34,7 @@ from guard_core._security_config_validators import (
     _validate_muted_event_types_value,
     _validate_muted_metric_types_value,
     _validate_return_pattern_body_scan,
+    _validate_sensitive_name_set_value,
     _validate_threat_ban_config_value,
     _warn_country_allowlist_shadows_blocklist,
     _warn_empty_enabled_detection_categories,
@@ -83,25 +84,29 @@ _skip_revalidation: contextvars.ContextVar[bool] = contextvars.ContextVar(
 
 
 class SecurityConfig(_SecurityConfigFields):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, hide_input_in_errors=True)
 
     _revision: int = PrivateAttr(default=0)
 
+    def _current_revision(self) -> int:
+        private = self.__pydantic_private__
+        fallback = private.get("_revision", 0) if private is not None else 0
+        stored = self.__dict__.get("_revision", fallback)
+        return stored if isinstance(stored, int) else 0
+
     def __setattr__(self, name: str, value: Any) -> None:
-        if name == "exclude_paths":
-            value = _validate_exclude_paths_value(value, stacklevel=3)
-        if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
-            _validate_global_behavior_rule_assignment(self, name, value)
         if name in _GEO_STATE_FIELDS:
             value = _apply_geo_ip_handler_assignment(self, name, value)
         if name in _FIELD_REVALIDATORS and not _skip_revalidation.get():
             value = _FIELD_REVALIDATORS[name](value)
+        if name in _GLOBAL_BEHAVIOR_RULE_FIELDS:
+            _validate_global_behavior_rule_assignment(self, name, value)
 
         should_warn = _country_shadow_should_warn(self, name, value)
 
         super().__setattr__(name, value)
         if name != "_revision":
-            object.__setattr__(self, "_revision", self._revision + 1)
+            object.__setattr__(self, "_revision", self._current_revision() + 1)
         if should_warn:
             _warn_country_allowlist_shadows_blocklist(stacklevel=3)
 
@@ -114,7 +119,7 @@ class SecurityConfig(_SecurityConfigFields):
 
     @property
     def revision(self) -> int:
-        return self._revision
+        return self._current_revision()
 
     def model_copy(
         self, *, update: Mapping[str, Any] | None = None, deep: bool = False
@@ -282,6 +287,18 @@ class SecurityConfig(_SecurityConfigFields):
     @field_validator("muted_check_logs", mode="before")
     def validate_muted_check_logs(cls, v: Any) -> frozenset[str]:
         return _validate_muted_check_logs_value(v)
+
+    @field_validator("log_sensitive_headers", mode="before")
+    def validate_log_sensitive_headers(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_headers")
+
+    @field_validator("log_sensitive_params", mode="before")
+    def validate_log_sensitive_params(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_params")
+
+    @field_validator("log_sensitive_body_fields", mode="before")
+    def validate_log_sensitive_body_fields(cls, v: Any) -> frozenset[str]:
+        return _validate_sensitive_name_set_value(v, "log_sensitive_body_fields")
 
     @field_validator("exclude_paths")
     def validate_exclude_paths(cls, v: list[str]) -> list[str]:

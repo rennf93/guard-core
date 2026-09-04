@@ -3,10 +3,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.request_logging import redact_endpoint_for_display
 from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     _increment_suspicious_counts,
     _try_threshold_ban,
+    emit_decorator_event,
+    emit_rate_limit_event,
     route_config_applies,
 )
 from guard_core.sync.core.events.event_types import (
@@ -66,6 +69,40 @@ class RateLimitCheck(SecurityCheck):
         event_type: str,
         event_kwargs: dict[str, Any],
     ) -> None:
+        decorator_type = event_kwargs.get("decorator_type")
+        reason = str(event_kwargs.get("reason", ""))
+
+        if decorator_type == "rate_limiting":
+            emit_rate_limit_event(
+                self.middleware,
+                request,
+                event_type=event_type,
+                limit=event_kwargs["rate_limit"],
+                window=event_kwargs["window"],
+                reason=reason,
+                passive_mode=self.config.passive_mode,
+            )
+            return
+
+        if decorator_type == "geo_rate_limiting":
+            metadata = {
+                key: value
+                for key, value in event_kwargs.items()
+                if key not in {"reason", "decorator_type"}
+            }
+            emit_decorator_event(
+                self.middleware,
+                request,
+                event_type=event_type,
+                action_taken="request_blocked"
+                if not self.config.passive_mode
+                else "logged_only",
+                reason=reason,
+                decorator_type=decorator_type,
+                **metadata,
+            )
+            return
+
         self.middleware.event_bus.send_middleware_event(
             event_type=event_type,
             request=request,
@@ -113,6 +150,7 @@ class RateLimitCheck(SecurityCheck):
                 endpoint_path=endpoint_path,
                 rate_limit=rate_limit,
                 rate_limit_window=window,
+                config=self.config,
             )
         )
 
@@ -133,6 +171,12 @@ class RateLimitCheck(SecurityCheck):
             return None
 
         rate_limit, window = self.config.endpoint_rate_limits[endpoint_path]
+        safe_endpoint = redact_endpoint_for_display(
+            endpoint_path,
+            self.config.log_sensitive_params,
+            self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
+        )
         return self._apply_rate_limit_check(
             request,
             client_ip,
@@ -142,10 +186,10 @@ class RateLimitCheck(SecurityCheck):
             {
                 "reason": (
                     f"Endpoint-specific rate limit exceeded: {rate_limit} "
-                    f"requests per {window}s for {endpoint_path}"
+                    f"requests per {window}s for {safe_endpoint}"
                 ),
                 "rule_type": "endpoint_rate_limit",
-                "endpoint": endpoint_path,
+                "endpoint": safe_endpoint,
                 "rate_limit": rate_limit,
                 "window": window,
             },
@@ -222,7 +266,12 @@ class RateLimitCheck(SecurityCheck):
     ) -> GuardResponse | None:
         result: GuardResponse | None = (
             self.middleware.rate_limit_handler.check_rate_limit(
-                request, client_ip, self.middleware.create_error_response
+                request,
+                client_ip,
+                self.middleware.create_error_response,
+                rate_limit=self.config.rate_limit,
+                rate_limit_window=self.config.rate_limit_window,
+                config=self.config,
             )
         )
 

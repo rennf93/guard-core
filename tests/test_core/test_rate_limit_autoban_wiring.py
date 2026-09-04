@@ -34,6 +34,7 @@ def _make_request(client_ip: str) -> MagicMock:
     request.state.route_config = None
     request.state.is_whitelisted = False
     request.url_path = "/api/test"
+    request.url_full = "https://test/api/test"
     return request
 
 

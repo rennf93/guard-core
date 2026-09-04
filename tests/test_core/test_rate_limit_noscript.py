@@ -231,6 +231,7 @@ async def test_script_reloaded_emits_agent_event(
     assert agent.send_event.await_count == 1
     sent_event = agent.send_event.await_args.args[0]
     assert sent_event.event_type == "rate_limit_script_reloaded"
+    assert sent_event.handler_name == "rate_limit"
 
 
 @pytest.mark.asyncio

@@ -314,6 +314,12 @@ def test_multipart_text_parts_returns_filename_and_content_for_file_part() -> No
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         ("file", "file", 'filename="shell.php.jpg"'),
+        (
+            "file",
+            "file",
+            'Content-Disposition: form-data; name="file"; filename="shell.php.jpg"',
+        ),
+        ("file", "file", "Content-Type: application/octet-stream"),
         ("file", "file", "payload-bytes"),
     ]
 
@@ -324,7 +330,12 @@ def test_multipart_text_parts_scans_part_without_disposition_name() -> None:
         '--B0\r\nContent-Disposition: form-data; name="ok"\r\n\r\nvalue\r\n--B0--\r\n'
     )
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
-    assert parts == [(None, "file", "stray"), ("ok", "ok", "value")]
+    assert parts == [
+        (None, "file", "Content-Type: text/plain"),
+        (None, "file", "stray"),
+        ("ok", "ok", 'Content-Disposition: form-data; name="ok"'),
+        ("ok", "ok", "value"),
+    ]
 
 
 def test_multipart_text_parts_no_name_file_part_has_no_exclusion_key() -> None:
@@ -332,6 +343,8 @@ def test_multipart_text_parts_no_name_file_part_has_no_exclusion_key() -> None:
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         (None, "file", 'filename="shell.php.jpg"'),
+        (None, "file", 'Content-Disposition: form-data; filename="shell.php.jpg"'),
+        (None, "file", "Content-Type: application/octet-stream"),
         (None, "file", "payload-bytes"),
     ]
 
@@ -351,12 +364,22 @@ def test_multipart_text_parts_skips_non_string_payload() -> None:
     file_body = _file_part_body("shell.php.jpg", "payload-bytes").decode()
     with patch.object(email.parser.Parser, "parsestr", fake_parsestr):
         file_parts = _multipart_text_parts(file_body, _CONTENT_TYPE)
-    assert file_parts == [("file", "file", 'filename="shell.php.jpg"')]
+    assert file_parts == [
+        ("file", "file", 'filename="shell.php.jpg"'),
+        (
+            "file",
+            "file",
+            'Content-Disposition: form-data; name="file"; filename="shell.php.jpg"',
+        ),
+        ("file", "file", "Content-Type: application/octet-stream"),
+    ]
 
     text_body = _text_field_body("field", "value").decode()
     with patch.object(email.parser.Parser, "parsestr", fake_parsestr):
         text_parts = _multipart_text_parts(text_body, _CONTENT_TYPE)
-    assert text_parts == []
+    assert text_parts == [
+        ("field", "field", 'Content-Disposition: form-data; name="field"'),
+    ]
 
 
 async def test_nested_multipart_mixed_file_part_is_detected() -> None:
@@ -390,6 +413,8 @@ def test_multipart_text_parts_uses_fallback_label_for_nested_file_part() -> None
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         (None, "file", 'filename="shell.php.jpg"'),
+        (None, "file", 'Content-Disposition: attachment; filename="shell.php.jpg"'),
+        (None, "file", "Content-Type: application/octet-stream"),
         (None, "file", "payload-bytes"),
     ]
 
@@ -431,6 +456,13 @@ def test_multipart_text_parts_strips_embedded_double_quote_from_filename() -> No
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         ("file", "file", 'filename="shell.php%00.jpg"'),
+        (
+            "file",
+            "file",
+            'Content-Disposition: form-data; name="file"; '
+            'filename="shell\\".php%00.jpg"',
+        ),
+        ("file", "file", "Content-Type: application/octet-stream"),
         ("file", "file", "harmless"),
     ]
 
@@ -442,6 +474,12 @@ def test_multipart_text_parts_strips_embedded_single_quote_from_filename() -> No
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         ("file", "file", 'filename="shell.php.jpg"'),
+        (
+            "file",
+            "file",
+            'Content-Disposition: form-data; name="file"; filename="shell\'.php.jpg"',
+        ),
+        ("file", "file", "Content-Type: application/octet-stream"),
         ("file", "file", "harmless"),
     ]
 
@@ -469,6 +507,12 @@ def test_multipart_text_parts_includes_binary_content_alongside_filename() -> No
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     assert parts == [
         ("file", "file", 'filename="photo.jpg"'),
+        (
+            "file",
+            "file",
+            'Content-Disposition: form-data; name="file"; filename="photo.jpg"',
+        ),
+        ("file", "file", "Content-Type: application/octet-stream"),
         ("file", "file", binary_blob),
     ]
 

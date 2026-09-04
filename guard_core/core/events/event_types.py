@@ -10,7 +10,7 @@ EVENT_IP_UNBANNED = "ip_unbanned"
 EVENT_CLOUD_BLOCKED = "cloud_blocked"
 EVENT_HTTPS_ENFORCED = "https_enforced"
 EVENT_DECORATOR_VIOLATION = "decorator_violation"
-EVENT_BEHAVIOR_VIOLATION = "behavior_violation"
+EVENT_BEHAVIOR_VIOLATION = "behavioral_violation"
 EVENT_PATTERN_DETECTED = "pattern_detected"
 EVENT_DYNAMIC_RULE_UPDATED = "dynamic_rule_updated"
 EVENT_DYNAMIC_RULE_APPLIED = "dynamic_rule_applied"
@@ -37,6 +37,11 @@ EVENT_ROUTE_UNRESOLVED = "route_unresolved"
 EVENT_SECURITY_BYPASS = "security_bypass"
 EVENT_SECURITY_HEADERS_APPLIED = "security_headers_applied"
 EVENT_USER_AGENT_BLOCKED = "user_agent_blocked"
+EVENT_SUSPICIOUS_REQUEST = "suspicious_request"
+EVENT_DETECTION_ENGINE_CALLBACK_ERROR = "detection_engine_callback_error"
+EVENT_PATTERN_ANOMALY_TIMEOUT = "pattern_anomaly_timeout"
+EVENT_PATTERN_ANOMALY_SLOW_EXECUTION = "pattern_anomaly_slow_execution"
+EVENT_PATTERN_ANOMALY_STATISTICAL_ANOMALY = "pattern_anomaly_statistical_anomaly"
 
 EVENT_TYPE_VALUES: frozenset[str] = frozenset(
     {
@@ -74,6 +79,11 @@ EVENT_TYPE_VALUES: frozenset[str] = frozenset(
         EVENT_SECURITY_BYPASS,
         EVENT_SECURITY_HEADERS_APPLIED,
         EVENT_USER_AGENT_BLOCKED,
+        EVENT_SUSPICIOUS_REQUEST,
+        EVENT_DETECTION_ENGINE_CALLBACK_ERROR,
+        EVENT_PATTERN_ANOMALY_TIMEOUT,
+        EVENT_PATTERN_ANOMALY_SLOW_EXECUTION,
+        EVENT_PATTERN_ANOMALY_STATISTICAL_ANOMALY,
     }
 )
 

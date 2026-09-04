@@ -876,7 +876,7 @@ def test_get_problematic_patterns_skips_when_slow_report_is_none() -> None:
 
 def test_remove_pattern_stats_noop_for_unknown_pattern() -> None:
     monitor = PerformanceMonitor()
-    # pattern not in stats — the `if pattern in self.pattern_stats:` False branch.
+    # pattern not in stats, the `if pattern in self.pattern_stats:` False branch.
     monitor.remove_pattern_stats("nonexistent")
     assert "nonexistent" not in monitor.pattern_stats
 

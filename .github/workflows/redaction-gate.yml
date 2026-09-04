@@ -1,0 +1,101 @@
+name: Redaction Gate
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: redaction-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  redaction-gate:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 40
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev --extra otel --extra logfire
+
+      - name: Pick the seeds and the sample size
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "seeds=${{ github.run_number }},$(( ${{ github.run_number }} + 100000 ))" >> "$GITHUB_OUTPUT"
+            echo "limit=8000" >> "$GITHUB_OUTPUT"
+          else
+            echo "seeds=0,1" >> "$GITHUB_OUTPUT"
+            echo "limit=5000" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the generative redaction gate
+        id: genprobe
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: |
+          set -o pipefail
+          uv run python tests/redaction_gate/genprobe.py \
+            --limit ${{ steps.plan.outputs.limit }} --seeds ${{ steps.plan.outputs.seeds }} \
+            --json-out redaction-gate.json \
+            2>&1 | tee redaction-gate.log
+
+      - name: Write the step summary
+        if: always()
+        run: |
+          {
+            echo '## Redaction gate (seeds ${{ steps.plan.outputs.seeds }}, limit ${{ steps.plan.outputs.limit }})'
+            echo
+            echo '```text'
+            awk '/^=== RESULT ===$/,/^$/' redaction-gate.log
+            echo '```'
+            echo
+            echo '<details><summary>Axis summary</summary>'
+            echo
+            echo '```text'
+            awk '/^=== AXIS SUMMARY/,/^=== FIRST /{ if (!/^=== FIRST /) print }' redaction-gate.log
+            echo '```'
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the case ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: redaction-gate-ledger
+          path: |
+            redaction-gate.json
+            redaction-gate.log
+          if-no-files-found: warn

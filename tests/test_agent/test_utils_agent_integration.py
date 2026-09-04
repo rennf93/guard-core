@@ -103,3 +103,29 @@ async def test_send_agent_event_with_request() -> None:
     assert sent_event.user_agent == "TestBrowser/1.0"
 
     mock_request.headers.get.assert_called_once_with("User-Agent")
+
+
+@pytest.mark.asyncio
+async def test_send_agent_event_promotes_decorator_type_and_rule_type() -> None:
+    mock_agent = AsyncMock()
+
+    await send_agent_event(
+        agent_handler=mock_agent,
+        event_type="suspicious_request",
+        ip_address="192.168.1.100",
+        action_taken="logged",
+        reason="test reason",
+        decorator_type="access_control",
+        rule_type="ip_whitelist",
+    )
+
+    mock_agent.send_event.assert_called_once()
+    sent_event = mock_agent.send_event.call_args[0][0]
+
+    assert sent_event.decorator_type == "access_control"
+    assert sent_event.rule_type == "ip_whitelist"
+    assert sent_event.handler_name == "ip_extraction"
+    assert sent_event.metadata == {
+        "decorator_type": "access_control",
+        "rule_type": "ip_whitelist",
+    }

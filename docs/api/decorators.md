@@ -95,6 +95,20 @@ Provides authentication and authorization decorators.
 - `@guard_deco.api_key_auth(header_name="X-API-Key")` - API key authentication
 - `@guard_deco.require_headers(headers={})` - Require specific headers
 
+**`require_headers` semantics**
+
+Each key of `headers` is a header name; a missing header is always rejected. The value `"required"` keeps presence-only semantics: any value satisfies the check as long as the header is present. Any other configured value must match the request header's value exactly, or the request is rejected with the reason `Header 'X' does not match the required value`, which never echoes the expected or received value.
+
+```python
+@app.get("/api/internal")
+@guard_deco.require_headers({"X-Request-Id": "required", "X-Internal-Version": "2"})
+def internal_endpoint():
+    return {"data": "internal"}
+```
+
+!!! warning "Breaking Change"
+    Before this fix, a configured value other than `"required"` was never enforced: the decorator was a silent no-op for it, and neither a missing header nor a mismatched value was rejected. A route decorated with a non-`"required"` value now enforces it; audit any `require_headers()` call that used a placeholder or example string as the value.
+
 ### RateLimitingMixin
 
 Provides rate limiting decorators.
@@ -128,6 +142,10 @@ Provides content and request filtering decorators.
 - `@guard_deco.custom_validation(validator)` - Add custom validation logic
 - `@guard_deco.detection_exclusion(headers=None, params=None, body_fields=None, categories=None, scan_body=None)` - Per-route detection scoping
 
+**`require_referrer` semantics**
+
+`allowed_domains` entries accept three forms: a bare host (`example.com`), a scheme-prefixed URL (`https://example.com`), or a scheme-prefixed URL with a port (`https://example.com:8443`). An entry containing `://` is reduced to its host (and port, if present) before comparison; a bare entry is lowercased with any trailing slash or path stripped. The request's `Referer` header is then matched against each configured entry, exactly or as a subdomain.
+
 **`detection_exclusion` semantics**
 
 ```python
@@ -141,13 +159,13 @@ def detection_exclusion(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 ```
 
-All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset — the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
+All five kwargs are optional (`set[str] | None` for `headers`/`params`/`body_fields`/`categories`, `bool | None` for `scan_body`). Passing `None` (or omitting) leaves the corresponding `RouteConfig` field unset, the route inherits the global `SecurityConfig` value at request time. Passing a value replaces the inherited value at this route only.
 
-- `headers` — header names skipped by detection. Merged with `SecurityConfig.excluded_detection_headers` and the hardcoded default exclusion list.
-- `params` — query parameter names skipped by detection. Replaces (does not merge with) the global set when set.
-- `body_fields` — top-level JSON body keys skipped by detection. Replaces the global set when set.
-- `categories` — categories the regex scanner runs at this route. Replaces the global `enabled_detection_categories`. Custom user patterns always run regardless.
-- `scan_body` — whether to scan the request body at this route. Replaces the global `detection_scan_body` when set.
+- `headers`, header names skipped by detection. Merged with `SecurityConfig.excluded_detection_headers` and the hardcoded default exclusion list.
+- `params`, query parameter names skipped by detection. Replaces (does not merge with) the global set when set.
+- `body_fields`, top-level JSON body keys skipped by detection. Replaces the global set when set.
+- `categories`, categories the regex scanner runs at this route. Replaces the global `enabled_detection_categories`. Custom user patterns always run regardless.
+- `scan_body`, whether to scan the request body at this route. Replaces the global `detection_scan_body` when set.
 
 ```python
 @app.post("/api/markdown-editor/save")
@@ -321,4 +339,4 @@ Security settings are applied in the following priority order:
 
 This allows for flexible override behavior where routes can customize their security requirements while maintaining global defaults.
 
-Decorator settings override global settings only for the aspects they configure — they do not shadow the global settings wholesale. This matters most for IP and country access control, where the IP and country aspects are evaluated independently: a route-level `ip_whitelist` match suppresses only the global IP-list gate (it does not exempt the request from country enforcement), and only an actual `whitelist_countries` match for the resolved country suppresses the global country gate. A route-level deny (`ip_blacklist` or `blocked_countries`) is enforced at the route step and, on its own, never disables the global IP or country rules, which still run afterward. Within the IP aspect, a route `ip_whitelist` match wins over that same route's own `ip_blacklist`.
+Decorator settings override global settings only for the aspects they configure, they do not shadow the global settings wholesale. This matters most for IP and country access control, where the IP and country aspects are evaluated independently: a route-level `ip_whitelist` match suppresses only the global IP-list gate (it does not exempt the request from country enforcement), and only an actual `whitelist_countries` match for the resolved country suppresses the global country gate. A route-level deny (`ip_blacklist` or `blocked_countries`) is enforced at the route step and, on its own, never disables the global IP or country rules, which still run afterward. Within the IP aspect, a route `ip_whitelist` match wins over that same route's own `ip_blacklist`.

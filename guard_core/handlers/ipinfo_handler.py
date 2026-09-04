@@ -10,8 +10,14 @@ import aiohttp
 import maxminddb
 from maxminddb import Reader
 
+from guard_core.core.events.event_types import (
+    EVENT_COUNTRY_BLOCKED,
+    EVENT_GEO_LOOKUP_FAILED,
+)
 from guard_core.protocols.agent_protocol import AgentHandlerProtocol
 from guard_core.protocols.redis_protocol import RedisHandlerProtocol
+
+_IPINFO_HANDLER_NAME = "ipinfo"
 
 
 def _describe_download_error(exc: BaseException) -> str:
@@ -140,7 +146,7 @@ class IPInfoManager:
                 )
                 if self.agent_handler:
                     await self._send_geo_event(
-                        event_type="geo_lookup_failed",
+                        event_type=EVENT_GEO_LOOKUP_FAILED,
                         ip_address="system",
                         action_taken="database_download_failed",
                         reason=(
@@ -177,6 +183,8 @@ class IPInfoManager:
                 ip_address=ip_address,
                 action_taken=action_taken,
                 reason=reason,
+                rule_type=kwargs.get("rule_type"),
+                handler_name=_IPINFO_HANDLER_NAME,
                 metadata=kwargs,
             )
             await self.agent_handler.send_event(event)
@@ -254,7 +262,7 @@ class IPInfoManager:
                 import asyncio
 
                 coro = self._send_geo_event(
-                    event_type="geo_lookup_failed",
+                    event_type=EVENT_GEO_LOOKUP_FAILED,
                     ip_address=ip,
                     action_taken="lookup_failed",
                     reason=f"Geographic lookup failed: {type(e).__name__}",
@@ -280,7 +288,7 @@ class IPInfoManager:
 
         if whitelist_countries and country not in whitelist_countries:
             await self._send_geo_event(
-                event_type="country_blocked",
+                event_type=EVENT_COUNTRY_BLOCKED,
                 ip_address=ip,
                 action_taken="request_blocked",
                 reason=f"Country {country} not in allowed list",
@@ -291,7 +299,7 @@ class IPInfoManager:
 
         if country in blocked_countries:
             await self._send_geo_event(
-                event_type="country_blocked",
+                event_type=EVENT_COUNTRY_BLOCKED,
                 ip_address=ip,
                 action_taken="request_blocked",
                 reason=f"Country {country} is blocked",

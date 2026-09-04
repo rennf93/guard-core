@@ -216,3 +216,88 @@ async def test_hsts_valid_preload_configuration(
     assert manager.hsts_config["max_age"] == 31536000
 
     assert "HSTS preload requires" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_without_hsts_clears_the_stale_header() -> None:
+    manager = SecurityHeadersManager()
+
+    manager.configure(hsts_max_age=31536000)
+    headers = await manager.get_headers("/hsts-reconfigure")
+    assert "Strict-Transport-Security" in headers
+
+    manager.configure()
+    headers = await manager.get_headers("/hsts-reconfigure")
+
+    assert manager.hsts_config is None
+    assert "Strict-Transport-Security" not in headers
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_with_no_overrides_clears_every_prior_group() -> None:
+    manager = SecurityHeadersManager()
+
+    manager.configure(
+        csp={"default-src": ["'self'"]},
+        hsts_max_age=31536000,
+        frame_options="DENY",
+        content_type_options="custom-value",
+        xss_protection="0",
+        referrer_policy="no-referrer",
+        permissions_policy="geolocation=(self)",
+        custom_headers={"X-Stale": "leftover"},
+        cors_origins=["https://old.example.com"],
+    )
+
+    manager.configure()
+    headers = await manager.get_headers("/reconfigure-clean")
+    cors_headers = await manager.get_cors_headers("https://old.example.com")
+
+    assert manager.csp_config is None
+    assert manager.hsts_config is None
+    assert manager.cors_config is None
+    assert manager.custom_headers == {}
+    assert "Content-Security-Policy" not in headers
+    assert "Strict-Transport-Security" not in headers
+    assert "X-Stale" not in headers
+    assert cors_headers == {}
+
+    assert headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["X-XSS-Protection"] == "1; mode=block"
+    assert headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert headers["Permissions-Policy"] == "geolocation=(), microphone=(), camera=()"
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_invalidates_the_headers_cache() -> None:
+    manager = SecurityHeadersManager()
+
+    manager.configure(hsts_max_age=31536000)
+    cached_first = await manager.get_headers("/cached-path")
+    assert "Strict-Transport-Security" in cached_first
+
+    manager.configure()
+    cached_second = await manager.get_headers("/cached-path")
+
+    assert "Strict-Transport-Security" not in cached_second
+
+
+@pytest.mark.asyncio
+async def test_permissions_policy_explicit_none_clears_header_but_unset_resets_it() -> (
+    None
+):
+    manager = SecurityHeadersManager()
+
+    manager.configure(permissions_policy="geolocation=(self)")
+    headers = await manager.get_headers("/pp-explicit-clear")
+    assert headers["Permissions-Policy"] == "geolocation=(self)"
+
+    manager.configure(permissions_policy=None)
+    headers = await manager.get_headers("/pp-explicit-clear")
+    assert "Permissions-Policy" not in headers
+
+    manager.configure(permissions_policy="geolocation=(self)")
+    manager.configure()
+    headers = await manager.get_headers("/pp-explicit-clear")
+    assert headers["Permissions-Policy"] == "geolocation=(), microphone=(), camera=()"

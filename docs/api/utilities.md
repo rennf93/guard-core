@@ -60,7 +60,10 @@ async def log_activity(
     trigger_info: str = "",
     level: Literal["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"] | None = "WARNING",
     check_name: str | None = None,
-    muted_check_logs: set[str] | None = None,
+    muted_check_logs: frozenset[str] | None = None,
+    on_block: Callable[[GuardRequest, dict[str, Any]], Any] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
+    sensitive_params: frozenset[str] | None = None,
 ) -> None:
     """
     Universal logging function for all types of requests and activities.
@@ -78,6 +81,8 @@ Parameters:
 - `passive_mode`: Whether to enable passive mode logging format
 - `trigger_info`: Details about what triggered detection
 - `level`: The logging level to use. If `None`, logging is disabled. Defaults to "WARNING".
+- `sensitive_headers`: Extra header names redacted as `[REDACTED]` from the built message, merged with the hardcoded default set (`authorization`, `proxy-authorization`, `cookie`, `x-api-key`); matched case-insensitively.
+- `sensitive_params`: Extra query-parameter names whose values are redacted as `[REDACTED]` in the URL segment of the built message, merged with the hardcoded default set (`access_token`, `refresh_token`, `api_key`, `apikey`, `token`, `password`, `secret`, `client_secret`, `signature`); matched case-insensitively. The parameter's own name and the rest of the URL are left untouched.
 
 This is a unified logging function that handles regular requests, suspicious activities, and passive mode logging.
 
@@ -162,10 +167,10 @@ Parameters:
 
 Returns a [`DetectionResult`](detection-result.md) dataclass:
 
-- `is_threat: bool` — `True` if any pattern (regex or semantic) matched.
-- `trigger_info: str` — Human-readable description of what triggered the hit, or empty string when `is_threat` is `False`.
-- `threat_categories: list[str]` — Ordered list of categories that matched (e.g. `["sqli", "xss"]`). Categories with no `category` label (legacy semantic threats) are skipped.
-- `threat_scores: dict[str, float]` — Maximum score recorded per category. Regex matches contribute `1.0`; semantic matches contribute their probability or threat score.
+- `is_threat: bool`, `True` if any pattern (regex or semantic) matched.
+- `trigger_info: str`, Human-readable description of what triggered the hit, or empty string when `is_threat` is `False`.
+- `threat_categories: list[str]`, Ordered list of categories that matched (e.g. `["sqli", "xss"]`). Categories with no `category` label (legacy semantic threats) are skipped.
+- `threat_scores: dict[str, float]`, Maximum score recorded per category. Regex matches contribute `1.0`; semantic matches contribute their probability or threat score.
 
 The Detection Engine provides:
 

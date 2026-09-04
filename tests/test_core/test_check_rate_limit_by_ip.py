@@ -151,7 +151,6 @@ async def test_default_endpoint_path_shares_pipeline_bucket_bidirectionally(
     await handler.initialize()
     try:
         ip = "203.0.113.9"
-        RateLimitManager._instance = None
         pipeline = RateLimitManager(security_config_redis)
         pipeline.redis_handler = handler
 
@@ -181,7 +180,6 @@ async def test_endpoint_path_ws_is_disjoint_from_pipeline_bucket(
     await handler.initialize()
     try:
         ip = "203.0.113.12"
-        RateLimitManager._instance = None
         pipeline = RateLimitManager(security_config_redis)
         pipeline.redis_handler = handler
 
@@ -295,6 +293,92 @@ async def test_colon_in_endpoint_path_raises_value_error() -> None:
         pass
 
 
+async def test_colon_in_endpoint_path_error_message_is_redacted() -> None:
+    config = SecurityConfig(enable_redis=False, rate_limit=5, rate_limit_window=60)
+    secret = "password=hunter2topsecretvalue"
+
+    try:
+        await check_rate_limit_by_ip(
+            "203.0.113.20", config, endpoint_path=f"a:{secret}"
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        message = str(exc)
+        assert "hunter2" not in message
+        assert "[REDACTED]" in message
+
+
+async def test_redis_key_never_contains_endpoint_path_text(
+    security_config_redis: SecurityConfig,
+) -> None:
+    security_config_redis.rate_limit = 5
+    security_config_redis.rate_limit_window = 60
+    handler = redis_handler(security_config_redis)
+    await handler.initialize()
+    secret_path = "/orders/password=hunter2topsecretvalue"
+    ip = "203.0.113.40"
+    try:
+        await check_rate_limit_by_ip(
+            ip, security_config_redis, redis_handler=handler, endpoint_path=secret_path
+        )
+        async with handler.get_connection() as conn:
+            keys = await conn.keys(
+                f"{security_config_redis.redis_prefix}rate_limit:rate:{ip}:*"
+            )
+        assert keys, "expected a rate-limit key for this ip"
+        for raw_key in keys:
+            key_text = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+            assert secret_path not in key_text
+            assert "hunter2topsecretvalue" not in key_text
+    finally:
+        await handler.delete_pattern("*")
+        await handler.close()
+
+
+async def test_redis_equal_paths_share_a_key_different_paths_do_not(
+    security_config_redis: SecurityConfig,
+) -> None:
+    security_config_redis.rate_limit = 100
+    security_config_redis.rate_limit_window = 60
+    handler = redis_handler(security_config_redis)
+    await handler.initialize()
+    ip = "203.0.113.42"
+    try:
+        await check_rate_limit_by_ip(
+            ip, security_config_redis, redis_handler=handler, endpoint_path="/orders/1"
+        )
+        await check_rate_limit_by_ip(
+            ip, security_config_redis, redis_handler=handler, endpoint_path="/orders/1"
+        )
+        await check_rate_limit_by_ip(
+            ip, security_config_redis, redis_handler=handler, endpoint_path="/orders/2"
+        )
+        async with handler.get_connection() as conn:
+            keys = await conn.keys(
+                f"{security_config_redis.redis_prefix}rate_limit:rate:{ip}:*"
+            )
+        assert len(keys) == 2, keys
+    finally:
+        await handler.delete_pattern("*")
+        await handler.close()
+
+
+async def test_in_memory_key_never_contains_endpoint_path_text() -> None:
+    config = SecurityConfig(enable_redis=False, rate_limit=5, rate_limit_window=60)
+    secret_path = "/orders/password=hunter2topsecretvalue"
+    ip = "203.0.113.41"
+
+    await check_rate_limit_by_ip(ip, config, endpoint_path=secret_path)
+
+    matching_keys = [
+        key for key in _by_ip_request_timestamps if key.startswith(f"{ip}:")
+    ]
+    assert matching_keys, "expected an in-memory bucket for this ip"
+    for key in matching_keys:
+        assert secret_path not in key
+        assert "hunter2topsecretvalue" not in key
+
+
 async def test_rejected_ip_records_no_hit_when_rate_limiting_enabled() -> None:
     config = SecurityConfig(enable_redis=False, rate_limit=1, rate_limit_window=60)
 
@@ -352,7 +436,6 @@ async def test_ipv6_shares_pipeline_bucket_bidirectionally(
     await handler.initialize()
     try:
         ip = "2001:db8::99"
-        RateLimitManager._instance = None
         pipeline = RateLimitManager(security_config_redis)
         pipeline.redis_handler = handler
 
@@ -381,7 +464,6 @@ async def test_primitive_raises_instead_of_colliding_with_pipeline_bucket(
     handler = redis_handler(security_config_redis)
     await handler.initialize()
     try:
-        RateLimitManager._instance = None
         pipeline = RateLimitManager(security_config_redis)
         pipeline.redis_handler = handler
 

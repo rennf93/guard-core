@@ -4,6 +4,8 @@ from typing import Any
 
 from guard_core.models import DynamicRules
 
+_DYNAMIC_RULES_HANDLER_NAME = "dynamic_rules"
+
 
 class DynamicRuleEventSenderMixin:
     agent_handler: Any
@@ -29,6 +31,7 @@ class DynamicRuleEventSenderMixin:
                 ip_address="system",
                 action_taken="rules_received",
                 reason=reason,
+                handler_name=_DYNAMIC_RULES_HANDLER_NAME,
                 metadata={
                     "rule_id": rules.rule_id,
                     "version": rules.version,
@@ -58,6 +61,7 @@ class DynamicRuleEventSenderMixin:
                 ip_address="system",
                 action_taken="rules_updated",
                 reason=f"Applied dynamic rules {rules.rule_id} v{rules.version}",
+                handler_name=_DYNAMIC_RULES_HANDLER_NAME,
                 metadata={
                     "rule_id": rules.rule_id,
                     "version": rules.version,
@@ -87,6 +91,7 @@ class DynamicRuleEventSenderMixin:
                 ip_address="system",
                 action_taken="emergency_lockdown",
                 reason="[EMERGENCY MODE] activated via dynamic rules",
+                handler_name=_DYNAMIC_RULES_HANDLER_NAME,
                 metadata={
                     "whitelist_count": len(whitelist),
                     "whitelist": whitelist[:10],

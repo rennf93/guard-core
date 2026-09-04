@@ -59,7 +59,7 @@ class _InstantThread:
     """A threading.Thread stand-in that runs its target synchronously inside
     start(), simulating a background thread that finishes before the caller's
     next line executes. Used to prove schedule_refresh() sets
-    `_refresh_in_flight = True` BEFORE starting the thread, not after — if the
+    `_refresh_in_flight = True` BEFORE starting the thread, not after, if the
     ordering regresses, the target's `finally: _refresh_in_flight = False`
     runs inside start() and gets clobbered back to True by the caller,
     permanently wedging future refreshes off."""

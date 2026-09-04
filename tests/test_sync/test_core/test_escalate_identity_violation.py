@@ -23,6 +23,7 @@ def _make_request(is_whitelisted: bool = False) -> Any:
     request.state = MagicMock()
     request.state.is_whitelisted = is_whitelisted
     request.state.route_config = None
+    request.url_full = "https://test/x"
     return request
 
 

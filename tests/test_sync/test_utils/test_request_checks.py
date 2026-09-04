@@ -296,6 +296,36 @@ def test_whitelist_countries_alone_allows_member_via_is_ip_allowed(
     assert is_ip_allowed("8.8.8.8", config, mock_ipinfo)
 
 
+def test_loopback_ipv4_exempt_from_whitelist_countries() -> None:
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = None
+
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    assert not check_ip_country("127.0.0.1", config, mock_ipinfo)
+    mock_ipinfo.get_country.assert_not_called()
+
+
+def test_loopback_ipv6_exempt_from_whitelist_countries() -> None:
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = None
+
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    assert not check_ip_country("::1", config, mock_ipinfo)
+    mock_ipinfo.get_country.assert_not_called()
+
+
+def test_check_ip_country_non_ip_identity_is_not_treated_as_loopback() -> None:
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = "US"
+
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    assert not check_ip_country("unknown", config, mock_ipinfo)
+    mock_ipinfo.get_country.assert_called_once_with("unknown")
+
+
 def test_cloud_provider_blocking(
     security_config: SecurityConfig, mocker: MockerFixture
 ) -> None:
@@ -402,6 +432,62 @@ def test_check_ip_access_prefix_zero_whitelist_overrides_blacklist() -> None:
 
     assert result.allowed is True
     assert result.reason == ""
+
+
+def test_check_ip_access_loopback_passes_whitelist_countries_without_geoip() -> None:
+    from guard_core.sync.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    result = check_ip_access("127.0.0.1", config, mock_ipinfo)
+
+    assert result.allowed is True
+    mock_ipinfo.get_country.assert_not_called()
+
+
+def test_check_ip_access_public_ip_with_no_country_stays_blocked() -> None:
+    from guard_core.sync.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = None
+
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    result = check_ip_access("8.8.8.8", config, mock_ipinfo)
+
+    assert result.allowed is False
+
+
+def test_check_ip_access_whitelisted_public_ip_with_no_country_passes() -> None:
+    from guard_core.sync.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = None
+
+    config = SecurityConfig(
+        whitelist=["8.8.8.8"],
+        whitelist_countries=["US"],
+        geo_ip_handler=mock_ipinfo,
+    )
+
+    result = check_ip_access("8.8.8.8", config, mock_ipinfo)
+
+    assert result.allowed is True
+    mock_ipinfo.get_country.assert_not_called()
+
+
+def test_check_ip_access_non_whitelisted_ip_from_bad_country_stays_blocked() -> None:
+    from guard_core.sync.utils import check_ip_access
+
+    mock_ipinfo = MagicMock(spec=SyncGeoIPHandler)
+    mock_ipinfo.get_country.return_value = "FR"
+
+    config = SecurityConfig(whitelist_countries=["US"], geo_ip_handler=mock_ipinfo)
+
+    result = check_ip_access("8.8.8.8", config, mock_ipinfo)
+
+    assert result.allowed is False
 
 
 def test_check_ip_access_allowed_has_no_reason() -> None:
@@ -801,7 +887,10 @@ def test_detect_penetration_json_non_regex_threat() -> None:
         result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
-        assert "JSON field 'password' contains: semantic" in trigger
+        assert (
+            "Request body field 'password': Semantic attack: credential_stuffing"
+            in (trigger)
+        )
 
 
 def test_detect_penetration_semantic_threat() -> None:
@@ -1013,7 +1102,7 @@ def test_detect_penetration_empty_threat_fallback() -> None:
         result, trigger = _dpa.is_threat, _dpa.trigger_info
 
         assert result is True
-        assert "JSON field 'field' contains threat" in trigger
+        assert "Request body field 'field': Threat detected" in trigger
 
 
 def test_detect_penetration_unknown_threat_type() -> None:

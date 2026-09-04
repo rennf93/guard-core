@@ -1,0 +1,6 @@
+name: guard-core CodeQL
+paths:
+  - guard_core
+paths-ignore:
+  - tests
+  - guard_core/.agents

@@ -56,6 +56,9 @@ from guard_core._utils.detection_config import (
     _resolve_excluded_params,
     _resolve_log_level,
     _resolve_scan_body,
+    _resolve_sensitive_log_body_fields,
+    _resolve_sensitive_log_headers,
+    _resolve_sensitive_log_params,
 )
 from guard_core._utils.detection_result_builders import (
     _build_detection_hit,
@@ -67,15 +70,14 @@ from guard_core._utils.detection_scan import (
     _MAX_USER_AGENT_MATCH_LENGTH,
     _build_threat_message,
     _check_always_scan_header,
-    _check_json_fields,
     _check_request_component,
     _check_value_enhanced,
     _fallback_pattern_check,
     _log_detected_component,
     _scan_component_name,
-    _try_check_json_value,
     _user_agent_matches_blocked_pattern,
 )
+from guard_core._utils.embedded_json_scan import _check_embedded_json
 from guard_core._utils.ip_extraction import (
     UNKNOWN_CLIENT_IDENTITY,
     _canonical_ip_text,
@@ -98,10 +100,14 @@ from guard_core._utils.logging_utils import (
 )
 from guard_core._utils.penetration_detection import detect_penetration_attempt
 from guard_core._utils.request_logging import (
+    _DEFAULT_SENSITIVE_LOG_FIELDS,
+    _DEFAULT_SENSITIVE_LOG_HEADERS,
     _build_log_message_for_request,
     _build_log_message_for_suspicious,
     _build_log_message_generic,
     _extract_request_context,
+    _merge_sensitive_log_headers,
+    _redact_sensitive_query_params,
     log_activity,
 )
 
@@ -112,6 +118,8 @@ __all__ = [
     "_DEFAULT_BODY_READ_MAX_CONCURRENT",
     "_DEFAULT_BODY_READ_TIMEOUT",
     "_DEFAULT_EXCLUDED_HEADERS",
+    "_DEFAULT_SENSITIVE_LOG_FIELDS",
+    "_DEFAULT_SENSITIVE_LOG_HEADERS",
     "_GENERIC_LIST_BLOCK_REASON",
     "_MAX_STRADDLE_OVERLAP_BYTES",
     "_MAX_USER_AGENT_MATCH_LENGTH",
@@ -129,7 +137,7 @@ __all__ = [
     "_check_blocked_countries",
     "_check_blocked_countries_detail",
     "_check_cloud_providers_detail",
-    "_check_json_fields",
+    "_check_embedded_json",
     "_check_request_component",
     "_check_value_enhanced",
     "_check_whitelist",
@@ -147,11 +155,13 @@ __all__ = [
     "_log_at_level",
     "_log_country_check_result",
     "_log_detected_component",
+    "_merge_sensitive_log_headers",
     "_multipart_text_parts",
     "_parse_content_length",
     "_read_and_cache_body",
     "_read_capped_body",
     "_read_capped_body_prefix",
+    "_redact_sensitive_query_params",
     "_resolve_country_verdict",
     "_resolve_enabled_categories",
     "_resolve_excluded_body_fields",
@@ -159,6 +169,9 @@ __all__ = [
     "_resolve_excluded_params",
     "_resolve_log_level",
     "_resolve_scan_body",
+    "_resolve_sensitive_log_body_fields",
+    "_resolve_sensitive_log_headers",
+    "_resolve_sensitive_log_params",
     "_safe_read",
     "_sanitize_for_log",
     "_sanitize_for_reporting",
@@ -175,7 +188,6 @@ __all__ = [
     "_strip_ip_brackets",
     "_threat_category",
     "_threat_score",
-    "_try_check_json_value",
     "_user_agent_matches_blocked_pattern",
     "_warn_forwarded_header_preempted",
     "IpAccessResult",

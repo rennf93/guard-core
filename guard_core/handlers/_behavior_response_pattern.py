@@ -25,11 +25,13 @@ class BehaviorResponsePatternMixin(BehaviorJsonPatternMixin):
         if self._body_unavailable_log_cache.get(pattern) is not None:
             return
         self._body_unavailable_log_cache[pattern] = True
+        from guard_core._utils.detection_scan import _redact_pattern_source
+
         self.logger.warning(
             "return_pattern rule with pattern %r could not be evaluated: "
             "the response does not support bounded body reading "
             "(BoundedResponseBodyReader), so its body cannot be inspected",
-            pattern,
+            _redact_pattern_source(pattern),
         )
 
     async def _read_response_body_prefix(

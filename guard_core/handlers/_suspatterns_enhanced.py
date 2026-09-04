@@ -22,11 +22,25 @@ class _SusPatternsEnhancedMixin:
     _detection_state: _DetectionState
     _performance_monitor: PerformanceMonitor | None
     _semantic_threshold: float
+    _sensitive_headers_union: frozenset[str] = frozenset()
+    _sensitive_params_union: frozenset[str] = frozenset()
+    _sensitive_body_fields_union: frozenset[str] = frozenset()
 
     def configure(self, config: Any) -> None:
+        cls = type(self)
+        cls._sensitive_headers_union = self._sensitive_headers_union | getattr(
+            config, "log_sensitive_headers", frozenset()
+        )
+        cls._sensitive_params_union = self._sensitive_params_union | getattr(
+            config, "log_sensitive_params", frozenset()
+        )
+        cls._sensitive_body_fields_union = self._sensitive_body_fields_union | getattr(
+            config, "log_sensitive_body_fields", frozenset()
+        )
+
         if not _supports_enhanced_config(config):
             return
-        type(self)._config = config
+        cls._config = config
         self._detection_state = _build_enhanced_detection_state(config)
 
     def _resolve_state(self, state: _DetectionState | None) -> _DetectionState:

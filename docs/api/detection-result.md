@@ -43,7 +43,7 @@ When to inspect each field
 
 `threat_categories` is what you read when the next decision depends on which kind of attack you saw. Per-category ban policy uses it (`SecurityConfig.threat_ban_config`); dashboards use it to render the right glyph. The list is empty when only legacy semantic hits occurred without category labels.
 
-`threat_scores` is what you read when you want a numeric handle for ranking, alerting, or dashboard severity. The values are not normalized across regex and semantic — regex always reports `1.0`, semantic reports its model probability.
+`threat_scores` is what you read when you want a numeric handle for ranking, alerting, or dashboard severity. The values are not normalized across regex and semantic, regex always reports `1.0`, semantic reports its model probability.
 
 ___
 

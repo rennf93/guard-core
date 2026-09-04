@@ -1,12 +1,14 @@
 import gc
 import os
 import re
+import secrets
 import sys
 from collections.abc import AsyncGenerator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import FrameType
 from typing import Any
+from urllib.parse import parse_qsl
 
 import pytest
 from pytest import TempPathFactory
@@ -34,10 +36,16 @@ from guard_core.handlers.suspatterns_handler import (
     sus_patterns_handler,
 )
 from guard_core.models import SecurityConfig
+from guard_core.sync.handlers.ratelimit_handler import (
+    rate_limit_handler as _sync_rate_limit_handler,
+)
+
+_suspatterns_module._legacy_detection_warned = True
 
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
-REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
+_REDIS_PREFIX_BASE = os.getenv("REDIS_PREFIX") or "test:guard_core:"
+REDIS_PREFIX = f"{_REDIS_PREFIX_BASE}{os.getpid()}:{secrets.token_hex(4)}:"
 GUARD_TESTS_GC_PER_TEST = os.getenv("GUARD_TESTS_GC_PER_TEST") == "1"
 
 
@@ -48,11 +56,17 @@ def _isolate_detection_singleton() -> Any:
     saved_instance = SusPatternsManager._instance
     saved_config = SusPatternsManager._config
     saved_global = _suspatterns_module.sus_patterns_handler
+    saved_sensitive_headers_union = SusPatternsManager._sensitive_headers_union
+    saved_sensitive_params_union = SusPatternsManager._sensitive_params_union
+    saved_sensitive_body_fields_union = SusPatternsManager._sensitive_body_fields_union
     yield
     handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
+    SusPatternsManager._sensitive_headers_union = saved_sensitive_headers_union
+    SusPatternsManager._sensitive_params_union = saved_sensitive_params_union
+    SusPatternsManager._sensitive_body_fields_union = saved_sensitive_body_fields_union
 
 
 def _restore_submodule_identity(module: Any) -> None:
@@ -148,6 +162,15 @@ class MockState:
             self._attrs[name] = value
 
 
+def _split_query_from_path(path: str) -> tuple[str, str]:
+    path_only, _, query = path.partition("?")
+    return path_only, query
+
+
+def _parse_query_params(query: str) -> dict[str, str]:
+    return dict(parse_qsl(query, keep_blank_values=True))
+
+
 class MockGuardRequest:
     def __init__(
         self,
@@ -165,14 +188,18 @@ class MockGuardRequest:
         self._headers = headers or {}
         self._client_host = client_host
         self._scheme = scheme
-        self._query_params = query_params or {}
+        path_only, query = _split_query_from_path(path)
+        self._url_path = path_only
+        self._query_params = (
+            query_params if query_params is not None else _parse_query_params(query)
+        )
         self._body = body_content
         self._state = MockState()
         self._scope = scope or {}
 
     @property
     def url_path(self) -> str:
-        return self._path
+        return self._url_path
 
     @property
     def url_scheme(self) -> str:
@@ -271,6 +298,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
     sus_patterns_handler._detection_state = _LEGACY_DETECTION_STATE
+    _suspatterns_module._legacy_detection_warned = True
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
@@ -364,10 +392,14 @@ async def redis_cleanup() -> AsyncGenerator[None, None]:
 
 @pytest.fixture(autouse=True)
 async def reset_rate_limiter() -> AsyncGenerator[None, None]:
+    rate_limit_handler._instance = None
+    _sync_rate_limit_handler._instance = None
     config = SecurityConfig(enable_redis=False)
     rate_limit = rate_limit_handler(config)
     await rate_limit.reset()
     yield
+    rate_limit_handler._instance = None
+    _sync_rate_limit_handler._instance = None
 
 
 @pytest.fixture(autouse=True)
@@ -375,13 +407,6 @@ def _collect_garbage_after_test() -> Any:
     yield
     if GUARD_TESTS_GC_PER_TEST:
         gc.collect()
-
-
-@pytest.fixture
-def clean_rate_limiter() -> None:
-    from guard_core.handlers.ratelimit_handler import RateLimitManager
-
-    RateLimitManager._instance = None
 
 
 _GUARD_AGENT_FINDER_ATTR = "_guard_core_agent_import_finder"

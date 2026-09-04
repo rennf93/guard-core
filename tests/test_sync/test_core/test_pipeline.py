@@ -45,6 +45,9 @@ def mock_middleware() -> Mock:
     middleware.config.fail_secure = False
     middleware.config.passive_mode = False
     middleware.config.on_block = None
+    middleware.config.log_sensitive_params = frozenset()
+    middleware.config.log_sensitive_body_fields = frozenset()
+    middleware.config.log_sensitive_headers = frozenset()
     middleware.logger = Mock()
     middleware.event_bus = Mock()
     middleware.create_error_response = MagicMock(return_value=Mock(status_code=500))

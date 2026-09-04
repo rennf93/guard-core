@@ -7,7 +7,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from guard_core._config_field_revalidators import (
     _validate_bool_field_value,
@@ -15,6 +15,16 @@ from guard_core._config_field_revalidators import (
     _validate_int_field_value,
     _validate_positive_int_field_value,
     _validate_str_list_field_value,
+)
+from guard_core._security_config_geo_validators import _validate_country_set_value
+from guard_core._security_config_typed_validators import (
+    _INT_KEYED_STR_DICT_ADAPTER,
+    _OPTIONAL_STR_ANY_DICT_ADAPTER,
+    _OPTIONAL_STR_LIST_ADAPTER,
+    _STR_KEYED_STR_DICT_ADAPTER,
+    _STR_LIST_ADAPTER,
+    _STR_SET_ADAPTER,
+    _validate_typed_collection_field_value,
 )
 from guard_core.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 
@@ -27,7 +37,6 @@ logger = logging.getLogger("guard_core.models")
 CloudProvider = Literal["AWS", "GCP", "Azure", "DigitalOcean", "Linode", "Vultr"]
 VALID_CLOUD_PROVIDERS: frozenset[str] = frozenset(get_args(CloudProvider))
 
-_COUNTRY_RULE_FIELDS = frozenset({"blocked_countries", "whitelist_countries"})
 _GLOBAL_BEHAVIOR_RULE_FIELDS = frozenset(
     {"global_behavior_rules", "behavior_scan_response_body"}
 )
@@ -35,6 +44,9 @@ _GLOBAL_BEHAVIOR_RULE_FIELDS = frozenset(
 
 def _validate_exclude_paths_value(v: list[str], *, stacklevel: int) -> list[str]:
     from guard_core.core.validation.path_matching import normalize_url_path
+
+    if not isinstance(v, list) or not all(isinstance(entry, str) for entry in v):
+        raise ValueError("exclude_paths must be a list of str")
 
     for entry in v:
         normalized = normalize_url_path(entry)
@@ -62,122 +74,6 @@ def _validate_exclude_paths_value(v: list[str], *, stacklevel: int) -> list[str]
             stacklevel=stacklevel,
         )
     return v
-
-
-def _warn_country_allowlist_shadows_blocklist(*, stacklevel: int) -> None:
-    warnings.warn(
-        "blocked_countries is ignored when whitelist_countries is "
-        "non-empty: a non-empty whitelist_countries is restrictive "
-        "(only listed countries pass), so blocked_countries has no "
-        "effect. Use one or the other.",
-        UserWarning,
-        stacklevel=stacklevel,
-    )
-
-
-def _normalized_country_value(value: Any) -> frozenset[str]:
-    return frozenset(str(item).upper() for item in value)
-
-
-def _validate_country_set_value(v: Any) -> frozenset[str]:
-    if v is None:
-        return frozenset()
-    if isinstance(v, list | tuple | set | frozenset):
-        return frozenset(str(item).upper() for item in v)
-    raise ValueError("Country list must be list/tuple/set/frozenset of country codes")
-
-
-def _country_shadow_should_warn(
-    config: "SecurityConfig", name: str, value: Any
-) -> bool:
-    if name not in _COUNTRY_RULE_FIELDS:
-        return False
-    new_whitelist = (
-        value if name == "whitelist_countries" else config.whitelist_countries
-    )
-    new_blocked = value if name == "blocked_countries" else config.blocked_countries
-    if not (new_whitelist and new_blocked):
-        return False
-    return bool(
-        _normalized_country_value(value)
-        != _normalized_country_value(getattr(config, name, None))
-    )
-
-
-_GEO_STATE_FIELDS = frozenset(
-    {"blocked_countries", "whitelist_countries", "geo_ip_handler", "ipinfo_token"}
-)
-
-
-def _geo_state_candidates(
-    config: "SecurityConfig", name: str, value: Any
-) -> tuple[Any, Any, Any, Any]:
-    return (
-        value if name == "blocked_countries" else config.blocked_countries,
-        value if name == "whitelist_countries" else config.whitelist_countries,
-        value if name == "geo_ip_handler" else config.geo_ip_handler,
-        value if name == "ipinfo_token" else config.ipinfo_token,
-    )
-
-
-def _resolve_geo_ip_handler(
-    *,
-    blocked_countries: Any,
-    whitelist_countries: Any,
-    geo_ip_handler: Any,
-    ipinfo_token: str | None,
-    ipinfo_db_path: Path | None,
-    geo_ip_db_max_age: int,
-) -> Any:
-    has_country_rules = bool(blocked_countries or whitelist_countries)
-
-    if geo_ip_handler is None and has_country_rules:
-        if not ipinfo_token:
-            raise ValueError(
-                "geo_ip_handler is required "
-                "if blocked_countries or whitelist_countries is set"
-            )
-        from guard_core.handlers.ipinfo_handler import IPInfoManager
-
-        return IPInfoManager(
-            token=ipinfo_token,
-            db_path=ipinfo_db_path,
-            max_age=geo_ip_db_max_age,
-        )
-
-    return geo_ip_handler
-
-
-def _apply_geo_ip_handler_assignment(
-    config: "SecurityConfig", name: str, value: Any
-) -> Any:
-    blocked, whitelist, handler, token = _geo_state_candidates(config, name, value)
-    resolved = _resolve_geo_ip_handler(
-        blocked_countries=blocked,
-        whitelist_countries=whitelist,
-        geo_ip_handler=handler,
-        ipinfo_token=token,
-        ipinfo_db_path=config.ipinfo_db_path,
-        geo_ip_db_max_age=config.geo_ip_db_max_age,
-    )
-    if name == "geo_ip_handler":
-        return resolved
-    if resolved is not handler:
-        BaseModel.__setattr__(config, "geo_ip_handler", resolved)
-    return value
-
-
-def _apply_geo_ip_handler_copy(config: "SecurityConfig") -> None:
-    resolved = _resolve_geo_ip_handler(
-        blocked_countries=config.blocked_countries,
-        whitelist_countries=config.whitelist_countries,
-        geo_ip_handler=config.geo_ip_handler,
-        ipinfo_token=config.ipinfo_token,
-        ipinfo_db_path=config.ipinfo_db_path,
-        geo_ip_db_max_age=config.geo_ip_db_max_age,
-    )
-    if resolved is not config.geo_ip_handler:
-        BaseModel.__setattr__(config, "geo_ip_handler", resolved)
 
 
 class ThreatBanConfig(BaseModel):
@@ -211,8 +107,11 @@ def _validate_return_pattern_requires_scan(
         return
     if scan_response_body:
         return
+    from guard_core._utils.detection_scan import _redact_pattern_source
+
     raise ValueError(
-        f"return_pattern rule with pattern {pattern!r} requires reading the "
+        f"return_pattern rule with pattern {_redact_pattern_source(pattern)!r} "
+        "requires reading the "
         "response body, but behavior_scan_response_body is False. This rule "
         "would never match: set behavior_scan_response_body=True to enable "
         "response-body inspection, or use a status: pattern instead."
@@ -385,6 +284,17 @@ def _validate_muted_check_logs_value(v: Any) -> frozenset[str]:
     return result
 
 
+def _validate_sensitive_name_set_value(v: Any, field_name: str) -> frozenset[str]:
+    if isinstance(v, str | bytes):
+        raise ValueError(
+            f"{field_name} must be a collection of names, not a bare string"
+        )
+    result = frozenset(v)
+    if not all(isinstance(item, str) for item in result):
+        raise ValueError(f"{field_name} items must be strings")
+    return result
+
+
 def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
     if v is None:
         return None
@@ -402,6 +312,7 @@ def _validate_block_cloud_providers_value(v: Any) -> frozenset[str] | None:
 
 
 def _validate_blocked_user_agents_value(v: Any) -> list[str]:
+    from guard_core._utils.detection_scan import _redact_pattern_source
     from guard_core.detection_engine.compiler import PatternCompiler
     from guard_core.utils import _MAX_USER_AGENT_MATCH_LENGTH
 
@@ -414,7 +325,7 @@ def _validate_blocked_user_agents_value(v: Any) -> list[str]:
         if not is_safe:
             raise ValueError(
                 f"blocked_user_agents pattern rejected by ReDoS validator: "
-                f"{pattern!r} ({reason})"
+                f"{_redact_pattern_source(pattern)!r} ({reason})"
             )
     return patterns
 
@@ -435,6 +346,11 @@ def _validate_dynamic_rules_cache_path_value(v: Any) -> Path | None:
     return Path(v)
 
 
+_GLOBAL_BEHAVIOR_RULES_ADAPTER: TypeAdapter[tuple[BehaviorRuleConfig, ...]] = (
+    TypeAdapter(tuple[BehaviorRuleConfig, ...])
+)
+
+
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
@@ -444,6 +360,15 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "muted_event_types": _validate_muted_event_types_value,
     "muted_metric_types": _validate_muted_metric_types_value,
     "muted_check_logs": _validate_muted_check_logs_value,
+    "log_sensitive_headers": partial(
+        _validate_sensitive_name_set_value, field_name="log_sensitive_headers"
+    ),
+    "log_sensitive_params": partial(
+        _validate_sensitive_name_set_value, field_name="log_sensitive_params"
+    ),
+    "log_sensitive_body_fields": partial(
+        _validate_sensitive_name_set_value, field_name="log_sensitive_body_fields"
+    ),
     "block_cloud_providers": _validate_block_cloud_providers_value,
     "blocked_countries": _validate_country_set_value,
     "whitelist_countries": _validate_country_set_value,
@@ -476,4 +401,65 @@ _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
         _validate_bool_field_value, field_name="enable_rate_limit_auto_ban"
     ),
     "dynamic_rules_cache_path": _validate_dynamic_rules_cache_path_value,
+    "exclude_paths": partial(_validate_exclude_paths_value, stacklevel=3),
+    "global_behavior_rules": partial(
+        _validate_typed_collection_field_value,
+        adapter=_GLOBAL_BEHAVIOR_RULES_ADAPTER,
+        field_name="global_behavior_rules",
+    ),
+    "custom_error_responses": partial(
+        _validate_typed_collection_field_value,
+        adapter=_INT_KEYED_STR_DICT_ADAPTER,
+        field_name="custom_error_responses",
+    ),
+    "security_headers": partial(
+        _validate_typed_collection_field_value,
+        adapter=_OPTIONAL_STR_ANY_DICT_ADAPTER,
+        field_name="security_headers",
+    ),
+    "cors_allow_origins": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_LIST_ADAPTER,
+        field_name="cors_allow_origins",
+    ),
+    "cors_allow_methods": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_LIST_ADAPTER,
+        field_name="cors_allow_methods",
+    ),
+    "cors_allow_headers": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_LIST_ADAPTER,
+        field_name="cors_allow_headers",
+    ),
+    "cors_expose_headers": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_LIST_ADAPTER,
+        field_name="cors_expose_headers",
+    ),
+    "agent_sensitive_headers": partial(
+        _validate_typed_collection_field_value,
+        adapter=_OPTIONAL_STR_LIST_ADAPTER,
+        field_name="agent_sensitive_headers",
+    ),
+    "otel_resource_attributes": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_KEYED_STR_DICT_ADAPTER,
+        field_name="otel_resource_attributes",
+    ),
+    "excluded_detection_headers": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_SET_ADAPTER,
+        field_name="excluded_detection_headers",
+    ),
+    "excluded_detection_params": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_SET_ADAPTER,
+        field_name="excluded_detection_params",
+    ),
+    "excluded_detection_body_fields": partial(
+        _validate_typed_collection_field_value,
+        adapter=_STR_SET_ADAPTER,
+        field_name="excluded_detection_body_fields",
+    ),
 }

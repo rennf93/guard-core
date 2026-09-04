@@ -5,6 +5,7 @@ from collections.abc import Callable, Sized
 from typing import cast
 
 from guard_core._utils.block_events import fire_block_hook
+from guard_core._utils.request_logging import redact_header_value_for_display
 from guard_core.core.checks.base import SecurityCheck
 from guard_core.exceptions import GuardRedisError
 from guard_core.models import SecurityConfig
@@ -101,10 +102,16 @@ class SecurityCheckPipeline:
             return None
 
         if not muted:
+            safe_message = redact_header_value_for_display(
+                str(error),
+                check.config.log_sensitive_params,
+                check.config.log_sensitive_body_fields,
+                check.config.log_sensitive_headers,
+            )
             self.logger.error(
-                f"Error in security check {check.check_name}: {error}",
+                f"Error in security check {check.check_name} "
+                f"({type(error).__name__}): {safe_message}",
                 extra=self._log_extra(check, request),
-                exc_info=True,
             )
 
         if check.config.fail_secure:
@@ -132,6 +139,9 @@ class SecurityCheckPipeline:
             stash.get("trigger_info", ""),
             False,
             response.status_code,
+            check.config.log_sensitive_params,
+            check.config.log_sensitive_body_fields,
+            check.config.log_sensitive_headers,
         )
 
     async def _handle_rebuild_error(

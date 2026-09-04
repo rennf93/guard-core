@@ -247,6 +247,8 @@ class ContentPreprocessor:
     def decode_common_encodings(
         self, content: str, decode_budget_exhausted: list[bool] | None = None
     ) -> str:
+        from guard_core.sync.core.events.event_types import EVENT_DECODING_ERROR
+
         max_decode_iterations = 16
         iterations = 0
         gunzip_attempts_left = [self._MAX_GUNZIP_ATTEMPTS_PER_PASS]
@@ -264,7 +266,7 @@ class ContentPreprocessor:
                     content = decoded
             except Exception as e:
                 self._send_preprocessor_event(
-                    event_type="decoding_error",
+                    event_type=EVENT_DECODING_ERROR,
                     action_taken="decode_failed",
                     reason="Failed to URL decode content",
                     error=str(e),
@@ -279,7 +281,7 @@ class ContentPreprocessor:
                     content = decoded
             except Exception as e:
                 self._send_preprocessor_event(
-                    event_type="decoding_error",
+                    event_type=EVENT_DECODING_ERROR,
                     action_taken="decode_failed",
                     reason="Failed to HTML decode content",
                     error=str(e),

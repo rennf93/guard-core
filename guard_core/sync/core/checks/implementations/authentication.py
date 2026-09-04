@@ -5,7 +5,11 @@ from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.sync.core.checks._verifier import resolve_verifier_result
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import extract_credential, route_config_applies
+from guard_core.sync.core.checks.helpers import (
+    emit_authentication_failed_event,
+    extract_credential,
+    route_config_applies,
+)
 from guard_core.sync.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -49,19 +53,24 @@ class AuthenticationCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_middleware_event(
+        auth_type = (
+            route_config.auth_required
+            or route_config.authorization_header_required
+            or "api_key"
+        )
+        emit_authentication_failed_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=auth_reason,
-            decorator_type="authentication",
+            auth_type=auth_type,
             violation_type=violation_type,
-            auth_type=route_config.auth_required
-            or route_config.authorization_header_required,
+            passive_mode=self.config.passive_mode,
         )
 
         if not self.config.passive_mode:

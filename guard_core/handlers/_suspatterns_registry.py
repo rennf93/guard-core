@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from guard_core._utils.detection_scan import _redact_pattern_source
 from guard_core.detection_engine import PatternCompiler, PerformanceMonitor
 from guard_core.handlers._suspatterns_sources import (
     _CTX_ALL,
@@ -12,6 +13,8 @@ from guard_core.handlers._suspatterns_sources import (
 )
 
 logger = logging.getLogger("guard_core.handlers.suspatterns")
+
+_SUS_PATTERNS_HANDLER_NAME = "sus_patterns"
 
 
 class _SusPatternsRegistryMixin:
@@ -32,6 +35,7 @@ class _SusPatternsRegistryMixin:
         ip_address: str,
         action_taken: str,
         reason: str,
+        pattern_matched: str | None = None,
         **kwargs: Any,
     ) -> None:
         if not self.agent_handler:
@@ -48,6 +52,8 @@ class _SusPatternsRegistryMixin:
                 ip_address=ip_address,
                 action_taken=action_taken,
                 reason=reason,
+                pattern_matched=pattern_matched,
+                handler_name=_SUS_PATTERNS_HANDLER_NAME,
                 metadata=kwargs,
             )
             await self.agent_handler.send_event(event)
@@ -68,7 +74,7 @@ class _SusPatternsRegistryMixin:
                         if not restored:
                             logger.warning(
                                 f"Skipped restoring persisted pattern: "
-                                f"{pattern[:50]}..."
+                                f"{_redact_pattern_source(pattern)[:50]}..."
                             )
         except Exception as e:
             logger.warning("Custom pattern restore skipped: %s", e)
@@ -88,7 +94,10 @@ class _SusPatternsRegistryMixin:
         )
         is_safe, reason = await asyncio.to_thread(validate_with_cap, pattern)
         if not is_safe:
-            logger.warning(f"Rejected unsafe pattern ({reason}): {pattern[:50]}...")
+            logger.warning(
+                f"Rejected unsafe pattern ({reason}): "
+                f"{_redact_pattern_source(pattern)[:50]}..."
+            )
             return False
 
         compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
@@ -109,13 +118,15 @@ class _SusPatternsRegistryMixin:
             await instance._compiler.clear_cache()
 
         if instance.agent_handler:
+            from guard_core.core.events.event_types import EVENT_PATTERN_ADDED
+
             details = f"{'Custom' if custom else 'Default'} pattern added"
             await instance._send_pattern_event(
-                event_type="pattern_added",
+                event_type=EVENT_PATTERN_ADDED,
                 ip_address="system",
                 action_taken="pattern_added",
                 reason=f"{details} to detection system",
-                pattern=pattern,
+                pattern=_redact_pattern_source(pattern),
                 pattern_type="custom" if custom else "default",
                 total_patterns=len(instance.custom_patterns)
                 if custom
@@ -168,13 +179,15 @@ class _SusPatternsRegistryMixin:
         if not self.agent_handler:
             return
 
+        from guard_core.core.events.event_types import EVENT_PATTERN_REMOVED
+
         details = f"{'Custom' if custom else 'Default'} pattern removed"
         await self._send_pattern_event(
-            event_type="pattern_removed",
+            event_type=EVENT_PATTERN_REMOVED,
             ip_address="system",
             action_taken="pattern_removed",
             reason=f"{details} from detection system",
-            pattern=pattern,
+            pattern=_redact_pattern_source(pattern),
             pattern_type="custom" if custom else "default",
             total_patterns=total_patterns,
         )

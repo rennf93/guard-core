@@ -55,6 +55,8 @@ def mock_rate_limit_handler() -> Mock:
 def mock_guard_decorator() -> Mock:
     decorator = Mock()
     decorator.initialize_agent = MagicMock()
+    decorator.initialize_behavior_tracking = MagicMock()
+    decorator._route_configs = {}
     return decorator
 
 
@@ -210,6 +212,82 @@ def test_initialize_redis_handlers_no_optional_handlers(
         initializer.initialize_redis_handlers()
 
         mock_redis_handler.initialize.assert_called_once()
+
+
+def test_initialize_redis_handlers_initializes_behavior_tracking_with_rules(
+    initializer: HandlerInitializer,
+    mock_redis_handler: Mock,
+    mock_guard_decorator: Mock,
+) -> None:
+    from guard_core.sync.decorators.base import RouteConfig
+    from guard_core.sync.handlers.behavior_handler import BehaviorRule
+
+    route_config = RouteConfig()
+    route_config.behavior_rules = [
+        BehaviorRule(rule_type="usage", threshold=5, window=60, action="ban")
+    ]
+    mock_guard_decorator._route_configs = {"route": route_config}
+
+    with (
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_redis = MagicMock()
+        mock_ipban.initialize_redis = MagicMock()
+        mock_sus.initialize_redis = MagicMock()
+
+        initializer.initialize_redis_handlers()
+
+    mock_guard_decorator.initialize_behavior_tracking.assert_called_once_with(
+        mock_redis_handler
+    )
+
+
+def test_initialize_redis_handlers_skips_behavior_tracking_without_rules(
+    initializer: HandlerInitializer,
+    mock_guard_decorator: Mock,
+) -> None:
+    with (
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_redis = MagicMock()
+        mock_ipban.initialize_redis = MagicMock()
+        mock_sus.initialize_redis = MagicMock()
+
+        initializer.initialize_redis_handlers()
+
+    mock_guard_decorator.initialize_behavior_tracking.assert_not_called()
+
+
+def test_initialize_redis_handlers_skips_behavior_tracking_without_decorator(
+    security_config: SecurityConfig,
+    mock_redis_handler: Mock,
+) -> None:
+    initializer = HandlerInitializer(
+        config=security_config,
+        redis_handler=mock_redis_handler,
+        guard_decorator=None,
+    )
+
+    with (
+        patch("guard_core.sync.handlers.cloud_handler.cloud_handler") as mock_cloud,
+        patch("guard_core.sync.handlers.ipban_handler.ip_ban_manager") as mock_ipban,
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
+        ) as mock_sus,
+    ):
+        mock_cloud.initialize_redis = MagicMock()
+        mock_ipban.initialize_redis = MagicMock()
+        mock_sus.initialize_redis = MagicMock()
+
+        initializer.initialize_redis_handlers()
 
 
 def test_initialize_agent_for_handlers_no_agent(

@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+from guard_core.sync._utils.detection_scan import _redact_pattern_source
 from guard_core.sync.detection_engine.compiler import (
     report_scan_success,
     report_scan_timeout,
@@ -51,6 +52,7 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
     _DEFAULT_COMPILER_TIMEOUT,
     _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
+    _EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX,
     _LDAP_NULL_BYTE_ATTR_COMPILED_RE,
     _LDAP_NULL_BYTE_ATTR_RE,
     _LDAP_NULL_BYTE_DECODED_ATTR_COMPILED_RE,
@@ -63,9 +65,11 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _LDAP_WILDCARD_EQUALS_RE,
     _SELECT_FROM_RE,
     _SELECT_STAR_RE,
+    _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
     _SSTI_HASH_BRACE_SHAPE_RE,
     _WHERE_CLAUSE_RE,
     ALL_DETECTION_CATEGORIES,
+    _source_extension_path_is_probe,
 )
 from guard_core.sync.handlers._suspatterns_state import _DetectionState
 
@@ -155,6 +159,10 @@ _CANDIDATE_REJECTION_VALIDATORS: tuple[
         lambda m, _c: _ldap_paren_conjunction_is_injection(m),
     ),
     (_GLUED_BACKTICK_CANDIDATE_RE, _glued_backtick_pair_is_injection),
+    (
+        _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
+        lambda _m, context: _source_extension_path_is_probe(context),
+    ),
     (_GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE, _dollar_substitution_pair_is_injection),
     (
         _BRACE_EXPANSION_COMMAND_RE,
@@ -203,11 +211,11 @@ _SCAN_WINDOW_BOUND_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
     r"\.\.;[^/\\]*[/\\]": ((r"\.\.;", r"[/\\]"),),
     (
         r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)(?![a-zA-Z0-9])"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)(?![a-zA-Z0-9])"
     ): (
         (
             r"=(?:https?|ftp):\/\/",
-            r"\.(?:phtml|php\d*|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)[a-zA-Z0-9]*",
+            r"\.(?:phtml|php\d*|phar|jsp|aspx?|pl|py|txt|inc)[a-zA-Z0-9]*",
         ),
     ),
     r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>": ((r"<!(?:ENTITY|DOCTYPE)", r">"),),
@@ -334,7 +342,10 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             timeout_threshold = 0.9 * compiler.default_timeout
             if not matches and time.monotonic() - pattern_start >= timeout_threshold:
                 timeout_occurred = True
-                logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+                logger.warning(
+                    "Pattern timeout: "
+                    f"{_redact_pattern_source(pattern.pattern)[:50]}..."
+                )
 
             threat = _first_accepted_regex_threat(
                 iter(matches), pattern, category, pattern_start, context
@@ -367,14 +378,16 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             matches = future.result(timeout=timeout)
             report_scan_success()
         except concurrent.futures.TimeoutError:
-            logger.warning(f"Pattern timeout: {pattern.pattern[:50]}...")
+            logger.warning(
+                f"Pattern timeout: {_redact_pattern_source(pattern.pattern)[:50]}..."
+            )
             future.cancel()
             report_scan_timeout()
             return None, True
         except Exception as e:
             logger.error(
                 f"Error in windowed regex search for pattern "
-                f"{pattern.pattern[:50]}...: {e}"
+                f"{_redact_pattern_source(pattern.pattern)[:50]}...: {e}"
             )
             return None, False
 
@@ -434,7 +447,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         except concurrent.futures.TimeoutError:
             logger.warning(
                 f"Regex timeout exceeded for pattern: "
-                f"{pattern.pattern[:50]}... "
+                f"{_redact_pattern_source(pattern.pattern)[:50]}... "
                 f"Potential ReDoS attack blocked. IP: {ip_address}"
             )
             future.cancel()
@@ -442,7 +455,8 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             return None, True
         except Exception as e:
             logger.error(
-                f"Error in regex search for pattern {pattern.pattern[:50]}...: {e}"
+                f"Error in regex search for pattern "
+                f"{_redact_pattern_source(pattern.pattern)[:50]}...: {e}"
             )
             return None, False
 
@@ -478,6 +492,11 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
 
         all_patterns = self.get_all_compiled_patterns()
         normalized = self._normalize_context(context)
+        validator_context = (
+            f"{normalized}{_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX}"
+            if context.endswith(_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX)
+            else normalized
+        )
         skip_filter = normalized in ("unknown", "request_body")
         performance_monitor = state.performance_monitor
 
@@ -508,7 +527,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
                 pattern_start,
                 category,
                 state=state,
-                context=normalized,
+                context=validator_context,
             )
 
             if timeout_occurred:

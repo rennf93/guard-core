@@ -4,6 +4,7 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from guard_core.models import SecurityConfig
 from guard_core.sync.handlers._security_headers_cache import SecurityHeadersCacheMixin
 from guard_core.sync.handlers._security_headers_config import SecurityHeadersConfigMixin
 from guard_core.sync.handlers._security_headers_cors import SecurityHeadersCorsMixin
@@ -78,24 +79,37 @@ class SecurityHeadersManager(
             parts.append("preload")
         return "; ".join(parts)
 
-    def get_headers(self, request_path: str | None = None) -> dict[str, str]:
-        if not self.enabled:
+    def get_headers(
+        self,
+        request_path: str | None = None,
+        config: SecurityConfig | None = None,
+    ) -> dict[str, str]:
+        if config is not None:
+            if not config.security_headers or not config.security_headers.get(
+                "enabled", True
+            ):
+                return {}
+        elif not self.enabled:
             return {}
 
-        cache_key = self._generate_cache_key(request_path)
+        cache_key = self._generate_cache_key(request_path, config)
         cached = self.headers_cache.get(cache_key)
         if isinstance(cached, dict):
             return cached
 
-        headers = self.default_headers.copy()
+        csp_config, hsts_config, default_headers, custom_headers = (
+            self._resolve_headers_state(config)
+        )
 
-        if self.csp_config:
-            headers["Content-Security-Policy"] = self._build_csp(self.csp_config)
+        headers = default_headers.copy()
 
-        if self.hsts_config:
-            headers["Strict-Transport-Security"] = self._build_hsts(self.hsts_config)
+        if csp_config:
+            headers["Content-Security-Policy"] = self._build_csp(csp_config)
 
-        headers.update(self.custom_headers)
+        if hsts_config:
+            headers["Strict-Transport-Security"] = self._build_hsts(hsts_config)
+
+        headers.update(custom_headers)
 
         self.headers_cache[cache_key] = headers
 

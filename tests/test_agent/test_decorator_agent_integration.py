@@ -100,7 +100,8 @@ async def test_send_decorator_event_scenarios(
     )
 
     with patch(
-        "guard_core.utils.extract_client_ip", AsyncMock(return_value=expected_ip)
+        "guard_core.core.events.middleware_events.extract_client_ip",
+        AsyncMock(return_value=expected_ip),
     ):
         await decorator.send_decorator_event(
             event_type, request, action, reason, decorator_type, **metadata
@@ -114,7 +115,7 @@ async def test_send_decorator_event_scenarios(
         assert sent_event.event_type == event_type
         assert sent_event.ip_address == expected_ip
         assert sent_event.decorator_type == decorator_type
-        assert sent_event.metadata == metadata
+        assert sent_event.metadata == {**metadata, "decorator_type": decorator_type}
         assert sent_event.action_taken == action
         assert sent_event.reason == reason
         assert sent_event.endpoint == "/api/test"
@@ -216,12 +217,12 @@ async def test_helper_methods(
         (
             "agent_exception",
             Exception("Network error"),
-            "Failed to send decorator event to agent",
+            "Failed to send security event to agent",
         ),
         (
             "ip_extraction_failure",
             "ip_extraction_error",
-            "Failed to send decorator event to agent",
+            "Failed to send security event to agent",
         ),
     ],
 )
@@ -245,7 +246,7 @@ async def test_error_conditions(
     if error_scenario == "agent_exception":
         decorator.agent_handler.send_event.side_effect = side_effect
         with patch(
-            "guard_core.utils.extract_client_ip",
+            "guard_core.core.events.middleware_events.extract_client_ip",
             AsyncMock(return_value="192.168.1.1"),
         ):
             await decorator.send_decorator_event(
@@ -253,7 +254,7 @@ async def test_error_conditions(
             )
     else:
         with patch(
-            "guard_core.utils.extract_client_ip",
+            "guard_core.core.events.middleware_events.extract_client_ip",
             AsyncMock(side_effect=Exception("IP extraction failed")),
         ):
             await decorator.send_decorator_event(
@@ -289,7 +290,7 @@ async def test_multiple_event_sends(
     )
 
     with patch(
-        "guard_core.utils.extract_client_ip",
+        "guard_core.core.events.middleware_events.extract_client_ip",
         AsyncMock(return_value="192.168.1.1"),
     ):
         await decorator.send_decorator_event(

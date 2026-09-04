@@ -2,8 +2,12 @@ from collections.abc import Collection
 
 from guard_core.models import SecurityConfig
 from guard_core.protocols.response_protocol import GuardResponse
+from guard_core.sync._utils.request_logging import redact_header_value_for_display
 from guard_core.sync.core.checks.base import SecurityCheck
-from guard_core.sync.core.checks.helpers import route_config_applies
+from guard_core.sync.core.checks.helpers import (
+    emit_decorator_event,
+    route_config_applies,
+)
 from guard_core.sync.core.events.event_types import EVENT_CONTENT_FILTERED
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
@@ -50,11 +54,15 @@ class RequestSizeContentCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_middleware_event(
+        emit_decorator_event(
+            self.middleware,
+            request,
             event_type=EVENT_CONTENT_FILTERED,
-            request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",
@@ -81,27 +89,36 @@ class RequestSizeContentCheck(SecurityCheck):
         if content_type in route_config.allowed_content_types:
             return None
 
+        redacted_content_type = redact_header_value_for_display(
+            content_type,
+            self.config.log_sensitive_params,
+            self.config.log_sensitive_body_fields,
+            self.config.log_sensitive_headers,
+        )
         log_activity(
             request,
             self.logger,
             log_type="suspicious",
-            reason=f"Invalid content type: {content_type}",
+            reason=f"Invalid content type: {redacted_content_type}",
             level=self.config.log_suspicious_level,
             passive_mode=self.config.passive_mode,
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        message = f"Content type {content_type} not in allowed types"
-
-        self.middleware.event_bus.send_middleware_event(
+        allowed_types = route_config.allowed_content_types
+        emit_decorator_event(
+            self.middleware,
+            request,
             event_type=EVENT_CONTENT_FILTERED,
-            request=request,
             action_taken="request_blocked"
             if not self.config.passive_mode
             else "logged_only",
-            reason=f"{message}: {route_config.allowed_content_types}",
+            reason=f"Content type not in allowed types: {allowed_types}",
             decorator_type="content_filtering",
             violation_type="content_type",
         )

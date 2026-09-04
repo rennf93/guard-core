@@ -16,10 +16,12 @@ Core Settings
 | Field                     | Type                        | Default  | Description                                            |
 |---------------------------|-----------------------------|----------|--------------------------------------------------------|
 | `passive_mode`            | `bool`                      | `False`  | Log-only mode. Logs and emits events but never blocks. |
+| `fail_secure`             | `bool`                      | `True`   | Block the request with `500` when any security check raises an unexpected exception. `False` logs and falls through (fail-open); opt-in only for staging diagnostics. |
 | `exclude_paths`           | `list[str]`                 | See below| Paths that skip detection and behavioral analysis; ban enforcement and rate limiting still apply. See [Ban Configuration](../api/ban-config.md#exclude_paths-enforces-bans-and-rate-limits-not-evidence-gathering). |
 | `custom_error_responses`  | `dict[int, str]`            | `{}`     | Override error messages for specific HTTP status codes. |
 | `enforce_https`           | `bool`                      | `False`  | Redirect HTTP requests to HTTPS globally.              |
 | `custom_request_check`    | `Callable \| None`          | `None`   | Global async function for custom request validation.   |
+| `auth_verifier`           | `Any`                       | `None`   | Global default verifier for `require_auth`/`api_key_auth` routes with no per-route `verifier=`: `verifier(request, credential) -> Principal \| None`. Sync or async in async deployments; sync-only under WSGI. |
 | `custom_response_modifier`| `Callable \| None`          | `None`   | Global async function to modify responses.             |
 | `route_resolution_strict` | `bool`                      | `False`  | Block with `500` when the adapter reports it could not resolve the route, instead of running the pipeline with no per-route config. Also turns requests to paths the app does not serve into `500`s rather than `404`s. See [Reporting a Failed Match](../adapters/decorators.md#reporting-a-failed-match). |
 | `on_error`                | `Callable[[str, BaseException, dict], None] \| None` | `None` | Best-effort callback invoked when a middleware/agent step fails, receiving `(stage, exception, context)`. `stage` is one of `agent_init`, `geoip`, `transport_send`, `encryption`. Also forwarded to `AgentConfig.on_error` when the agent is enabled; see [Agent / Telemetry](#agent-telemetry). |
@@ -121,11 +123,12 @@ Global Behavior Rules
 | `behavior_scan_response_body`                  | `bool`                        | `False`    | Read response bodies to evaluate `return_pattern` rules whose pattern is not `status:` (`json:`, `regex:`, or a bare substring). Off by default: no response body is ever read for pattern matching, and constructing a `return_pattern` rule with a non-`status:` pattern while this is `False` raises `ValueError` instead of silently accepting a rule that can never match. `status:` patterns match on `status_code` alone and are unaffected. |
 | `behavior_max_response_body_inspect_bytes`     | `int`                         | `262144`   | Maximum bytes read from the start of a response body and held for `return_pattern` inspection when `behavior_scan_response_body` is `True`. Bounds what guard-core retains, not what the application produces; a streaming response stays streaming to the client. See [Protocols - BoundedResponseBodyReader](../api/protocols.md#boundedresponsebodyreader). |
 | `body_read_timeout`                            | `float`                       | `3.0`      | Seconds to wait for an adapter's `read_body_prefix`/`body` call before giving up. Bounds the request-body detection read and the response-body behaviour-rule read against a stalled or misbehaving adapter/stream; on timeout the body is treated as unavailable, the same fail-closed outcome already used when the adapter raises. The async `guard_core` tree bounds the wait via `asyncio.wait_for`. The sync tree (`guard_core.sync`) cannot cancel a blocking call from the outside, so each read attempt runs on its own daemon thread and this value bounds how long the caller joins that thread instead; see `sync_body_read_max_concurrent` for the concurrent-thread budget. |
+| `sync_body_read_max_concurrent`                | `int`                         | `64`       | Maximum daemon threads the sync (`guard_core.sync`) tree may have blocked at once inside an adapter's `read_body_prefix`/`body` call. Once that many threads are already blocked on a stalled read, further attempts queue for the same `body_read_timeout` budget and then give up, logging the exhaustion, instead of spawning without limit. |
 
 When to use:
 
 - You want a global "ban after 20 404s in 5 minutes" rule that does not require touching every route.
-- You want detection-correlated thresholds — `correlate_with_detection=True` halves the threshold (floor 1) when the IP has any positive `suspicious_request_counts` entry, so probing that already triggered a regex hit gets banned faster.
+- You want detection-correlated thresholds, `correlate_with_detection=True` halves the threshold (floor 1) when the IP has any positive `suspicious_request_counts` entry, so probing that already triggered a regex hit gets banned faster.
 - You want a service-wide frequency or usage cap for any caller, regardless of which route they hit.
 
 ```python
@@ -171,11 +174,11 @@ ___
 Detection Exclusions
 --------------------
 
-These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, and all `sec-ch-ua*` headers. `enabled_detection_categories` narrows the regex scan to a subset of the 18 known categories; custom user patterns always run regardless. An empty `enabled_detection_categories` while `enable_penetration_detection` is `True` logs a `WARNING` at construction: detection would run on every request but never match anything.
+These fields opt request components out of penetration detection. The header set is merged with a hardcoded default that already excludes `host`, `user-agent`, `accept`, `accept-encoding`, `connection`, `origin`, `referer`, all `sec-fetch-*`, all `sec-ch-ua*`, and the proxy identity headers `forwarded`, `x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `x-client-ip`, `x-cluster-client-ip`, `cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, and `x-envoy-external-address` (their values are addresses or hostnames set by infrastructure, not the client, so a private address like `192.168.65.1` never trips the SSRF pattern). An excluded header still gets the always-on command-injection check, so `X-Real-IP: $(id)` is still detected; client IP attribution is unaffected, since it never used pattern detection. `enabled_detection_categories` narrows the regex scan to a subset of the 18 known categories; custom user patterns always run regardless. An empty `enabled_detection_categories` while `enable_penetration_detection` is `True` logs a `WARNING` at construction: detection would run on every request but never match anything.
 
 | Field                              | Type        | Default                          | Description                                                                |
 |------------------------------------|-------------|----------------------------------|----------------------------------------------------------------------------|
-| `excluded_detection_headers`       | `set[str]`  | `set()`                          | Header names skipped by detection. Merged with the hardcoded default list. |
+| `excluded_detection_headers`       | `set[str]`  | `set()`                          | Headers exempted only from the categories known to false-positive on their typical values: identity and proxy headers such as `X-Forwarded-For`, `X-Real-IP`, `Host`, `Origin` and `Via` skip `ssrf` only, and every other category (sqli, xss, cmd_injection, template, Log4Shell) still scans them. A name outside the built-in identity set inherits the same rule when its value looks like an address chain, otherwise it gets no exclusion at all. Merged with the hardcoded default list. |
 | `excluded_detection_params`        | `set[str]`  | `set()`                          | Query parameter names skipped by detection.                                |
 | `excluded_detection_body_fields`   | `set[str]`  | `set()`                          | Top-level JSON body keys skipped by detection.                             |
 | `enabled_detection_categories`     | `frozenset[str]`  | full `ALL_DETECTION_CATEGORIES`  | Categories scanned for. Validator rejects unknown labels.                  |
@@ -183,9 +186,9 @@ These fields opt request components out of penetration detection. The header set
 When to use:
 
 - A first-party endpoint accepts JSON containing literals (Markdown source, code blobs, URL-shaped query params) that look like attacks but are not.
-- A regression in one category's regex is producing false positives faster than you can write a fix — disable the category temporarily.
+- A regression in one category's regex is producing false positives faster than you can write a fix, disable the category temporarily.
 - A privacy-sensitive header value should not be scanned at all.
-- You want different routes to have different opt-outs — pair this with `@security.detection_exclusion(...)` on the route.
+- You want different routes to have different opt-outs, pair this with `@security.detection_exclusion(...)` on the route.
 
 ```python
 from guard_core.models import SecurityConfig
@@ -202,7 +205,7 @@ ___
 IP Lifecycle Controls
 ---------------------
 
-These fields tune cold-start and horizontal-scale behaviour for the geo-IP and cloud-IP subsystems. They are inert by default — only adjust if you have a specific cold-start or scale-out problem.
+These fields tune cold-start and horizontal-scale behaviour for the geo-IP and cloud-IP subsystems. They are inert by default, only adjust if you have a specific cold-start or scale-out problem.
 
 | Field                | Type                            | Default | Description                                                                  |
 |----------------------|---------------------------------|---------|------------------------------------------------------------------------------|
@@ -212,8 +215,8 @@ These fields tune cold-start and horizontal-scale behaviour for the geo-IP and c
 
 When to use:
 
-- `lazy_init=True` to keep startup non-blocking when IPInfo MMDB or cloud-IP provider fetches are slow. The background warmup runs concurrently with normal request handling; cloud-provider blocking and geo checks become active once the background task finishes. Rate limiting, IP banning, pattern detection, and other layers remain fully active throughout the warmup window. `lazy_init` only takes effect when Redis is enabled and the adapter calls `initialize_redis_handlers()` from its own startup hook (for example fastapi-guard's lifespan integration) — see [Provider Status](#provider-status) below for the accessor that lets a Kubernetes/ALB warmup probe (or any health endpoint) tell when that window has closed.
-- `geo_ip_db_max_age` to tighten or loosen the IPInfo refresh cadence — match it to your IPInfo plan's update frequency.
+- `lazy_init=True` to keep startup non-blocking when IPInfo MMDB or cloud-IP provider fetches are slow. The background warmup runs concurrently with normal request handling; cloud-provider blocking and geo checks become active once the background task finishes. Rate limiting, IP banning, pattern detection, and other layers remain fully active throughout the warmup window. `lazy_init` only takes effect when Redis is enabled and the adapter calls `initialize_redis_handlers()` from its own startup hook (for example fastapi-guard's lifespan integration), see [Provider Status](#provider-status) below for the accessor that lets a Kubernetes/ALB warmup probe (or any health endpoint) tell when that window has closed.
+- `geo_ip_db_max_age` to tighten or loosen the IPInfo refresh cadence, match it to your IPInfo plan's update frequency.
 - `cloud_ip_store` to point multiple horizontally-scaled instances at a single pre-populated Redis namespace, skipping per-instance cloud-IP cold starts.
 
 ```python
@@ -232,7 +235,7 @@ config_with_shared_store = SecurityConfig(cloud_ip_store=shared_store)
 
 ### Provider Status
 
-`cloud_handler.get_status()` (the module-level singleton) and your `IPInfoManager` instance's `get_status()` report per-provider readiness, the last successful refresh timestamp, and a cheap entry count. `HandlerInitializer` is adapter-internal — its `get_initialization_status()` combines both into one payload, and adapters expose that combined payload as their status surface (fastapi-guard: `SecurityMiddleware.get_initialization_status()`, or `add_status_route(app)` → `GET /_guard/status`).
+`cloud_handler.get_status()` (the module-level singleton) and your `IPInfoManager` instance's `get_status()` report per-provider readiness, the last successful refresh timestamp, and a cheap entry count. `HandlerInitializer` is adapter-internal, its `get_initialization_status()` combines both into one payload, and adapters expose that combined payload as their status surface (fastapi-guard: `SecurityMiddleware.get_initialization_status()`, or `add_status_route(app)` → `GET /_guard/status`).
 
 Cloud-only status, callable anywhere:
 
@@ -247,14 +250,14 @@ cloud_status = cloud_handler.get_status()
 # }
 ```
 
-Geo-IP status — call `get_status()` on the `IPInfoManager` instance you passed in as `geo_ip_handler` (there is no module singleton: the manager is token-gated, so it is instantiated per app, not at import time):
+Geo-IP status, call `get_status()` on the `IPInfoManager` instance you passed in as `geo_ip_handler` (there is no module singleton: the manager is token-gated, so it is instantiated per app, not at import time):
 
 ```python
 geo_status = ip_info_manager.get_status()
 # {"ready": True, "last_refreshed": datetime(...), "entries": 494}
 ```
 
-Combined cloud + geo-IP payload, for a warmup probe or health endpoint — read it through your adapter rather than reconstructing `HandlerInitializer` yourself (fastapi-guard):
+Combined cloud + geo-IP payload, for a warmup probe or health endpoint, read it through your adapter rather than reconstructing `HandlerInitializer` yourself (fastapi-guard):
 
 ```python
 from guard.status import add_status_route
@@ -267,7 +270,7 @@ add_status_route(app, path="/_guard/status")  # GET /_guard/status -> combined p
 # }
 ```
 
-`geo_ip` is `None` when no `geo_ip_handler` is configured. A custom `geo_ip_handler` that does not implement `get_status()` still reports `ready` (from the required `is_initialized` property) with `last_refreshed`/`entries` as placeholders. This is synchronous, dependency-free, and cheap enough to poll from a warmup probe or health endpoint — it is exactly what to wire up for the "cannot tolerate any inert window" case above.
+`geo_ip` is `None` when no `geo_ip_handler` is configured. A custom `geo_ip_handler` that does not implement `get_status()` still reports `ready` (from the required `is_initialized` property) with `last_refreshed`/`entries` as placeholders. This is synchronous, dependency-free, and cheap enough to poll from a warmup probe or health endpoint, it is exactly what to wire up for the "cannot tolerate any inert window" case above.
 
 See [Cloud IP Store](../api/cloud-ip-store.md) for the protocol contract and the Redis namespace migration note.
 
@@ -381,6 +384,8 @@ Detection Engine
 | `detection_preserve_attack_patterns`| `bool`  | `True`  | N/A           | Preserve attack patterns during truncation.  |
 | `detection_semantic_threshold`      | `float` | `0.7`   | 0.0 - 1.0    | Threshold for semantic attack detection.     |
 | `detection_anomaly_threshold`       | `float` | `3.0`   | 1.0 - 10.0   | Std deviations slower than average to flag an anomaly (never faster). |
+| `detection_anomaly_emission_cooldown` | `float` | `60.0` | 1.0 - 3600.0 | Minimum seconds between anomaly events for the same pattern. Raise to reduce noise on low-traffic apps. |
+| `detection_min_samples_for_anomaly` | `int`   | `30`    | 10 - 1000     | Minimum samples recorded for a pattern before statistical-anomaly detection engages. Raise to reduce false fires on low-traffic apps. |
 | `detection_slow_pattern_threshold`  | `float` | `0.1`   | 0.01 - 1.0   | Seconds to consider a pattern slow.          |
 | `detection_monitor_history_size`    | `int`   | `1000`  | 100 - 10000   | Recent metrics to keep in history.           |
 | `detection_max_tracked_patterns`    | `int`   | `1000`  | 100 - 5000    | Maximum patterns to track for performance.   |
@@ -403,6 +408,10 @@ Logging
 | `log_suspicious_level`| `"INFO" \| "DEBUG" \| "WARNING" \| "ERROR" \| "CRITICAL" \| None` | `"WARNING"` | Log level for suspicious requests. `None` disables. |
 | `log_request_level`   | Same as above                                   | `None`     | Log level for all requests. `None` disables. |
 | `log_country_check_level` | Same as above (default `"INFO"`)            | `"INFO"`   | Log level for non-block country verdicts (whitelisted / not-affected). `None` disables. Blocked-country hits log at `log_suspicious_level` instead (default `WARNING`); no-rules / no-geolocation always log at `DEBUG`. |
+| `muted_check_logs`      | `frozenset[str]`                              | `frozenset()` | Security check names to mute from pipeline logging entirely. Validator rejects unknown check names. |
+| `log_sensitive_headers` | `frozenset[str]`                              | `frozenset()` | Header names redacted from guard log lines, matched case-insensitively. Merged with the hardcoded default set (`authorization`, `proxy-authorization`, `cookie`, `x-api-key`). Also redacts the value in the detection engine's per-header `Potential attack detected` line. |
+| `log_sensitive_params` | `frozenset[str]`                              | `frozenset()` | Query-parameter names whose values are redacted from guard log lines, matched case-insensitively. Merged with the hardcoded default set (`access_token`, `refresh_token`, `api_key`, `apikey`, `token`, `password`, `secret`, `client_secret`, `signature`). Redacts the URL segment of `log_activity` lines and the value in the detection engine's per-parameter `Potential attack detected` line. |
+| `log_sensitive_body_fields` | `frozenset[str]`                          | `frozenset()` | JSON key, form-field, and multipart text-part names whose values are redacted, matched case-insensitively. Merged with the same hardcoded default set as `log_sensitive_params`. Redacts only the value in the detection engine's per-field `Potential attack detected` line. |
 | `log_format`          | `"text" \| "json"`                              | `"text"`   | Log output format.                       |
 | `custom_log_file`     | `str \| None`                                   | `None`     | Path to a custom log file.               |
 
@@ -442,8 +451,17 @@ Agent / Telemetry
 | `agent_compression_threshold`     | `int \| None`                                | `None`                          | Minimum body size in bytes before gzip compression applies. `None` defers to the agent's own default. |
 | `agent_install_id`                | `str \| None`                                | `None`                          | Override the agent install ID. `None` auto-generates one. |
 | `agent_payload_signing_secret`    | `str \| None`                                | `None`                          | HMAC-SHA256 secret used to sign the `X-Payload-Signature` header. |
+| `enable_enrichment`               | `bool`                                       | `False`                         | Populate `guard.*` metadata on every event and metric with project identity, deterministic threat score, matched dynamic rule, and per-IP behavioral correlation keys. Requires `enable_agent=True`. |
+| `muted_event_types`               | `frozenset[str]`                             | `frozenset()`                   | Event types to mute from telemetry dispatch. Validator rejects unknown values. |
+| `muted_metric_types`              | `frozenset[str]`                             | `frozenset()`                   | Metric types to mute from telemetry dispatch. Validator rejects unknown values. |
+| `enable_otel`                     | `bool`                                       | `False`                         | Enable OpenTelemetry span/metric export. Requires the `otel` extra. |
+| `otel_service_name`               | `str`                                         | `"guard-core"`                  | Service name reported on the OpenTelemetry resource. |
+| `otel_exporter_endpoint`          | `str \| None`                                | `None`                          | OTLP HTTP endpoint for OpenTelemetry export. |
+| `otel_resource_attributes`        | `dict[str, str]`                             | `{}`                            | Additional OpenTelemetry resource attributes (e.g. `deployment.environment`, `service.version`). |
+| `enable_logfire`                  | `bool`                                       | `False`                         | Enable Logfire span/metric export. Requires the `logfire` extra. |
+| `logfire_service_name`            | `str`                                         | `"guard-core"`                  | Service name reported to Logfire. |
 
-**Validator**: `agent_api_key` is required when `enable_agent` is `True`. `agent_buffer_overflow_policy` rejects any value other than `"drop"`, `"block"`, or `"raise"` at construction time.
+**Validator**: `agent_api_key` is required when `enable_agent` is `True`. `agent_buffer_overflow_policy` rejects any value other than `"drop"`, `"block"`, or `"raise"` at construction time. `enable_enrichment=True` without `enable_agent=True` raises `ValueError`.
 
 `SecurityConfig.on_error` (documented under [Core Settings](#core-settings) hooks) is also forwarded to `AgentConfig.on_error` when the agent is enabled, so the same callback receives agent-side `transport_send` and `encryption` failures in addition to guard-core's own `agent_init` and `geoip` failures.
 
@@ -480,7 +498,7 @@ Validators
 | `warn_empty_enabled_detection_categories` | model-level | Logs a `WARNING` when `enabled_detection_categories` is empty while `enable_penetration_detection` is `True`. Does not raise; construction still succeeds. |
 | `validate_proxy_depth` | `trusted_proxy_depth` | Must be >= 1. Raises `ValueError` otherwise. |
 | `validate_cloud_providers` | `block_cloud_providers` | Requires the part before an optional `:!region` suffix to be `"AWS"`, `"GCP"`, or `"Azure"`. Raises `ValueError` naming any entry that fails this check. |
-| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction. |
+| `validate_geo_ip_handler_exists` | model-level | Requires `geo_ip_handler` when `blocked_countries` or `whitelist_countries` is set. Falls back to `IPInfoManager` if `ipinfo_token` is provided. Also re-run from `__setattr__`/`model_copy` when `blocked_countries`, `whitelist_countries`, `geo_ip_handler`, or `ipinfo_token` is reassigned after construction. As of 4.0.0, `__setattr__`/`model_copy` reassignment revalidation also covers every collection-typed field (`exclude_paths`, `global_behavior_rules`, `security_headers`, the CORS and OTel attribute fields, and the detection-exclusion sets among them), not only the geo-state fields. |
 | `validate_agent_config` | model-level | Requires `agent_api_key` when `enable_agent` is `True`. Requires `enable_agent` when `enable_dynamic_rules` is `True`. |
 | `validate_optional_extras_installed` | model-level | Requires the `redis` extra when `enable_redis` is `True`, the `cloud` extra (`aiohttp` or `requests`) when cloud blocking is enabled (`block_cloud_providers` or `enable_dynamic_rules`), and the `geo` extra (`maxminddb`) when country rules are configured with no custom `geo_ip_handler`. Raises `ValueError` naming the missing extra's install command, checked via `importlib.util.find_spec` (never a bare `import`). See [Installation](../installation.md#optional-dependency-extras). |
 | `warn_unknown_fields` | model-level, `mode="before"` | Compares the constructor keyword arguments against `model_fields` (and any field's `alias`) and logs a `guard_core.models` warning naming each unknown key, since `SecurityConfig` still allows unknown keys through (`extra="ignore"`) rather than raising. Construction still succeeds and the unknown key is still dropped; only a log line is added, so a typo'd field name is no longer a silent no-op. `extra="forbid"` is the intended behavior at a future major release. |

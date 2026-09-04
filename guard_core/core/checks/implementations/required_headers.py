@@ -1,7 +1,10 @@
 from collections.abc import Collection
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import route_config_applies
+from guard_core.core.checks.helpers import (
+    emit_access_denied_event,
+    route_config_applies,
+)
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -33,11 +36,14 @@ class RequiredHeadersCheck(SecurityCheck):
     ) -> bool:
         return route_config_applies(route_configs, lambda rc: bool(rc.required_headers))
 
-    async def _handle_missing_header(
-        self, request: GuardRequest, header: str
+    async def _report_header_violation(
+        self,
+        request: GuardRequest,
+        header: str,
+        reason: str,
+        *,
+        header_field: str,
     ) -> GuardResponse | None:
-        reason = f"Missing required header: {header}"
-
         await log_activity(
             request,
             self.logger,
@@ -48,20 +54,22 @@ class RequiredHeadersCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
         decorator_type, violation_type = _classify_header_violation(header)
 
-        await self.middleware.event_bus.send_middleware_event(
+        await emit_access_denied_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=reason,
             decorator_type=decorator_type,
+            passive_mode=self.config.passive_mode,
             violation_type=violation_type,
-            missing_header=header,
+            **{header_field: header},
         )
 
         if not self.config.passive_mode:
@@ -71,6 +79,22 @@ class RequiredHeadersCheck(SecurityCheck):
             )
         return None
 
+    async def _handle_missing_header(
+        self, request: GuardRequest, header: str
+    ) -> GuardResponse | None:
+        reason = f"Missing required header: {header}"
+        return await self._report_header_violation(
+            request, header, reason, header_field="missing_header"
+        )
+
+    async def _handle_mismatched_header(
+        self, request: GuardRequest, header: str
+    ) -> GuardResponse | None:
+        reason = f"Header '{header}' does not match the required value"
+        return await self._report_header_violation(
+            request, header, reason, header_field="mismatched_header"
+        )
+
     async def check(self, request: GuardRequest) -> GuardResponse | None:
         route_config = getattr(request.state, "route_config", None)
 
@@ -78,7 +102,10 @@ class RequiredHeadersCheck(SecurityCheck):
             return None
 
         for header, expected in route_config.required_headers.items():
-            if expected == "required" and not request.headers.get(header):
+            actual = request.headers.get(header)
+            if not actual:
                 return await self._handle_missing_header(request, header)
+            if expected != "required" and actual != expected:
+                return await self._handle_mismatched_header(request, header)
 
         return None

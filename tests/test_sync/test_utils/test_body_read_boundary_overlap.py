@@ -39,14 +39,20 @@ def _fake_component_check(
     correlation_id: str,
     enabled_categories: set[str] | None = None,
     scan_embedded_json: bool = True,
-) -> tuple[bool, str, list[dict]]:
+    content_preview: str | None = None,
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    excluded_body_fields: frozenset[str] = frozenset(),
+    json_redact_all: bool | None = None,
+    sensitive_params: frozenset[str] = frozenset(),
+) -> tuple[bool, str, list[dict], str | None]:
     if _MAGIC in value:
         return (
             True,
             "matched magic signature",
             [{"type": "regex", "pattern": _MAGIC, "category": "test"}],
+            None,
         )
-    return False, "", []
+    return False, "", [], None
 
 
 def _straddling_body(cap: int) -> bytes:

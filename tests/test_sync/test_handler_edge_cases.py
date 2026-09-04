@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import time
 from collections import deque
 from typing import Any
@@ -43,7 +44,6 @@ def test_ipban_reset_global_state() -> None:
 
 
 def test_ratelimit_popleft_stale_timestamps() -> None:
-    RateLimitManager._instance = None
     config = SecurityConfig(enable_redis=False)
     mgr = RateLimitManager(config)
     old_time = time.time() - 120
@@ -196,8 +196,8 @@ def test_utils_detect_penetration_header_threat() -> None:
     assert isinstance(result.is_threat, bool)
 
 
-def test_utils_check_json_data_regex_threat() -> None:
-    from guard_core.sync.utils import _check_json_fields
+def test_utils_check_embedded_json_regex_threat() -> None:
+    from guard_core.sync.utils import _check_embedded_json
 
     mock_result = {
         "is_threat": True,
@@ -207,15 +207,24 @@ def test_utils_check_json_data_regex_threat() -> None:
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_handler.detect = MagicMock(return_value=mock_result)
-        detected, info = _check_json_fields(
-            {"name": "SELECT * FROM users"}, "body", "1.2.3.4", "corr-1"
+        result = _check_embedded_json(
+            json.dumps({"name": "SELECT * FROM users"}),
+            "body",
+            "1.2.3.4",
+            "corr-1",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
+    assert result is not None
+    detected, info, _threats, _log_override = result
     assert detected is True
     assert "matched pattern" in info
 
 
-def test_utils_check_json_data_other_threat() -> None:
-    from guard_core.sync.utils import _check_json_fields
+def test_utils_check_embedded_json_other_threat() -> None:
+    from guard_core.sync.utils import _check_embedded_json
 
     mock_result = {
         "is_threat": True,
@@ -231,15 +240,24 @@ def test_utils_check_json_data_other_threat() -> None:
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_handler.detect = MagicMock(side_effect=_detect_only_value)
-        detected, info = _check_json_fields(
-            {"field": "payload"}, "body", "1.2.3.4", "corr-1"
+        result = _check_embedded_json(
+            json.dumps({"field": "payload"}),
+            "body",
+            "1.2.3.4",
+            "corr-1",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
+    assert result is not None
+    detected, info, _threats, _log_override = result
     assert detected is True
-    assert "contains:" in info
+    assert "Request body field 'field': Threat detected" in info
 
 
-def test_utils_check_json_data_no_threats_list() -> None:
-    from guard_core.sync.utils import _check_json_fields
+def test_utils_check_embedded_json_no_threats_list() -> None:
+    from guard_core.sync.utils import _check_embedded_json
 
     mock_result = {"is_threat": True, "threats": []}
 
@@ -252,25 +270,44 @@ def test_utils_check_json_data_no_threats_list() -> None:
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_handler.detect = MagicMock(side_effect=_detect_only_value)
-        detected, info = _check_json_fields(
-            {"field": "val"}, "body", "1.2.3.4", "corr-1"
+        result = _check_embedded_json(
+            json.dumps({"field": "val"}),
+            "body",
+            "1.2.3.4",
+            "corr-1",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
+    assert result is not None
+    detected, info, _threats, _log_override = result
     assert detected is True
-    assert "contains threat" in info
+    assert "Request body field 'field': Threat detected" in info
 
 
-def test_utils_check_json_data_clean() -> None:
-    from guard_core.sync.utils import _check_json_fields
+def test_utils_check_embedded_json_clean() -> None:
+    from guard_core.sync.utils import _check_embedded_json
 
     mock_result = {"is_threat": False, "threats": []}
     with patch(
         "guard_core.sync.handlers.suspatterns_handler.sus_patterns_handler"
     ) as mock_handler:
         mock_handler.detect = MagicMock(return_value=mock_result)
-        detected, info = _check_json_fields(
-            {"field": "safe"}, "body", "1.2.3.4", "corr-1"
+        result = _check_embedded_json(
+            json.dumps({"field": "safe"}),
+            "body",
+            "1.2.3.4",
+            "corr-1",
+            None,
+            frozenset(),
+            frozenset(),
+            False,
         )
+    assert result is not None
+    detected, _info, _threats, log_override = result
     assert detected is False
+    assert log_override is None
 
 
 def test_utils_detect_header_threat() -> None:
@@ -278,7 +315,7 @@ def test_utils_detect_header_threat() -> None:
 
     with patch(
         "guard_core.sync._utils.detection_scan._check_value_enhanced",
-        return_value=(True, "XSS detected", []),
+        return_value=(True, "XSS detected", [], None),
     ):
         detected, trigger, threats = _check_request_component(
             "<script>",
@@ -319,6 +356,11 @@ def test_utils_detect_penetration_header_match() -> None:
             enabled_categories: set[str] | None = None,
             log_level: str | None = "WARNING",
             scan_embedded_json: bool = True,
+            content_preview: str | None = None,
+            sensitive_body_fields: frozenset[str] = frozenset(),
+            excluded_body_fields: frozenset[str] = frozenset(),
+            json_redact_all: bool | None = None,
+            sensitive_params: frozenset[str] = frozenset(),
         ) -> tuple[bool, str, list[dict]]:
             nonlocal call_count
             call_count += 1

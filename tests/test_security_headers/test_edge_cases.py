@@ -165,7 +165,7 @@ async def test_complete_secure_configuration() -> None:
 
 
 def test_new_returns_existing_instance_on_subsequent_calls() -> None:
-    # Covers the outer "cls._instance is None" False branch — singleton fast path.
+    # Covers the outer "cls._instance is None" False branch, singleton fast path.
     from guard_core.handlers.security_headers_handler import SecurityHeadersManager
 
     first = SecurityHeadersManager()

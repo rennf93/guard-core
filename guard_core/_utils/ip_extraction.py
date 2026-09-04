@@ -181,6 +181,17 @@ def _warn_forwarded_header_preempted(
     )
 
 
+def _display_forwarded_chain(value: str) -> str:
+    displayed = []
+    for part in value.split(","):
+        candidate = _strip_forwarded_entry_port(part.strip())
+        if _forwarded_header_candidate_addr(candidate) is not None:
+            displayed.append(part)
+        else:
+            displayed.append("[REDACTED]")
+    return ",".join(displayed)
+
+
 async def _handle_untrusted_proxy(
     request: GuardRequest,
     connecting_ip: str,
@@ -190,7 +201,8 @@ async def _handle_untrusted_proxy(
 ) -> str:
     if forwarded_for:
         _warn_forwarded_header_preempted(connecting_ip, forwarded_for)
-        safe_forwarded_for = _sanitize_for_log(forwarded_for)
+        display_forwarded_for = _display_forwarded_chain(forwarded_for)
+        safe_forwarded_for = _sanitize_for_log(display_forwarded_for)
         log_fn = (
             logger.debug if _is_private_or_loopback(connecting_ip) else logger.warning
         )
@@ -199,12 +211,15 @@ async def _handle_untrusted_proxy(
             f"({safe_forwarded_for}) received from untrusted IP "
             f"{_sanitize_for_log(connecting_ip)}"
         )
+        from guard_core.core.events.event_types import EVENT_SUSPICIOUS_REQUEST
+
         await send_agent_event(
             agent_handler,
-            "suspicious_request",
+            EVENT_SUSPICIOUS_REQUEST,
             canonical_connecting_ip,
             "spoofing_detected",
-            f"Potential IP spoof attempt: X-Forwarded-For header {forwarded_for}",
+            "Potential IP spoof attempt: X-Forwarded-For header "
+            f"{display_forwarded_for}",
             request,
         )
     return canonical_connecting_ip
@@ -225,7 +240,7 @@ def _warn_forwarded_header_chain_too_short(
         "configured trusted_proxy_depth; chain was %s; falling back to the "
         "connecting peer as the client. This warning is logged once.",
         chain_length,
-        _sanitize_for_log(forwarded_for),
+        _sanitize_for_log(_display_forwarded_chain(forwarded_for)),
     )
 
 
@@ -263,7 +278,7 @@ def _warn_forwarded_header_depth_overcounts_hops(
         "real proxy hops. Set trusted_proxy_depth to the number of proxies "
         "that append to X-Forwarded-For. This warning is logged once.",
         unlisted_right_entries,
-        _sanitize_for_log(forwarded_for),
+        _sanitize_for_log(_display_forwarded_chain(forwarded_for)),
     )
 
 

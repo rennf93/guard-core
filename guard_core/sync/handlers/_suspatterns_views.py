@@ -1,16 +1,38 @@
 import time
+import urllib.parse
 from typing import Any
 
+from guard_core.sync.detection_engine import ContentPreprocessor
+from guard_core.sync.detection_engine.encoding_decoders import (
+    decode_overlong_utf8_percent_runs,
+    decode_percent_u_escapes,
+)
 from guard_core.sync.handlers._suspatterns_regex import (
     _resolve_pattern_weight,
     _sanitize_for_reporting,
     _SusPatternsRegexMixin,
 )
 from guard_core.sync.handlers._suspatterns_sources import (
-    _CTX_PATH_TRAVERSAL,
+    _DEFAULT_MAX_SCAN_LENGTH,
     _PATH_TRAVERSAL_DECODED_SHAPE_RE,
 )
 from guard_core.sync.handlers._suspatterns_state import _DetectionState
+
+_LEGACY_PATH_TRAVERSAL_DECODE_MAX_ITERATIONS = 8
+_LEGACY_PATH_TRAVERSAL_PREPROCESSOR = ContentPreprocessor()
+
+
+def _legacy_decode_path_traversal_view(normalized_content: str) -> str:
+    decoded = normalized_content
+    for _ in range(_LEGACY_PATH_TRAVERSAL_DECODE_MAX_ITERATIONS):
+        previous = decoded
+        decoded = decode_overlong_utf8_percent_runs(decoded)
+        decoded = urllib.parse.unquote(decoded, errors="ignore")
+        decoded = decode_percent_u_escapes(decoded)
+        decoded = _LEGACY_PATH_TRAVERSAL_PREPROCESSOR.normalize_unicode(decoded)
+        if decoded == previous:
+            break
+    return _LEGACY_PATH_TRAVERSAL_PREPROCESSOR.remove_null_bytes(decoded)
 
 
 class _SusPatternsViewsMixin(_SusPatternsRegexMixin):
@@ -46,11 +68,6 @@ class _SusPatternsViewsMixin(_SusPatternsRegexMixin):
         enabled_categories: set[str] | None,
         state: _DetectionState,
     ) -> dict[str, Any] | None:
-        preprocessor = state.preprocessor
-        if not preprocessor:
-            return None
-        if self._normalize_context(context) not in _CTX_PATH_TRAVERSAL:
-            return None
         if (
             enabled_categories is not None
             and "path_traversal" not in enabled_categories
@@ -58,9 +75,21 @@ class _SusPatternsViewsMixin(_SusPatternsRegexMixin):
             return None
 
         pattern_start = time.monotonic()
-        raw_view_content = preprocessor.preprocess_signal_preserving(content)
+        preprocessor = state.preprocessor
+        if preprocessor:
+            raw_view_content = preprocessor.preprocess_signal_preserving(content)
+            decoded_view_content = processed_content
+        else:
+            max_length = getattr(
+                self._config, "detection_max_content_length", _DEFAULT_MAX_SCAN_LENGTH
+            )
+            raw_view_content = _LEGACY_PATH_TRAVERSAL_PREPROCESSOR.normalize_unicode(
+                content[:max_length]
+            )
+            decoded_view_content = _legacy_decode_path_traversal_view(raw_view_content)
+
         decoded_matches = list(
-            _PATH_TRAVERSAL_DECODED_SHAPE_RE.finditer(processed_content)
+            _PATH_TRAVERSAL_DECODED_SHAPE_RE.finditer(decoded_view_content)
         )
         raw_count = len(_PATH_TRAVERSAL_DECODED_SHAPE_RE.findall(raw_view_content))
         if len(decoded_matches) <= raw_count:
@@ -129,8 +158,6 @@ class _SusPatternsViewsMixin(_SusPatternsRegexMixin):
     ) -> tuple[list[dict], list[str], list[str]]:
         preprocessor = state.preprocessor
         if not preprocessor:
-            return [], [], []
-        if self._normalize_context(context) not in ("request_body", "query_param"):
             return [], [], []
 
         additive_view_content = preprocessor.preprocess_short_base64_additive_view(

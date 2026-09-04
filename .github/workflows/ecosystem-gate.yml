@@ -1,0 +1,160 @@
+name: Ecosystem Gate
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      consumer_ref:
+        description: 'Consumer ref to test against: empty = default branch HEAD, "latest-release" = latest release tag, or an explicit ref'
+        required: false
+        default: ''
+
+concurrency:
+  group: ecosystem-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.wheel.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Build the wheel
+        run: |
+          uv build --wheel --out-dir dist
+
+      - name: Record the wheel version
+        id: wheel
+        run: |
+          version="$(basename dist/*.whl | sed -E 's/^guard_core-([^-]+)-.*/\1/')"
+          echo "Built guard_core wheel version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: guard-core-wheel
+          path: dist/*.whl
+
+  consumer-test:
+    needs: build-wheel
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fastapi-guard
+            repo: rennf93/fastapi-guard
+            sync_extra: '--extra dev'
+            pytest_args: '-v --cov=guard --cov-branch'
+            redis_prefix: 'test:fastapi_guard:'
+          - name: flaskapi-guard
+            repo: rennf93/flaskapi-guard
+            sync_extra: '--extra dev'
+            pytest_args: '-v --cov=flaskapi_guard'
+            redis_prefix: 'test:flaskapi_guard:'
+          - name: djapi-guard
+            repo: rennf93/djapi-guard
+            sync_extra: '--extra dev'
+            pytest_args: '-v --cov=djangoapi_guard'
+            redis_prefix: 'test:djangoapi_guard:'
+          - name: guard-agent
+            repo: rennf93/guard-agent
+            sync_extra: '--extra dev'
+            pytest_args: '-v --cov=guard_agent'
+            redis_prefix: ''
+          - name: guard-core-mcp
+            repo: rennf93/guard-core-mcp
+            sync_extra: '--extra dev'
+            pytest_args: '-v --cov=guard_core_mcp --cov-branch'
+            redis_prefix: ''
+
+    env:
+      IPINFO_TOKEN: test_token
+      REDIS_URL: redis://localhost:6379
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download the PR wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: guard-core-wheel
+          path: dist
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Test ${{ matrix.name }} against the PR wheel
+        run: |
+          .github/scripts/ecosystem_gate.sh \
+            "${{ matrix.repo }}" \
+            "${{ matrix.sync_extra }}" \
+            "${{ matrix.pytest_args }}" \
+            "$PWD/dist" \
+            "${{ needs.build-wheel.outputs.version }}" \
+            "${{ matrix.redis_prefix }}" \
+            "${{ github.event.inputs.consumer_ref }}"
+
+      - name: Upload pytest output
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}-pytest-output
+          path: |
+            consumer/pytest-output-base.txt
+            consumer/pytest-output-candidate.txt
+          if-no-files-found: ignore
+
+  ecosystem-gate:
+    name: ecosystem-gate
+    runs-on: ubuntu-latest
+    needs: [consumer-test]
+    if: always()
+    steps:
+      - name: Fail when any consumer job failed
+        run: |
+          if [ "${{ needs.consumer-test.result }}" != "success" ]; then
+            echo "::error::consumer-test result: ${{ needs.consumer-test.result }}"
+            exit 1
+          fi
+          echo "all consumer jobs passed"

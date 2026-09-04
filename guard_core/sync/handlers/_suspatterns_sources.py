@@ -32,24 +32,48 @@ def _supports_enhanced_config(config: Any) -> bool:
 
 
 _CTX_XSS = frozenset({"query_param", "header", "request_body", "url_path", "unknown"})
-_CTX_SQLI = frozenset({"query_param", "request_body", "unknown"})
-_CTX_DIR_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
+_CTX_SQLI = frozenset({"query_param", "header", "request_body", "url_path", "unknown"})
+_CTX_SQLI_NARROW = frozenset({"query_param", "request_body", "unknown"})
+_CTX_DIR_TRAVERSAL = frozenset(
+    {"url_path", "query_param", "header", "request_body", "unknown"}
+)
 _CTX_CMD_INJECTION = frozenset({"query_param", "header", "request_body", "unknown"})
-_CTX_FILE_INCLUSION = frozenset({"url_path", "query_param", "request_body", "unknown"})
-_CTX_LDAP = frozenset({"query_param", "request_body", "unknown"})
-_CTX_XML = frozenset({"header", "request_body", "unknown", "query_param"})
+_CTX_FILE_INCLUSION = frozenset(
+    {"url_path", "query_param", "header", "request_body", "unknown"}
+)
+_CTX_LDAP = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
+_CTX_XML = frozenset({"header", "request_body", "unknown", "query_param", "url_path"})
 _CTX_SSRF = frozenset({"query_param", "header", "request_body", "url_path", "unknown"})
-_CTX_NOSQL = frozenset({"query_param", "request_body", "unknown"})
-_CTX_FILE_UPLOAD = frozenset({"header", "request_body", "unknown"})
-_CTX_PATH_TRAVERSAL = frozenset({"url_path", "query_param", "request_body", "unknown"})
-_CTX_TEMPLATE = frozenset({"query_param", "request_body", "url_path", "unknown"})
-_CTX_HTTP_SPLIT = frozenset({"header", "query_param", "request_body", "unknown"})
-_CTX_SENSITIVE_FILE = frozenset({"url_path", "request_body", "unknown"})
-_CTX_CMS_PROBING = frozenset({"url_path", "request_body", "unknown"})
-_CTX_RECON = frozenset({"url_path", "unknown"})
-_CTX_PROTO_POLLUTION = frozenset({"query_param", "request_body", "unknown"})
-_CTX_CODE_INJECTION = frozenset({"query_param", "request_body", "unknown"})
-_CTX_DESERIALIZATION = frozenset({"query_param", "header", "request_body", "unknown"})
+_CTX_NOSQL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
+_CTX_FILE_UPLOAD = frozenset({"header", "query_param", "request_body", "unknown"})
+_CTX_PATH_TRAVERSAL = frozenset(
+    {"url_path", "query_param", "header", "request_body", "unknown"}
+)
+_CTX_TEMPLATE = frozenset(
+    {"query_param", "header", "request_body", "url_path", "unknown"}
+)
+_CTX_HTTP_SPLIT = frozenset(
+    {"header", "query_param", "url_path", "request_body", "unknown"}
+)
+_CTX_SENSITIVE_FILE = frozenset({"url_path", "query_param", "request_body", "unknown"})
+_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX = ":embedded_json"
+
+
+def _source_extension_path_is_probe(context: str) -> bool:
+    return not context.endswith(_EMBEDDED_JSON_LEAF_CONTEXT_SUFFIX)
+
+
+_CTX_CMS_PROBING = frozenset({"url_path", "query_param", "request_body", "unknown"})
+_CTX_RECON = frozenset({"url_path", "query_param", "request_body", "unknown"})
+_CTX_PROTO_POLLUTION = frozenset(
+    {"query_param", "header", "url_path", "request_body", "unknown"}
+)
+_CTX_CODE_INJECTION = frozenset(
+    {"query_param", "header", "url_path", "request_body", "unknown"}
+)
+_CTX_DESERIALIZATION = frozenset(
+    {"query_param", "header", "url_path", "request_body", "unknown"}
+)
 _CTX_ALL = frozenset({"query_param", "header", "url_path", "request_body", "unknown"})
 
 
@@ -123,12 +147,38 @@ def _path_only_pattern(required: str, trailing: str = "") -> str:
     )
 
 
+_SENSITIVE_SOURCE_EXTENSION_PATH_RE = _path_only_pattern(
+    rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+)
+
+
 def _nested_path_pattern(required: str) -> str:
     return (
         rf"\A{_PATH_ONLY_SEP_RE}"
         rf"(?:(?!{required}(?:{_PATH_ONLY_SEP_RE}|\Z))"
         rf"{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
         rf"{required}{_PATH_ONLY_SUFFIX_RE}"
+    )
+
+
+_ATTACK_REPORT_LEXICON_RE = (
+    r"\b(?:scan(?:ner|ning|ned|s)?|attack(?:er|ers|ed|s)?|attempt(?:ed|s)?"
+    r"|exploit(?:ation|ed|s|ing|kit)?|prob(?:e|ed|es|ing)|malicious|intrusion(?:s)?"
+    r"|botnet(?:s)?|honeypot(?:s)?|brute[- ]force|credential[- ]stuffing"
+    r"|threat feed|vulnerabilit(?:y|ies)|hostile|recon(?:naissance)?"
+    r"|spoofed referer|bad actor(?:s)?|WAF|IDS|SOC|pentest(?:ing)?|blocked"
+    r"|flagged|triggered|denied|enumerat(?:e|ed|ing)|suspicious)\b"
+)
+
+
+def _embedded_prose_pattern(required: str, trailing_max: int = 3) -> str:
+    trailing = (
+        rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}{{1,64}}){{0,{trailing_max}}}"
+    )
+    return (
+        rf"\A(?=(?:(?!\n).)*{_ATTACK_REPORT_LEXICON_RE})"
+        rf"{_SINGLE_LINE_PREFIX_RE}{_PATH_ONLY_SEP_RE}"
+        rf"(?:{required}){trailing}\b"
     )
 
 
@@ -229,7 +279,15 @@ _SQLI_ORDER_BY_TERMINATOR_RE = (
     r"(?i)\bORDER\s+BY\s+\d+\s*(?:--|#|;|\)|,|/\*|\Z)"
     r"|(?<=[=?&])ORDER\s+BY\s+\d+\s*\n"
 )
+_SQLI_ORDER_BY_STRONG_RE = (
+    r"(?i)(?:['\")\d]|/\*)\s{0,3}\bORDER\s+BY\s+\d+"
+    r"|\bORDER\s+BY\s+\d+\s*(?:--|#|/\*)"
+)
+_SQLI_EXEC_STRONG_RE = r"(?i)(?:\A|[;'\"])\s*EXEC(?:UTE)?\s+(?:xp_\w+|sp_\w+)"
 _SQLI_COMMENT_TERMINATOR_RE = r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)"
+_SQLI_WAITFOR_RE = (
+    r"(?i)\bWAITFOR\s+(?:DELAY|TIME)\s+'\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?'"
+)
 _PATH_TRAVERSAL_ENCODED_DOT_RE = (
     r"(?:%2e%2e|%252e%252e|%uff0e%uff0e|%c0%ae%c0%ae|%e0%40%ae|%c0%ae"
     r"%e0%80%ae|%25c0%25ae)/"
@@ -243,6 +301,8 @@ _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
 _CMD_INJECTION_SHELL_DASH_FLAG_RE = (
     r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+"
+    r"(?:\s+(?:'[^']*'|\"[^\"]*\"|[^\s;|&]+))?"
+    r"(?=\s*(?:[;|&]|\Z))"
 )
 _DIR_TRAVERSAL_ETC_SENSITIVE_RE = (
     _SINGLE_LINE_PREFIX_RE
@@ -261,8 +321,10 @@ _DIR_TRAVERSAL_VAR_LOG_RE = (
     _SINGLE_LINE_PREFIX_RE + r"var/log/[^\s/]+" + _SINGLE_LINE_SUFFIX_RE
 )
 _SSTI_HASH_BRACE_SHAPE_RE = (
-    r"#\{\s*[^\}]*(?:@[\w.]+@|\b\w+\s*\("
-    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?)[^\}]*\}"
+    r"#\{(?![^\}]*\d{4}-\d{1,2}-\d{1,2}(?!\d))"
+    r"(?=[^\}]*(?:@[\w.]+@|\b\w+\s*\("
+    r"|['\"]?\d+['\"]?\s*[*/%+\-]\s*['\"]?\d+['\"]?))"
+    r"[^\}]*\}"
 )
 
 

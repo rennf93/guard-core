@@ -22,9 +22,11 @@ class ContentFilteringMixin(BaseSecurityMixin):
                 max_content_length=self.config.detection_max_body_inspect_bytes,
             )
             if not is_safe:
+                from guard_core.sync._utils.detection_scan import _redact_pattern_source
+
                 raise ValueError(
                     f"block_user_agents pattern rejected by ReDoS validator: "
-                    f"{pattern!r} ({reason})"
+                    f"{_redact_pattern_source(pattern)!r} ({reason})"
                 )
 
         def decorator(func: Callable[..., Any]) -> DecoratedFunction:

@@ -425,6 +425,62 @@ async def test_update_rules_dynamic_rule_updated_event_failure(
         mock_send_event.assert_called_once_with(sample_rules)
 
 
+async def test_update_rules_applies_and_sends_applied_event_with_handler_name(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    rules = DynamicRules(
+        rule_id="wire-test-rule",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+    )
+    mock_agent_handler.get_dynamic_rules.return_value = rules
+
+    await manager.update_rules()
+
+    assert mock_agent_handler.send_event.call_count == 2
+    received_event = mock_agent_handler.send_event.call_args_list[0].args[0]
+    applied_event = mock_agent_handler.send_event.call_args_list[1].args[0]
+
+    assert received_event.event_type == "dynamic_rule_updated"
+    assert received_event.handler_name == "dynamic_rules"
+
+    assert applied_event.event_type == "dynamic_rule_applied"
+    assert applied_event.handler_name == "dynamic_rules"
+
+
+async def test_update_rules_emergency_mode_sends_emergency_event_with_handler_name(
+    config: SecurityConfig,
+    mock_agent_handler: AsyncMock,
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+    manager.agent_handler = mock_agent_handler
+
+    rules = DynamicRules(
+        rule_id="wire-test-emergency-rule",
+        version=1,
+        timestamp=datetime.now(timezone.utc),
+        emergency_mode=True,
+        emergency_whitelist=["203.0.113.5"],
+    )
+    mock_agent_handler.get_dynamic_rules.return_value = rules
+
+    await manager.update_rules()
+
+    assert mock_agent_handler.send_event.call_count == 3
+    emergency_event = mock_agent_handler.send_event.call_args_list[1].args[0]
+
+    assert emergency_event.event_type == "emergency_mode_activated"
+    assert emergency_event.handler_name == "dynamic_rules"
+
+
 @pytest.mark.asyncio
 async def test_update_rules_apply_failure(
     config: SecurityConfig,
@@ -1953,6 +2009,7 @@ async def test_send_rule_applied_event_success(
     assert sent_event.metadata["ip_bans"] == len(sample_rules.ip_blacklist)
     assert sent_event.metadata["country_blocks"] == len(sample_rules.blocked_countries)
     assert sent_event.metadata["emergency_mode"] == sample_rules.emergency_mode
+    assert sent_event.handler_name == "dynamic_rules"
 
 
 @pytest.mark.asyncio
@@ -2009,6 +2066,7 @@ async def test_send_emergency_event_success(
     assert "[EMERGENCY MODE] activated" in sent_event.reason
     assert sent_event.metadata["whitelist_count"] == 2
     assert sent_event.metadata["whitelist"] == whitelist
+    assert sent_event.handler_name == "dynamic_rules"
 
 
 @pytest.mark.asyncio

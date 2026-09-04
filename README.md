@@ -95,7 +95,7 @@ Published under the [`@guardcore`](https://www.npmjs.com/org/guardcore) npm scop
 
 ### Rust
 
-Published on crates.io. **🚧 Placeholder crates — implementation in progress.**
+Published on crates.io. **🚧 Placeholder crates, implementation in progress.**
 
 | Package | Role | crates.io |
 |---|---|---|
@@ -109,16 +109,16 @@ Published on crates.io. **🚧 Placeholder crates — implementation in progress
 
 | Package | Role | PyPI |
 |---|---|---|
-| [guard-core-mcp](https://github.com/rennf93/guard-core-mcp) | MCP server — config validation, docs search, detection sandbox | [![PyPI](https://img.shields.io/pypi/v/guard-core-mcp)](https://pypi.org/project/guard-core-mcp/) |
+| [guard-core-mcp](https://github.com/rennf93/guard-core-mcp) | MCP server, config validation, docs search, detection sandbox | [![PyPI](https://img.shields.io/pypi/v/guard-core-mcp)](https://pypi.org/project/guard-core-mcp/) |
 
-An MCP server that answers questions about Guard Core from the version **installed in your project**, rather than from a model's memory of it. It validates a config against the real `SecurityConfig` model — catching silently-ignored typos like `redis_failopen` — looks up any field's type, default and description, searches the bundled docs, and runs a payload through the real detection engine to show whether it would be blocked and by which pattern.
+An MCP server that answers questions about Guard Core from the version **installed in your project**, rather than from a model's memory of it. It validates a config against the real `SecurityConfig` model, catching silently-ignored typos like `redis_failopen`, looks up any field's type, default and description, searches the bundled docs, and runs a payload through the real detection engine to show whether it would be blocked and by which pattern.
 
 ```bash
 uv add --dev guard-core-mcp
 claude mcp add guard-core -- uv run guard-core-mcp
 ```
 
-Install it into the same environment as Guard Core — it introspects what is actually installed there, so an isolated run (`uvx`) has nothing to read.
+Install it into the same environment as Guard Core, it introspects what is actually installed there, so an isolated run (`uvx`) has nothing to read.
 
 Adapter developers implement three protocols (`GuardRequest`, `GuardResponse`, and `GuardResponseFactory`) to bridge their framework into the security pipeline. Everything else (the 17-check catalogue, detection engine, Redis state, event telemetry) works out of the box.
 

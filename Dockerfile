@@ -6,7 +6,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     build-essential \
     libffi-dev \
-    curl
+    curl \
+    git
 
 WORKDIR /app
 
@@ -19,8 +20,10 @@ ENV PIP_NO_CACHE_DIR=false \
 RUN pip install uv
 
 COPY pyproject.toml uv.lock* README.md /app/
+COPY Makefile /app/Makefile
 
-RUN uv sync --extra dev --extra otel --extra logfire --frozen
+RUN uv sync --extra dev --extra otel --extra logfire
+RUN git config --system --add safe.directory /app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -28,5 +31,7 @@ COPY guard_core/ /app/guard_core/
 COPY tests/ /app/tests/
 COPY scripts/ /app/scripts/
 COPY docs/ /app/docs/
+
+RUN uv pip install --python .venv/bin/python --no-deps -e /app
 
 RUN mkdir -p /app/data/ipinfo

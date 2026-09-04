@@ -922,6 +922,33 @@ class _SecurityConfigFields(BaseModel):
         description="Security check names to mute from pipeline logging",
     )
 
+    log_sensitive_headers: frozenset[str] = Field(
+        default_factory=frozenset,
+        description=(
+            "Header names redacted from guard log lines, matched case-insensitively. "
+            "Merged with the hardcoded default set."
+        ),
+    )
+
+    log_sensitive_params: frozenset[str] = Field(
+        default_factory=frozenset,
+        description=(
+            "Query parameter names whose values are redacted from guard log lines "
+            "(the URL segment and the detection engine's per-parameter line), "
+            "matched case-insensitively. Merged with the hardcoded default set."
+        ),
+    )
+
+    log_sensitive_body_fields: frozenset[str] = Field(
+        default_factory=frozenset,
+        description=(
+            "Body field names whose values are redacted from the detection engine's "
+            "per-field line: JSON keys at any depth, x-www-form-urlencoded and "
+            "multipart text-part names, matched case-insensitively. Merged with the "
+            "hardcoded default set."
+        ),
+    )
+
     enable_otel: bool = Field(
         default=False,
         description="Enable OpenTelemetry span/metric export (requires [otel] extra)",
@@ -969,8 +996,10 @@ class _SecurityConfigFields(BaseModel):
     excluded_detection_headers: set[str] = Field(
         default_factory=set,
         description=(
-            "Headers to exclude from penetration detection scanning. "
-            "Merged with the hardcoded default exclusion set."
+            "Headers exempted from the categories known to false-positive on "
+            "their typical values (identity/proxy headers skip ssrf only); "
+            "every other detection category still scans them. Merged with "
+            "the hardcoded default exclusion set."
         ),
     )
     excluded_detection_params: set[str] = Field(

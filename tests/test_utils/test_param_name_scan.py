@@ -9,7 +9,7 @@ from pytest_mock import MockerFixture
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 from guard_core.models import SecurityConfig
 from guard_core.utils import (
-    _check_json_fields,
+    _check_embedded_json,
     _check_request_component,
     _check_value_enhanced,
     _scan_component_name,
@@ -18,7 +18,6 @@ from guard_core.utils import (
     _scan_json_value,
     _scan_multipart_body,
     _scan_query_params,
-    _try_check_json_value,
     detect_penetration_attempt,
 )
 from tests.conftest import MockGuardRequest
@@ -119,7 +118,7 @@ async def test_embedded_json_key_in_query_value_detected() -> None:
     )
     result = await detect_penetration_attempt(request, _CONFIG)
     assert result.is_threat is True
-    assert "JSON field name" in result.trigger_info
+    assert "JSON key" in result.trigger_info
 
 
 async def test_embedded_json_key_in_query_value_benign_not_detected() -> None:
@@ -214,7 +213,7 @@ async def test_scan_component_name_skips_embedded_json_parse(
     mocker: MockerFixture,
 ) -> None:
     spy = mocker.patch(
-        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+        "guard_core._utils.embedded_json_scan._check_embedded_json", return_value=None
     )
     await _scan_component_name(
         json.dumps({"a": "1"}),
@@ -232,7 +231,7 @@ async def test_check_request_component_value_scan_still_attempts_embedded_json_p
     mocker: MockerFixture,
 ) -> None:
     spy = mocker.patch(
-        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+        "guard_core._utils.embedded_json_scan._check_embedded_json", return_value=None
     )
     await _check_request_component(
         json.dumps({"a": "1"}),
@@ -250,7 +249,7 @@ async def test_check_value_enhanced_scan_embedded_json_false_skips_json_parse(
     mocker: MockerFixture,
 ) -> None:
     spy = mocker.patch(
-        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+        "guard_core._utils.embedded_json_scan._check_embedded_json", return_value=None
     )
     await _check_value_enhanced(
         json.dumps({"a": "1"}),
@@ -267,7 +266,7 @@ async def test_check_value_enhanced_scan_embedded_json_true_attempts_json_parse(
     mocker: MockerFixture,
 ) -> None:
     spy = mocker.patch(
-        "guard_core._utils.detection_scan._try_check_json_value", return_value=None
+        "guard_core._utils.embedded_json_scan._check_embedded_json", return_value=None
     )
     await _check_value_enhanced(
         json.dumps({"a": "1"}),
@@ -296,35 +295,33 @@ async def test_scan_component_name_json_shaped_name_still_detects_via_regex() ->
     assert threats[0]["category"] == "proto_pollution"
 
 
-async def test_embedded_json_key_categories_quirk_unaffected_by_opt() -> None:
+async def test_embedded_json_key_threat_categories_are_populated() -> None:
     request = MockGuardRequest(
         query_params={"filters": json.dumps({"__proto__[x]": "1"})}
     )
     result = await detect_penetration_attempt(request, _CONFIG)
     assert result.is_threat is True
-    assert result.threat_categories == []
-    assert result.threat_scores == {}
+    assert result.threat_categories == ["proto_pollution"]
+    assert result.threat_scores
 
 
-async def test_check_json_fields_enabled_categories_filters_name_scan() -> None:
-    detected, trigger = await _check_json_fields(
-        {"__proto__[x]": "1"},
+async def test_check_embedded_json_enabled_categories_filters_name_scan() -> None:
+    result = await _check_embedded_json(
+        json.dumps({"__proto__[x]": "1"}),
         "query_param:filters",
         "127.0.0.1",
         "corr-1",
         {"xss"},
+        frozenset(),
+        frozenset(),
+        False,
     )
-    assert detected is False
+    assert result is not None
+    assert result[0] is False
 
 
-async def test_embedded_json_scan_miss_still_falls_through_to_pattern_scan(
-    mocker: MockerFixture,
-) -> None:
-    mocker.patch(
-        "guard_core._utils.detection_scan._try_check_json_value",
-        return_value=(False, ""),
-    )
-    detected, trigger, threats = await _check_value_enhanced(
+async def test_embedded_json_scan_miss_still_falls_through_to_pattern_scan() -> None:
+    detected, trigger, threats, log_override = await _check_value_enhanced(
         "<script>alert(1)</script>",
         "query_param:filters",
         "127.0.0.1",
@@ -333,55 +330,58 @@ async def test_embedded_json_scan_miss_still_falls_through_to_pattern_scan(
     )
     assert detected is True
     assert threats
+    assert log_override is None
 
 
-async def test_check_json_fields_enabled_categories_none_detects_name() -> None:
-    detected, trigger = await _check_json_fields(
-        {"__proto__[x]": "1"},
+async def test_check_embedded_json_enabled_categories_none_detects_key() -> None:
+    result = await _check_embedded_json(
+        json.dumps({"__proto__[x]": "1"}),
         "query_param:filters",
         "127.0.0.1",
         "corr-1",
         None,
+        frozenset(),
+        frozenset(),
+        False,
     )
+    assert result is not None
+    detected, trigger, _threats, log_override = result
     assert detected is True
-    assert "JSON field name" in trigger
+    assert "JSON key" in trigger
+    assert log_override == '{"__proto__[x]":"1"}'
 
 
-async def test_check_json_fields_value_regex_threat_reports_pattern() -> None:
-    async def mock_detect(*_a: object, **kwargs: object) -> dict[str, object]:
-        if kwargs.get("content") == "suspicious_value":
-            return {
-                "is_threat": True,
-                "threats": [{"type": "regex", "pattern": "evil-pattern"}],
-            }
-        return {"is_threat": False, "threats": []}
+async def test_check_value_enhanced_is_threat_empty_threats_reports_generic() -> None:
+    async def mock_detect(*_a: object, **_kw: object) -> dict[str, object]:
+        return {"is_threat": True, "threats": []}
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        detected, trigger = await _check_json_fields(
-            {"field": "suspicious_value"},
-            "query_param:filters",
+        detected, trigger, threats, log_override = await _check_value_enhanced(
+            "plain body content",
+            "request_body",
             "127.0.0.1",
             "corr-1",
+            None,
         )
     assert detected is True
-    assert trigger == "JSON field 'field' matched pattern 'evil-pattern'"
+    assert trigger == "Threat detected"
+    assert threats == []
+    assert log_override is None
 
 
-async def test_check_json_fields_value_threat_empty_list_reports_generic() -> None:
-    async def mock_detect(*_a: object, **kwargs: object) -> dict[str, object]:
-        if kwargs.get("content") == "suspicious_value":
-            return {"is_threat": True, "threats": []}
-        return {"is_threat": False, "threats": []}
+async def test_check_value_enhanced_recursion_error_from_detect_propagates() -> None:
+    async def mock_detect(*_a: object, **_kw: object) -> dict[str, object]:
+        raise RecursionError("regex recursion budget exceeded")
 
     with patch.object(sus_patterns_handler, "detect", side_effect=mock_detect):
-        detected, trigger = await _check_json_fields(
-            {"field": "suspicious_value"},
-            "query_param:filters",
-            "127.0.0.1",
-            "corr-1",
-        )
-    assert detected is True
-    assert trigger == "JSON field 'field' contains threat"
+        with pytest.raises(RecursionError):
+            await _check_value_enhanced(
+                "plain body content",
+                "request_body",
+                "127.0.0.1",
+                "corr-1",
+                None,
+            )
 
 
 async def test_scan_query_params_excluded_name_skips_name_and_value() -> None:
@@ -437,9 +437,16 @@ def _nested_json_string(depth: int, leaf: str) -> str:
 _RECURSION_XSS_PAYLOAD = _nested_json_string(1500, "<script>alert(1)</script>")
 
 
-async def test_try_check_json_value_returns_none_on_recursion_error() -> None:
-    result = await _try_check_json_value(
-        _RECURSION_XSS_PAYLOAD, "query_param:v", "127.0.0.1", "corr-1", None
+async def test_check_embedded_json_returns_none_on_recursion_error() -> None:
+    result = await _check_embedded_json(
+        _RECURSION_XSS_PAYLOAD,
+        "query_param:v",
+        "127.0.0.1",
+        "corr-1",
+        None,
+        frozenset(),
+        frozenset(),
+        False,
     )
     assert result is None
 

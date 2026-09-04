@@ -50,7 +50,7 @@ _XML_CHARS = '<!ENTITYDOCTPESYM> "x'
 
 _FILE_INCLUSION_COMPILED = re.compile(
     r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-    r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)"
+    r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)"
     r"(?![a-zA-Z0-9])",
     re.IGNORECASE,
 )

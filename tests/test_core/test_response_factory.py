@@ -9,7 +9,6 @@ from guard_core.core.events.metrics import MetricsCollector
 from guard_core.core.responses.context import ResponseContext
 from guard_core.core.responses.factory import ErrorResponseFactory
 from guard_core.decorators.base import RouteConfig
-from guard_core.handlers.security_headers_handler import security_headers_manager
 from guard_core.models import SecurityConfig
 from tests.conftest import MockGuardRequest, MockGuardResponse, MockGuardResponseFactory
 
@@ -145,22 +144,17 @@ async def test_apply_modifier_logs_and_returns_unmodified_when_modifier_raises(
 
 
 async def test_apply_cors_headers_writes_each_header() -> None:
-    factory = _make_factory(security_headers={"enabled": True})
-    original_cors = security_headers_manager.cors_config
-    security_headers_manager.cors_config = {
-        "origins": ["https://example.com"],
-        "allow_credentials": False,
-        "allow_methods": ["GET"],
-        "allow_headers": ["X-Test"],
-    }
-    try:
-        resp = MockGuardResponse("ok", 200)
-        result = await factory.apply_cors_headers(resp, "https://example.com")
-        assert (
-            result.headers.get("Access-Control-Allow-Origin") == "https://example.com"
-        )
-    finally:
-        security_headers_manager.cors_config = original_cors
+    factory = _make_factory(
+        security_headers={"enabled": True},
+        enable_cors=True,
+        cors_allow_origins=["https://example.com"],
+        cors_allow_methods=["GET"],
+        cors_allow_headers=["X-Test"],
+    )
+    resp = MockGuardResponse("ok", 200)
+    result = await factory.apply_cors_headers(resp, "https://example.com")
+    assert result.headers.get("Access-Control-Allow-Origin") == "https://example.com"
+    assert result.headers.get("Access-Control-Allow-Headers") == "X-Test"
 
 
 async def test_process_response_basic() -> None:

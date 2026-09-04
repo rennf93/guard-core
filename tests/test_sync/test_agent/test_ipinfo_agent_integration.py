@@ -279,6 +279,9 @@ def test_check_country_access_whitelist_not_in_list(
     assert sent_event.reason == "Country CN not in allowed list"
     assert sent_event.metadata["country"] == "CN"
     assert sent_event.metadata["rule_type"] == "country_whitelist"
+    assert sent_event.rule_type == "country_whitelist"
+    assert sent_event.handler_name == "ipinfo"
+    assert sent_event.decorator_type is None
 
 
 def test_check_country_access_blacklist_blocked(
@@ -307,6 +310,8 @@ def test_check_country_access_blacklist_blocked(
     assert sent_event.reason == "Country RU is blocked"
     assert sent_event.metadata["country"] == "RU"
     assert sent_event.metadata["rule_type"] == "country_blacklist"
+    assert sent_event.rule_type == "country_blacklist"
+    assert sent_event.handler_name == "ipinfo"
 
 
 def test_check_country_access_allowed(

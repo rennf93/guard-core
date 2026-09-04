@@ -72,3 +72,16 @@ def test_independent_configs_have_independent_revisions() -> None:
 
     assert first.revision == 1
     assert second.revision == 0
+
+
+def test_revision_survives_a_class_level_private_attribute_leak() -> None:
+    leaked_descriptor = SecurityConfig._revision
+    SecurityConfig._revision = leaked_descriptor
+    try:
+        config = SecurityConfig()
+        config.rate_limit = 5
+        assert config.revision == 1
+        config.rate_limit_window = 30
+        assert config.revision == 2
+    finally:
+        delattr(SecurityConfig, "_revision")

@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from guard_core.handlers.behavior_handler import BehaviorRule
 
 
+_BEHAVIOR_HANDLER_NAME = "behavior"
+
+
 class BehaviorActionDispatchMixin:
     config: SecurityConfig
     logger: logging.Logger
@@ -92,8 +95,10 @@ class BehaviorActionDispatchMixin:
         self, rule: "BehaviorRule", client_ip: str, endpoint_id: str, details: str
     ) -> None:
         if self.agent_handler:
+            from guard_core.core.events.event_types import EVENT_BEHAVIOR_VIOLATION
+
             await self._send_behavior_event(
-                event_type="behavioral_violation",
+                event_type=EVENT_BEHAVIOR_VIOLATION,
                 ip_address=client_ip,
                 action_taken=rule.action
                 if not self.config.passive_mode
@@ -134,6 +139,8 @@ class BehaviorActionDispatchMixin:
                 ip_address=ip_address,
                 action_taken=action_taken,
                 reason=reason,
+                rule_type=kwargs.get("rule_type"),
+                handler_name=_BEHAVIOR_HANDLER_NAME,
                 metadata=kwargs,
             )
             await self.agent_handler.send_event(event)

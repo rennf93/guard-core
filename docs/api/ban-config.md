@@ -45,8 +45,8 @@ How the policy is applied
 
 Every regex hit increments `suspicious_request_counts[ip][category]`. After a hit, the suspicious-activity check evaluates the bans in this order:
 
-1. **Per-category ban** — for each category in the current detection result, look it up in `threat_ban_config`. If the IP's count for that category has reached or exceeded the entry's `threshold`, ban the IP with `entry.duration` seconds. The audit log carries `reason="penetration_attempt:<category>"`.
-2. **Flat-threshold fallback** — if no per-category ban fired, sum all category counts for this IP. If the total has reached `auto_ban_threshold`, ban the IP for `auto_ban_duration` seconds. The audit log carries `reason="penetration_attempt"`.
+1. **Per-category ban**, for each category in the current detection result, look it up in `threat_ban_config`. If the IP's count for that category has reached or exceeded the entry's `threshold`, ban the IP with `entry.duration` seconds. The audit log carries `reason="penetration_attempt:<category>"`.
+2. **Flat-threshold fallback**, if no per-category ban fired, sum all category counts for this IP. If the total has reached `auto_ban_threshold`, ban the IP for `auto_ban_duration` seconds. The audit log carries `reason="penetration_attempt"`.
 
 If neither threshold is met, the request is rejected (status 400) but the IP is not banned.
 

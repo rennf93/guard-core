@@ -229,3 +229,17 @@ def test_reset_global_state_replaces_module_singleton() -> None:
 
     assert ipban_handler.ip_ban_manager is not original
     assert isinstance(ipban_handler.ip_ban_manager, IPBanManager)
+
+
+def test_reset_global_state_clears_a_populated_singleton() -> None:
+    from guard_core.sync.handlers import ipban_handler
+
+    manager = IPBanManager()
+    manager.banned_ips["203.0.113.250"] = True
+    manager.banned_networks = [(ipaddress.ip_network("203.0.113.0/24"), 0.0)]
+
+    reset_global_state()
+
+    assert ipban_handler.ip_ban_manager is manager
+    assert "203.0.113.250" not in manager.banned_ips
+    assert manager.banned_networks == []

@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from guard_core.core.checks.base import SecurityCheck
-from guard_core.core.checks.helpers import route_config_applies
+from guard_core.core.checks.helpers import (
+    emit_access_denied_event,
+    route_config_applies,
+)
 from guard_core.core.events.event_types import EVENT_DECORATOR_VIOLATION
 from guard_core.decorators.base import RouteConfig
 from guard_core.models import SecurityConfig
@@ -68,15 +71,17 @@ class TimeWindowCheck(SecurityCheck):
                 check_name=self.check_name,
                 muted_check_logs=self.config.muted_check_logs,
                 on_block=self.config.on_block,
+                sensitive_headers=self.config.log_sensitive_headers,
+                sensitive_params=self.config.log_sensitive_params,
+                sensitive_body_fields=self.config.log_sensitive_body_fields,
             )
-            await self.middleware.event_bus.send_middleware_event(
+            await emit_access_denied_event(
+                self.middleware,
+                request,
                 event_type=EVENT_DECORATOR_VIOLATION,
-                request=request,
-                action_taken="request_blocked"
-                if not self.config.passive_mode
-                else "logged_only",
                 reason="Access outside allowed time window",
                 decorator_type="advanced",
+                passive_mode=self.config.passive_mode,
                 violation_type="time_restriction",
             )
             if not self.config.passive_mode:

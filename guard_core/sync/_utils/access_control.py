@@ -36,6 +36,13 @@ def _has_country_rules(config: Any) -> bool:
     return bool(config.blocked_countries or config.whitelist_countries)
 
 
+def _is_loopback(ip: str) -> bool:
+    try:
+        return ip_address(ip).is_loopback
+    except ValueError:
+        return False
+
+
 def _log_country_check_result(
     ip: str, country: str | None, result_type: str, config: Any
 ) -> None:
@@ -46,6 +53,8 @@ def _log_country_check_result(
         )
     elif result_type == "no_geolocation":
         logger.debug(f"IP not geolocated {ip} - IP geolocation failed")
+    elif result_type == "loopback_exempt":
+        logger.debug(f"Loopback IP exempt from country allowlist check {ip}")
     elif result_type == "blocked":
         level = config.log_suspicious_level
         if level is None:
@@ -92,6 +101,10 @@ def _resolve_country_verdict(
 ) -> tuple[bool, str | None]:
     if not _has_country_rules(config):
         _log_country_check_result(ip, None, "no_rules", config)
+        return False, None
+
+    if _is_loopback(ip):
+        _log_country_check_result(ip, None, "loopback_exempt", config)
         return False, None
 
     if not geo_ip_handler.is_initialized:
@@ -247,6 +260,8 @@ def check_ip_access(
             list_result = _check_ip_lists_detail(ip_addr, ip, config)
             if list_result is not None:
                 return list_result
+            if _ip_in_list(ip_addr, ip, config.whitelist):
+                skip_countries = True
 
         if not skip_countries:
             country_result = _check_blocked_countries_detail(ip, config, geo_ip_handler)

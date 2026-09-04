@@ -8,6 +8,7 @@ import pickle as pickle
 import re
 import sys as sys
 import time
+import warnings
 from collections.abc import Callable as Callable
 from collections.abc import Iterator as Iterator
 from datetime import datetime as datetime
@@ -324,6 +325,25 @@ from guard_core.sync.handlers._suspatterns_views import _SusPatternsViewsMixin
 
 logger = logging.getLogger("guard_core.sync.handlers.suspatterns")
 
+_LEGACY_DETECTION_WARNING = (
+    "Detection is running without a SecurityConfig (legacy mode): pass a "
+    "SecurityConfig so the preprocessor and the configured pattern set "
+    "apply; running unconfigured is deprecated and will be removed in a "
+    "future major release."
+)
+
+_legacy_detection_warned = False
+
+
+def _warn_if_legacy_detection(compiler: PatternCompiler | None) -> None:
+    global _legacy_detection_warned
+    if compiler is not None or _legacy_detection_warned:
+        return
+    _legacy_detection_warned = True
+    warnings.warn(_LEGACY_DETECTION_WARNING, DeprecationWarning, stacklevel=3)
+    logger.warning(_LEGACY_DETECTION_WARNING)
+
+
 __all__ = [
     "ALL_DETECTION_CATEGORIES",
     "ALWAYS_SCAN_HEADER_PATTERNS",
@@ -598,6 +618,31 @@ __all__ = [
 ]
 
 
+SEMANTIC_ATTACK_TYPE_TO_CATEGORY: dict[str, str] = {
+    "xss": "xss",
+    "sql": "sqli",
+    "command": "cmd_injection",
+    "path": "path_traversal",
+    "template": "template",
+    "suspicious": "custom",
+}
+
+
+def _collect_threat_categories(threats: list[dict[str, Any]]) -> list[str]:
+    from guard_core.sync._utils.detection_result_builders import _threat_category
+
+    categories: list[str] = []
+    for threat in threats:
+        category = _threat_category(threat)
+        if category is None:
+            continue
+        if threat.get("type") == "semantic":
+            category = SEMANTIC_ATTACK_TYPE_TO_CATEGORY.get(category, category)
+        if category not in categories:
+            categories.append(category)
+    return categories
+
+
 class SusPatternsManager(_SusPatternsViewsMixin):
     _instance = None
     _config = None
@@ -698,10 +743,13 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         context: str = "unknown",
         correlation_id: str | None = None,
         enabled_categories: set[str] | None = None,
+        *,
+        content_preview: str | None = None,
     ) -> dict[str, Any]:
         original_content = content
         execution_start = time.monotonic()
         state = self._detection_state
+        _warn_if_legacy_detection(state.compiler)
 
         (
             processed_content,
@@ -809,6 +857,7 @@ class SusPatternsManager(_SusPatternsViewsMixin):
                 total_execution_time,
                 correlation_id,
                 detection_method,
+                content_preview=content_preview,
             )
 
         return {
@@ -838,7 +887,9 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         execution_time: float,
         correlation_id: str | None,
         detection_method: str | None = None,
+        content_preview: str | None = None,
     ) -> None:
+        from guard_core.sync._utils.detection_scan import _redact_pattern_source
         from guard_core.sync.core.events.event_types import EVENT_PATTERN_DETECTED
 
         if detection_method is None:
@@ -850,16 +901,24 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         elif semantic_threats:
             pattern_info = f"semantic:{semantic_threats[0]['attack_type']}"
 
+        preview_source = content_preview if content_preview is not None else content
+        capped_preview = (
+            preview_source[:100] if len(preview_source) > 100 else preview_source
+        )
+
+        threat_categories = _collect_threat_categories(threats)
+
+        pattern_matched = _redact_pattern_source(pattern_info)
+
         self._send_pattern_event(
             event_type=EVENT_PATTERN_DETECTED,
             ip_address=ip_address,
             action_taken="threat_detected",
             reason=f"Threat detected in {context}",
-            pattern=pattern_info,
+            pattern_matched=pattern_matched,
+            pattern=pattern_matched,
             context=context,
-            content_preview=_sanitize_for_reporting(
-                content[:100] if len(content) > 100 else content
-            ),
+            content_preview=_sanitize_for_reporting(capped_preview),
             threat_score=threat_score,
             threats=len(threats),
             regex_threats=len(regex_threats),
@@ -868,6 +927,8 @@ class SusPatternsManager(_SusPatternsViewsMixin):
             detection_method=detection_method,
             execution_time_ms=int(execution_time * 1000),
             correlation_id=correlation_id,
+            threat_categories=threat_categories,
+            category=threat_categories[0] if threat_categories else None,
         )
 
     def detect_pattern_match(
@@ -877,13 +938,15 @@ class SusPatternsManager(_SusPatternsViewsMixin):
         context: str = "unknown",
         correlation_id: str | None = None,
     ) -> tuple[bool, str | None]:
+        from guard_core.sync._utils.detection_scan import _redact_pattern_source
+
         result = self.detect(content, ip_address, context, correlation_id)
 
         if result["is_threat"]:
             if result["threats"]:
                 threat = result["threats"][0]
                 if threat["type"] == "regex":
-                    return True, threat["pattern"]
+                    return True, _redact_pattern_source(threat["pattern"])
                 elif threat["type"] == "semantic":
                     return True, f"semantic:{threat.get('attack_type', 'suspicious')}"
             return True, "unknown"

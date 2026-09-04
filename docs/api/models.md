@@ -171,14 +171,19 @@ class SecurityConfig(BaseModel):
 | `validate_muted_check_logs` | `muted_check_logs` | Rejects unknown values (must be a subset of `CHECK_NAME_VALUES`). Returns `frozenset[str]`. |
 | `validate_enabled_detection_categories` | `enabled_detection_categories` | Rejects unknown labels (must be a subset of `ALL_DETECTION_CATEGORIES`). Returns `frozenset[str]`. |
 | `validate_threat_ban_config` | `threat_ban_config` | Rejects unknown category keys. Coerces raw dict values to `ThreatBanConfig`. Returns `MappingProxyType[str, ThreatBanConfig]`. |
+| `validate_log_sensitive_headers` | `log_sensitive_headers` | Rejects a bare `str`/`bytes` value (previously iterated character by character and silently redacted nothing). Returns `frozenset[str]`. |
+| `validate_log_sensitive_params` | `log_sensitive_params` | Rejects a bare `str`/`bytes` value. Returns `frozenset[str]`. |
+| `validate_log_sensitive_body_fields` | `log_sensitive_body_fields` | Rejects a bare `str`/`bytes` value. Returns `frozenset[str]`. |
+
+Reassigning a field after construction, or overwriting one via `model_copy(update=...)`, re-runs the same coercion and validation that ran at construction. This now also covers every collection-typed field, including thirteen newly covered in 4.0.0: `exclude_paths`, `global_behavior_rules`, `custom_error_responses`, `security_headers`, `cors_allow_origins`, `cors_allow_methods`, `cors_allow_headers`, `cors_expose_headers`, `agent_sensitive_headers`, `otel_resource_attributes`, `excluded_detection_headers`, `excluded_detection_params`, and `excluded_detection_body_fields`.
 
 ### Detection Exclusion Fields
 
-These fields opt specific request components out of penetration detection. Headers, params, and body-field exclusion sets are merged with the hardcoded default header list (`host`, `user-agent`, `sec-fetch-*`, etc.). `enabled_detection_categories` narrows the scan to a subset of the 18 known threat categories.
+These fields opt specific request components out of penetration detection. The header exclusion set is merged with the hardcoded default header list: browser boilerplate (`host`, `user-agent`, `accept`, `sec-fetch-*`, `sec-ch-ua*`, and similar) plus the proxy identity headers whose values are addresses or hostnames set by infrastructure (`forwarded`, `x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `x-client-ip`, `x-cluster-client-ip`, `cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, `x-envoy-external-address`). Excluded headers still receive the always-on command-injection check. `enabled_detection_categories` narrows the scan to a subset of the 18 known threat categories.
 
 | Field                              | Type        | Default                          | Description                                                                |
 |------------------------------------|-------------|----------------------------------|----------------------------------------------------------------------------|
-| `excluded_detection_headers`       | `set[str]`  | `set()`                          | Header names skipped by detection. Merged with the hardcoded default list. |
+| `excluded_detection_headers`       | `set[str]`  | `set()`                          | Headers exempted only from the categories known to false-positive on their typical values: identity and proxy headers such as `X-Forwarded-For`, `X-Real-IP`, `Host`, `Origin` and `Via` skip `ssrf` only, and every other category (sqli, xss, cmd_injection, template, Log4Shell) still scans them. A name outside the built-in identity set inherits the same rule when its value looks like an address chain, otherwise it gets no exclusion at all. Merged with the hardcoded default list. |
 | `excluded_detection_params`        | `set[str]`  | `set()`                          | Query parameter names skipped by detection.                                |
 | `excluded_detection_body_fields`   | `set[str]`  | `set()`                          | Top-level JSON body keys skipped by detection.                             |
 | `enabled_detection_categories`     | `frozenset[str]`  | `frozenset(ALL_DETECTION_CATEGORIES)`  | Categories scanned for. Validator rejects unknown labels.                  |

@@ -15,6 +15,7 @@ def _make_request() -> MagicMock:
     request.client_host = "1.2.3.4"
     request.method = "GET"
     request.url_path = "/x"
+    request.url_full = "https://test/x"
     request.headers = {}
     return request
 

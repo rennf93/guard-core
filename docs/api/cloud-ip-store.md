@@ -8,7 +8,7 @@ keywords: cloud ip store, redis, in-memory, cloud manager, guard-core
 Cloud IP Store
 ==============
 
-`CloudIpStoreProtocol` defines the pluggable backend for cached cloud-provider IP ranges. Guard-core ships two concrete implementations — `InMemoryCloudIpStore` and `RedisCloudIpStore` — and the active store can be swapped via `SecurityConfig.cloud_ip_store`.
+`CloudIpStoreProtocol` defines the pluggable backend for cached cloud-provider IP ranges. Guard-core ships two concrete implementations, `InMemoryCloudIpStore` and `RedisCloudIpStore`, and the active store can be swapped via `SecurityConfig.cloud_ip_store`.
 
 ___
 
@@ -102,7 +102,7 @@ config = SecurityConfig(
 
 Cloud-IP ranges land at Redis keys like `myapp:guard:cloud_ip_v2:AWS`. `RedisManager.set_key` already prepends `redis_prefix`, so the `key_prefix` default does not duplicate it.
 
-When `enable_redis=False` (or no Redis URL is reachable), the same path falls back to `InMemoryCloudIpStore` — fine for single-process deployments, lost on restart.
+When `enable_redis=False` (or no Redis URL is reachable), the same path falls back to `InMemoryCloudIpStore`, fine for single-process deployments, lost on restart.
 
 ### Custom prefix or implementation via callable
 
@@ -131,7 +131,7 @@ config = SecurityConfig(
 )
 ```
 
-The instance is wired straight into `cloud_handler.set_store(...)` after Redis bootstrap. Combined with `lazy_init=True` (the default), the first cloud-IP fetch happens in a background task — application startup does not block on it.
+The instance is wired straight into `cloud_handler.set_store(...)` after Redis bootstrap. Combined with `lazy_init=True` (the default), the first cloud-IP fetch happens in a background task, application startup does not block on it.
 
 ___
 

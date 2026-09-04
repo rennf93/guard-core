@@ -9,7 +9,7 @@ from guard_core.core.events.event_types import (
     EVENT_IP_BAN_FAILED,
     EVENT_PENETRATION_ATTEMPT,
 )
-from guard_core.decorators.base import RouteConfig
+from guard_core.decorators.base import BaseSecurityDecorator, RouteConfig
 from guard_core.detection_result import DetectionResult
 from guard_core.models import SecurityConfig
 from guard_core.protocols.request_protocol import GuardRequest
@@ -27,6 +27,127 @@ if TYPE_CHECKING:
 _MAX_TRACKED_SUSPICIOUS_IPS = 10_000
 _DETECTION_RESULT_STATE_ATTR = "_guard_detection_result_cache"
 _suspicious_counts_lock = threading.Lock()
+
+
+def get_guard_decorator(middleware: Any, request: GuardRequest) -> Any:
+    resolver = getattr(middleware, "route_resolver", None)
+    context = getattr(resolver, "context", None)
+    guard_decorator = getattr(context, "guard_decorator", None)
+    if not isinstance(guard_decorator, BaseSecurityDecorator):
+        guard_decorator = getattr(request.state, "guard_decorator", None)
+    return (
+        guard_decorator if isinstance(guard_decorator, BaseSecurityDecorator) else None
+    )
+
+
+async def emit_access_denied_event(
+    middleware: Any,
+    request: GuardRequest,
+    *,
+    event_type: str,
+    reason: str,
+    decorator_type: str,
+    passive_mode: bool,
+    **metadata: Any,
+) -> None:
+    guard_decorator = get_guard_decorator(middleware, request)
+    if guard_decorator is not None:
+        await guard_decorator.send_access_denied_event(
+            request, reason=reason, decorator_type=decorator_type, **metadata
+        )
+        return
+    await middleware.event_bus.send_middleware_event(
+        event_type=event_type,
+        request=request,
+        action_taken="request_blocked" if not passive_mode else "logged_only",
+        reason=reason,
+        decorator_type=decorator_type,
+        **metadata,
+    )
+
+
+async def emit_authentication_failed_event(
+    middleware: Any,
+    request: GuardRequest,
+    *,
+    event_type: str,
+    reason: str,
+    auth_type: str,
+    violation_type: str,
+    passive_mode: bool,
+) -> None:
+    guard_decorator = get_guard_decorator(middleware, request)
+    if guard_decorator is not None:
+        await guard_decorator.send_authentication_failed_event(
+            request, reason=reason, auth_type=auth_type, violation_type=violation_type
+        )
+        return
+    await middleware.event_bus.send_middleware_event(
+        event_type=event_type,
+        request=request,
+        action_taken="request_blocked" if not passive_mode else "logged_only",
+        reason=reason,
+        decorator_type="authentication",
+        violation_type=violation_type,
+        auth_type=auth_type,
+    )
+
+
+async def emit_rate_limit_event(
+    middleware: Any,
+    request: GuardRequest,
+    *,
+    event_type: str,
+    limit: int,
+    window: int,
+    reason: str,
+    passive_mode: bool,
+) -> None:
+    guard_decorator = get_guard_decorator(middleware, request)
+    if guard_decorator is not None:
+        await guard_decorator.send_rate_limit_event(request, limit, window)
+        return
+    await middleware.event_bus.send_middleware_event(
+        event_type=event_type,
+        request=request,
+        action_taken="request_blocked" if not passive_mode else "logged_only",
+        reason=reason,
+        decorator_type="rate_limiting",
+        violation_type="rate_limit",
+        rate_limit=limit,
+        window=window,
+    )
+
+
+async def emit_decorator_event(
+    middleware: Any,
+    request: GuardRequest,
+    *,
+    event_type: str,
+    action_taken: str,
+    reason: str,
+    decorator_type: str,
+    **metadata: Any,
+) -> None:
+    guard_decorator = get_guard_decorator(middleware, request)
+    if guard_decorator is not None:
+        await guard_decorator.send_decorator_event(
+            event_type=event_type,
+            request=request,
+            action_taken=action_taken,
+            reason=reason,
+            decorator_type=decorator_type,
+            **metadata,
+        )
+        return
+    await middleware.event_bus.send_middleware_event(
+        event_type=event_type,
+        request=request,
+        action_taken=action_taken,
+        reason=reason,
+        decorator_type=decorator_type,
+        **metadata,
+    )
 
 
 def route_config_applies(
@@ -149,12 +270,21 @@ def extract_credential(auth_header: str, auth_type: str) -> tuple[str | None, st
     return auth_header, ""
 
 
+def _normalize_allowed_referrer_domain(entry: str) -> str:
+    if "://" in entry:
+        return urlparse(entry).netloc.lower()
+    normalized = entry.lower()
+    slash_index = normalized.find("/")
+    return normalized[:slash_index] if slash_index != -1 else normalized
+
+
 def is_referrer_domain_allowed(referrer: str, allowed_domains: list[str]) -> bool:
     try:
         referrer_domain = urlparse(referrer).netloc.lower()
         for allowed_domain in allowed_domains:
-            if referrer_domain == allowed_domain.lower() or referrer_domain.endswith(
-                f".{allowed_domain.lower()}"
+            normalized_allowed = _normalize_allowed_referrer_domain(allowed_domain)
+            if referrer_domain == normalized_allowed or referrer_domain.endswith(
+                f".{normalized_allowed}"
             ):
                 return True
         return False
@@ -310,6 +440,9 @@ async def _try_threshold_ban(
         check_name=check_name,
         muted_check_logs=muted_check_logs,
         on_block=config.on_block,
+        sensitive_headers=config.log_sensitive_headers,
+        sensitive_params=config.log_sensitive_params,
+        sensitive_body_fields=config.log_sensitive_body_fields,
     )
     return True
 

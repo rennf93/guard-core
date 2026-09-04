@@ -54,6 +54,9 @@ def mock_config() -> Mock:
     config.fail_secure = True
     config.trusted_proxies = ()
     config.trusted_proxy_depth = 1
+    config.log_sensitive_params = frozenset()
+    config.log_sensitive_body_fields = frozenset()
+    config.log_sensitive_headers = frozenset()
     return config
 
 
@@ -176,6 +179,7 @@ async def test_handle_passthrough_no_client_warns_once(
     another_request.client_host = None
     another_request.headers = {}
     another_request.state = SimpleNamespace()
+    another_request.url_path = "/test"
 
     await bypass_handler.handle_passthrough(
         mock_request,

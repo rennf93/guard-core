@@ -12,7 +12,7 @@ def _mute_pydantic_plugin_instrumentation() -> None:
 
     SecurityEvent/SecurityMetric are validated per request and EventBatch
     re-validates every buffered event on each flush, so an instrumented host
-    app would otherwise emit a span per security event — hundreds of
+    app would otherwise emit a span per security event, hundreds of
     thousands a day under real traffic. plugin_settings is only read while
     building a model's validator, hence the forced rebuild.
 

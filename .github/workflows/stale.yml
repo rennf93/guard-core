@@ -33,7 +33,7 @@ jobs:
             stale-issue-message: |
               This issue has had no activity for 60 days and is being marked as stale.
 
-              If it's still relevant, please leave a comment — otherwise it will be closed in 14 days.
+              If it's still relevant, please leave a comment, otherwise it will be closed in 14 days.
 
               Things that help keep an issue moving:
               - A current reproduction (Python snippet or failing test)
@@ -45,7 +45,7 @@ jobs:
             close-issue-message: |
                 Closing this issue due to inactivity.
 
-                No worries — feel free to reopen with fresh context (reproduction, traceback, version info) if the problem still occurs on the latest release. Thanks for the original report!
+                No worries, feel free to reopen with fresh context (reproduction, traceback, version info) if the problem still occurs on the latest release. Thanks for the original report!
 
             stale-pr-message: |
               This pull request has had no activity for 30 days and is being marked as stale.
@@ -61,7 +61,7 @@ jobs:
             close-pr-message: |
               Closing this pull request due to inactivity.
 
-              Thanks for the contribution — please reopen when you're ready to pick it back up. The branch and review history are preserved, so you won't lose any work.
+              Thanks for the contribution, please reopen when you're ready to pick it back up. The branch and review history are preserved, so you won't lose any work.
 
             remove-stale-when-updated: true
             operations-per-run: 100

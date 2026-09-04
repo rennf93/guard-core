@@ -42,7 +42,12 @@ def build_block_payload(
     trigger_info: str,
     passive_mode: bool,
     status_code: int | None,
+    sensitive_params: frozenset[str] | None = None,
+    sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
 ) -> dict[str, Any]:
+    from guard_core.sync._utils.request_logging import redact_url_for_display
+
     cached_ip = getattr(request.state, "client_ip", None)
     if cached_ip:
         client_ip = cached_ip
@@ -57,7 +62,9 @@ def build_block_payload(
         "trigger_info": trigger_info,
         "passive_mode": passive_mode,
         "client_ip": client_ip,
-        "path": request.url_path,
+        "path": redact_url_for_display(
+            request.url_path, sensitive_params, sensitive_body_fields, sensitive_headers
+        ),
         "method": request.method,
         "status_code": status_code,
     }
@@ -71,10 +78,21 @@ def fire_block_hook(
     trigger_info: str,
     passive_mode: bool,
     status_code: int | None,
+    sensitive_params: frozenset[str] | None = None,
+    sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
 ) -> None:
     if hook is None or check_name in ON_BLOCK_EXCLUDED_CHECK_NAMES:
         return
     payload = build_block_payload(
-        request, check_name, reason, trigger_info, passive_mode, status_code
+        request,
+        check_name,
+        reason,
+        trigger_info,
+        passive_mode,
+        status_code,
+        sensitive_params,
+        sensitive_body_fields,
+        sensitive_headers,
     )
     invoke_block_hook(hook, request, payload)

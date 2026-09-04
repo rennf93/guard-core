@@ -100,7 +100,12 @@ class DynamicRuleSnapshotMixin:
             return None
 
     def _persist_last_known_rules(self, rules: DynamicRules) -> None:
-        payload = dump_last_known_rules_snapshot(rules)
+        try:
+            payload = dump_last_known_rules_snapshot(rules)
+        except Exception as e:
+            self.logger.error(f"Failed to build last-known dynamic rules snapshot: {e}")
+            return
+
         if self.redis_handler:
             try:
                 resolve_redis_value(

@@ -210,12 +210,13 @@ async def test_check_value_enhanced_fallback_scan_still_detects_sqli() -> None:
     sus_patterns_handler.configure(SecurityConfig())
 
     with patch.object(sus_patterns_handler, "detect", side_effect=_raising_detect):
-        detected, trigger, threats = await _check_value_enhanced(
+        detected, trigger, threats, log_override = await _check_value_enhanced(
             "' OR '1'='1", "request_body", "127.0.0.1", "corr-2"
         )
 
     assert detected is True
     assert trigger != ""
+    assert log_override is None
 
 
 async def test_check_value_enhanced_empty_threats_list() -> None:
@@ -233,7 +234,7 @@ async def test_check_value_enhanced_empty_threats_list() -> None:
             correlation_id="test-123",
         )
 
-        assert result == (True, "Threat detected", [])
+        assert result == (True, "Threat detected", [], None)
 
 
 async def test_detect_penetration_attempt_real_path() -> None:

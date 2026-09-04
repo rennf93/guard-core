@@ -21,14 +21,15 @@ from guard_core.utils import detect_penetration_attempt
 from tests.conftest import MockGuardRequest
 from tests.test_sus_patterns.test_detection_benchmark import (
     _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
-    _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
     _ENV_VAR_PREFIXED_SHELL_DASH_C_CI_CONFIG_KNOWN_FP_REASON,
-    _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
     _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
     _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-    _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-    _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    _SQLI_EXEC_PROSE_INSTRUCTION_KNOWN_FP_REASON,
+    _SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON,
+    _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+    _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON,
+    _SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON,
     _WHOLE_VALUE_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
     _WHOLE_VALUE_SHELL_INVOCATION_KNOWN_FP_REASON,
     BENIGN_CORPUS,
@@ -167,8 +168,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Note: the scanner hit /wp-admin/install.php on our staging host.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_bot_probed_install_php",
@@ -176,8 +176,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Intrusion alert: a bot probed /wp-admin/install.php from 203.0.113.9.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_waf_blocked_setup_config",
@@ -185,8 +184,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Our WAF blocked a request targeting /wp-admin/setup-config.php just now.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_exploit_xmlrpc",
@@ -195,8 +193,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "overnight.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_attacker_payload_wp_login",
@@ -205,8 +202,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "brute-force credentials.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_malicious_probe_phpinfo",
@@ -215,8 +211,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "last night.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_exploitation_attempts_install_php",
@@ -225,8 +220,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "this morning.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_botnet_scanning_setup_config",
@@ -235,8 +229,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "our fleet.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_attacker_git_config",
@@ -245,8 +238,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "public endpoint.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_threat_feed_var_www_env",
@@ -254,8 +246,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Threat feed flagged traffic hitting /var/www/.env from a Tor exit node.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_honeypot_etc_passwd",
@@ -263,8 +254,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "The honeypot recorded a request to /etc/passwd from an unknown scanner.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_scanner_hit_htpasswd",
@@ -272,8 +262,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Vulnerability scanner attempted a hit on /.htpasswd during the pentest.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_blocked_probe_install_php",
@@ -282,8 +271,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "was denied.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_repeated_attacks_xmlrpc",
@@ -291,8 +279,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Suspicious activity: repeated attacks on /xmlrpc.php from a botnet.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_pentest_exploitation_setup_config",
@@ -301,8 +288,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "succeeded.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_intrusion_detection_phpinfo",
@@ -311,8 +297,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "a scanner.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_credential_stuffing_wp_login",
@@ -320,8 +305,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "A malicious actor tried /wp-login.php with a credential-stuffing list.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_bad_actor_dotenv",
@@ -329,8 +313,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "We caught a bad actor probing /.env on the load balancer.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_attacker_pivot_install_php",
@@ -338,8 +321,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "The attacker pivoted and hit /wp-admin/install.php right after recon.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_soc_exploit_setup_config",
@@ -347,8 +329,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "SOC confirmed the exploit attempt against /wp-admin/setup-config.php.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_attack_tooling_xmlrpc",
@@ -356,8 +337,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Automated attack tooling scanned for /xmlrpc.php on every subdomain.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_scanner_git_config",
@@ -365,8 +345,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "The scanner also hit /.git/config while enumerating the site.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_hostile_probe_install_php",
@@ -374,8 +353,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "We saw a hostile probe against /wp-admin/install.php at 3am.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_malicious_crawler_phpinfo_wp_login",
@@ -383,8 +361,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Malicious crawler attempted /phpinfo.php then moved to /wp-login.php.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_intrusion_var_www_env",
@@ -392,8 +369,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "The intrusion attempt against /var/www/.env was blocked by the WAF.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_exploit_kit_setup_config",
@@ -401,8 +377,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "An exploit kit tried to reach /wp-admin/setup-config.php twice.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_attack_traffic_install_php",
@@ -410,8 +385,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Attack traffic hit /wp-admin/install.php from a known bad IP range.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_scanner_htpasswd_credentials",
@@ -419,8 +393,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "The scanner probed /.htpasswd looking for exposed credentials.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_bruteforce_bot_wp_login",
@@ -428,8 +401,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "A brute-force bot hit /wp-login.php more than 500 times overnight.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_recon_activity_xmlrpc",
@@ -437,8 +409,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "Recon activity included a hit on /xmlrpc.php before the real attack.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_spoofed_referer_install_php",
@@ -447,8 +418,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "spoofed referer.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "embedded_probe_prose_ids_flagged_setup_config",
@@ -457,8 +427,7 @@ _TARGETED_CASES: list[TargetedCase] = [
             "/wp-admin/setup-config.php.",
             "text/plain",
         ),
-        False,
-        _EMBEDDED_PROSE_PROBE_KNOWN_GAP_REASON,
+        True,
     ),
     TargetedCase(
         "cmd_absolute_path_shell_dash_c_query_param",
@@ -889,31 +858,32 @@ _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON = (
     "stays correctly benign in request_body, where the branch never fires"
 )
 
-_JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON = (
-    "a JSON body whose entire value for a field is itself a bare internal "
-    "source-file path (path: /opt/app/worker.py) is character-identical, "
-    "once the embedded-JSON field scanner isolates the field value and "
-    "re-scans it on its own under an unrestricted context, to the "
-    "sensitive_file bare-path shape that pattern exists to catch; an "
-    "ordinary file-watch or build-event payload cannot be told apart from a "
-    "sensitive-file probe by shape alone, and the same JSON body stays "
-    "correctly benign when scanned as a whole string instead of field-by-field"
-)
-
 _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
-    "cmd_injection_prose_semicolon_quoted_absolute_shell_ls": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        "raw_body",
-    ),
-    "cmd_injection_prose_semicolon_quoted_absolute_shell_whoami": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
-        "multipart_body",
-    ),
-    "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
-        _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
+    "template_fp_call_branch_helper_format": (
+        _SSTI_HASH_BRACE_CALL_SYNTAX_KNOWN_FP_REASON,
         "query_param",
     ),
-    "cmd_injection_prose_semicolon_quoted_absolute_shell_debug_flag": (
+    "sqli_url_path_products_order_by_bare_digit": (
+        _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "sqli_query_param_sort_order_by_bare_digit": (
+        _SQLI_ORDER_BY_BARE_DIGIT_KNOWN_FP_REASON,
+        "form_body",
+    ),
+    "sqli_header_config_timeout_glued_comment": (
+        _SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON,
+        "query_param",
+    ),
+    "sqli_header_cookie_pref_timeout_glued_comment": (
+        _SQLI_GLUED_COMMENT_ANNOTATION_KNOWN_FP_REASON,
+        "form_body",
+    ),
+    "sqli_header_note_execute_sp_cleanup_prose": (
+        _SQLI_EXEC_PROSE_INSTRUCTION_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "cmd_injection_prose_semicolon_quoted_env_prefixed_shell": (
         _SEMICOLON_QUOTED_SHELL_KNOWN_FP_REASON,
         "query_param",
     ),
@@ -945,10 +915,6 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
         _GLUED_KEBAB_IDENTIFIER_BACKTICK_KNOWN_FP_REASON,
         "query_param",
     ),
-    "sensitive_file_json_payload_ending_source_path": (
-        _JSON_FIELD_WHOLE_VALUE_SOURCE_PATH_KNOWN_FP_REASON,
-        "url_path",
-    ),
     "cmd_injection_shell_docs_var_expansion": (
         _AMBIGUOUS_DOLLAR_SUBSTITUTION_QUERY_URL_KNOWN_FP_REASON,
         "url_path",
@@ -969,45 +935,25 @@ _KNOWN_E2E_FALSE_POSITIVE_SOURCES: dict[str, tuple[str, str]] = {
         _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
         "query_param",
     ),
-    "file_inclusion_benign_docker_installer_sh_link": (
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        "json_body_nested",
-    ),
-    "file_inclusion_benign_cgi_search_link": (
-        _RFI_TARGET_EXTENSION_DOWNLOAD_LINK_KNOWN_FP_REASON,
-        "form_body",
-    ),
-    "template_fp_date_curly_brace": (
-        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
-        "raw_body",
-    ),
-    "template_fp_call_branch_format_x": (
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        "json_body_nested",
-    ),
-    "template_fp_call_branch_round_filter": (
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        "multipart_body",
-    ),
-    "template_fp_call_branch_helper_format": (
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
-        "query_param",
-    ),
-    "file_upload_prose_ticket_dangerous_filename_spaced_equals": (
-        _FILENAME_MENTIONED_IN_PROSE_WITH_SPACED_EQUALS_KNOWN_FP_REASON,
-        "form_body",
-    ),
     "cmd_injection_prose_semicolon_bare_shell_control": (
         _SEMICOLON_BARE_SHELL_CONTROL_KNOWN_FP_REASON,
         "header",
     ),
-    "template_fp_date_hash_brace": (
-        _SSTI_DATE_IN_BRACES_KNOWN_FP_REASON,
+    "ssrf_bare_private_ip_upstream_query_param_value": (
+        _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON,
         "url_path",
     ),
-    "template_fp_call_branch_map_arrow": (
-        _SSTI_CALL_OR_FILTER_SYNTAX_KNOWN_FP_REASON,
+    "ssrf_bare_private_ip_internal_ip_header_value": (
+        _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON,
         "url_path",
+    ),
+    "ssrf_bare_private_ip_host_query_param_value": (
+        _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON,
+        "raw_body",
+    ),
+    "ssrf_bare_private_ip_json_body_field_value": (
+        _SSRF_BARE_PRIVATE_IP_NO_URL_CONTEXT_KNOWN_FP_REASON,
+        "raw_body",
     ),
 }
 
@@ -1016,8 +962,8 @@ _KNOWN_E2E_FALSE_POSITIVES: dict[str, str] = {
     for case_id, (reason, mechanism) in _KNOWN_E2E_FALSE_POSITIVE_SOURCES.items()
 }
 
-BASELINE_MALICIOUS_DETECTED_TOTAL = 311
-_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 305
+BASELINE_MALICIOUS_DETECTED_TOTAL = 362
+_LEGACY_BASELINE_MALICIOUS_DETECTED_TOTAL = 362
 
 _REFERENCE_WORKLOAD_SECONDS = 0.1243
 

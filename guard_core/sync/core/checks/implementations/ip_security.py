@@ -5,6 +5,7 @@ from guard_core.sync.core.checks.base import SecurityCheck
 from guard_core.sync.core.checks.helpers import (
     check_country_access,
     check_route_ip_access,
+    emit_access_denied_event,
     escalate_identity_violation,
 )
 from guard_core.sync.core.events.event_types import (
@@ -43,6 +44,26 @@ def _resolve_is_whitelisted(
     return is_allowed and bool(config.whitelist) and not skip_ip_lists
 
 
+def _classify_route_ip_denial(
+    route_config: RouteConfig,
+    geo_ip_handler: Any,
+    client_ip: str,
+    country_result: bool | None,
+) -> tuple[str, str]:
+    if (
+        country_result is not False
+        or route_config.ip_whitelist
+        or route_config.ip_blacklist
+    ):
+        return "access_control", "ip_restriction"
+    if (
+        route_config.blocked_countries
+        and geo_ip_handler.get_country(client_ip) in route_config.blocked_countries
+    ):
+        return "block_countries", "country_restriction"
+    return "allow_countries", "country_restriction"
+
+
 class IpSecurityCheck(SecurityCheck):
     enforced_on_excluded_paths = True
 
@@ -78,6 +99,9 @@ class IpSecurityCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
         self.middleware.event_bus.send_middleware_event(
@@ -117,17 +141,26 @@ class IpSecurityCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
-        self.middleware.event_bus.send_middleware_event(
+        country_result = check_country_access(
+            client_ip, route_config, self.middleware.geo_ip_handler
+        )
+        decorator_type, violation_type = _classify_route_ip_denial(
+            route_config, self.middleware.geo_ip_handler, client_ip, country_result
+        )
+
+        emit_access_denied_event(
+            self.middleware,
+            request,
             event_type=EVENT_DECORATOR_VIOLATION,
-            request=request,
-            action_taken="request_blocked"
-            if not self.config.passive_mode
-            else "logged_only",
             reason=f"IP {client_ip} blocked",
-            decorator_type="access_control",
-            violation_type="ip_restriction",
+            decorator_type=decorator_type,
+            passive_mode=self.config.passive_mode,
+            violation_type=violation_type,
         )
 
         if not self.config.passive_mode:
@@ -200,6 +233,9 @@ class IpSecurityCheck(SecurityCheck):
             check_name=self.check_name,
             muted_check_logs=self.config.muted_check_logs,
             on_block=self.config.on_block,
+            sensitive_headers=self.config.log_sensitive_headers,
+            sensitive_params=self.config.log_sensitive_params,
+            sensitive_body_fields=self.config.log_sensitive_body_fields,
         )
 
         event_kwargs: dict[str, Any] = {}

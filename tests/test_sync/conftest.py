@@ -10,6 +10,9 @@ from typing import Any
 import pytest
 from pytest import TempPathFactory
 
+from guard_core.handlers.ratelimit_handler import (
+    rate_limit_handler as _async_rate_limit_handler,
+)
 from guard_core.models import SecurityConfig
 from guard_core.sync._utils import detection_scan as _detection_scan_module
 from guard_core.sync.core.events import logfire_handler as _logfire_handler_module
@@ -36,12 +39,14 @@ from guard_core.sync.handlers.suspatterns_handler import (
     sus_patterns_handler,
 )
 
+_suspatterns_module._legacy_detection_warned = True
+
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
 
-_DetectionSingletonSnapshot = tuple[Any, Any, Any, Any]
+_DetectionSingletonSnapshot = tuple[Any, Any, Any, Any, Any, Any, Any]
 _detection_singleton_snapshots: dict[int, _DetectionSingletonSnapshot] = {}
 
 
@@ -52,16 +57,30 @@ def _snapshot_detection_singleton() -> _DetectionSingletonSnapshot:
         SusPatternsManager._instance,
         SusPatternsManager._config,
         _suspatterns_module.sus_patterns_handler,
+        SusPatternsManager._sensitive_headers_union,
+        SusPatternsManager._sensitive_params_union,
+        SusPatternsManager._sensitive_body_fields_union,
     )
 
 
 def _restore_detection_singleton(snapshot: _DetectionSingletonSnapshot) -> None:
-    saved_state, saved_instance, saved_config, saved_global = snapshot
+    (
+        saved_state,
+        saved_instance,
+        saved_config,
+        saved_global,
+        saved_sensitive_headers_union,
+        saved_sensitive_params_union,
+        saved_sensitive_body_fields_union,
+    ) = snapshot
     handler = _suspatterns_module.sus_patterns_handler
     handler._detection_state = saved_state
     SusPatternsManager._instance = saved_instance
     SusPatternsManager._config = saved_config
     _suspatterns_module.sus_patterns_handler = saved_global
+    SusPatternsManager._sensitive_headers_union = saved_sensitive_headers_union
+    SusPatternsManager._sensitive_params_union = saved_sensitive_params_union
+    SusPatternsManager._sensitive_body_fields_union = saved_sensitive_body_fields_union
 
 
 def _restore_submodule_identity(module: Any) -> None:
@@ -288,6 +307,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     sus_patterns_handler.custom_patterns = set()
     sus_patterns_handler.compiled_custom_patterns = set()
     sus_patterns_handler._detection_state = _LEGACY_DETECTION_STATE
+    _suspatterns_module._legacy_detection_warned = True
 
     _reset_ip_ban_manager()
     _reset_cloud_handler()
@@ -385,17 +405,14 @@ def redis_cleanup() -> Generator[None, None]:
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter() -> Generator[None, None]:
+    rate_limit_handler._instance = None
+    _async_rate_limit_handler._instance = None
     config = SecurityConfig(enable_redis=False)
     rate_limit = rate_limit_handler(config)
     rate_limit.reset()
     yield
-
-
-@pytest.fixture
-def clean_rate_limiter() -> None:
-    from guard_core.sync.handlers.ratelimit_handler import RateLimitManager
-
-    RateLimitManager._instance = None
+    rate_limit_handler._instance = None
+    _async_rate_limit_handler._instance = None
 
 
 _GUARD_AGENT_FINDER_ATTR = "_guard_core_agent_import_finder"

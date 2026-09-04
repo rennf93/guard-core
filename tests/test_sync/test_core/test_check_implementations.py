@@ -503,6 +503,71 @@ def test_required_headers_passive_mode() -> None:
     assert result is None
 
 
+def test_required_headers_empty_configured_dict_is_noop() -> None:
+    mw = _make_middleware()
+    check = RequiredHeadersCheck(mw)
+    rc = RouteConfig()
+    rc.required_headers = {}
+    req = _make_request_with_route_config(rc)
+    result = check.check(req)
+    assert result is None
+
+
+def test_required_headers_matching_literal_value() -> None:
+    mw = _make_middleware()
+    check = RequiredHeadersCheck(mw)
+    rc = RouteConfig()
+    rc.required_headers = {"X-Custom": "expected-value"}
+    req = _make_request_with_route_config(rc, headers={"X-Custom": "expected-value"})
+    result = check.check(req)
+    assert result is None
+
+
+def test_required_headers_mismatched_literal_value_is_blocked() -> None:
+    mw = _make_middleware()
+    mw.create_error_response = MagicMock(
+        return_value=MockGuardResponse("mismatch", 400)
+    )
+    check = RequiredHeadersCheck(mw)
+    rc = RouteConfig()
+    rc.required_headers = {"X-Custom": "expected-value"}
+    req = _make_request_with_route_config(rc, headers={"X-Custom": "wrong-value"})
+    with patch(f"{_IMPL}.required_headers.log_activity"):
+        result = check.check(req)
+    assert result is not None
+    assert result.status_code == 400
+
+
+def test_required_headers_mismatch_reason_does_not_leak_values() -> None:
+    mw = _make_middleware()
+    mw.create_error_response = MagicMock(
+        return_value=MockGuardResponse("mismatch", 400)
+    )
+    check = RequiredHeadersCheck(mw)
+    rc = RouteConfig()
+    rc.required_headers = {"X-Custom": "super-secret-expected"}
+    req = _make_request_with_route_config(
+        rc, headers={"X-Custom": "super-secret-received"}
+    )
+    with patch(f"{_IMPL}.required_headers.log_activity"):
+        check.check(req)
+    reason = mw.create_error_response.call_args.kwargs["default_message"]
+    assert reason == "Header 'X-Custom' does not match the required value"
+    assert "super-secret-expected" not in reason
+    assert "super-secret-received" not in reason
+
+
+def test_required_headers_mismatch_passive_mode_does_not_block() -> None:
+    mw = _make_middleware(passive_mode=True)
+    check = RequiredHeadersCheck(mw)
+    rc = RouteConfig()
+    rc.required_headers = {"X-Custom": "expected-value"}
+    req = _make_request_with_route_config(rc, headers={"X-Custom": "wrong-value"})
+    with patch(f"{_IMPL}.required_headers.log_activity"):
+        result = check.check(req)
+    assert result is None
+
+
 def test_authentication_check_name() -> None:
     mw = _make_middleware()
     check = AuthenticationCheck(mw)

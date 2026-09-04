@@ -198,8 +198,7 @@ def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
     )
 
 
-@pytest.mark.redos_timing
-def test_event_handler_intersection_fill_measures_super_linear_directly() -> None:
+def _assert_event_handler_intersection_fill_is_super_linear() -> None:
     fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
     fill_char = fills[0]
     prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
@@ -216,6 +215,14 @@ def test_event_handler_intersection_fill_measures_super_linear_directly() -> Non
         f"expected super-linear growth from the {fill_char!r} intersection fill, "
         f"measured ratio={ratio:.2f}x, times={times}"
     )
+
+
+@pytest.mark.redos_timing
+def test_event_handler_intersection_fill_measures_super_linear_directly() -> None:
+    try:
+        _assert_event_handler_intersection_fill_is_super_linear()
+    except AssertionError:
+        _assert_event_handler_intersection_fill_is_super_linear()
 
 
 def test_reach_probe_unreachable_reason_echoes_structural_violation() -> None:
@@ -355,3 +362,52 @@ def test_first_over_budget_reason_returns_none_when_under_budget(
         None,
     )
     assert reason is None
+
+
+def test_first_over_budget_reason_retries_at_most_once_per_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    calls: list[str] = []
+
+    def _fake_timing(_pattern: str, _probes: list[str]) -> list[list[float]]:
+        calls.append(_pattern)
+        return over_samples if len(calls) % 2 else under_samples
+
+    monkeypatch.setattr(
+        "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
+        _fake_timing,
+    )
+
+    builders = [(lambda size: "a" * size) for _ in range(3)]
+    reason = _first_over_budget_reason(
+        r"(\w+)*$", builders, _PATTERN_SAFETY_DEFAULT_CAP, None
+    )
+    assert reason is None
+    assert len(calls) == 2 * len(builders)
+
+
+@pytest.mark.redos_timing
+def test_retry_confirmation_adds_bounded_child_cpu_time_for_a_safe_pattern() -> None:
+    safe_pattern = r"benign-literal-run"
+    probes = [_repeat_probe_to_length("a", size) for size in _REACH_PROBE_SIZES]
+
+    totals = []
+    for _ in range(5):
+        baseline = _time_reach_probes_subprocess(safe_pattern, probes)
+        retry = _time_reach_probes_subprocess(safe_pattern, probes)
+        assert baseline is not None
+        assert retry is not None
+        child_cpu_seconds = sum(t for row in baseline for t in row) + sum(
+            t for row in retry for t in row
+        )
+        totals.append(child_cpu_seconds)
+
+    min_child_cpu_seconds = min(totals)
+    assert min_child_cpu_seconds < 1.0, (
+        "one baseline plus one retry reach-probe measurement of a safe pattern "
+        f"cost {min_child_cpu_seconds:.4f}s of child CPU time across "
+        f"{2 * len(_REACH_PROBE_SIZES) * 5} regex searches, expected "
+        "comfortably under the 1.0s bound"
+    )

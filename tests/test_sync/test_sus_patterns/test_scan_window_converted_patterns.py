@@ -167,7 +167,7 @@ def test_scan_window_registry_pairs_are_compiled_patterns() -> None:
         (
             (
                 r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-                r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)"
+                r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)"
                 r"(?![a-zA-Z0-9])"
             ),
             "=http://evil.com/shell.php",
@@ -213,7 +213,7 @@ def test_bounded_scan_matches_raw_scan_verdict(
 def test_file_inclusion_trailing_lookahead_rejects_extra_alnum_suffix() -> None:
     source = (
         r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)"
         r"(?![a-zA-Z0-9])"
     )
     compiled = re.compile(source, re.IGNORECASE)

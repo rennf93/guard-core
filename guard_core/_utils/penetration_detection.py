@@ -16,6 +16,9 @@ from guard_core._utils.detection_config import (
     _resolve_max_scan_chars,
     _resolve_max_scan_values,
     _resolve_scan_body,
+    _resolve_sensitive_log_body_fields,
+    _resolve_sensitive_log_headers,
+    _resolve_sensitive_log_params,
 )
 from guard_core._utils.detection_result_builders import (
     _build_detection_hit,
@@ -30,6 +33,7 @@ from guard_core._utils.ip_extraction import (
     _canonicalize_ip,
     extract_client_ip,
 )
+from guard_core._utils.request_logging import redact_url_for_display
 from guard_core.detection_result import DetectionResult
 from guard_core.protocols.request_protocol import GuardRequest
 
@@ -46,6 +50,10 @@ async def _scan_request_surface(
     client_ip: str,
     correlation_id: str,
     log_level: str | None,
+    sensitive_headers: frozenset[str],
+    sensitive_params: frozenset[str],
+    sensitive_body_fields: frozenset[str] = frozenset(),
+    excluded_body_fields: frozenset[str] = frozenset(),
 ) -> DetectionResult | None:
     detected, trigger, threats = await _scan_query_params(
         request,
@@ -54,10 +62,17 @@ async def _scan_request_surface(
         client_ip,
         correlation_id,
         log_level,
+        sensitive_params,
+        sensitive_body_fields,
+        excluded_body_fields,
+        sensitive_headers,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
 
+    redacted_url_path = redact_url_for_display(
+        request.url_path, sensitive_params, sensitive_body_fields, sensitive_headers
+    )
     detected, trigger, threats = await _check_request_component(
         request.url_path,
         "url_path",
@@ -66,6 +81,10 @@ async def _scan_request_surface(
         correlation_id,
         enabled_categories,
         log_level,
+        content_preview=redacted_url_path,
+        sensitive_body_fields=sensitive_body_fields,
+        excluded_body_fields=excluded_body_fields,
+        json_redact_all=False,
     )
     if detected:
         return _build_detection_hit(f"URL path: {trigger}", threats)
@@ -77,6 +96,10 @@ async def _scan_request_surface(
         client_ip,
         correlation_id,
         log_level,
+        sensitive_headers,
+        sensitive_body_fields,
+        excluded_body_fields,
+        sensitive_params,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
@@ -93,6 +116,8 @@ async def _scan_body_surface(
     client_ip: str,
     correlation_id: str,
     log_level: str | None,
+    sensitive_body_fields: frozenset[str],
+    sensitive_params: frozenset[str] = frozenset(),
 ) -> DetectionResult:
     if not _resolve_scan_body(config, route_config):
         return _build_detection_miss()
@@ -112,6 +137,8 @@ async def _scan_body_surface(
         client_ip,
         correlation_id,
         log_level,
+        sensitive_body_fields,
+        sensitive_params,
     )
     if detected:
         return _build_detection_hit(trigger, threats)
@@ -155,6 +182,9 @@ async def detect_penetration_attempt(
     enabled_categories = _resolve_enabled_categories(config, route_config)
     excluded_headers = _resolve_excluded_headers(config, route_config)
     log_level = _resolve_log_level(config)
+    sensitive_headers = _resolve_sensitive_log_headers(config)
+    sensitive_params = _resolve_sensitive_log_params(config)
+    sensitive_body_fields = _resolve_sensitive_log_body_fields(config)
     max_scan_values = _resolve_max_scan_values(config)
     max_json_depth = _resolve_max_json_depth(config)
     max_scan_chars = _resolve_max_scan_chars(config)
@@ -168,6 +198,10 @@ async def detect_penetration_attempt(
             client_ip,
             correlation_id,
             log_level,
+            sensitive_headers,
+            sensitive_params,
+            sensitive_body_fields,
+            frozenset(excluded_body_fields),
         )
         if surface_hit is not None:
             return surface_hit
@@ -181,4 +215,6 @@ async def detect_penetration_attempt(
             client_ip,
             correlation_id,
             log_level,
+            sensitive_body_fields,
+            sensitive_params,
         )

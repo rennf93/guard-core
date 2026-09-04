@@ -1,6 +1,6 @@
 [project]
 name = "guard-core"
-version = "3.17.0"
+version = "4.0.0"
 description = "Framework-agnostic security engine for the Guard ecosystem."
 authors = [
     {name = "Renzo Franceschini", email = "rennf93@users.noreply.github.com"}
@@ -107,7 +107,7 @@ allow-direct-references = true
 
 [tool.ruff]
 target-version = "py310"
-exclude = ["vulture_whitelist.py", ".venv", "CLAUDE.md"]
+exclude = ["vulture_whitelist.py", ".venv", "CLAUDE.md", "tests/live_smoke/stack/app"]
 
 [tool.ruff.lint]
 select = [
@@ -146,7 +146,12 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
-exclude = ["vulture_whitelist.py", ".venv", "\\.unasync_check_tmp_"]
+exclude = [
+    "vulture_whitelist.py",
+    ".venv",
+    "\\.unasync_check_tmp_",
+    "tests/live_smoke/stack/app",
+]
 
 [[tool.mypy.overrides]]
 module = "redis.*"
@@ -172,6 +177,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "logfire"
 follow_imports = "skip"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "radon.*"
 ignore_missing_imports = true
 
 [tool.pymarkdown.system]
@@ -218,7 +227,7 @@ enabled = false
 
 [tool.vulture]
 paths = ["guard_core", "tests", "vulture_whitelist.py"]
-exclude = ["**/conftest.py", ".venv"]
+exclude = ["**/conftest.py", ".venv", "tests/live_smoke/stack/app"]
 min_confidence = 100
 ignore_decorators = [
     "@app.route",

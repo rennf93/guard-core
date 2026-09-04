@@ -1,5 +1,5 @@
 import logging
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -98,6 +98,30 @@ async def test_extract_client_ip_with_untrusted_proxy() -> None:
 
     ip = await extract_client_ip(request, config)
     assert ip == "127.0.0.1"
+
+
+async def test_extract_client_ip_untrusted_proxy_spoof_event_sets_handler_name() -> (
+    None
+):
+    config = SecurityConfig(trusted_proxies=["10.0.0.1"])
+    mock_agent = AsyncMock()
+
+    request = MockGuardRequest(
+        path="/",
+        method="GET",
+        headers={"X-Forwarded-For": "1.2.3.4"},
+        client_host="203.0.113.9",
+    )
+
+    ip = await extract_client_ip(request, config, mock_agent)
+
+    assert ip == "203.0.113.9"
+    mock_agent.send_event.assert_called_once()
+    sent_event = mock_agent.send_event.call_args[0][0]
+    assert sent_event.event_type == "suspicious_request"
+    assert sent_event.handler_name == "ip_extraction"
+    assert sent_event.decorator_type is None
+    assert sent_event.rule_type is None
 
 
 async def test_extract_client_ip_error_handling(

@@ -44,7 +44,9 @@ class ErrorResponseFactory:
     ) -> GuardResponse:
         headers_config = self.context.config.security_headers
         if headers_config and headers_config.get("enabled", True):
-            security_headers = await security_headers_manager.get_headers(request_path)
+            security_headers = await security_headers_manager.get_headers(
+                request_path, config=self.context.config
+            )
             for header_name, header_value in security_headers.items():
                 response.headers[header_name] = header_value
 
@@ -55,7 +57,9 @@ class ErrorResponseFactory:
     ) -> GuardResponse:
         headers_config = self.context.config.security_headers
         if headers_config and headers_config.get("enabled", True):
-            cors_headers = await security_headers_manager.get_cors_headers(origin)
+            cors_headers = await security_headers_manager.get_cors_headers(
+                origin, config=self.context.config
+            )
             for header_name, header_value in cors_headers.items():
                 response.headers[header_name] = header_value
 

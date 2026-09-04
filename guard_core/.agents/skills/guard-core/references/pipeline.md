@@ -26,7 +26,7 @@ The `"unknown"` identity is not automatically blocked once inside the pipeline: 
 3. `https_enforcement` - redirect/reject non-HTTPS.
 4. `request_logging` - structured access logging.
 5. `request_size_content` - size and content-type gates.
-6. `required_headers` - presence checks.
+6. `required_headers` - presence and exact-value checks.
 7. `authentication` - auth gate.
 8. `referrer` - referrer policy.
 9. `custom_validators` - user-supplied sync/async validators.

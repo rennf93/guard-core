@@ -79,6 +79,22 @@ def test_configure_ignores_object_without_detection_fields(
     assert handler._compiler is None
 
 
+async def test_pipeline_initialized_singleton_never_warns(
+    fresh_legacy_singleton: SusPatternsManager,
+) -> None:
+    handler = fresh_legacy_singleton
+    sph._legacy_detection_warned = False
+
+    try:
+        config = SecurityConfig()
+        initializer = HandlerInitializer(config=config)
+        await initializer.initialize_redis_handlers()
+
+        await handler.detect("hello", "127.0.0.1", "test_pipeline_no_warning")
+    finally:
+        sph._legacy_detection_warned = True
+
+
 def test_configure_ignores_config_missing_new_detection_fields(
     fresh_legacy_singleton: SusPatternsManager,
 ) -> None:

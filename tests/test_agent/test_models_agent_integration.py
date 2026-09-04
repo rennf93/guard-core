@@ -253,7 +253,7 @@ def test_to_agent_config_forwards_dynamic_rule_interval() -> None:
 def test_to_agent_config_forwards_agent_status_interval() -> None:
     """`status_interval` was added to AgentConfig in guard-agent 2.6.0.
 
-    Asserted at the call-site contract level — to_agent_config() must pass
+    Asserted at the call-site contract level, to_agent_config() must pass
     status_interval as a kwarg to AgentConfig.
     """
     import guard_agent

@@ -2,6 +2,8 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from guard_core._utils.detection_scan import _redact_pattern_source
+
 from .monitor_types import PatternStats, PerformanceMetric
 
 
@@ -65,25 +67,43 @@ def detect_statistical_anomaly(
 def sanitize_anomaly_data(anomaly: dict[str, Any]) -> dict[str, Any]:
     safe_anomaly = anomaly.copy()
     if "pattern" in safe_anomaly:
-        pattern = str(safe_anomaly["pattern"])
+        pattern = _redact_pattern_source(str(safe_anomaly["pattern"]))
         safe_anomaly["pattern"] = pattern[:50] + "..." if len(pattern) > 50 else pattern
         safe_anomaly["pattern_hash"] = str(hash(pattern))[:8]
     return safe_anomaly
 
 
+def _anomaly_event_type(anomaly_type: str) -> str:
+    from guard_core.core.events.event_types import (
+        EVENT_PATTERN_ANOMALY_SLOW_EXECUTION,
+        EVENT_PATTERN_ANOMALY_STATISTICAL_ANOMALY,
+        EVENT_PATTERN_ANOMALY_TIMEOUT,
+    )
+
+    return {
+        "timeout": EVENT_PATTERN_ANOMALY_TIMEOUT,
+        "slow_execution": EVENT_PATTERN_ANOMALY_SLOW_EXECUTION,
+        "statistical_anomaly": EVENT_PATTERN_ANOMALY_STATISTICAL_ANOMALY,
+    }[anomaly_type]
+
+
 def build_anomaly_event_data(
     anomaly: dict[str, Any], correlation_id: str | None
 ) -> dict[str, Any]:
+    event_type = _anomaly_event_type(anomaly["type"])
+    safe_anomaly = anomaly.copy()
+    if "pattern" in safe_anomaly:
+        safe_anomaly["pattern"] = _redact_pattern_source(str(safe_anomaly["pattern"]))
     return {
         "timestamp": datetime.now(timezone.utc),
-        "event_type": f"pattern_anomaly_{anomaly['type']}",
+        "event_type": event_type,
         "ip_address": "system",
         "action_taken": "anomaly_detected",
         "reason": f"Pattern performance anomaly: {anomaly['type']}",
         "metadata": {
             "component": "PerformanceMonitor",
             "correlation_id": correlation_id,
-            **anomaly,
+            **safe_anomaly,
         },
     }
 
@@ -93,9 +113,11 @@ def build_callback_error_event_data(
     safe_anomaly: dict[str, Any],
     correlation_id: str | None,
 ) -> dict[str, Any]:
+    from guard_core.core.events.event_types import EVENT_DETECTION_ENGINE_CALLBACK_ERROR
+
     return {
         "timestamp": datetime.now(timezone.utc),
-        "event_type": "detection_engine_callback_error",
+        "event_type": EVENT_DETECTION_ENGINE_CALLBACK_ERROR,
         "ip_address": "system",
         "action_taken": "logged",
         "reason": f"Anomaly callback failed: {str(error)}",

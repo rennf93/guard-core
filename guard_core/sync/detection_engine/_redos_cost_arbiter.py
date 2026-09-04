@@ -182,9 +182,11 @@ def _reach_probe_unreachable_reason(structural_violation: str | None) -> str:
 def _log_structural_disagreement(
     pattern: str, structural_violation: str, cap: int, reason: str
 ) -> None:
+    from guard_core.sync._utils.detection_scan import _redact_pattern_source
+
     logger.warning(
         "guard_core pattern safety: structural rule flagged %r (%s) but %s; accepting",
-        pattern,
+        _redact_pattern_source(pattern),
         structural_violation,
         reason,
     )
