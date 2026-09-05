@@ -272,7 +272,7 @@ def test_union_select_null_still_matches_real_sqli() -> None:
 
 
 def test_quote_comment_matches_authentication_bypass() -> None:
-    rx = _compiled("sqli", r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)")
+    rx = _compiled("sqli", r"'\s*(?:[\);]+\s*)?--|'[\);]*#(?:\n|\Z)")
     assert rx.search("admin'--")
     assert rx.search("1'--")
     assert rx.search("admin'#")
@@ -282,7 +282,7 @@ def test_quote_comment_matches_authentication_bypass() -> None:
 
 
 def test_quote_comment_ignores_quoted_fragments_and_prose() -> None:
-    rx = _compiled("sqli", r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)")
+    rx = _compiled("sqli", r"'\s*(?:[\);]+\s*)?--|'[\);]*#(?:\n|\Z)")
     assert not rx.search("document.querySelector('#app')")
     assert not rx.search("href='#top'")
     assert not rx.search("I'll select a few items from the catalog")

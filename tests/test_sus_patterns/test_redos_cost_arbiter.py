@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from guard_core.detection_engine._redos_ambiguous_tail import _atom_char_set
 from guard_core.detection_engine._redos_class_intersection import (
     _class_intersection_fills,
     _quantified_atom_sequence,
@@ -43,6 +44,7 @@ from guard_core.detection_engine._redos_probe_fill import (
     _repeat_probe_to_length,
 )
 from guard_core.detection_engine.compiler import PatternCompiler
+from guard_core.handlers._suspatterns_sources import _SQLI_COMMENT_TERMINATOR_RE
 
 _EVENT_HANDLER_PATTERN = (
     r"(?:<[^<>]*(?<!=)(?<!=\")(?<!=')[\s/]+on\w+\s*="
@@ -68,13 +70,13 @@ def _timing(
 
 def test_quantified_atom_sequence_marks_boundaries_between_groups() -> None:
     sequence = _quantified_atom_sequence(r"[^<>]*(x)[\s/]+")
-    assert sequence == ["[^<>]", None, None, "[\\s/]"]
+    assert sequence == [("[^<>]", True), None, None, ("[\\s/]", False)]
 
 
 def test_class_intersection_fills_finds_space_or_slash_for_event_handler() -> None:
     fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
     assert fills
-    assert all(c in " \t\n\r\x0b\x0c/" for c in fills)
+    assert any(c in " \t\n\r\x0b\x0c/" for c in fills)
 
 
 def test_class_intersection_fills_ignores_disjoint_adjacent_classes() -> None:
@@ -83,6 +85,17 @@ def test_class_intersection_fills_ignores_disjoint_adjacent_classes() -> None:
 
 def test_class_intersection_fills_skips_pairs_across_alternation_boundary() -> None:
     assert _class_intersection_fills(r"[a-z]+|[a-z]+") == []
+
+
+def test_class_intersection_fills_pairs_across_an_empty_capable_middle_atom() -> None:
+    fills = _class_intersection_fills(r"'\s*[\);]*\s*--")
+    assert fills == [sorted(_atom_char_set(r"\s"))[0]]
+
+
+def test_class_intersection_fills_does_not_pair_across_a_mandatory_middle_atom() -> (
+    None
+):
+    assert _class_intersection_fills(r"\s*[\);]+\s*") == []
 
 
 def test_repeat_probe_to_length_forces_non_alignment_on_exact_multiples() -> None:
@@ -275,10 +288,7 @@ def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
     )
 
 
-def _assert_event_handler_intersection_fill_is_super_linear() -> None:
-    fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
-    fill_char = fills[0]
-    prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
+def _fill_candidate_growth_ratio(fill_char: str, prefix: str) -> float | None:
     probes = [_fill_to_length(prefix, fill_char, size) for size in _REACH_PROBE_SIZES]
     compiled = re.compile(_EVENT_HANDLER_PATTERN, re.IGNORECASE)
     times = []
@@ -286,11 +296,21 @@ def _assert_event_handler_intersection_fill_is_super_linear() -> None:
         start = time.process_time()
         compiled.search(probe)
         times.append(time.process_time() - start)
-    assert times[2] > 0.0005, "measurement floor too close to noise to trust the ratio"
-    ratio = times[3] / times[2]
-    assert ratio >= 3.0, (
-        f"expected super-linear growth from the {fill_char!r} intersection fill, "
-        f"measured ratio={ratio:.2f}x, times={times}"
+    if times[2] <= 0.0005:
+        return None
+    return times[3] / times[2]
+
+
+def _assert_event_handler_intersection_fill_is_super_linear() -> None:
+    fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
+    prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
+    ratios = {
+        fill_char: _fill_candidate_growth_ratio(fill_char, prefix)
+        for fill_char in fills
+    }
+    assert any(ratio is not None and ratio >= 3.0 for ratio in ratios.values()), (
+        "expected at least one class-intersection fill to show super-linear growth, "
+        f"measured ratios={ratios}"
     )
 
 
@@ -789,4 +809,66 @@ def test_reference_scan_costs_the_same_as_a_near_budget_builtin_probe() -> None:
         f"{min_32:.4f}s against a child reference of {reference_seconds:.4f}s "
         f"(load factor {timing.load_factor:.2f}), ratio={ratio:.2f}x, "
         "expected the reference scan to track the probe within [0.5, 2.0]"
+    )
+
+
+@pytest.mark.redos_timing
+def test_sqli_comment_terminator_pairing_rejects_old_and_accepts_new() -> None:
+    compiler = PatternCompiler()
+    is_safe_old, reason_old = compiler.validate_pattern_safety(r"'\s*[\);]*\s*--")
+    assert is_safe_old is False, (
+        "expected the pre-fix sqli comment terminator alternative to be rejected "
+        "once cross-atom class-intersection pairing reaches it, got safe="
+        f"{is_safe_old} ({reason_old})"
+    )
+    is_safe_new, reason_new = compiler.validate_pattern_safety(
+        _SQLI_COMMENT_TERMINATOR_RE
+    )
+    assert is_safe_new is True, (
+        f"expected the linear rewrite to pass pattern safety validation, "
+        f"got safe={is_safe_new} ({reason_new})"
+    )
+
+
+def test_sqli_comment_terminator_rewrite_matches_the_previous_pattern() -> None:
+    _PREVIOUS_QUADRATIC_SQLI_COMMENT_TERMINATOR = r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)"
+    candidates = [
+        "'--",
+        "' --",
+        "');--",
+        "') ; --",
+        "';  --",
+        "'  )  --",
+        "' ) ) --",
+        "'x--",
+        "'-- ",
+        "' ; ; --",
+        "''--",
+        "' -",
+        "')-",
+    ]
+    for candidate in candidates:
+        old_no_match = (
+            re.search(_PREVIOUS_QUADRATIC_SQLI_COMMENT_TERMINATOR, candidate) is None
+        )
+        new_no_match = re.search(_SQLI_COMMENT_TERMINATOR_RE, candidate) is None
+        assert old_no_match == new_no_match, (
+            f"terminator rewrite diverged for {candidate!r}: "
+            f"old no-match={old_no_match}, new no-match={new_no_match}"
+        )
+
+
+@pytest.mark.redos_timing
+def test_sqli_comment_terminator_rewrite_is_linear_on_a_quote_then_spaces() -> None:
+    probe = "'" + " " * 31999
+    compiled = re.compile(_SQLI_COMMENT_TERMINATOR_RE)
+    times = []
+    for _ in range(5):
+        start = time.process_time()
+        compiled.search(probe)
+        times.append(time.process_time() - start)
+    min_time = min(times)
+    assert min_time < 0.01, (
+        "expected the linear rewrite to search a 32000-char quote-then-spaces probe "
+        f"in under 0.01s of min-of-5 CPU time, measured {min_time:.4f}s"
     )
