@@ -1,6 +1,8 @@
 import logging
 import re
 import time
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -205,10 +207,14 @@ def test_time_reach_probes_subprocess_returns_none_when_budget_is_exhausted() ->
     assert result is None
 
 
+def _repeat_builder(unit: str) -> Callable[[int], str]:
+    return lambda size: unit * size
+
+
 def test_time_reach_probes_subprocess_clips_timeout_to_remaining_budget() -> None:
     captured: dict[str, float] = {}
 
-    def _fake_run(*args: object, **kwargs: object) -> None:
+    def _fake_run(*args: object, **kwargs: Any) -> None:
         captured["timeout"] = kwargs["timeout"]
         raise OSError("stop before actually spawning")
 
@@ -438,7 +444,7 @@ def test_first_over_budget_reason_retries_at_most_once_per_builder(
         _fake_timing,
     )
 
-    builders = [(lambda size, ch=ch: ch * size) for ch in ("a", "b", "c")]
+    builders = [_repeat_builder(ch) for ch in ("a", "b", "c")]
     reason = _first_over_budget_reason(
         r"(\w+)*$", builders, _PATTERN_SAFETY_DEFAULT_CAP, None, _far_deadline()
     )

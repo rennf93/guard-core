@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -447,7 +447,7 @@ def test_refused_ban_falls_through_to_400_not_403(
     caplog.set_level(logging.WARNING)
     check.check(request)
 
-    check.middleware.create_error_response.assert_called_once_with(
+    cast(MagicMock, check.middleware.create_error_response).assert_called_once_with(
         status_code=400,
         default_message="Suspicious activity detected",
     )
@@ -482,7 +482,7 @@ def test_applied_ban_still_gives_403(
 
     check.check(request)
 
-    check.middleware.create_error_response.assert_called_once_with(
+    cast(MagicMock, check.middleware.create_error_response).assert_called_once_with(
         status_code=403,
         default_message="IP has been banned",
     )
