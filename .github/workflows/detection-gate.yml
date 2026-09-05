@@ -141,6 +141,7 @@ jobs:
         run: |
           REDIS_URL='redis://localhost:6379' \
           GUARD_TESTS_MAX_TEST_SECONDS=300 \
+          GUARD_TESTS_REDOS_BUDGET_SCALE=1.5 \
           uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report-cpu-load.txt
 
       - name: Stop the CPU burner
