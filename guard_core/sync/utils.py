@@ -109,6 +109,8 @@ from guard_core.sync._utils.request_logging import (
     _merge_sensitive_log_headers,
     _redact_sensitive_query_params,
     log_activity,
+    redact_blob_for_display,
+    redact_url_for_display,
 )
 
 __all__ = [
@@ -202,6 +204,8 @@ __all__ = [
     "is_ip_allowed",
     "is_user_agent_allowed",
     "log_activity",
+    "redact_blob_for_display",
+    "redact_url_for_display",
     "send_agent_event",
     "setup_custom_logging",
 ]

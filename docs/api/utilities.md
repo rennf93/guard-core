@@ -88,6 +88,78 @@ This is a unified logging function that handles regular requests, suspicious act
 
 ___
 
+Redaction Helpers
+-----------------
+
+Both functions apply Guard Core's grammar-based redaction (JSON, XML, key=value pairs, and URL userinfo, query, and fragment segments), replacing sensitive values with the literal `[REDACTED]`. Each takes `sensitive_params`, `sensitive_body_fields`, and `sensitive_headers` as optional `frozenset[str] | None` arguments that EXTEND the hardcoded default sets rather than replace them; passing `None` for an argument means the defaults for that set apply on their own.
+
+The hardcoded defaults are:
+
+- Header names (`_DEFAULT_SENSITIVE_LOG_HEADERS`): `authorization`, `proxy-authorization`, `cookie`, `x-api-key`
+- Field names (`_DEFAULT_SENSITIVE_LOG_FIELDS`): `access_token`, `refresh_token`, `api_key`, `apikey`, `token`, `password`, `secret`, `client_secret`, `signature`
+
+Both are intended for consumers that store or render guard event text (a block reason, an endpoint, a user agent, a pattern source, metadata context, or a content preview) and hold no `SecurityConfig` to drive the redaction that `log_activity` applies internally.
+
+redact_blob_for_display
+-----------------------
+
+```python
+def redact_blob_for_display(
+    text: str,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None,
+    sensitive_headers: frozenset[str] | None = None,
+) -> str:
+```
+
+Parameters:
+
+- `text`: The free-form blob to redact, such as a block reason, trigger info, user agent, or pattern source.
+- `sensitive_params`: Extra field names that extend the default field set above. `None` means defaults only.
+- `sensitive_body_fields`: Extra body field names that extend the default field set above. `None` means defaults only.
+- `sensitive_headers`: Extra header names that extend the default header set above. `None` means defaults only.
+
+Example usage:
+
+```python
+from guard_core.utils import redact_blob_for_display
+
+safe_reason = redact_blob_for_display(reason, None, None)
+logger.warning(f"blocked: {safe_reason}")
+```
+
+redact_url_for_display
+----------------------
+
+```python
+def redact_url_for_display(
+    url: str,
+    sensitive_params: frozenset[str] | None,
+    sensitive_body_fields: frozenset[str] | None = None,
+    sensitive_headers: frozenset[str] | None = None,
+) -> str:
+```
+
+Parameters:
+
+- `url`: The URL or path to redact. In addition to the query and fragment, a userinfo password (`user:password@host`) is masked.
+- `sensitive_params`: Extra field names that extend the default field set above. `None` means defaults only.
+- `sensitive_body_fields`: Extra body field names that extend the default field set above. `None` means defaults only.
+- `sensitive_headers`: Extra header names that extend the default header set above. `None` means defaults only.
+
+Example usage:
+
+```python
+from guard_core.utils import redact_url_for_display
+
+safe_endpoint = redact_url_for_display(request.url, None)
+logger.warning(f"blocked request to {safe_endpoint}")
+```
+
+**Limits.** Both helpers redact a `key=value`/`key: value` grammar (and JSON, XML, and URL structure built on top of it); they do not parse natural language. A sentence like `"the password provided was hunter2"` has no `key=value` shape for the grammar to match, so `hunter2` reaches the output unchanged. A key and its `=`/`:` separator split across a newline (`token\n=hunter2`) are two separate lines to the grammar, not one pair, so the value is not redacted. A key name written with non-ASCII homoglyphs (a Cyrillic `а` in place of the Latin `a`, for example) will not match any entry in the sensitive-name sets, which compare literal characters, so that pair's value is left in place too. A sensitive key with an empty value immediately followed by `<` (`token=<b>bold</b>`) treats the whole run up to the next hard separator as the value, with the angle brackets themselves never ending that run, so the redaction covers the entire run rather than stopping at the first `>` it contains. Callers should treat these helpers as a best-effort mask for the shapes they do cover, not a guarantee that no secret shape can reach the output.
+
+___
+
 Security Check Functions
 ------------------------
 
