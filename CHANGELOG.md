@@ -10,7 +10,7 @@ Unreleased
 
 ___
 
-v4.0.1 (2026-09-04)
+v4.0.1 (2026-09-05)
 -------------------
 
 Public redaction helpers, ReDoS validator latency, phantom ban, singleton resets, and path-level gates (v4.0.1)
@@ -19,21 +19,21 @@ Public redaction helpers, ReDoS validator latency, phantom ban, singleton resets
 
 ### Added
 
-- **`redact_blob_for_display` and `redact_url_for_display`** exported from `guard_core.utils` and `guard_core.sync.utils`: the grammar redaction guard-core applies to its own log lines, with `None` for the three name sets meaning the hardcoded defaults. Previously reachable only through the private `guard_core._utils.request_logging` module.
+- **`redact_blob_for_display` and `redact_url_for_display`** exported from `guard_core.utils` and `guard_core.sync.utils`: the redaction guard-core applies to its own log lines; `None` for a name set means the hardcoded default.
 
 ### Changed
 
-- **v4.0.0 changelog correction.** The "Proxy identity header false positives" line overstated the change; those headers skip only the `ssrf` category for IP-shaped values, every other category still scans them. Corrected in place below.
-- **Dev dependency `pytest` pinned below 9.** pytest 9.1.1 drops nested conftest fixtures when file arguments interleave a nested directory with its parent (pytest-dev/pytest#14971). Lifted when upstream ships the fix.
+- **v4.0.0 changelog correction.** Proxy identity headers skip only the `ssrf` category for IP-shaped values; every other category still scans them. Corrected in place below.
+- **Dev dependency `pytest` pinned below 9** until pytest-dev/pytest#14971 (nested conftest fixtures dropped when file arguments interleave a nested directory with its parent) ships fixed.
 - **The live-smoke driver clears only its own `smoke:` keys** instead of flushing the whole Redis database.
 
 ### Fixed
 
-- **A catastrophic custom pattern stalled validation 40 seconds** at config validation, decorator and dynamic-rule apply time before the structural reason was returned. Structurally flagged patterns now probe one size per child with a 2.5 second bound and stop at the first timeout; the whole reach-probe phase holds one 40 second wall-clock budget across builders and retries; the combined path times only the two sizes the verdict reads, once per distinct probe set; probe children arm their own alarm so a killed parent leaves no orphan. A pattern whose honest measurement needs more than 40 seconds is refused with the timeout reason. Every measurement is normalized by a host load factor taken from a reference scan timed in the same child process; the reference has the same shape as the probes it normalizes (a greedy class repeat backtracking through an alternation tail), because a plain charset scan runs on a different engine fast path whose speed relative to backtracking varies up to 3x between Python builds. A probe stops sampling once a single sample exceeds 0.2 seconds, so a slow pattern is measured once per size instead of five times.
-- **The reach-probe verdict flipped under CPU load.** The growth ratio and the extrapolation now use per-size minimums, clamped at 1.0, so a load-inflated small-size sample cannot flip a near-budget builtin.
-- **Singleton resets kept stale handler references.** `reset_global_state()` on the IP ban and security headers singletons now drops `redis_handler` and `agent_handler` (the security headers reset was a no-op), and `RateLimitManager.reset()` drops `agent_handler`. A completeness test discovers every singleton with a handler reference and fails by name if it has no reset path.
-- **An empty pair value followed by an angle-bracket placeholder was not redacted.** `token=<SECRET>` now redacts as `token=[REDACTED]`; the bracketed run follows the same unquoted-value rules as any other value, with the angle brackets never ending it.
-- **A ban refused by the self-DoS guard was answered as a ban.** `ban_ip` returns a bool; a refused threshold ban now yields 400 "Suspicious activity detected" instead of 403 "IP has been banned", with no ban log line or event, and dynamic-rule and behavioral bans report a refusal as refused.
+- **A catastrophic custom pattern stalled validation 40 seconds** before the structural reason was returned. Reach probes now run one size per child under a 2.5 second bound, share one 40 second budget across builders and retries, and time only the two sizes the verdict reads. Every measurement is normalized by a host load factor from a reference scan of the same shape as the probes, timed in the same child, so the verdict does not depend on the machine or its load. A pattern that needs more than 40 seconds is refused with the timeout reason.
+- **The reach-probe verdict flipped under CPU load.** The growth ratio and the extrapolation use per-size minimums clamped at 1.0, so a load-inflated small-size sample cannot flip a near-budget builtin.
+- **Singleton resets kept stale handler references.** The IP ban, security headers, and rate limit resets now drop `redis_handler` and `agent_handler`; a completeness test fails by name on any singleton with a handler reference and no reset path.
+- **`token=<SECRET>` was not redacted.** An empty pair value followed by an angle-bracket placeholder now redacts as `token=[REDACTED]`, with the brackets following the unquoted-value rules.
+- **A ban refused by the self-DoS guard was answered as a ban.** `ban_ip` returns a bool; a refused threshold ban yields 400 "Suspicious activity detected" instead of 403 "IP has been banned", with no ban log line or event, and dynamic-rule and behavioral bans report a refusal as refused.
 
 ___
 
