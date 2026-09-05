@@ -46,8 +46,9 @@ class DynamicRuleApplicationMixin(DynamicRuleEventSenderMixin):
 
         for ip in ip_list:
             try:
-                await ip_ban_manager.ban_ip(ip, duration, "dynamic_rule")
-                self.logger.info(f"Dynamic rule: Banned IP {ip} for {duration}s")
+                applied = await ip_ban_manager.ban_ip(ip, duration, "dynamic_rule")
+                if applied:
+                    self.logger.info(f"Dynamic rule: Banned IP {ip} for {duration}s")
             except Exception as e:
                 self.logger.error(f"Failed to ban IP {ip}: {e}")
 

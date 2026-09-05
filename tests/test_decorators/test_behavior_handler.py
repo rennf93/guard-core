@@ -771,6 +771,91 @@ async def test_apply_action_ban_silenced_when_log_suspicious_level_none(
 
 
 @pytest.mark.asyncio
+async def test_execute_ban_action_returns_false_when_refused(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+
+    with patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.ban_ip = AsyncMock(return_value=False)
+
+        result = await tracker._execute_ban_action("192.168.1.1", "Test violation")
+
+        assert result == "tracked"
+
+
+@pytest.mark.asyncio
+async def test_execute_ban_action_returns_true_when_applied(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+
+    with patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.ban_ip = AsyncMock(return_value=True)
+
+        result = await tracker._execute_ban_action("192.168.1.1", "Test violation")
+
+        assert result == "ban"
+
+
+@pytest.mark.asyncio
+async def test_apply_action_ban_refused_does_not_log_success(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+
+    with (
+        patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager,
+        patch.object(tracker.logger, "warning") as mock_logger,
+    ):
+        mock_ban_manager.ban_ip = AsyncMock(return_value=False)
+
+        await tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+
+        mock_ban_manager.ban_ip.assert_awaited_once_with(
+            "192.168.1.1", 3600, "behavioral_violation"
+        )
+        mock_logger.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_apply_action_ban_refused_reports_tracked_in_event(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    tracker.agent_handler = AsyncMock()
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+
+    with patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.ban_ip = AsyncMock(return_value=False)
+
+        await tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+
+    tracker.agent_handler.send_event.assert_called_once()
+    sent_event = tracker.agent_handler.send_event.call_args[0][0]
+    assert sent_event.action_taken == "tracked"
+
+
+@pytest.mark.asyncio
+async def test_apply_action_ban_applied_reports_ban_in_event(
+    security_config: SecurityConfig,
+) -> None:
+    tracker = BehaviorTracker(security_config)
+    tracker.agent_handler = AsyncMock()
+    rule = BehaviorRule(rule_type="usage", threshold=5, action="ban")
+
+    with patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.ban_ip = AsyncMock(return_value=True)
+
+        await tracker.apply_action(rule, "192.168.1.1", "/api/test", "Test violation")
+
+    tracker.agent_handler.send_event.assert_called_once()
+    sent_event = tracker.agent_handler.send_event.call_args[0][0]
+    assert sent_event.action_taken == "ban"
+
+
+@pytest.mark.asyncio
 async def test_apply_action_log_silenced_when_log_suspicious_level_none(
     security_config: SecurityConfig,
 ) -> None:

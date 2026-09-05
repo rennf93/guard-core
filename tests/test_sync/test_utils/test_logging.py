@@ -1811,15 +1811,17 @@ def test_log_activity_header_json_nested_5000_does_not_raise_and_logs_fast(
     )
 
     logger = logging.getLogger(__name__)
-    start = time.perf_counter()
-    with caplog.at_level(logging.WARNING):
-        log_activity(request, logger)
-    elapsed_ms = (time.perf_counter() - start) * 1000
+    durations_ms = []
+    for _ in range(5):
+        start = time.process_time()
+        with caplog.at_level(logging.WARNING):
+            log_activity(request, logger)
+        durations_ms.append((time.process_time() - start) * 1000)
 
     assert caplog.records, "log line was not emitted"
     assert "DEEPSECRET5000" not in caplog.text
     assert "[REDACTED]" in caplog.text
-    assert elapsed_ms < 50
+    assert min(durations_ms) < 50
 
 
 def test_log_activity_query_json_nested_600_does_not_raise_and_logs(

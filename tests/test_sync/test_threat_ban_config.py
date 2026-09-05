@@ -1,13 +1,16 @@
-from typing import Any
+import logging
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from guard_core.models import SecurityConfig, ThreatBanConfig
+from guard_core.sync.core.checks.helpers import _resolve_and_apply_threshold_ban
 from guard_core.sync.core.checks.implementations.suspicious_activity import (
     SuspiciousActivityCheck,
 )
 from guard_core.sync.detection_result import DetectionResult
+from guard_core.sync.handlers.ipban_handler import IPBanManager
 from guard_core.sync.handlers.suspatterns_handler import ALL_DETECTION_CATEGORIES
 
 
@@ -401,3 +404,111 @@ def test_check_skips_when_no_client_ip(
 
     result = check.check(request)
     assert result is None
+
+
+def _build_check_with_fresh_ip_ban_manager(
+    config: SecurityConfig,
+) -> tuple[SuspiciousActivityCheck, IPBanManager]:
+    IPBanManager._instance = None
+    fresh_manager = IPBanManager()
+    fresh_manager.redis_handler = None
+
+    check = _build_check(config)
+    check.ip_ban_manager = fresh_manager
+    return check, fresh_manager
+
+
+def test_refused_ban_falls_through_to_400_not_403(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = SecurityConfig(
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        auto_ban_duration=60,
+    )
+    check, fresh_manager = _build_check_with_fresh_ip_ban_manager(config)
+
+    monkeypatch.setattr(
+        "guard_core.sync.core.checks.implementations.suspicious_activity"
+        ".get_cached_detection_result",
+        _make_detect_fn(
+            DetectionResult(
+                is_threat=True,
+                trigger_info="trigger",
+                threat_categories=["xss"],
+                threat_scores={"xss": 1.0},
+            )
+        ),
+    )
+
+    request = _make_request("127.0.0.1")
+
+    caplog.set_level(logging.WARNING)
+    check.check(request)
+
+    cast(MagicMock, check.middleware.create_error_response).assert_called_once_with(
+        status_code=400,
+        default_message="Suspicious activity detected",
+    )
+    assert not any("IP banned" in r.getMessage() for r in caplog.records)
+    assert fresh_manager.is_ip_banned("127.0.0.1") is False
+
+
+def test_applied_ban_still_gives_403(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SecurityConfig(
+        enable_ip_banning=True,
+        auto_ban_threshold=1,
+        auto_ban_duration=60,
+    )
+    check, fresh_manager = _build_check_with_fresh_ip_ban_manager(config)
+
+    monkeypatch.setattr(
+        "guard_core.sync.core.checks.implementations.suspicious_activity"
+        ".get_cached_detection_result",
+        _make_detect_fn(
+            DetectionResult(
+                is_threat=True,
+                trigger_info="trigger",
+                threat_categories=["xss"],
+                threat_scores={"xss": 1.0},
+            )
+        ),
+    )
+
+    request = _make_request("203.0.113.50")
+
+    check.check(request)
+
+    cast(MagicMock, check.middleware.create_error_response).assert_called_once_with(
+        status_code=403,
+        default_message="IP has been banned",
+    )
+    assert fresh_manager.is_ip_banned("203.0.113.50") is True
+
+
+def test_per_category_ban_refused_returns_none() -> None:
+    config = SecurityConfig(
+        enable_ip_banning=True,
+        auto_ban_threshold=1000,
+        auto_ban_duration=60,
+        threat_ban_config={"xss": ThreatBanConfig(threshold=1, duration=86400)},
+    )
+    ip_ban_manager = MagicMock()
+    ip_ban_manager.ban_ip = MagicMock(return_value=False)
+
+    result = _resolve_and_apply_threshold_ban(
+        {"xss": 1},
+        config,
+        ip_ban_manager,
+        "127.0.0.1",
+        ["xss"],
+        "penetration_attempt",
+    )
+
+    assert result is None
+    ip_ban_manager.ban_ip.assert_called_once_with(
+        "127.0.0.1", 86400, "penetration_attempt:xss"
+    )

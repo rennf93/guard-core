@@ -23,6 +23,7 @@ APP_SERVICE = "fastapi-guard-example"
 NGINX_PORT = int(os.environ.get("LIVE_SMOKE_NGINX_PORT", "8089"))
 AGENT_PORT = int(os.environ.get("LIVE_SMOKE_AGENT_PORT", "8091"))
 REDIS_PORT = int(os.environ.get("LIVE_SMOKE_REDIS_PORT", "16379"))
+REDIS_PREFIX = "smoke:"
 OTLP_STUB_PORT = int(os.environ.get("LIVE_SMOKE_OTLP_STUB_PORT", "8092"))
 
 BASE_URL = f"http://localhost:{NGINX_PORT}"
@@ -219,7 +220,9 @@ class Stack:
     def _flush_smoke_state(self) -> None:
         client = make_redis_client()
         try:
-            client.flushdb()
+            keys = list(client.scan_iter(f"{REDIS_PREFIX}*"))
+            for batch_start in range(0, len(keys), 500):
+                client.delete(*keys[batch_start : batch_start + 500])
         finally:
             client.close()
 

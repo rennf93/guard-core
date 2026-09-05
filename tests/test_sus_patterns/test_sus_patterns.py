@@ -1178,6 +1178,22 @@ async def test_reset_noop_when_instance_is_none() -> None:
     SusPatternsManager._instance = original
 
 
+async def test_reset_drops_a_populated_redis_handler_reference() -> None:
+    from guard_core.handlers.suspatterns_handler import SusPatternsManager
+
+    original = SusPatternsManager._instance
+    SusPatternsManager._instance = None
+    manager = SusPatternsManager()
+    manager.redis_handler = AsyncMock()
+    manager.agent_handler = AsyncMock()
+
+    await SusPatternsManager.reset()
+
+    assert manager.redis_handler is None
+    assert manager.agent_handler is None
+    SusPatternsManager._instance = original
+
+
 @pytest.mark.asyncio
 async def test_custom_pattern_match_rejected_by_validator_falls_through(
     sus_patterns_manager_with_detection: SusPatternsManager,

@@ -35,9 +35,11 @@ class IPBanManager:
 
     async def ban_ip(
         self, ip: str, duration: int, reason: str = "threshold_exceeded"
-    ) -> None:
+    ) -> bool:
         """
-        Ban an IP for the given duration in seconds.
+        Ban an IP for the given duration in seconds. Returns False (no-op)
+        when the target overlaps loopback or a configured trusted proxy,
+        True otherwise.
         """
 
     async def unban_ip(self, ip: str) -> None:

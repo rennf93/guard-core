@@ -37,8 +37,11 @@ async def test_ban_loopback_ipv4_is_refused(
     manager = _manager_with_config()
 
     caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
-    await manager.ban_ip("127.0.0.1", duration=300, reason="threshold_exceeded")
+    result = await manager.ban_ip(
+        "127.0.0.1", duration=300, reason="threshold_exceeded"
+    )
 
+    assert result is False
     assert "127.0.0.1" not in manager.banned_ips
     assert await manager.is_ip_banned("127.0.0.1") is False
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -99,8 +102,11 @@ async def test_ban_cidr_overlapping_loopback_is_refused(
     manager = _manager_with_config()
 
     caplog.set_level(logging.WARNING, logger="guard_core.handlers.ipban")
-    await manager.ban_ip("127.0.0.0/8", duration=300, reason="threshold_exceeded")
+    result = await manager.ban_ip(
+        "127.0.0.0/8", duration=300, reason="threshold_exceeded"
+    )
 
+    assert result is False
     assert manager.banned_networks == []
     assert await manager.is_ip_banned("127.0.0.5") is False
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -171,8 +177,9 @@ async def test_ban_with_malformed_trusted_proxies_entry_does_not_raise() -> None
 async def test_ban_public_ip_with_config_still_succeeds() -> None:
     manager = _manager_with_config()
 
-    await manager.ban_ip("8.8.8.8", duration=300, reason="threshold_exceeded")
+    result = await manager.ban_ip("8.8.8.8", duration=300, reason="threshold_exceeded")
 
+    assert result is True
     assert await manager.is_ip_banned("8.8.8.8") is True
 
 
@@ -180,8 +187,11 @@ async def test_ban_public_ip_with_config_still_succeeds() -> None:
 async def test_ban_public_cidr_with_config_still_succeeds() -> None:
     manager = _manager_with_config()
 
-    await manager.ban_ip("8.8.8.0/24", duration=300, reason="threshold_exceeded")
+    result = await manager.ban_ip(
+        "8.8.8.0/24", duration=300, reason="threshold_exceeded"
+    )
 
+    assert result is True
     assert await manager.is_ip_banned("8.8.8.5") is True
 
 

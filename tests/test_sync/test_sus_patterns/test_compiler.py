@@ -266,6 +266,25 @@ def test_validate_pattern_safety_probe_subprocess_crash() -> None:
     assert "Pattern validation probe failed to run" in reason
 
 
+def test_validate_pattern_safety_probe_subprocess_timeout() -> None:
+    import subprocess
+
+    compiler = PatternCompiler()
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="probe", timeout=2.0)
+
+    with patch(
+        "guard_core.sync.detection_engine._redos_cost_arbiter.subprocess.run", _raise
+    ):
+        is_safe, reason = compiler.validate_pattern_safety(
+            r"test_pattern", test_strings=["x"]
+        )
+
+    assert is_safe is False
+    assert "killable-subprocess timeout" in reason
+
+
 def test_validate_pattern_safety_probe_nonzero_returncode() -> None:
     compiler = PatternCompiler()
 

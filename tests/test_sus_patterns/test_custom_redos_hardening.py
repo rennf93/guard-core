@@ -725,10 +725,12 @@ def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
 def test_semver_mandatory_dot_separator_stays_linear_under_non_aligned_fill() -> None:
     unit = "v1."
     probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
-    samples = _time_reach_probes_subprocess(_SEMVER_REQUIRED_ACCEPT_PATTERN, probes)
-    assert samples is not None
+    timing = _time_reach_probes_subprocess(
+        _SEMVER_REQUIRED_ACCEPT_PATTERN, probes, time.monotonic() + 30.0
+    )
+    assert timing is not None
     over, extrapolated, ratio, min_32, median_32 = _reach_probe_verdict_from_samples(
-        samples, _PATTERN_SAFETY_DEFAULT_CAP
+        timing.samples_by_size, _PATTERN_SAFETY_DEFAULT_CAP, timing.load_factor
     )
     measurement = (
         f"{_SEMVER_REQUIRED_ACCEPT_PATTERN} unit={unit!r}: growth ratio "
@@ -790,8 +792,8 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
     compiler = PatternCompiler()
     for pattern, unit in _CAP_AWARE_CANARIES:
         probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
-        samples = _time_reach_probes_subprocess(pattern, probes)
-        if samples is None:
+        timing = _time_reach_probes_subprocess(pattern, probes, time.monotonic() + 30.0)
+        if timing is None:
             over_at_body_cap = True
             measurement = (
                 f"{pattern} unit={unit!r}: probe subprocess did not complete "
@@ -799,7 +801,11 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
             )
         else:
             over_at_body_cap, extrapolated, ratio, min_32, median_32 = (
-                _reach_probe_verdict_from_samples(samples, _PATTERN_SAFETY_DEFAULT_CAP)
+                _reach_probe_verdict_from_samples(
+                    timing.samples_by_size,
+                    _PATTERN_SAFETY_DEFAULT_CAP,
+                    timing.load_factor,
+                )
             )
             measurement = (
                 f"{pattern} unit={unit!r}: growth ratio {ratio:.2f}x per doubling, "
@@ -815,7 +821,7 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
             f"{measurement}; validator said safe={is_safe_body} ({reason_body})"
         )
 
-        if samples is None:
+        if timing is None:
             continue
 
         is_safe_ua, reason_ua = compiler.validate_pattern_safety(

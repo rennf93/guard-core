@@ -52,12 +52,18 @@ def _skip_soft_whitespace(text: str, pos: int) -> int:
     return j
 
 
-def _unquoted_value_extent(text: str, start: int, limit: int | None = None) -> int:
+def _unquoted_value_extent(
+    text: str,
+    start: int,
+    limit: int | None = None,
+    separators: frozenset[str] = _HARD_SEP_CHARS,
+    quotes: frozenset[str] = _QUOTE_CHARS,
+) -> int:
     n = len(text) if limit is None else min(len(text), limit)
     i = start
     while i < n:
         ch = text[i]
-        if ch in _HARD_SEP_CHARS or ch in _QUOTE_CHARS:
+        if ch in separators or ch in quotes:
             return i
         if _is_soft_ws(ch):
             j = _skip_soft_whitespace(text, i)
@@ -90,6 +96,16 @@ def _quote_char_at(text: str, pos: int) -> str:
     return text[pos] if pos < len(text) and text[pos] in _QUOTE_CHARS else ""
 
 
+_ANGLE_OPEN = "<"
+_ANGLE_VALUE_SEP_CHARS = _HARD_SEP_CHARS - frozenset("<>")
+
+
+def _angle_value_extent(text: str, open_pos: int) -> int:
+    return _unquoted_value_extent(
+        text, open_pos, separators=_ANGLE_VALUE_SEP_CHARS, quotes=frozenset()
+    )
+
+
 def _build_redaction_result(
     text: str, quote_char: str, body_end: int
 ) -> tuple[str, int]:
@@ -110,6 +126,13 @@ def _redact_sensitive_pair_value(text: str, value_start: int) -> tuple[str, int]
         quote_char, body_end = _restart_value_extent_at_quote(
             text, body_end, quote_char, blank_before
         )
+    if (
+        not quote_char
+        and body_end == body_start
+        and body_end < n
+        and text[body_end] == _ANGLE_OPEN
+    ):
+        return "[REDACTED]", _angle_value_extent(text, body_end)
     return _build_redaction_result(text, quote_char, body_end)
 
 

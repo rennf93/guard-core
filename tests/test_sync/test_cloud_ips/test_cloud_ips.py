@@ -851,7 +851,9 @@ def test_fetch_azure_ip_ranges_checks_elapsed_before_each_attempt(
     sleep_mock.assert_called_once_with(2.0)
 
 
-def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> None:
+def test_cloud_ip_redis_caching(
+    security_config_redis_isolated_prefix: SecurityConfig,
+) -> None:
     with (
         patch(
             "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges",
@@ -879,7 +881,7 @@ def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> None:
     ):
         mock_aws.return_value = {ipaddress.IPv4Network("192.168.0.0/24")}
 
-        redis_handler = RedisManager(security_config_redis)
+        redis_handler = RedisManager(security_config_redis_isolated_prefix)
         redis_handler.initialize()
 
         cloud_handler.initialize_redis(redis_handler)
@@ -908,11 +910,11 @@ def test_cloud_ip_redis_caching(security_config_redis: SecurityConfig) -> None:
 
 
 def test_cloud_ip_redis_cache_hit(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
     import json as _json
 
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
 
     redis_handler.set_key("cloud_ip_v2", "AWS", _json.dumps(["192.168.0.0/24"]))
@@ -929,7 +931,7 @@ def test_cloud_ip_redis_cache_hit(
 
 
 def test_cloud_ip_redis_sync_async(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
     with (
         patch(
@@ -963,7 +965,7 @@ def test_cloud_ip_redis_sync_async(
         cloud_handler.refresh()
         assert cloud_handler.is_cloud_ip("192.168.0.1", {"AWS"})
 
-        redis_handler = RedisManager(security_config_redis)
+        redis_handler = RedisManager(security_config_redis_isolated_prefix)
         redis_handler.initialize()
         cloud_handler.initialize_redis(redis_handler)
 
@@ -975,14 +977,14 @@ def test_cloud_ip_redis_sync_async(
 
 
 def test_cloud_ip_redis_error_handling(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
     with patch(
         "guard_core.sync.handlers.cloud_handler.fetch_aws_ip_ranges",
     ) as mock_aws:
         mock_aws.return_value = {ipaddress.IPv4Network("192.168.0.0/24")}
 
-        redis_handler = RedisManager(security_config_redis)
+        redis_handler = RedisManager(security_config_redis_isolated_prefix)
         redis_handler.initialize()
 
         redis_handler.delete("cloud_ranges_v2", "AWS")
@@ -1225,9 +1227,9 @@ def test_new_providers_wired_into_refresh_async_store_path() -> None:
 
 
 def test_new_providers_wired_into_refresh_via_redis_handler(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
     redis_handler.delete("cloud_ranges", "DigitalOcean")
     redis_handler.delete("cloud_ranges", "Linode")
@@ -1303,9 +1305,9 @@ def test_refresh_via_redis_handler_falls_back_when_redis_missing() -> None:
 
 
 def test_refresh_via_redis_handler_records_empty_on_fetch_error(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
     redis_handler.delete("cloud_ranges", "AWS")
 
@@ -1396,7 +1398,7 @@ def test_fetch_gcp_ip_ranges_skips_unknown_prefix_keys(
 
 
 def test_initialize_redis_replaces_in_memory_store(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
     from guard_core.sync.handlers.cloud_ip_stores import (
         InMemoryCloudIpStore,
@@ -1407,7 +1409,7 @@ def test_initialize_redis_replaces_in_memory_store(
     cloud_handler.redis_handler = None
     cloud_handler.ip_ranges = {}
 
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
 
     with (
@@ -1453,14 +1455,14 @@ def test_initialize_agent_records_handler() -> None:
 
 
 def test_initialize_redis_keeps_existing_redis_store(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
     from guard_core.sync.handlers.cloud_ip_stores import (
         InMemoryCloudIpStore,
         RedisCloudIpStore,
     )
 
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
 
     cloud_handler.set_store(RedisCloudIpStore(redis_handler))
@@ -1503,9 +1505,9 @@ def test_initialize_redis_keeps_existing_redis_store(
 
 
 def test_refresh_via_redis_handler_handles_empty_fetch(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
     redis_handler.delete("cloud_ranges", "AWS")
 
@@ -1549,9 +1551,9 @@ def test_cloud_manager_returns_existing_singleton() -> None:
 
 
 def test_refresh_via_redis_handler_keeps_existing_provider_state(
-    security_config_redis: SecurityConfig,
+    security_config_redis_isolated_prefix: SecurityConfig,
 ) -> None:
-    redis_handler = RedisManager(security_config_redis)
+    redis_handler = RedisManager(security_config_redis_isolated_prefix)
     redis_handler.initialize()
     redis_handler.delete("cloud_ranges", "AWS")
 

@@ -10,6 +10,33 @@ Release Notes
 
 ___
 
+v4.0.1 (2026-09-05)
+-------------------
+
+Public redaction helpers, ReDoS validator latency, phantom ban, singleton resets, and path-level gates (v4.0.1)
+---------------------------------------------------------------------------------------------------------------
+
+
+### Added
+
+- **`redact_blob_for_display` and `redact_url_for_display`** exported from `guard_core.utils` and `guard_core.sync.utils`: the redaction guard-core applies to its own log lines; `None` for a name set means the hardcoded default.
+
+### Changed
+
+- **v4.0.0 changelog correction.** Proxy identity headers skip only the `ssrf` category for IP-shaped values; every other category still scans them. Corrected in place below.
+- **Dev dependency `pytest` on 9.x.** Every fixture lives in the root conftest and a gate test fails if a nested conftest defines one, so pytest-dev/pytest#14971 cannot drop a fixture.
+- **The live-smoke driver clears only its own `smoke:` keys** instead of flushing the whole Redis database.
+
+### Fixed
+
+- **A catastrophic custom pattern stalled validation 40 seconds** before the structural reason was returned. Reach probes now run one size per child under a 2.5 second bound, share one 40 second budget across builders and retries, and time only the two sizes the verdict reads. Every measurement is normalized by a host load factor from a reference scan of the same shape as the probes, timed in the same child, so the verdict does not depend on the machine or its load. A pattern that needs more than 40 seconds is refused with the timeout reason.
+- **The reach-probe verdict flipped under CPU load.** The growth ratio and the extrapolation use per-size minimums clamped at 1.0, so a load-inflated small-size sample cannot flip a near-budget builtin.
+- **Singleton resets kept stale handler references.** The IP ban, security headers, and rate limit resets now drop `redis_handler` and `agent_handler`; a completeness test fails by name on any singleton with a handler reference and no reset path.
+- **`token=<SECRET>` was not redacted.** An empty pair value followed by an angle-bracket placeholder now redacts as `token=[REDACTED]`, with the brackets following the unquoted-value rules.
+- **A ban refused by the self-DoS guard was answered as a ban.** `ban_ip` returns a bool; a refused threshold ban yields 400 "Suspicious activity detected" instead of 403 "IP has been banned", with no ban log line or event, and dynamic-rule and behavioral bans report a refusal as refused.
+
+___
+
 v4.0.0 (2026-09-04)
 -------------------
 
@@ -38,7 +65,7 @@ Grammar-based secret redaction across log lines and events, expanded detection c
 
 - **Sensitive header, parameter, and body secret leaks.** `log_activity`, `_log_detected_component`, and query URL parameters (`?access_token=...`, `#token=...`, `https://user:PASS@host/`) now mask sensitive values with `[REDACTED]` across all log lines, telemetry previews, and event payloads.
 - **`dump_last_known_rules_snapshot` validation exception.** Stripped unknown `DynamicRules` fields (`emergency_whitelist_only`, `message`) before snapshot validation, allowing local Redis/file fallback writes to succeed during backend outages.
-- **Proxy identity header false positives.** Added proxy identity headers (`forwarded`, `x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `x-client-ip`, `x-cluster-client-ip`, `cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, `x-envoy-external-address`) to the default excluded detection set to prevent auto-banning proxy IPs.
+- **Proxy identity header false positives.** Added proxy identity headers (`forwarded`, `x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `x-client-ip`, `x-cluster-client-ip`, `cf-connecting-ip`, `true-client-ip`, `fly-client-ip`, `x-envoy-external-address`) to the default excluded detection set, which in 4.0.0 skips only the `ssrf` category for IP-shaped values while every other category still scans them.
 - **`require_referrer()` scheme parsing.** Reduced scheme-prefixed entries (e.g., `https://example.com:8443`) to host and port before comparison.
 - **`SecurityConfig` collection field revalidation.** Revalidated 13 collection fields (`exclude_paths`, `cors_allow_origins`, `custom_error_responses`, etc.) on attribute reassignment and `model_copy(update=...)`.
 - **SQLi and category detection context gaps.** Expanded SQLi, command injection, and traversal detection to `header` and `url_path` contexts. Kept noise-prone patterns (`ORDER BY n` bare) restricted to bodies/params.

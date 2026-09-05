@@ -1170,6 +1170,29 @@ async def test_apply_ip_bans_with_failures(
 
 
 @pytest.mark.asyncio
+async def test_apply_ip_bans_does_not_log_success_when_refused(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    with patch("guard_core.handlers.ipban_handler.ip_ban_manager") as mock_ban_manager:
+        mock_ban_manager.ban_ip = AsyncMock(return_value=False)
+
+        ip_list = ["127.0.0.1"]
+        duration = 3600
+
+        with caplog.at_level(logging.INFO):
+            await manager._apply_ip_bans(ip_list, duration)
+
+        mock_ban_manager.ban_ip.assert_awaited_once_with(
+            "127.0.0.1", 3600, "dynamic_rule"
+        )
+        assert "Dynamic rule: Banned IP 127.0.0.1" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_apply_ip_whitelist_success(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
