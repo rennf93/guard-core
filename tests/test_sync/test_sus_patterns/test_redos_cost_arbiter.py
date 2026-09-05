@@ -49,6 +49,12 @@ _EVENT_HANDLER_PATTERN = (
     r"(?:[\"'][^\"']*[\"']|[^\s>]+))"
 )
 
+_NEAR_BUDGET_SQLI_BUILTIN_PATTERN = (
+    r"(?i)(?:\/\*![0-9]*\s*(?:OR|AND|UNION|SELECT|INSERT|DELETE|DROP"
+    r"|CONCAT|CHAR|UPDATE)\b)"
+)
+_NEAR_BUDGET_SQLI_BUILTIN_PROBE = "/*!" + "0" * 31997
+
 
 def _far_deadline() -> float:
     return time.monotonic() + 30.0
@@ -764,3 +770,23 @@ def test_probe_child_stops_sampling_once_a_sample_is_large() -> None:
     largest = timing.samples_by_size[-1]
     assert largest[0] > _REACH_PROBE_LARGE_SAMPLE_SECONDS
     assert len(largest) < _REACH_PROBE_SAMPLE_COUNT
+
+
+@pytest.mark.redos_timing
+def test_reference_scan_costs_the_same_as_a_near_budget_builtin_probe() -> None:
+    timing = _time_reach_probes_subprocess(
+        _NEAR_BUDGET_SQLI_BUILTIN_PATTERN,
+        [_NEAR_BUDGET_SQLI_BUILTIN_PROBE],
+        _far_deadline(),
+    )
+    assert timing is not None
+    (samples,) = timing.samples_by_size
+    min_32 = samples[0]
+    reference_seconds = timing.load_factor * _REFERENCE_SCAN_SECONDS
+    ratio = min_32 / reference_seconds
+    assert 0.5 <= ratio <= 2.0, (
+        "near-budget sqli builtin probe at 32000 chars measured min "
+        f"{min_32:.4f}s against a child reference of {reference_seconds:.4f}s "
+        f"(load factor {timing.load_factor:.2f}), ratio={ratio:.2f}x, "
+        "expected the reference scan to track the probe within [0.5, 2.0]"
+    )

@@ -80,10 +80,11 @@ def _run_pattern_safety_probe_subprocess(
 _REACH_PROBE_SIZES = (4000, 8000, 16000, 32000)
 _REACH_VERDICT_PROBE_SIZES = _REACH_PROBE_SIZES[-2:]
 _REACH_PROBE_BUDGET_SECONDS = 0.05
-_REFERENCE_SCAN_PATTERN = "[ab]*c"
-_REFERENCE_SCAN_PROBE_UNITS = 16000
-_REFERENCE_SCAN_REPEATS = 32
-_REFERENCE_SCAN_SECONDS = 0.00205
+_REFERENCE_SCAN_PATTERN = (
+    r"(?i)/[0-9]*\s*(?:OR|AND|UNION|SELECT|INSERT|DELETE|DROP|CONCAT|CHAR|UPDATE)\b"
+)
+_REFERENCE_SCAN_PROBE_LENGTH = 32000
+_REFERENCE_SCAN_SECONDS = 0.00229
 _LOAD_FACTOR_FLOOR = 0.25
 _LOAD_FACTOR_CEILING = 8.0
 _REACH_PROBE_NOISE_FLOOR_SECONDS = 0.001
@@ -102,12 +103,11 @@ _REACH_PROBE_TIMING_CHILD_SCRIPT = (
     "    print(json.dumps({'error': str(exc)}))\n"
     "    raise SystemExit(0)\n"
     f"reference_compiled = re.compile({_REFERENCE_SCAN_PATTERN!r})\n"
-    f"reference_probe = 'ab' * {_REFERENCE_SCAN_PROBE_UNITS} + 'c'\n"
+    f"reference_probe = '/' + '0' * {_REFERENCE_SCAN_PROBE_LENGTH}\n"
     "reference_times = []\n"
     "for _ in range(samples):\n"
     "    start = time.process_time()\n"
-    f"    for _ in range({_REFERENCE_SCAN_REPEATS}):\n"
-    "        reference_compiled.search(reference_probe)\n"
+    "    reference_compiled.search(reference_probe)\n"
     "    reference_times.append(time.process_time() - start)\n"
     "results = []\n"
     "for probe in probes:\n"
