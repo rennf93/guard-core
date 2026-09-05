@@ -1,6 +1,6 @@
 [project]
 name = "guard-core"
-version = "4.0.0"
+version = "4.0.1"
 description = "Framework-agnostic security engine for the Guard ecosystem."
 authors = [
     {name = "Renzo Franceschini", email = "rennf93@users.noreply.github.com"}
@@ -46,7 +46,7 @@ dev = [
     "pip-audit",
     "pre-commit",
     "pymarkdownlnt",
-    "pytest",
+    "pytest<9",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",
