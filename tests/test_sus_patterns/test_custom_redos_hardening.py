@@ -725,7 +725,9 @@ def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
 def test_semver_mandatory_dot_separator_stays_linear_under_non_aligned_fill() -> None:
     unit = "v1."
     probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
-    samples = _time_reach_probes_subprocess(_SEMVER_REQUIRED_ACCEPT_PATTERN, probes)
+    samples = _time_reach_probes_subprocess(
+        _SEMVER_REQUIRED_ACCEPT_PATTERN, probes, time.monotonic() + 30.0
+    )
     assert samples is not None
     over, extrapolated, ratio, min_32, median_32 = _reach_probe_verdict_from_samples(
         samples, _PATTERN_SAFETY_DEFAULT_CAP
@@ -790,7 +792,9 @@ def test_validate_pattern_safety_cap_aware_quadratic_canaries() -> None:
     compiler = PatternCompiler()
     for pattern, unit in _CAP_AWARE_CANARIES:
         probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
-        samples = _time_reach_probes_subprocess(pattern, probes)
+        samples = _time_reach_probes_subprocess(
+            pattern, probes, time.monotonic() + 30.0
+        )
         if samples is None:
             over_at_body_cap = True
             measurement = (
