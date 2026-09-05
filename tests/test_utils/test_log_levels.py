@@ -248,3 +248,17 @@ async def test_attack_detected_log_silenced_when_level_none(
     )
 
     assert not [r for r in caplog.records if "Potential attack detected" in r.message]
+
+
+_REDIS_LOGGER_LEVEL_AT_IMPORT = logging.getLogger("guard_core.handlers.redis").level
+
+
+def test_a_dangling_guard_core_redis_debug_level_set_here() -> None:
+    logger = logging.getLogger("guard_core.handlers.redis")
+    logger.setLevel(logging.DEBUG)
+    assert logger.level == logging.DEBUG
+
+
+def test_b_isolation_fixture_reverts_the_dangling_redis_debug_level() -> None:
+    logger = logging.getLogger("guard_core.handlers.redis")
+    assert logger.level == _REDIS_LOGGER_LEVEL_AT_IMPORT

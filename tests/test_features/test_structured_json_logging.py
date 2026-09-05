@@ -9,16 +9,19 @@ from guard_core.utils import JsonFormatter, setup_custom_logging
 
 
 @pytest.fixture(autouse=True)
-def _restore_root_handlers() -> Iterator[None]:
+def _restore_logger_state() -> Iterator[None]:
     root_logger = logging.getLogger()
-    original_handlers = root_logger.handlers[:]
-    original_level = root_logger.level
+    guard_logger = logging.getLogger("guard_core")
+    original_root_handlers = root_logger.handlers[:]
+    original_root_level = root_logger.level
+    original_guard_level = guard_logger.level
     yield
     for handler in root_logger.handlers[:]:
-        if handler not in original_handlers:
+        if handler not in original_root_handlers:
             handler.close()
-    root_logger.handlers = original_handlers
-    root_logger.setLevel(original_level)
+    root_logger.handlers = original_root_handlers
+    root_logger.setLevel(original_root_level)
+    guard_logger.setLevel(original_guard_level)
 
 
 def test_text_format_default() -> None:
