@@ -3,7 +3,7 @@ import os
 import re
 import secrets
 import sys
-from collections.abc import AsyncGenerator, Callable, Generator
+from collections.abc import AsyncGenerator, Callable
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import FrameType
@@ -16,7 +16,6 @@ from pytest import TempPathFactory
 from guard_core._utils import detection_scan as _detection_scan_module
 from guard_core.core.events import logfire_handler as _logfire_handler_module
 from guard_core.core.events import otel_handler as _otel_handler_module
-from guard_core.detection_engine import _redos_cost_arbiter as _arbiter_module
 from guard_core.handlers import ipban_handler as _ipban_module
 from guard_core.handlers import security_headers_handler as _security_headers_module
 from guard_core.handlers import suspatterns_handler as _suspatterns_module
@@ -37,9 +36,6 @@ from guard_core.handlers.suspatterns_handler import (
     sus_patterns_handler,
 )
 from guard_core.models import SecurityConfig
-from guard_core.sync.detection_engine import (
-    _redos_cost_arbiter as _sync_arbiter_module,
-)
 from guard_core.sync.handlers.ratelimit_handler import (
     rate_limit_handler as _sync_rate_limit_handler,
 )
@@ -52,7 +48,6 @@ _REDIS_PREFIX_BASE = os.getenv("REDIS_PREFIX") or "test:guard_core:"
 REDIS_PREFIX = f"{_REDIS_PREFIX_BASE}{os.getpid()}:{secrets.token_hex(4)}:"
 GUARD_TESTS_GC_PER_TEST = os.getenv("GUARD_TESTS_GC_PER_TEST") == "1"
 _MAX_TEST_SECONDS_ENV = "GUARD_TESTS_MAX_TEST_SECONDS"
-_REDOS_BUDGET_SCALE_ENV = "GUARD_TESTS_REDOS_BUDGET_SCALE"
 _TEST_NODE_DURATIONS: dict[str, float] = {}
 
 
@@ -313,22 +308,6 @@ class MockGuardResponseFactory:
 
     def create_redirect_response(self, url: str, status_code: int) -> MockGuardResponse:
         return MockGuardResponse(f"Redirect to {url}", status_code, {"Location": url})
-
-
-@pytest.fixture(autouse=True, scope="session")
-def scaled_reach_probe_budget() -> Generator[None, None, None]:
-    scale_raw = os.getenv(_REDOS_BUDGET_SCALE_ENV)
-    if scale_raw is None:
-        yield
-        return
-    scale = float(scale_raw)
-    modules: tuple[Any, Any] = (_arbiter_module, _sync_arbiter_module)
-    originals = [module._REACH_PROBE_BUDGET_SECONDS for module in modules]
-    for module, base in zip(modules, originals, strict=True):
-        module._REACH_PROBE_BUDGET_SECONDS = base * scale
-    yield
-    for module, base in zip(modules, originals, strict=True):
-        module._REACH_PROBE_BUDGET_SECONDS = base
 
 
 @pytest.fixture(autouse=True)

@@ -12,12 +12,21 @@ from guard_core.sync.detection_engine._redos_class_intersection import (
     _quantified_atom_sequence,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
+    _LOAD_FACTOR_CEILING,
+    _LOAD_FACTOR_FLOOR,
     _PATTERN_SAFETY_DEFAULT_CAP,
     _REACH_PROBE_COMBINED_TIMEOUT_SECONDS,
+    _REACH_PROBE_LARGE_SAMPLE_SECONDS,
+    _REACH_PROBE_SAMPLE_COUNT,
     _REACH_PROBE_SIZES,
+    _REFERENCE_SCAN_SECONDS,
+    ReachProbeTiming,
     _clipped_timeout,
     _first_over_budget_reason,
+    _load_factor,
     _median,
+    _parse_reach_probe_child_output,
+    _reach_probe_cost_reason,
     _reach_probe_cost_verdict,
     _reach_probe_timing_strategy,
     _reach_probe_unreachable_reason,
@@ -43,6 +52,12 @@ _EVENT_HANDLER_PATTERN = (
 
 def _far_deadline() -> float:
     return time.monotonic() + 30.0
+
+
+def _timing(
+    samples_by_size: list[list[float]], load_factor: float = 1.0
+) -> ReachProbeTiming:
+    return ReachProbeTiming(samples_by_size, load_factor)
 
 
 def test_quantified_atom_sequence_marks_boundaries_between_groups() -> None:
@@ -229,10 +244,11 @@ def test_time_reach_probes_subprocess_clips_timeout_to_remaining_budget() -> Non
 def test_time_reach_probes_subprocess_returns_sorted_samples_per_probe() -> None:
     result = _time_reach_probes_subprocess("abc", ["abc", "abcabc"], _far_deadline())
     assert result is not None
-    assert len(result) == 2
-    for samples in result:
+    assert len(result.samples_by_size) == 2
+    for samples in result.samples_by_size:
         assert len(samples) == 5
         assert samples == sorted(samples)
+    assert _LOAD_FACTOR_FLOOR <= result.load_factor <= _LOAD_FACTOR_CEILING
 
 
 def test_reach_probe_cost_verdict_accepts_when_no_candidate_units_exist() -> None:
@@ -309,8 +325,8 @@ def test_first_over_budget_reason_returns_structural_violation_when_over_budget(
 
     def _fake_timing(
         pattern: str, probes: list[str], deadline: float
-    ) -> list[list[float]]:
-        return quadratic_samples
+    ) -> ReachProbeTiming:
+        return _timing(quadratic_samples)
 
     builder_calls = [0]
 
@@ -359,8 +375,8 @@ def test_first_over_budget_reason_rejects_when_timing_probe_times_out(
 def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
-    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
+    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
     calls = iter([over_samples, under_samples])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
@@ -383,7 +399,7 @@ def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
 def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
     calls = iter([over_samples, None])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
@@ -407,7 +423,7 @@ def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_ou
 def test_first_over_budget_reason_returns_none_when_under_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
         lambda _pattern, _probes, _deadline: under_samples,
@@ -429,13 +445,13 @@ def test_first_over_budget_reason_returns_none_when_under_budget(
 def test_first_over_budget_reason_retries_at_most_once_per_builder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
-    under_samples = [[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5]
+    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
+    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
     calls: list[str] = []
 
     def _fake_timing(
         _pattern: str, _probes: list[str], _deadline: float
-    ) -> list[list[float]]:
+    ) -> ReachProbeTiming:
         calls.append(_pattern)
         return over_samples if len(calls) % 2 else under_samples
 
@@ -455,12 +471,12 @@ def test_first_over_budget_reason_retries_at_most_once_per_builder(
 def test_first_over_budget_reason_skips_retry_when_budget_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
+    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
     timing_calls: list[int] = []
 
     def _fake_timing(
         _pattern: str, _probes: list[str], _deadline: float
-    ) -> list[list[float]]:
+    ) -> ReachProbeTiming:
         timing_calls.append(1)
         time.sleep(0.05)
         return over_samples
@@ -541,9 +557,9 @@ def test_retry_confirmation_adds_bounded_child_cpu_time_for_a_safe_pattern() -> 
         retry = _time_reach_probes_subprocess(safe_pattern, probes, _far_deadline())
         assert baseline is not None
         assert retry is not None
-        child_cpu_seconds = sum(t for row in baseline for t in row) + sum(
-            t for row in retry for t in row
-        )
+        child_cpu_seconds = sum(
+            t for row in baseline.samples_by_size for t in row
+        ) + sum(t for row in retry.samples_by_size for t in row)
         totals.append(child_cpu_seconds)
 
     min_child_cpu_seconds = min(totals)
@@ -630,15 +646,16 @@ def test_time_single_reach_probe_subprocess_returns_none_when_budget_is_exhauste
 def test_time_single_reach_probe_subprocess_returns_sorted_samples() -> None:
     result = _time_single_reach_probe_subprocess("abc", "abcabc", _far_deadline())
     assert result is not None
-    assert len(result) == 5
-    assert result == sorted(result)
+    (samples,) = result.samples_by_size
+    assert len(samples) == 5
+    assert samples == sorted(samples)
 
 
 def test_time_reach_probes_ascending_returns_sorted_samples_per_probe() -> None:
     result = _time_reach_probes_ascending("abc", ["abc", "abcabc"], _far_deadline())
     assert result is not None
-    assert len(result) == 2
-    for samples in result:
+    assert len(result.samples_by_size) == 2
+    for samples in result.samples_by_size:
         assert len(samples) == 5
         assert samples == sorted(samples)
 
@@ -646,9 +663,11 @@ def test_time_reach_probes_ascending_returns_sorted_samples_per_probe() -> None:
 def test_time_reach_probes_ascending_stops_at_the_first_failing_size() -> None:
     calls: list[str] = []
 
-    def _fake_single(pattern: str, probe: str, deadline: float) -> list[float] | None:
+    def _fake_single(
+        pattern: str, probe: str, deadline: float
+    ) -> ReachProbeTiming | None:
         calls.append(probe)
-        return None if probe == "second" else [0.0] * 5
+        return None if probe == "second" else _timing([[0.0] * 5])
 
     with patch(
         "guard_core.sync.detection_engine._redos_cost_arbiter."
@@ -661,3 +680,87 @@ def test_time_reach_probes_ascending_stops_at_the_first_failing_size() -> None:
 
     assert result is None
     assert calls == ["first", "second"]
+
+
+def test_time_reach_probes_ascending_keeps_the_smallest_load_factor() -> None:
+    factors = iter([3.0, 2.0, 2.5])
+
+    def _fake_single(pattern: str, probe: str, deadline: float) -> ReachProbeTiming:
+        return _timing([[0.0] * 5], next(factors))
+
+    with patch(
+        "guard_core.sync.detection_engine._redos_cost_arbiter."
+        "_time_single_reach_probe_subprocess",
+        _fake_single,
+    ):
+        result = _time_reach_probes_ascending("test", ["a", "b", "c"], _far_deadline())
+
+    assert result is not None
+    assert result.load_factor == 2.0
+    assert len(result.samples_by_size) == 3
+
+
+def test_load_factor_is_one_on_the_reference_host() -> None:
+    assert _load_factor(_REFERENCE_SCAN_SECONDS) == 1.0
+
+
+def test_load_factor_is_clamped_to_its_floor_and_ceiling() -> None:
+    assert _load_factor(0.0) == _LOAD_FACTOR_FLOOR
+    assert _load_factor(_REFERENCE_SCAN_SECONDS * 1000) == _LOAD_FACTOR_CEILING
+
+
+def test_parse_reach_probe_child_output_requires_the_reference_scan() -> None:
+    assert _parse_reach_probe_child_output('{"results": [[0.1]]}') is None
+    assert _parse_reach_probe_child_output('{"error": "x", "reference": 0.002}') is None
+    assert _parse_reach_probe_child_output("not json") is None
+
+
+def test_parse_reach_probe_child_output_normalizes_by_the_reference_scan() -> None:
+    timing = _parse_reach_probe_child_output(
+        f'{{"results": [[0.3, 0.1, 0.2]], "reference": {_REFERENCE_SCAN_SECONDS * 2}}}'
+    )
+    assert timing is not None
+    assert timing.samples_by_size == [[0.1, 0.2, 0.3]]
+    assert timing.load_factor == pytest.approx(2.0)
+
+
+def test_verdict_divides_measurements_by_the_load_factor() -> None:
+    samples = [[0.008] * 5, [0.016] * 5]
+
+    over_on_reference_host, extrapolated, _ratio, min_32, _median = (
+        _reach_probe_verdict_from_samples(samples, _PATTERN_SAFETY_DEFAULT_CAP)
+    )
+    over_on_loaded_host, extrapolated_loaded, _ratio, min_32_loaded, _median = (
+        _reach_probe_verdict_from_samples(samples, _PATTERN_SAFETY_DEFAULT_CAP, 4.0)
+    )
+
+    assert over_on_reference_host is True
+    assert over_on_loaded_host is False
+    assert min_32_loaded == pytest.approx(min_32 / 4.0)
+    assert extrapolated_loaded == pytest.approx(extrapolated / 4.0)
+
+
+def test_cost_reason_reports_the_load_factor() -> None:
+    reason = _reach_probe_cost_reason(None, 0.2, 2.0, 262144, 0.025, 0.026, 2.5)
+    assert "normalized by host load factor 2.50" in reason
+
+
+def test_cost_reason_echoes_a_structural_violation_over_the_measurement() -> None:
+    reason = _reach_probe_cost_reason("nested quantifier", 0.2, 2.0, 262144, 0.02, 0.02)
+    assert reason == "nested quantifier"
+
+
+def test_probe_child_keeps_every_sample_for_a_cheap_probe() -> None:
+    timing = _time_reach_probes_subprocess("abc", ["abcabc"], _far_deadline())
+    assert timing is not None
+    assert [len(row) for row in timing.samples_by_size] == [_REACH_PROBE_SAMPLE_COUNT]
+
+
+@pytest.mark.redos_timing
+def test_probe_child_stops_sampling_once_a_sample_is_large() -> None:
+    probes = [_repeat_probe_to_length("foo", size) for size in _REACH_PROBE_SIZES[-2:]]
+    timing = _time_reach_probes_subprocess(r"(?:foo|bar)+$", probes, _far_deadline())
+    assert timing is not None
+    largest = timing.samples_by_size[-1]
+    assert largest[0] > _REACH_PROBE_LARGE_SAMPLE_SECONDS
+    assert len(largest) < _REACH_PROBE_SAMPLE_COUNT
