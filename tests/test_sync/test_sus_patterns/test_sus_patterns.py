@@ -15,7 +15,7 @@ from guard_core.sync.handlers.suspatterns_handler import (
     SusPatternsManager,
     sus_patterns_handler,
 )
-from tests.test_sync.test_sus_patterns.conftest import with_detection_manager
+from tests.test_sync.conftest import with_detection_manager
 
 
 def test_add_pattern() -> None:

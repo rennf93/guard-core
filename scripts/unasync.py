@@ -32,6 +32,7 @@ SKIP_TESTS = {
     "test_gc_per_test_opt_in.py",
     "test_maintainability_rank.py",
     "test_config_docs_parity.py",
+    "test_nested_conftest_defines_no_fixtures.py",
 }
 
 SKIP_DIRS = {"__pycache__", "sync"}
@@ -72,7 +73,6 @@ HAND_MAINTAINED = {
     TEST_SYNC_DIR / "test_utils" / "test_block_events_sync_rejection.py",
     TEST_SYNC_DIR / "test_core" / "test_auth_verifier_sync_async_rejection.py",
     TEST_SYNC_DIR / "conftest.py",
-    TEST_SYNC_DIR / "test_sus_patterns" / "conftest.py",
     TEST_SYNC_DIR / "test_sus_patterns" / "test_sus_patterns.py",
     TEST_SYNC_DIR / "test_otel_handler_provider_lifecycle.py",
     TEST_SYNC_DIR / "test_logfire_handler_provider_lifecycle.py",

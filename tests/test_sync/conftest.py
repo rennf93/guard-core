@@ -1,19 +1,24 @@
 import os
 import re
 import sys
+import uuid
 from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import Any, cast
+from unittest.mock import MagicMock, patch
 
 import pytest
+from guard_agent.models import AgentConfig, SecurityEvent, SecurityMetric
 from pytest import TempPathFactory
 
 from guard_core.handlers.ratelimit_handler import (
     rate_limit_handler as _async_rate_limit_handler,
 )
 from guard_core.models import SecurityConfig
+from guard_core.sync._utils import body_reader
 from guard_core.sync._utils import detection_scan as _detection_scan_module
 from guard_core.sync.core.events import logfire_handler as _logfire_handler_module
 from guard_core.sync.core.events import otel_handler as _otel_handler_module
@@ -45,9 +50,28 @@ IPINFO_TOKEN = os.getenv("IPINFO_TOKEN") or "test_token"
 REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 REDIS_PREFIX = os.getenv("REDIS_PREFIX") or f"test:guard_core:{os.getpid()}:"
 
+_TEST_AGENT_DIR = Path(__file__).parent / "test_agent"
+_TEST_SUS_PATTERNS_DIR = Path(__file__).parent / "test_sus_patterns"
+_TEST_CLOUD_IPS_DIR = Path(__file__).parent / "test_cloud_ips"
+_TEST_UTILS_DIR = Path(__file__).parent / "test_utils"
+_CLOUD_IP_REDIS_PREFIX = f"test:guard_core_cloud_ip_isolation:{uuid.uuid4().hex}:"
+
 
 _DetectionSingletonSnapshot = tuple[Any, Any, Any, Any, Any, Any, Any]
 _detection_singleton_snapshots: dict[int, _DetectionSingletonSnapshot] = {}
+
+_SusPatternsSnapshot = tuple[
+    SusPatternsManager | None, SecurityConfig | None, list[str] | None, set[str]
+]
+_sus_patterns_snapshots: dict[int, _SusPatternsSnapshot] = {}
+
+
+def _snapshot_sus_patterns() -> _SusPatternsSnapshot:
+    instance = SusPatternsManager._instance
+    config = SusPatternsManager._config
+    patterns = instance.patterns.copy() if instance else None
+    custom_patterns = instance.custom_patterns.copy() if instance else set()
+    return instance, config, patterns, custom_patterns
 
 
 def _snapshot_detection_singleton() -> _DetectionSingletonSnapshot:
@@ -313,6 +337,9 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     """Runs before any fixture setup for the item: pluggy calls this
     conftest-registered hookimpl before the earlier-registered core
     _pytest.runner hookimpl that triggers fixture setup."""
+    if item.path.is_relative_to(_TEST_SUS_PATTERNS_DIR):
+        _sus_patterns_snapshots[id(item)] = _snapshot_sus_patterns()
+
     _detection_singleton_snapshots[id(item)] = _snapshot_detection_singleton()
 
     _reset_ip_ban_manager()
@@ -326,6 +353,25 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     """Runs before any fixture finalizer for the item, for the same LIFO
     reason as pytest_runtest_setup above: this hookimpl runs before the
     core _pytest.runner hookimpl that triggers fixture teardown."""
+    sus_patterns_snapshot = _sus_patterns_snapshots.pop(id(item), None)
+    if sus_patterns_snapshot is not None:
+        (
+            original_instance,
+            original_config,
+            original_patterns,
+            original_custom_patterns,
+        ) = sus_patterns_snapshot
+
+        if SusPatternsManager._instance:
+            SusPatternsManager._instance.reset()
+
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+        if original_instance and original_patterns is not None:
+            original_instance.patterns = original_patterns
+            original_instance.custom_patterns = original_custom_patterns
+
     spm = type(sus_patterns_handler)
     spm._instance = sus_patterns_handler
     spm._config = None
@@ -405,6 +451,61 @@ def security_config_redis(ipinfo_db_path: Path) -> SecurityConfig:
     )
 
 
+def _detection_security_config() -> SecurityConfig:
+    return SecurityConfig(
+        detection_compiler_timeout=2.0,
+        detection_max_content_length=10000,
+        detection_preserve_attack_patterns=True,
+        detection_semantic_threshold=0.7,
+        detection_anomaly_threshold=3.0,
+        detection_slow_pattern_threshold=0.1,
+        detection_monitor_history_size=1000,
+        detection_max_tracked_patterns=1000,
+    )
+
+
+@pytest.fixture
+def security_config_with_detection() -> SecurityConfig:
+    return _detection_security_config()
+
+
+@contextmanager
+def sus_patterns_manager_with_detection_ctx() -> Generator[SusPatternsManager, None]:
+    original_instance = SusPatternsManager._instance
+    original_config = SusPatternsManager._config
+
+    SusPatternsManager._instance = None
+    SusPatternsManager._config = None
+
+    manager = SusPatternsManager(_detection_security_config())
+
+    try:
+        yield manager
+    finally:
+        manager.reset()
+        SusPatternsManager._instance = original_instance
+        SusPatternsManager._config = original_config
+
+
+@pytest.fixture
+def sus_patterns_manager_with_detection(
+    security_config_with_detection: SecurityConfig,
+) -> Generator[SusPatternsManager, None]:
+    with sus_patterns_manager_with_detection_ctx() as manager:
+        yield manager
+
+
+def with_detection_manager(
+    func: Callable[[SusPatternsManager], None],
+) -> Callable[[], None]:
+    def wrapper() -> None:
+        with sus_patterns_manager_with_detection_ctx() as manager:
+            func(manager)
+
+    wrapper.__name__ = func.__name__
+    return wrapper
+
+
 @pytest.fixture(autouse=True)
 def redis_cleanup() -> Generator[None, None]:
     config = SecurityConfig(
@@ -440,6 +541,228 @@ def reset_rate_limiter() -> Generator[None, None]:
     yield
     rate_limit_handler._instance = None
     _async_rate_limit_handler._instance = None
+
+
+@pytest.fixture
+def mock_guard_agent() -> Generator[Any, Any, Any]:
+    import sys
+    import types
+
+    mock_guard_agent_module = types.ModuleType("guard_agent")
+    guard_agent_ns = cast(Any, mock_guard_agent_module)
+    guard_agent_ns.SecurityEvent = SecurityEvent
+    guard_agent_ns.SecurityMetric = SecurityMetric
+    guard_agent_ns.AgentConfig = AgentConfig
+
+    mock_models_module = types.ModuleType("guard_agent.models")
+    guard_agent_models_ns = cast(Any, mock_models_module)
+    guard_agent_models_ns.SecurityEvent = SecurityEvent
+    guard_agent_models_ns.SecurityMetric = SecurityMetric
+    guard_agent_models_ns.AgentConfig = AgentConfig
+    guard_agent_ns.models = mock_models_module
+
+    mock_agent_handler = MagicMock()
+    mock_guard_agent_func = MagicMock(return_value=mock_agent_handler)
+    guard_agent_ns.guard_agent = mock_guard_agent_func
+
+    original_modules = {}
+    modules_to_mock = [
+        "guard_agent",
+        "guard_agent.models",
+    ]
+
+    for module_name in modules_to_mock:
+        if module_name in sys.modules:
+            original_modules[module_name] = sys.modules[module_name]
+
+    sys.modules["guard_agent"] = mock_guard_agent_module
+    sys.modules["guard_agent.models"] = mock_models_module
+
+    with (
+        patch(
+            "guard_core.sync.handlers.behavior_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.cloud_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.dynamic_rule_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.decorators.base.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.ipban_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.ratelimit_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.redis_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.handlers.suspatterns_handler.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.sync.utils.SecurityEvent",
+            SecurityEvent,
+            create=True,
+        ),
+        patch(
+            "guard_core.models.AgentConfig",
+            AgentConfig,
+            create=True,
+        ),
+    ):
+        try:
+            yield mock_guard_agent_module
+        finally:
+            for module_name in modules_to_mock:
+                if module_name in original_modules:
+                    sys.modules[module_name] = original_modules[module_name]
+                elif module_name in sys.modules:  # pragma: no cover
+                    del sys.modules[module_name]
+
+
+@pytest.fixture(autouse=True)
+def mock_dependencies(request: pytest.FixtureRequest) -> Generator[Any, Any, Any]:
+    if not request.path.is_relative_to(_TEST_AGENT_DIR):
+        yield
+        return
+
+    request.getfixturevalue("mock_guard_agent")
+    with (
+        patch(
+            "guard_core.sync.handlers.redis_handler.RedisManager.initialize",
+        ),
+        patch(
+            "guard_core.sync.handlers.ipinfo_handler.IPInfoManager.__new__"
+        ) as mock_ipinfo,
+        patch(
+            "guard_core.sync.handlers.cloud_handler.CloudManager.__new__"
+        ) as mock_cloud,
+    ):
+        mock_ipinfo_instance = MagicMock()
+        mock_ipinfo.return_value = mock_ipinfo_instance
+
+        mock_cloud_instance = MagicMock()
+        mock_cloud.return_value = mock_cloud_instance
+        yield
+
+
+@pytest.fixture
+def config() -> SecurityConfig:
+    return SecurityConfig(
+        enable_agent=True,
+        agent_api_key="test-api-key",
+        agent_endpoint="http://test.example.com",
+        enable_dynamic_rules=True,
+        dynamic_rule_interval=60,
+        enable_penetration_detection=True,
+        enable_ip_banning=True,
+        enable_rate_limiting=True,
+        rate_limit=100,
+        rate_limit_window=60,
+        auto_ban_threshold=5,
+    )
+
+
+@pytest.fixture
+def mock_agent_handler() -> MagicMock:
+    handler = MagicMock()
+    handler.get_dynamic_rules = MagicMock(return_value=None)
+    handler.send_event = MagicMock()
+    return handler
+
+
+@pytest.fixture
+def mock_redis_handler() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture
+def security_config_redis_isolated_prefix(ipinfo_db_path: Path) -> SecurityConfig:
+    return SecurityConfig(
+        redis_url=REDIS_URL,
+        redis_prefix=_CLOUD_IP_REDIS_PREFIX,
+        whitelist=["127.0.0.1"],
+        blacklist=["192.168.1.1"],
+        blocked_user_agents=[r"badbot"],
+        auto_ban_threshold=3,
+        auto_ban_duration=300,
+        custom_log_file="test_log.log",
+        custom_error_responses={
+            403: "Custom Forbidden",
+            429: "Custom Too Many Requests",
+        },
+        enable_cors=True,
+        cors_allow_origins=["https://example.com"],
+        cors_allow_methods=["GET", "POST"],
+        cors_allow_headers=["*"],
+        cors_allow_credentials=True,
+        cors_expose_headers=["X-Custom-Header"],
+        cors_max_age=600,
+    )
+
+
+def _flush_cloud_ip_redis_namespace() -> None:
+    config = SecurityConfig(redis_url=REDIS_URL, redis_prefix=_CLOUD_IP_REDIS_PREFIX)
+    redis_handler = RedisManager(config)
+    redis_handler.initialize()
+    try:
+        redis_handler.delete_pattern("*")
+    except Exception:
+        pass
+    finally:
+        redis_handler.close()
+
+
+@pytest.fixture(autouse=True)
+def cloud_ip_redis_isolation(
+    request: pytest.FixtureRequest,
+) -> Generator[None, None]:
+    if not request.path.is_relative_to(_TEST_CLOUD_IPS_DIR):
+        yield
+        return
+    _flush_cloud_ip_redis_namespace()
+    yield
+    _flush_cloud_ip_redis_namespace()
+
+
+@pytest.fixture(autouse=True)
+def _zero_straddle_overlap_by_default(
+    request: pytest.FixtureRequest,
+) -> Generator[Any, Any, Any]:
+    if not request.path.is_relative_to(_TEST_UTILS_DIR):
+        yield
+        return
+
+    def _zero_overlap() -> int:
+        return 0
+
+    with patch.object(body_reader, "_straddle_overlap_bytes", _zero_overlap):
+        yield
 
 
 _GUARD_AGENT_FINDER_ATTR = "_guard_core_agent_import_finder"

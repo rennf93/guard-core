@@ -46,7 +46,7 @@ dev = [
     "pip-audit",
     "pre-commit",
     "pymarkdownlnt",
-    "pytest<9",
+    "pytest",
     "pytest-asyncio",
     "pytest-cov",
     "pytest-mock",

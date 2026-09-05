@@ -24,7 +24,7 @@ Public redaction helpers, ReDoS validator latency, phantom ban, singleton resets
 ### Changed
 
 - **v4.0.0 changelog correction.** Proxy identity headers skip only the `ssrf` category for IP-shaped values; every other category still scans them. Corrected in place below.
-- **Dev dependency `pytest` pinned below 9** until pytest-dev/pytest#14971 (nested conftest fixtures dropped when file arguments interleave a nested directory with its parent) ships fixed.
+- **Dev dependency `pytest` on 9.x.** Every fixture lives in the root conftest and a gate test fails if a nested conftest defines one, so pytest-dev/pytest#14971 cannot drop a fixture.
 - **The live-smoke driver clears only its own `smoke:` keys** instead of flushing the whole Redis database.
 
 ### Fixed
