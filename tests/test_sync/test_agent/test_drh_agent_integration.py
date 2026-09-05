@@ -1123,6 +1123,30 @@ def test_apply_ip_bans_with_failures(
         assert "Failed to ban IP 10.0.0.50: Ban failed" in caplog.text
 
 
+def test_apply_ip_bans_does_not_log_success_when_refused(
+    config: SecurityConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    DynamicRuleManager._instance = None
+
+    manager = DynamicRuleManager(config)
+
+    with patch(
+        "guard_core.sync.handlers.ipban_handler.ip_ban_manager"
+    ) as mock_ban_manager:
+        mock_ban_manager.ban_ip = MagicMock(return_value=False)
+
+        ip_list = ["127.0.0.1"]
+        duration = 3600
+
+        with caplog.at_level(logging.INFO):
+            manager._apply_ip_bans(ip_list, duration)
+
+        mock_ban_manager.ban_ip.assert_called_once_with(
+            "127.0.0.1", 3600, "dynamic_rule"
+        )
+        assert "Dynamic rule: Banned IP 127.0.0.1" not in caplog.text
+
+
 def test_apply_ip_whitelist_success(
     config: SecurityConfig, caplog: pytest.LogCaptureFixture
 ) -> None:

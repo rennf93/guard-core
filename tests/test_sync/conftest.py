@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import FrameType
@@ -132,6 +132,42 @@ def _reset_cloud_handler() -> None:
     cloud_handler._refresh_task = None
     cloud_handler._refresh_in_flight = False
     cloud_handler._empty_ranges_warned_at = {}
+
+
+def _reset_ipinfo_manager() -> None:
+    instance = IPInfoManager._instance
+    if instance is not None:
+        if instance.reader:
+            instance.reader.close()
+        instance.agent_handler = None
+        instance.redis_handler = None
+    IPInfoManager._instance = None
+
+
+def _reset_dynamic_rule_manager() -> None:
+    instance = DynamicRuleManager._instance
+    if instance is not None:
+        if instance.update_task:
+            instance.stop()
+        instance.agent_handler = None
+        instance.redis_handler = None
+    DynamicRuleManager._instance = None
+
+
+def _reset_redis_manager() -> None:
+    instance = RedisManager._instance
+    if instance is not None:
+        instance.close()
+        instance.agent_handler = None
+    RedisManager._instance = None
+
+
+SINGLETON_RESET_HELPERS: dict[str, Callable[[], Any]] = {
+    "CloudManager": _reset_cloud_handler,
+    "IPInfoManager": _reset_ipinfo_manager,
+    "DynamicRuleManager": _reset_dynamic_rule_manager,
+    "RedisManager": _reset_redis_manager,
+}
 
 
 def _reset_detection_scan_budgets() -> None:
@@ -283,12 +319,7 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     _reset_cloud_handler()
     _reset_detection_scan_budgets()
     _reset_security_headers_manager()
-
-    if IPInfoManager._instance:
-        if IPInfoManager._instance.reader:
-            IPInfoManager._instance.reader.close()
-        IPInfoManager._instance.agent_handler = None
-        IPInfoManager._instance = None
+    _reset_ipinfo_manager()
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
@@ -313,11 +344,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _reset_cloud_handler()
     _reset_detection_scan_budgets()
     _reset_security_headers_manager()
-
-    dynamic_rule_instance = DynamicRuleManager._instance
-    if dynamic_rule_instance and dynamic_rule_instance.update_task:
-        dynamic_rule_instance.stop()
-    DynamicRuleManager._instance = None
+    _reset_dynamic_rule_manager()
 
     snapshot = _detection_singleton_snapshots.pop(id(item), None)
     if snapshot is not None:

@@ -143,15 +143,16 @@ class IpBanOperationsMixin(IpBanEventMixin):
 
     def ban_ip(
         self, ip: str, duration: int, reason: str = "threshold_exceeded"
-    ) -> None:
+    ) -> bool:
         ip = _canonicalize_ip(ip)
         self._assert_positive_duration(duration)
         refusal = self._self_dos_refusal_reason(ip)
         if refusal is not None:
             self._log_refused_ban(ip, refusal)
-            return
+            return False
         self._warn_if_private_target(ip)
         if "/" in ip:
             self._ban_cidr(ip, duration)
         else:
             self._ban_exact_ip(ip, duration, reason)
+        return True

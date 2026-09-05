@@ -72,4 +72,6 @@ async def reset_global_state() -> None:
     manager.banned_ips.clear()
     manager.banned_networks = []
     manager.evictions_count = 0
+    manager.redis_handler = None
+    manager.agent_handler = None
     ip_ban_manager = manager

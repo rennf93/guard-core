@@ -124,4 +124,6 @@ security_headers_manager = SecurityHeadersManager()
 
 async def reset_global_state() -> None:
     global security_headers_manager
-    security_headers_manager = SecurityHeadersManager()
+    manager = SecurityHeadersManager()
+    await manager.reset()
+    security_headers_manager = manager

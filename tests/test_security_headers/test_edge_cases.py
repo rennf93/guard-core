@@ -45,6 +45,23 @@ async def test_reset_global_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reset_global_state_drops_a_populated_redis_handler_reference() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    manager = SecurityHeadersManager()
+    manager.redis_handler = AsyncMock()
+    manager.redis_handler.get_connection = MagicMock(
+        side_effect=RuntimeError("sentinel redis_handler, no real connection")
+    )
+    manager.agent_handler = AsyncMock()
+
+    await reset_global_state()
+
+    assert manager.redis_handler is None
+    assert manager.agent_handler is None
+
+
+@pytest.mark.asyncio
 async def test_get_headers_with_cached_non_dict_value(
     headers_manager: SecurityHeadersManager,
 ) -> None:

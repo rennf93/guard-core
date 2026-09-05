@@ -3,7 +3,7 @@ import os
 import re
 import secrets
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import FrameType
@@ -47,6 +47,8 @@ REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379"
 _REDIS_PREFIX_BASE = os.getenv("REDIS_PREFIX") or "test:guard_core:"
 REDIS_PREFIX = f"{_REDIS_PREFIX_BASE}{os.getpid()}:{secrets.token_hex(4)}:"
 GUARD_TESTS_GC_PER_TEST = os.getenv("GUARD_TESTS_GC_PER_TEST") == "1"
+_MAX_TEST_SECONDS_ENV = "GUARD_TESTS_MAX_TEST_SECONDS"
+_TEST_NODE_DURATIONS: dict[str, float] = {}
 
 
 @pytest.fixture(autouse=True)
@@ -118,6 +120,42 @@ def _reset_cloud_handler() -> None:
     cloud_handler._refresh_task = None
     cloud_handler._refresh_in_flight = False
     cloud_handler._empty_ranges_warned_at = {}
+
+
+def _reset_ipinfo_manager() -> None:
+    instance = IPInfoManager._instance
+    if instance is not None:
+        if instance.reader:
+            instance.reader.close()
+        instance.agent_handler = None
+        instance.redis_handler = None
+    IPInfoManager._instance = None
+
+
+async def _reset_dynamic_rule_manager() -> None:
+    instance = DynamicRuleManager._instance
+    if instance is not None:
+        if instance.update_task:
+            await instance.stop()
+        instance.agent_handler = None
+        instance.redis_handler = None
+    DynamicRuleManager._instance = None
+
+
+async def _reset_redis_manager() -> None:
+    instance = RedisManager._instance
+    if instance is not None:
+        await instance.close()
+        instance.agent_handler = None
+    RedisManager._instance = None
+
+
+SINGLETON_RESET_HELPERS: dict[str, Callable[[], Any]] = {
+    "CloudManager": _reset_cloud_handler,
+    "IPInfoManager": _reset_ipinfo_manager,
+    "DynamicRuleManager": _reset_dynamic_rule_manager,
+    "RedisManager": _reset_redis_manager,
+}
 
 
 def _reset_detection_scan_budgets() -> None:
@@ -278,12 +316,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     _reset_cloud_handler()
     _reset_detection_scan_budgets()
     await _reset_security_headers_manager()
-
-    if IPInfoManager._instance:
-        if IPInfoManager._instance.reader:
-            IPInfoManager._instance.reader.close()
-        IPInfoManager._instance.agent_handler = None
-        IPInfoManager._instance = None
+    _reset_ipinfo_manager()
 
     yield
     spm = type(sus_patterns_handler)
@@ -304,11 +337,7 @@ async def reset_state() -> AsyncGenerator[None, None]:
     _reset_cloud_handler()
     _reset_detection_scan_budgets()
     await _reset_security_headers_manager()
-
-    dynamic_rule_instance = DynamicRuleManager._instance
-    if dynamic_rule_instance and dynamic_rule_instance.update_task:
-        await dynamic_rule_instance.stop()
-    DynamicRuleManager._instance = None
+    await _reset_dynamic_rule_manager()
 
 
 @pytest.fixture
@@ -466,6 +495,40 @@ def _unmuted_guard_agent_telemetry_models() -> list[str]:
     ]
 
 
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> None:
+    _TEST_NODE_DURATIONS[item.nodeid] = (
+        _TEST_NODE_DURATIONS.get(item.nodeid, 0.0) + call.duration
+    )
+
+
+def _test_duration_offenders(ceiling: float) -> list[tuple[float, str]]:
+    return sorted(
+        (
+            (duration, nodeid)
+            for nodeid, duration in _TEST_NODE_DURATIONS.items()
+            if duration > ceiling
+        ),
+        key=lambda offender: (-offender[0], offender[1]),
+    )
+
+
+def _enforce_test_duration_ceiling(session: pytest.Session) -> None:
+    ceiling_raw = os.getenv(_MAX_TEST_SECONDS_ENV)
+    if ceiling_raw is None:
+        return
+    ceiling = float(ceiling_raw)
+    offenders = _test_duration_offenders(ceiling)
+    if not offenders:
+        return
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    print(
+        f"\n{len(offenders)} test(s) exceeded the {ceiling:g}s "
+        f"{_MAX_TEST_SECONDS_ENV} ceiling:"
+    )
+    for duration, nodeid in offenders:
+        print(f"  {duration:.2f}s  {nodeid}")
+
+
 def pytest_configure(config: pytest.Config) -> None:
     if getattr(sys, _GUARD_AGENT_FINDER_ATTR, None) is not None:
         return
@@ -494,3 +557,4 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "guard_agent is in sys.modules at session end but these telemetry "
         "models were never muted: " + ", ".join(unmuted)
     )
+    _enforce_test_duration_ceiling(session)

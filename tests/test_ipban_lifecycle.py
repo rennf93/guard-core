@@ -253,9 +253,13 @@ async def test_reset_global_state_clears_a_populated_singleton() -> None:
     manager = IPBanManager()
     manager.banned_ips["203.0.113.250"] = True
     manager.banned_networks = [(ipaddress.ip_network("203.0.113.0/24"), 0.0)]
+    manager.redis_handler = AsyncMock()
+    manager.agent_handler = AsyncMock()
 
     await reset_global_state()
 
     assert ipban_handler.ip_ban_manager is manager
     assert "203.0.113.250" not in manager.banned_ips
     assert manager.banned_networks == []
+    assert manager.redis_handler is None
+    assert manager.agent_handler is None

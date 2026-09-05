@@ -13,6 +13,7 @@ from guard_core.models import SecurityConfig
 class SecurityHeadersCacheMixin:
     headers_cache: TTLCache
     redis_handler: Any
+    agent_handler: Any
     logger: logging.Logger
     enabled: bool
     custom_headers: dict[str, str]
@@ -124,3 +125,6 @@ class SecurityHeadersCacheMixin:
                         await conn.delete(*keys)
             except Exception as e:
                 self.logger.warning(f"Failed to clear Redis cache: {e}")
+
+        self.redis_handler = None
+        self.agent_handler = None

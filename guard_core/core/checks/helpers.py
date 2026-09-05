@@ -386,9 +386,10 @@ async def _resolve_and_apply_threshold_ban(
     order), then the flat ``auto_ban_threshold``/``auto_ban_duration`` against the
     total of all categories in ``ip_counts``. Returns ``(duration, ban_reason,
     category)`` when a ban was applied (``category`` is ``None`` for the flat
-    fallback), or ``None`` when banning is disabled or no threshold crossed. Callers
-    own their own logging: the middleware path logs via ``log_activity``, the
-    request-free ``check_rate_limit_by_ip`` primitive logs via the module logger.
+    fallback), or ``None`` when banning is disabled, no threshold crossed, or
+    ``ban_ip`` refused the ban (self-DoS guard). Callers own their own logging:
+    the middleware path logs via ``log_activity``, the request-free
+    ``check_rate_limit_by_ip`` primitive logs via the module logger.
     """
     if not config.enable_ip_banning:
         return None
@@ -397,12 +398,16 @@ async def _resolve_and_apply_threshold_ban(
         if entry is None or ip_counts.get(category, 0) < entry.threshold:
             continue
         ban_reason = f"{reason}:{category}"
-        await ip_ban_manager.ban_ip(client_ip, entry.duration, ban_reason)
+        applied = await ip_ban_manager.ban_ip(client_ip, entry.duration, ban_reason)
+        if not applied:
+            return None
         return entry.duration, ban_reason, category
     total = sum(ip_counts.values())
     if total < config.auto_ban_threshold:
         return None
-    await ip_ban_manager.ban_ip(client_ip, config.auto_ban_duration, reason)
+    applied = await ip_ban_manager.ban_ip(client_ip, config.auto_ban_duration, reason)
+    if not applied:
+        return None
     return config.auto_ban_duration, reason, None
 
 

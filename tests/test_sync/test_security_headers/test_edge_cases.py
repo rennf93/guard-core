@@ -43,6 +43,22 @@ def test_reset_global_state() -> None:
         SecurityHeadersManager._instance = original_instance
 
 
+def test_reset_global_state_drops_a_populated_redis_handler_reference() -> None:
+    from unittest.mock import MagicMock
+
+    manager = SecurityHeadersManager()
+    manager.redis_handler = MagicMock()
+    manager.redis_handler.get_connection = MagicMock(
+        side_effect=RuntimeError("sentinel redis_handler, no real connection")
+    )
+    manager.agent_handler = MagicMock()
+
+    reset_global_state()
+
+    assert manager.redis_handler is None
+    assert manager.agent_handler is None
+
+
 def test_get_headers_with_cached_non_dict_value(
     headers_manager: SecurityHeadersManager,
 ) -> None:

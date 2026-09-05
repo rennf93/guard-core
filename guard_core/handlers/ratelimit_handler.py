@@ -570,6 +570,7 @@ class RateLimitManager:
                 self.logger.error(f"Failed to reset Redis rate limits: {str(e)}")
 
         self.redis_handler = None
+        self.agent_handler = None
 
 
 rate_limit_handler = RateLimitManager

@@ -60,6 +60,8 @@ class DynamicRuleManager(DynamicRuleApplicationMixin, DynamicRuleSnapshotMixin):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance.config = config
+            cls._instance.agent_handler = None
+            cls._instance.redis_handler = None
             cls._instance.logger = logging.getLogger(
                 "guard_core.sync.handlers.dynamic_rule"
             )
