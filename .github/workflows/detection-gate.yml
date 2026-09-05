@@ -66,6 +66,7 @@ jobs:
         shell: bash
         run: |
           REDIS_URL='redis://localhost:6379' \
+          GUARD_TESTS_MAX_TEST_SECONDS=300 \
           uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report.txt
 
       - name: Build the PR comment body
@@ -94,6 +95,68 @@ jobs:
             gh api graphql -F query=@minimize.graphql -F id="$node_id" > /dev/null
           done
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file detection-comment.md
+
+  detection-gate-cpu-load:
+    name: detection-gate-cpu-load
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        run: |
+          pip install uv
+
+      - name: Install dependencies (same extras as the Dockerfile)
+        run: |
+          uv sync --extra dev --extra otel --extra logfire
+
+      - name: Start a CPU burner on every core
+        run: |
+          : > burner_pids.txt
+          for _ in $(seq 1 "$(nproc)"); do
+            python3 -c "while True: pass" &
+            echo $! >> burner_pids.txt
+          done
+
+      - name: Run the detection gate suite under CPU load
+        shell: bash
+        run: |
+          REDIS_URL='redis://localhost:6379' \
+          GUARD_TESTS_MAX_TEST_SECONDS=300 \
+          uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report-cpu-load.txt
+
+      - name: Stop the CPU burner
+        if: always()
+        run: |
+          while read -r pid; do
+            kill "$pid" 2>/dev/null || true
+          done < burner_pids.txt
+
+      - name: Upload the CPU-load detection gate report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: detection-report-cpu-load
+          path: detection-report-cpu-load.txt
+          if-no-files-found: ignore
 
   detection-corpus:
     runs-on: ubuntu-latest

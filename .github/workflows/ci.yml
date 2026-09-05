@@ -125,7 +125,7 @@ jobs:
 
       - name: Run tests
         run: |
-          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' uv run pytest -v --cov=guard_core --cov-fail-under=100 -W error
+          IPINFO_TOKEN='${{ secrets.IPINFO_TOKEN }}' REDIS_URL='redis://localhost:6379' GUARD_TESTS_MAX_TEST_SECONDS=60 uv run pytest -v --cov=guard_core --cov-fail-under=100 -W error
 
       - name: Notify Success on Slack Channel
         uses: rennf93/good-comms@master
@@ -202,7 +202,7 @@ jobs:
 
       - name: Run tests in Docker
         run: |
-          COMPOSE_BAKE=true PYTHON_VERSION=3.10 docker compose run --rm --build guard-core pytest -q -p no:cacheprovider -W error --ignore=tests/live_smoke --cov=guard_core --cov-branch --cov-fail-under=100
+          COMPOSE_BAKE=true PYTHON_VERSION=3.10 docker compose run --rm --build -e GUARD_TESTS_MAX_TEST_SECONDS=60 guard-core pytest -q -p no:cacheprovider -W error --ignore=tests/live_smoke --cov=guard_core --cov-branch --cov-fail-under=100
 
       - name: Tear down Docker Compose
         if: always()
