@@ -7,7 +7,7 @@ from guard_core.detection_engine._redos_ambiguous_tail import (
     _representative_char_for_atom,
 )
 from guard_core.detection_engine._redos_class_intersection import (
-    _class_intersection_fills,
+    _class_intersection_probe_units,
 )
 from guard_core.detection_engine._redos_literal_runs import _adversarial_literal_runs
 from guard_core.detection_engine._redos_reach_probe import _synthesize_reaching_probe
@@ -62,10 +62,13 @@ def _leading_literal_prefix(pattern: str) -> str:
     return "".join(prefix)
 
 
-def _fill_to_length(prefix: str, fill_char: str, length: int) -> str:
+def _fill_to_length(prefix: str, fill_char: str, stray: str, length: int) -> str:
     if length <= len(prefix):
         return prefix[:length]
-    return prefix + fill_char * (length - len(prefix))
+    body_length = length - len(prefix)
+    if body_length > 1:
+        return prefix + fill_char * (body_length - 1) + stray
+    return prefix + fill_char * body_length
 
 
 def _literal_run_builders(pattern: str) -> list[Callable[[int], str]]:
@@ -89,8 +92,8 @@ def _reach_probe_prefix_builders(pattern: str) -> list[Callable[[int], str]]:
 def _class_intersection_builders(pattern: str) -> list[Callable[[int], str]]:
     prefix = _leading_literal_prefix(pattern)
     return [
-        functools.partial(_fill_to_length, prefix, fill_char)
-        for fill_char in _class_intersection_fills(pattern)
+        functools.partial(_fill_to_length, prefix, fill_char, stray)
+        for fill_char, stray in _class_intersection_probe_units(pattern)
     ]
 
 

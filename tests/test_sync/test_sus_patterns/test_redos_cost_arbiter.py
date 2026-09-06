@@ -1,5 +1,7 @@
+import itertools
 import logging
 import re
+import signal
 import time
 from collections.abc import Callable
 from typing import Any
@@ -9,8 +11,20 @@ import pytest
 
 from guard_core.sync.detection_engine._redos_ambiguous_tail import _atom_char_set
 from guard_core.sync.detection_engine._redos_class_intersection import (
+    _ALPHABET,
+    _ATOMIC_GROUP,
+    _category_charset,
     _class_intersection_fills,
-    _quantified_atom_sequence,
+    _class_intersection_probe_units,
+    _class_item_charset,
+    _group_crossing_result,
+    _NonPairingSlot,
+    _pairing_charset,
+    _pairing_units_from,
+    _PairingAtom,
+    _pattern_slots,
+    _regex_parser,
+    _stray_for_pair,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _LOAD_FACTOR_CEILING,
@@ -68,15 +82,104 @@ def _timing(
     return ReachProbeTiming(samples_by_size, load_factor)
 
 
-def test_quantified_atom_sequence_marks_boundaries_between_groups() -> None:
-    sequence = _quantified_atom_sequence(r"[^<>]*(x)[\s/]+")
-    assert sequence == [("[^<>]", True), None, None, ("[\\s/]", False)]
+def test_pattern_slots_marks_a_capturing_group_as_a_boundary_slot() -> None:
+    slots = _pattern_slots(r"[^<>]*(x)[\s/]+")
+    not_lt_gt = frozenset(ch for ch in _ALPHABET if ch not in "<>")
+    slash_or_space = frozenset(ch for ch in _ALPHABET if re.fullmatch(r"[\s/]", ch))
+    assert slots == [
+        _PairingAtom(not_lt_gt, allows_zero=True, unbounded=True),
+        _NonPairingSlot(
+            is_boundary=True,
+            inner=[[_PairingAtom(frozenset("x"), allows_zero=False, unbounded=False)]],
+        ),
+        _PairingAtom(slash_or_space, allows_zero=False, unbounded=True),
+    ]
+
+
+def test_pattern_slots_returns_none_when_the_pattern_fails_to_parse() -> None:
+    assert _pattern_slots(r"[unterminated") is None
+    assert _class_intersection_probe_units(r"[unterminated") == []
+
+
+def test_pattern_slots_treats_a_bare_negation_as_a_not_literal_pairing_atom() -> None:
+    slots = _pattern_slots(r"[^a]")
+    assert slots == [
+        _PairingAtom(_ALPHABET - frozenset("a"), allows_zero=False, unbounded=False)
+    ]
+
+
+def test_pattern_slots_widens_any_to_the_full_alphabet_under_dotall() -> None:
+    dotall_slots = _pattern_slots(r"(?s).")
+    plain_slots = _pattern_slots(r".")
+    assert dotall_slots == [_PairingAtom(_ALPHABET, allows_zero=False, unbounded=False)]
+    assert plain_slots == [
+        _PairingAtom(_ALPHABET - frozenset("\n"), allows_zero=False, unbounded=False)
+    ]
+
+
+def test_pattern_slots_treats_a_backreference_as_a_hard_boundary() -> None:
+    slots = _pattern_slots(r"(a)\1")
+    assert slots is not None
+    assert slots[1] == _NonPairingSlot(is_boundary=True, inner=None)
+
+
+def test_class_intersection_fills_crosses_a_multi_slot_transparent_group() -> None:
+    fills = _class_intersection_fills(r"'\s*(?:\d*(?!y)(z))+\s*--")
+    assert fills == []
+
+
+def test_class_intersection_fills_stops_crossing_at_a_nested_backreference() -> None:
+    fills = _class_intersection_fills(r"'\s*(?:(\s)\1z)+\s*--")
+    assert fills == []
+
+
+def test_category_charset_falls_back_to_full_alphabet_for_unmapped_category() -> None:
+    assert _category_charset(object()) == _ALPHABET
+
+
+def test_class_item_charset_falls_back_to_the_full_alphabet_for_an_unknown_item() -> (
+    None
+):
+    assert _class_item_charset(object(), None) == _ALPHABET
+
+
+def test_pairing_charset_falls_back_to_category_charset_for_a_bare_category_op() -> (
+    None
+):
+    charset = _pairing_charset(_regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0)
+    assert charset == frozenset(ch for ch in _ALPHABET if ch.isdigit())
+
+
+def test_group_crossing_result_rejects_past_the_max_depth() -> None:
+    atom = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    alternatives: list[list[Any]] = [[atom]]
+    assert _group_crossing_result(alternatives, frozenset("a"), 999) is None
+
+
+def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -> None:
+    slots: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
+    assert _pairing_units_from(slots, 0) == []
+
+
+@pytest.mark.skipif(
+    _ATOMIC_GROUP is None,
+    reason="atomic groups require re._parser (Python 3.11+)",
+)
+def test_pattern_slots_treats_an_atomic_group_as_a_group_slot() -> None:
+    slots = _pattern_slots(r"(?>a)+")
+    assert slots == [
+        _NonPairingSlot(
+            is_boundary=True,
+            inner=[[_PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)]],
+            unbounded=True,
+        )
+    ]
 
 
 def test_class_intersection_fills_finds_space_or_slash_for_event_handler() -> None:
     fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
     assert fills
-    assert any(c in " \t\n\r\x0b\x0c/" for c in fills)
+    assert all(c in " \t\n\r\x0b\x0c/" for c in fills)
 
 
 def test_class_intersection_fills_ignores_disjoint_adjacent_classes() -> None:
@@ -96,6 +199,333 @@ def test_class_intersection_fills_does_not_pair_across_a_mandatory_middle_atom()
     None
 ):
     assert _class_intersection_fills(r"\s*[\);]+\s*") == []
+
+
+def test_class_intersection_fills_pairs_across_a_zero_admitting_group_middle() -> None:
+    assert _class_intersection_fills(r"'\s*(?:ab)*\s*--") == [
+        sorted(_atom_char_set(r"\s"))[0]
+    ]
+
+
+def test_class_intersection_fills_pairs_across_a_negative_lookahead_middle() -> None:
+    assert _class_intersection_fills(r"'\s*(?!x)\s*--") == [
+        sorted(_atom_char_set(r"\s"))[0]
+    ]
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_zero_admitting_group_and_lookahead_middles() -> None:
+    compiler = PatternCompiler()
+    for pattern in (r"'\s*(?:ab)*\s*--", r"'\s*(?!x)\s*--"):
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is False, (
+            f"expected {pattern!r} to be rejected once a zero-admitting group or "
+            f"lookaround is crossed by the class-intersection walk, got safe="
+            f"{is_safe} ({reason})"
+        )
+
+
+def test_class_intersection_fills_crosses_a_mandatory_group_of_overlapping_atoms() -> (
+    None
+):
+    assert _class_intersection_fills(r"'\s*(\s+)\s*--") == [
+        sorted(_atom_char_set(r"\s"))[0]
+    ]
+
+
+def test_class_intersection_fills_crosses_group_with_one_crossable_alt() -> None:
+    assert _class_intersection_fills(r"'\s*(?:\s+|,)\s*--") == [
+        sorted(_atom_char_set(r"\s"))[0]
+    ]
+
+
+def test_class_intersection_fills_emits_a_fill_for_an_unbounded_crossable_group() -> (
+    None
+):
+    assert _class_intersection_fills(r"'\s*(?:\s+|,)+\s*--")
+
+
+def test_class_intersection_fills_skips_a_non_overlapping_mandatory_group() -> None:
+    assert _class_intersection_fills(r"'\s*(?:AND|OR)\s*--") == []
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_mandatory_group_crossed_by_overlapping_atoms() -> (
+    None
+):
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"'\s*(?:\s+)\s*--")
+    assert is_safe is False, (
+        "expected the mandatory group '(?:\\s+)' to be crossed by the surrounding "
+        f"\\s* pair, got safe={is_safe} ({reason})"
+    )
+
+
+def _element_charset(element: str) -> frozenset[str]:
+    return frozenset(ch for ch in _ALPHABET if re.fullmatch(element, ch))
+
+
+def _element_allows_zero(element: str) -> bool:
+    return re.fullmatch(element, "") is not None
+
+
+def _element_unbounded(element: str, charset: frozenset[str]) -> bool:
+    if not charset:
+        return False
+    sample = sorted(charset)[0]
+    return bool(re.fullmatch(element, sample * 200)) and bool(
+        re.fullmatch(element, sample * 201)
+    )
+
+
+def _charset_slot(element: str) -> tuple[Any, ...]:
+    charset = _element_charset(element)
+    return (
+        "charset",
+        charset,
+        _element_allows_zero(element),
+        _element_unbounded(element, charset),
+    )
+
+
+_GRAMMAR_LEFT_ATOMS = [r"\s*", r"[a-z ]+", r"[^<>]*", r"\w*"]
+_GRAMMAR_RIGHT_ATOMS = [r"\s*", r"[ a-z]*", r"[^\"']+", r"\w+"]
+_GRAMMAR_ZERO_ADMITTING_MIDDLES = [
+    "",
+    r"[\);]*",
+    r"x?",
+    r"[0-9]{0,3}",
+    r"(?:ab)*",
+    r"(?!x)",
+    r"\d*?",
+]
+_GRAMMAR_MANDATORY_MIDDLES = [
+    r"[\);]+",
+    r"x",
+    r"\.",
+    r"[0-9]{1,3}",
+    r"(?:ab)+",
+    r"-",
+    r"(?:\s+)",
+    r"(?:\s|,)",
+    r"(?:AND|OR)",
+]
+_GRAMMAR_HAND_SPECIFIED_MIDDLES = frozenset(
+    {r"(?:ab)*", r"(?!x)", r"(?:ab)+", r"(?:AND|OR)"}
+)
+
+_GRAMMAR_LEFT_META = {a: _charset_slot(a) for a in _GRAMMAR_LEFT_ATOMS}
+_GRAMMAR_RIGHT_META = {a: _charset_slot(a) for a in _GRAMMAR_RIGHT_ATOMS}
+_GRAMMAR_MIDDLE_META = {
+    mid: _charset_slot(mid)
+    for mid in _GRAMMAR_ZERO_ADMITTING_MIDDLES + _GRAMMAR_MANDATORY_MIDDLES
+    if mid not in _GRAMMAR_HAND_SPECIFIED_MIDDLES
+}
+_GRAMMAR_MIDDLE_META[r"(?:ab)*"] = ("transparent",)
+_GRAMMAR_MIDDLE_META[r"(?!x)"] = ("transparent",)
+_GRAMMAR_MIDDLE_META[r"(?:ab)+"] = (
+    "boundary_group",
+    [[(_element_charset("a"), False), (_element_charset("b"), False)]],
+    True,
+)
+_GRAMMAR_MIDDLE_META[r"(?:AND|OR)"] = (
+    "boundary_group",
+    [
+        [
+            (_element_charset("A"), False),
+            (_element_charset("N"), False),
+            (_element_charset("D"), False),
+        ],
+        [(_element_charset("O"), False), (_element_charset("R"), False)],
+    ],
+    False,
+)
+
+
+def _oracle_alternative_crossing(
+    atoms: list[tuple[frozenset[str], bool]], shared: frozenset[str]
+) -> frozenset[str] | None:
+    local = shared
+    for atom_charset, atom_allows_zero in atoms:
+        if atom_allows_zero:
+            continue
+        overlap = atom_charset & local
+        if not overlap:
+            return None
+        local = overlap
+    return local
+
+
+def _oracle_group_crossing(
+    alternatives: list[list[tuple[frozenset[str], bool]]], shared: frozenset[str]
+) -> frozenset[str] | None:
+    crossed = [
+        result
+        for alt in alternatives
+        if (result := _oracle_alternative_crossing(alt, shared)) is not None
+    ]
+    if not crossed:
+        return None
+    return frozenset[str]().union(*crossed)
+
+
+def _grammar_walk_hits_fill(
+    charset: frozenset[str],
+    allows_zero: bool,
+    unbounded: bool,
+    rest: list[tuple[Any, ...]],
+) -> bool:
+    if not unbounded:
+        return False
+    shared = charset
+    for slot in rest:
+        if slot[0] == "transparent":
+            continue
+        if slot[0] == "boundary_group":
+            _, alternatives, group_unbounded = slot
+            crossing = _oracle_group_crossing(alternatives, shared)
+            if crossing is None:
+                return False
+            if group_unbounded:
+                return True
+            shared = crossing
+            continue
+        _, slot_charset, slot_allows_zero, slot_unbounded = slot
+        overlap = slot_charset & shared
+        if not overlap:
+            if not slot_allows_zero:
+                return False
+            continue
+        if slot_unbounded:
+            return True
+        if not slot_allows_zero:
+            shared = overlap
+    return False
+
+
+def _grammar_expects_nonempty_fills(slots: list[tuple[Any, ...]]) -> bool:
+    return any(
+        _grammar_walk_hits_fill(slot[1], slot[2], slot[3], slots[i + 1 :])
+        for i, slot in enumerate(slots)
+        if slot[0] == "charset"
+    )
+
+
+def test_class_intersection_fills_matches_char_set_expectation_across_grammar() -> None:
+    combos = itertools.product(
+        _GRAMMAR_LEFT_ATOMS,
+        _GRAMMAR_RIGHT_ATOMS,
+        _GRAMMAR_ZERO_ADMITTING_MIDDLES + _GRAMMAR_MANDATORY_MIDDLES,
+        _GRAMMAR_ZERO_ADMITTING_MIDDLES + _GRAMMAR_MANDATORY_MIDDLES,
+    )
+    for left, right, mid1, mid2 in combos:
+        pattern = left + mid1 + mid2 + right
+        slots = [
+            _GRAMMAR_LEFT_META[left],
+            _GRAMMAR_MIDDLE_META[mid1],
+            _GRAMMAR_MIDDLE_META[mid2],
+            _GRAMMAR_RIGHT_META[right],
+        ]
+        expected = _grammar_expects_nonempty_fills(slots)
+        fills = _class_intersection_fills(pattern)
+        assert bool(fills) == expected, (
+            f"pattern={pattern!r} expected_nonempty={expected} fills={fills}"
+        )
+
+
+_GRAMMAR_TIMING_MIDDLES = [
+    "",
+    r"[\);]*",
+    r"x?",
+    r"(?:ab)*",
+    r"(?!x)",
+    r"[\);]+",
+    r"(?:ab)+",
+    r"(?:AND|OR)",
+    r"(?:\s+)",
+]
+_TIMING_PROBE_ALARM_SECONDS = 1
+
+
+class _TimingProbeTimedOut(Exception):
+    pass
+
+
+def _timing_probe_alarm_handler(*_signal_args: object) -> None:
+    raise _TimingProbeTimedOut
+
+
+def _min_process_time(compiled: re.Pattern, probe: str, samples: int = 3) -> float:
+    best = float(_TIMING_PROBE_ALARM_SECONDS)
+    previous_handler = signal.signal(signal.SIGALRM, _timing_probe_alarm_handler)
+    try:
+        for _ in range(samples):
+            signal.alarm(_TIMING_PROBE_ALARM_SECONDS)
+            try:
+                start = time.process_time()
+                compiled.search(probe)
+                elapsed = time.process_time() - start
+            except _TimingProbeTimedOut:
+                elapsed = float(_TIMING_PROBE_ALARM_SECONDS)
+            finally:
+                signal.alarm(0)
+            best = min(best, elapsed)
+            if elapsed >= _TIMING_PROBE_ALARM_SECONDS:
+                break
+    finally:
+        signal.signal(signal.SIGALRM, previous_handler)
+    return best
+
+
+def _growth_ratio(pattern: str, fill: str, stray: str) -> float:
+    compiled = re.compile(pattern)
+    t2000 = _min_process_time(compiled, "'" + fill * 2000 + stray)
+    if t2000 >= _TIMING_PROBE_ALARM_SECONDS:
+        return float("inf")
+    if t2000 < 0.001:
+        return 1.0
+    t4000 = _min_process_time(compiled, "'" + fill * 4000 + stray)
+    return t4000 / t2000
+
+
+def _timing_ground_truth_candidates(left: str, mid: str, right: str) -> set[str]:
+    chars: set[str] = set()
+    for element in (left, mid, right):
+        charset = _element_charset(element)
+        if charset:
+            chars.add(sorted(charset)[0])
+    return chars
+
+
+@pytest.mark.redos_timing
+def test_class_intersection_probe_units_are_ground_truthed_against_real_timing() -> (
+    None
+):
+    for left in _GRAMMAR_LEFT_ATOMS:
+        for right in _GRAMMAR_RIGHT_ATOMS:
+            for mid in _GRAMMAR_TIMING_MIDDLES:
+                pattern = "'" + left + mid + right + "--"
+                units = _class_intersection_probe_units(pattern)
+                found_fills = {fill for fill, _stray in units}
+                left_charset = _element_charset(left)
+                right_charset = _element_charset(right)
+                default_stray = _stray_for_pair(left_charset, right_charset)
+                for candidate in _timing_ground_truth_candidates(left, mid, right):
+                    stray = "\x00" if candidate == " " else default_stray
+                    ratio = _growth_ratio(pattern, candidate, stray)
+                    if ratio >= 3.0:
+                        assert units, (
+                            f"pattern={pattern!r} fill={candidate!r} stray={stray!r} "
+                            f"measured super-linear growth (ratio={ratio:.2f}x) but "
+                            f"the module produced no unit at all: {found_fills}"
+                        )
+                if not units:
+                    ratio = _growth_ratio(pattern, " ", "\x00")
+                    assert ratio < 3.0, (
+                        f"pattern={pattern!r} produced no class-intersection unit but "
+                        f"the space/NUL probe measured super-linear growth "
+                        f"(ratio={ratio:.2f}x); a quadratic escape without a unit"
+                    )
 
 
 def test_repeat_probe_to_length_forces_non_alignment_on_exact_multiples() -> None:
@@ -127,8 +557,17 @@ def test_leading_literal_prefix_empty_when_pattern_opens_with_metachar() -> None
 
 
 def test_fill_to_length_pads_and_truncates() -> None:
-    assert _fill_to_length("ab", "x", 5) == "abxxx"
-    assert _fill_to_length("abcdef", "x", 3) == "abc"
+    assert _fill_to_length("ab", "x", "!", 4) == "abx!"
+    assert _fill_to_length("abcdef", "x", "!", 3) == "abc"
+
+
+def test_fill_to_length_appends_the_stray_as_the_last_character() -> None:
+    assert _fill_to_length("ab", "x", "!", 6) == "abxxx!"
+
+
+def test_fill_to_length_does_not_force_a_stray_when_body_room_is_one_or_fewer() -> None:
+    assert _fill_to_length("ab", "x", "!", 3) == "abx"
+    assert _fill_to_length("ab", "x", "!", 2) == "ab"
 
 
 def test_reach_probe_candidate_builders_combines_all_strategies() -> None:
@@ -288,29 +727,24 @@ def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
     )
 
 
-def _fill_candidate_growth_ratio(fill_char: str, prefix: str) -> float | None:
-    probes = [_fill_to_length(prefix, fill_char, size) for size in _REACH_PROBE_SIZES]
+def _assert_event_handler_intersection_fill_is_super_linear() -> None:
+    units = _class_intersection_probe_units(_EVENT_HANDLER_PATTERN)
+    fill_char, stray = units[0]
+    prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
+    probes = [
+        _fill_to_length(prefix, fill_char, stray, size) for size in _REACH_PROBE_SIZES
+    ]
     compiled = re.compile(_EVENT_HANDLER_PATTERN, re.IGNORECASE)
     times = []
     for probe in probes:
         start = time.process_time()
         compiled.search(probe)
         times.append(time.process_time() - start)
-    if times[2] <= 0.0005:
-        return None
-    return times[3] / times[2]
-
-
-def _assert_event_handler_intersection_fill_is_super_linear() -> None:
-    fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
-    prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
-    ratios = {
-        fill_char: _fill_candidate_growth_ratio(fill_char, prefix)
-        for fill_char in fills
-    }
-    assert any(ratio is not None and ratio >= 3.0 for ratio in ratios.values()), (
-        "expected at least one class-intersection fill to show super-linear growth, "
-        f"measured ratios={ratios}"
+    assert times[2] > 0.0005, "measurement floor too close to noise to trust the ratio"
+    ratio = times[3] / times[2]
+    assert ratio >= 3.0, (
+        f"expected super-linear growth from the {fill_char!r} intersection fill, "
+        f"measured ratio={ratio:.2f}x, times={times}"
     )
 
 
