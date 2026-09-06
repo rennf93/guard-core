@@ -195,29 +195,43 @@ def test_max_content_length_changes_the_verdict_for_the_same_quadratic_pattern()
     assert is_safe_at_body_cap is False
 
 
+def _non_windowed_builtin_patterns() -> list[str]:
+    return [
+        pattern
+        for pattern, _ctx, _category in SusPatternsManager._pattern_definitions
+        if pattern not in _WINDOWED_PATTERN_FINDERS
+        and pattern not in _PATTERN_SCAN_WINDOW_MATCHERS
+        and pattern not in _SCAN_WINDOW_PATTERNS
+    ]
+
+
+def test_known_quadratic_and_borderline_patterns_still_exist_in_the_table() -> None:
+    all_patterns = frozenset(_non_windowed_builtin_patterns())
+    assert _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX <= all_patterns
+    assert _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS <= all_patterns
+
+
 @pytest.mark.redos_timing
-def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
+@pytest.mark.parametrize(
+    "pattern", _non_windowed_builtin_patterns(), ids=lambda pattern: pattern[:40]
+)
+def test_validator_rejects_only_the_known_quadratic_builtin_patterns(
+    pattern: str,
+) -> None:
     compiler = PatternCompiler()
-    rejected = set()
-    for pattern, _ctx, _category in SusPatternsManager._pattern_definitions:
-        if (
-            pattern in _WINDOWED_PATTERN_FINDERS
-            or pattern in _PATTERN_SCAN_WINDOW_MATCHERS
-            or pattern in _SCAN_WINDOW_PATTERNS
-        ):
-            continue
-        is_safe, _reason = compiler.validate_pattern_safety(pattern)
-        if not is_safe:
-            rejected.add(pattern)
-    assert (
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    mandatory_reject = pattern in (
         _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
         - _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-        <= rejected
     )
-    assert rejected <= (
+    allowed_reject = pattern in (
         _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
         | _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
     )
+    if mandatory_reject:
+        assert is_safe is False, f"{pattern!r} expected to be rejected: {reason}"
+    elif not allowed_reject:
+        assert is_safe is True, f"{pattern!r} unexpectedly rejected: {reason}"
 
 
 @pytest.mark.redos_timing
@@ -1036,20 +1050,20 @@ _CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS: tuple[str, ...] = (
 
 
 @pytest.mark.redos_timing
-def test_validate_pattern_safety_rejects_the_class_intersection_regression_corpus() -> (
-    None
-):
+@pytest.mark.parametrize("pattern", _CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS)
+def test_validate_pattern_safety_rejects_the_class_intersection_regression_corpus(
+    pattern: str,
+) -> None:
     compiler = PatternCompiler()
-    for pattern in _CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS:
-        is_safe, reason = compiler.validate_pattern_safety(pattern)
-        assert is_safe is False, f"{pattern!r} was accepted: {reason}"
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is False, f"{pattern!r} was accepted: {reason}"
 
 
 @pytest.mark.redos_timing
-def test_validate_pattern_safety_accepts_the_class_intersection_regression_corpus() -> (
-    None
-):
+@pytest.mark.parametrize("pattern", _CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS)
+def test_validate_pattern_safety_accepts_the_class_intersection_regression_corpus(
+    pattern: str,
+) -> None:
     compiler = PatternCompiler()
-    for pattern in _CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS:
-        is_safe, reason = compiler.validate_pattern_safety(pattern)
-        assert is_safe is True, f"{pattern!r} was rejected: {reason}"
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is True, f"{pattern!r} was rejected: {reason}"

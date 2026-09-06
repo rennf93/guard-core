@@ -904,26 +904,25 @@ def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
     assert rx.search(path), f"multi-dot backup probe regressed: {path}"
 
 
+_SAFETY_VALIDATED_PATTERNS_BY_CATEGORY: dict[str, str] = {
+    pat: cat
+    for pat, _ctx, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS
+    if pat not in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
+    and pat not in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
+}
+
+
 @pytest.mark.redos_timing
-def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "pat", list(_SAFETY_VALIDATED_PATTERNS_BY_CATEGORY), ids=lambda pat: pat[:40]
+)
+def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator(
+    pat: str,
+) -> None:
     pc = PatternCompiler()
-    bad = []
-    for pat, _c, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS:
-        if (
-            pat in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-            or pat in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-        ):
-            continue
-        ok, reason = pc.validate_pattern_safety(
-            pat, flags=_BUILTIN_PATTERN_COMPILE_FLAGS
-        )
-        if not ok:
-            bad.append((cat, reason, pat))
-    assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(
-        f"  [{c}] {r} :: {p[:80]}" for c, r, p in bad
-    )
+    ok, reason = pc.validate_pattern_safety(pat, flags=_BUILTIN_PATTERN_COMPILE_FLAGS)
+    cat = _SAFETY_VALIDATED_PATTERNS_BY_CATEGORY[pat]
+    assert ok, f"[{cat}] {reason} :: {pat[:80]}"
 
 
 def _file_inclusion_url_pattern() -> str:

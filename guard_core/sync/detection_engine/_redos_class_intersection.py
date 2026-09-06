@@ -13,6 +13,11 @@ from guard_core.sync.detection_engine._redos_parse_slots import (
     _pattern_slots,
     _Slot,
 )
+from guard_core.sync.detection_engine._redos_stray_chooser import (
+    _build_stray_context,
+    _StrayContext,
+    choose_class_intersection_stray,
+)
 
 
 def _crossing_slot_narrows(
@@ -85,9 +90,8 @@ def _cross_non_pairing_slot(
     return result_shared, fill, group_state
 
 
-def _stray_for_pair(left: _IntervalSet, right: _IntervalSet) -> str:
-    member = left.union(right).complement().first_member()
-    return chr(member) if member is not None else "\x00"
+def _tail_pairing_intervals(slots: list[_Slot], start: int) -> list[_IntervalSet]:
+    return [slot.intervals for slot in slots[start:] if isinstance(slot, _PairingAtom)]
 
 
 def _fill_confirmed(left: _PairingAtom, right: _PairingAtom, fill: str) -> bool:
@@ -105,10 +109,18 @@ def _left_confirms_fill(left: _PairingAtom, fill: str) -> bool:
 
 
 def _append_pairing_unit(
-    units: list[tuple[str, str]], left: _PairingAtom, right: _PairingAtom, fill: str
+    units: list[tuple[str, str]],
+    left: _PairingAtom,
+    right: _PairingAtom,
+    fill: str,
+    tail: list[_IntervalSet],
+    ctx: _StrayContext,
 ) -> None:
     if _fill_confirmed(left, right, fill):
-        units.append((fill, _stray_for_pair(left.intervals, right.intervals)))
+        stray = choose_class_intersection_stray(
+            ctx, fill, left.intervals, right.intervals, tail
+        )
+        units.append((fill, stray))
 
 
 def _advance_pairing_chain(
@@ -117,13 +129,15 @@ def _advance_pairing_chain(
     shared: _IntervalSet,
     slot: _PairingAtom,
     exact_state: _IntervalSet | None,
+    tail: list[_IntervalSet],
+    ctx: _StrayContext,
 ) -> tuple[_IntervalSet, _IntervalSet | None, bool]:
     overlap = shared.intersection(slot.intervals)
     if not overlap.is_empty():
         if slot.unbounded:
             member = overlap.first_member()
             assert member is not None
-            _append_pairing_unit(units, left, slot, chr(member))
+            _append_pairing_unit(units, left, slot, chr(member), tail, ctx)
         if not slot.allows_zero:
             shared = overlap
             exact_state = _narrow_exact_state_raw(exact_state, slot.intervals)
@@ -132,21 +146,25 @@ def _advance_pairing_chain(
     if exact_fill is None:
         return shared, exact_state, not slot.allows_zero
     if slot.unbounded:
-        _append_pairing_unit(units, left, slot, exact_fill)
+        _append_pairing_unit(units, left, slot, exact_fill, tail, ctx)
     if not slot.allows_zero:
         shared = overlap
         exact_state = None
     return shared, exact_state, False
 
 
-def _pairing_units_from(slots: list[_Slot], start: int) -> list[tuple[str, str]]:
+def _pairing_units_from(
+    slots: list[_Slot], start: int, ctx: _StrayContext
+) -> list[tuple[str, str]]:
     left = slots[start]
     if not isinstance(left, _PairingAtom):
         return []
     shared = left.intervals
     exact_state: _IntervalSet | None = left.intervals
     units: list[tuple[str, str]] = []
-    for slot in slots[start + 1 :]:
+    for index in range(start + 1, len(slots)):
+        slot = slots[index]
+        tail = _tail_pairing_intervals(slots, index + 1)
         if isinstance(slot, _NonPairingSlot):
             crossed = _cross_non_pairing_slot(slot, shared, exact_state)
             if crossed is None:
@@ -155,10 +173,13 @@ def _pairing_units_from(slots: list[_Slot], start: int) -> list[tuple[str, str]]
             if slot.is_boundary:
                 exact_state = _narrow_exact_state_raw(exact_state, group_state)
             if fill is not None and _left_confirms_fill(left, fill):
-                units.append((fill, _stray_for_pair(left.intervals, shared)))
+                stray = choose_class_intersection_stray(
+                    ctx, fill, left.intervals, shared, tail
+                )
+                units.append((fill, stray))
             continue
         shared, exact_state, should_stop = _advance_pairing_chain(
-            units, left, shared, slot, exact_state
+            units, left, shared, slot, exact_state, tail, ctx
         )
         if should_stop:
             break
@@ -177,20 +198,20 @@ def _flatten_alternatives(alternatives: list[list[_Slot]]) -> list[_Slot]:
 
 
 def _units_in_group_alternatives(
-    alternatives: list[list[_Slot]],
+    alternatives: list[list[_Slot]], ctx: _StrayContext
 ) -> list[tuple[str, str]]:
-    return _units_in_slots(_flatten_alternatives(alternatives))
+    return _units_in_slots(_flatten_alternatives(alternatives), ctx)
 
 
-def _units_in_slots(slots: list[_Slot]) -> list[tuple[str, str]]:
+def _units_in_slots(slots: list[_Slot], ctx: _StrayContext) -> list[tuple[str, str]]:
     units: list[tuple[str, str]] = []
     for index, slot in enumerate(slots):
         if isinstance(slot, _NonPairingSlot):
             if slot.inner is not None:
-                units.extend(_units_in_group_alternatives(slot.inner))
+                units.extend(_units_in_group_alternatives(slot.inner, ctx))
             continue
         if slot.unbounded:
-            units.extend(_pairing_units_from(slots, index))
+            units.extend(_pairing_units_from(slots, index, ctx))
     return units
 
 
@@ -198,7 +219,8 @@ def _class_intersection_probe_units(pattern: str, flags: int) -> list[tuple[str,
     slots = _pattern_slots(pattern, flags)
     if slots is None:
         return []
-    return _units_in_slots(slots)
+    ctx = _build_stray_context(pattern, flags)
+    return _units_in_slots(slots, ctx)
 
 
 def _class_intersection_fills(pattern: str, flags: int) -> list[str]:

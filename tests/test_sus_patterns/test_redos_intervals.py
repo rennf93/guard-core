@@ -1,5 +1,7 @@
+import importlib
 import random
 import re
+from typing import cast
 
 from guard_core.detection_engine._redos_ignorecase_fold import (
     _EXPAND_IGNORECASE_MEMBER_SCAN_CEILING,
@@ -220,6 +222,65 @@ def test_fold_partners_restricts_to_ascii_when_requested() -> None:
     group = frozenset({ord("k"), ord("K"), 0x212A})
     assert _fold_partners(group, ascii_only=False) == group
     assert _fold_partners(group, ascii_only=True) == frozenset({ord("k"), ord("K")})
+
+
+def _engine_ignorecase_fixes() -> dict[int, tuple[int, ...]]:
+    try:
+        module = importlib.import_module("re._compiler")
+    except ImportError:
+        module = importlib.import_module("sre_compile")
+    return cast(dict[int, tuple[int, ...]], module._ignorecase_fixes)
+
+
+_NAMED_MULTI_CHAR_FOLD_PAIRS = (
+    (0x390, 0x1FD3),
+    (0x3B0, 0x1FE3),
+    (0xFB05, 0xFB06),
+)
+
+
+def test_fold_groups_unite_the_named_multi_char_fold_pairs() -> None:
+    mapping = _fold_group_by_code_point()
+    for a, b in _NAMED_MULTI_CHAR_FOLD_PAIRS:
+        group = mapping.get(a)
+        assert group is not None, hex(a)
+        assert b in group, (hex(a), hex(b))
+        assert re.fullmatch("(?i)" + chr(a), chr(b)) is not None
+        assert re.fullmatch("(?i)" + chr(b), chr(a)) is not None
+
+
+def test_fold_groups_still_unite_kelvin_sign_and_dotless_i() -> None:
+    mapping = _fold_group_by_code_point()
+    assert 0x212A in mapping[ord("k")]
+    assert 0x131 in mapping[ord("i")]
+
+
+def test_fold_groups_contain_every_engine_ignorecase_fixes_pair() -> None:
+    mapping = _fold_group_by_code_point()
+    table = _engine_ignorecase_fixes()
+    assert len(table) > 0
+    for code_point, partners in table.items():
+        group = mapping.get(code_point)
+        assert group is not None, hex(code_point)
+        for partner in partners:
+            assert partner in group, (hex(code_point), hex(partner))
+
+
+def test_fold_groups_are_bidirectionally_confirmed_by_the_engine() -> None:
+    mapping = _fold_group_by_code_point()
+    checked = 0
+    for group in {frozenset(g) for g in mapping.values()}:
+        members = sorted(group)
+        for a in members:
+            char_a = chr(a)
+            for b in members:
+                if a == b:
+                    continue
+                char_b = chr(b)
+                assert re.fullmatch("(?i)" + re.escape(char_a), char_b) is not None
+                assert re.fullmatch("(?i)" + re.escape(char_b), char_a) is not None
+                checked += 1
+    assert checked > 0
 
 
 def test_word_category_contains_circled_digit_and_excludes_general_punctuation() -> (

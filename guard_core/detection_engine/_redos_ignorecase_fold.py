@@ -7,33 +7,59 @@ _FOLD_GROUP_BY_CODE_POINT: dict[int, frozenset[int]] | None = None
 _EXPAND_IGNORECASE_MEMBER_SCAN_CEILING = 4096
 
 
+def _uf_find(parent: dict[int, int], code_point: int) -> int:
+    parent.setdefault(code_point, code_point)
+    root = code_point
+    while parent[root] != root:
+        root = parent[root]
+    while parent[code_point] != root:
+        parent[code_point], code_point = root, parent[code_point]
+    return root
+
+
+def _uf_union(parent: dict[int, int], first: int, second: int) -> None:
+    first_root, second_root = _uf_find(parent, first), _uf_find(parent, second)
+    if first_root != second_root:
+        parent[second_root] = first_root
+
+
+def _register_fold_variant(
+    parent: dict[int, int],
+    multi_char_fold_owner: dict[str, int],
+    code_point: int,
+    char: str,
+    variant: str,
+) -> None:
+    if len(variant) == 1:
+        if variant != char:
+            _uf_union(parent, code_point, ord(variant))
+        return
+    owner = multi_char_fold_owner.get(variant)
+    if owner is None:
+        multi_char_fold_owner[variant] = code_point
+    else:
+        _uf_union(parent, owner, code_point)
+
+
+def _multi_member_groups(
+    parent: dict[int, int],
+) -> tuple[frozenset[int], ...]:
+    groups: dict[int, set[int]] = {}
+    for code_point in parent:
+        groups.setdefault(_uf_find(parent, code_point), set()).add(code_point)
+    return tuple(frozenset(group) for group in groups.values() if len(group) > 1)
+
+
 def _build_fold_groups() -> tuple[frozenset[int], ...]:
     parent: dict[int, int] = {}
-
-    def find(code_point: int) -> int:
-        parent.setdefault(code_point, code_point)
-        root = code_point
-        while parent[root] != root:
-            root = parent[root]
-        while parent[code_point] != root:
-            parent[code_point], code_point = root, parent[code_point]
-        return root
-
-    def union(first: int, second: int) -> None:
-        first_root, second_root = find(first), find(second)
-        if first_root != second_root:
-            parent[second_root] = first_root
-
+    multi_char_fold_owner: dict[str, int] = {}
     for code_point in range(MAX_CODE_POINT + 1):
         char = chr(code_point)
         for variant in (char.lower(), char.upper(), char.casefold()):
-            if len(variant) == 1 and variant != char:
-                union(code_point, ord(variant))
-
-    groups: dict[int, set[int]] = {}
-    for code_point in parent:
-        groups.setdefault(find(code_point), set()).add(code_point)
-    return tuple(frozenset(group) for group in groups.values() if len(group) > 1)
+            _register_fold_variant(
+                parent, multi_char_fold_owner, code_point, char, variant
+            )
+    return _multi_member_groups(parent)
 
 
 def _fold_groups() -> tuple[frozenset[int], ...]:
@@ -60,6 +86,15 @@ def _fold_partners(group: frozenset[int], ascii_only: bool) -> frozenset[int]:
     return frozenset(code_point for code_point in group if code_point < 128)
 
 
+def _add_fold_candidates(
+    result: _IntervalSet, candidates: frozenset[int]
+) -> _IntervalSet:
+    for candidate in candidates:
+        if not result.contains(candidate):
+            result = result.union(_IntervalSet.single(candidate))
+    return result
+
+
 def _expand_ignorecase_by_member_scan(
     interval_set: _IntervalSet, ascii_only: bool
 ) -> _IntervalSet:
@@ -72,10 +107,14 @@ def _expand_ignorecase_by_member_scan(
             if group is None or group in seen_groups:
                 continue
             seen_groups.add(group)
-            for partner in _fold_partners(group, ascii_only):
-                if not result.contains(partner):
-                    result = result.union(_IntervalSet.single(partner))
+            result = _add_fold_candidates(result, _fold_partners(group, ascii_only))
     return result
+
+
+def _group_scan_matches(interval_set: _IntervalSet, candidates: frozenset[int]) -> bool:
+    return len(candidates) >= 2 and any(
+        interval_set.contains(code_point) for code_point in candidates
+    )
 
 
 def _expand_ignorecase_by_group_scan(
@@ -84,13 +123,9 @@ def _expand_ignorecase_by_group_scan(
     result = interval_set
     for group in _fold_groups():
         candidates = _fold_partners(group, ascii_only)
-        if len(candidates) < 2:
+        if not _group_scan_matches(interval_set, candidates):
             continue
-        if not any(interval_set.contains(code_point) for code_point in candidates):
-            continue
-        for code_point in candidates:
-            if not result.contains(code_point):
-                result = result.union(_IntervalSet.single(code_point))
+        result = _add_fold_candidates(result, candidates)
     return result
 
 

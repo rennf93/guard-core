@@ -20,7 +20,7 @@ from guard_core.detection_engine._redos_class_intersection import (
     _group_crossing_result,
     _left_confirms_fill,
     _pairing_units_from,
-    _stray_for_pair,
+    _tail_pairing_intervals,
 )
 from guard_core.detection_engine._redos_cost_arbiter import (
     _LOAD_FACTOR_CEILING,
@@ -70,6 +70,10 @@ from guard_core.detection_engine._redos_probe_fill import (
     _leading_literal_prefix,
     _reach_probe_candidate_builders,
     _repeat_probe_to_length,
+)
+from guard_core.detection_engine._redos_stray_chooser import (
+    _build_stray_context,
+    _stray_for_pair,
 )
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers._suspatterns_sources import _SQLI_COMMENT_TERMINATOR_RE
@@ -199,7 +203,24 @@ def test_group_crossing_result_rejects_past_the_max_depth() -> None:
 
 def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -> None:
     slots: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
-    assert _pairing_units_from(slots, 0) == []
+    ctx = _build_stray_context("a*z", 0)
+    assert _pairing_units_from(slots, 0, ctx) == []
+
+
+def test_tail_pairing_intervals_collects_only_pairing_atoms_from_start() -> None:
+    slots = _pattern_slots(r"a[b]c(d)", 0)
+    assert slots is not None
+    tail = _tail_pairing_intervals(slots, 1)
+    assert tail == [
+        _IntervalSet.single(ord("b")),
+        _IntervalSet.single(ord("c")),
+    ]
+
+
+def test_tail_pairing_intervals_returns_empty_past_the_end_of_the_slots() -> None:
+    slots = _pattern_slots(r"a", 0)
+    assert slots is not None
+    assert _tail_pairing_intervals(slots, len(slots)) == []
 
 
 def test_pairing_atom_eq_returns_notimplemented_for_a_non_pairing_atom() -> None:
@@ -924,7 +945,8 @@ def test_pairing_units_from_suppresses_a_group_fill_the_predicate_rejects() -> N
         inner=[[inner_atom]],
         unbounded=True,
     )
-    assert _pairing_units_from([left, group], 0) == []
+    ctx = _build_stray_context("a*z", 0)
+    assert _pairing_units_from([left, group], 0, ctx) == []
 
 
 def test_append_pairing_unit_skips_when_the_fill_is_not_confirmed() -> None:
@@ -935,7 +957,8 @@ def test_append_pairing_unit_skips_when_the_fill_is_not_confirmed() -> None:
         unbounded=True,
         predicate=lambda code_point: False,
     )
-    _append_pairing_unit(units, always_false, always_false, "a")
+    ctx = _build_stray_context("a*z", 0)
+    _append_pairing_unit(units, always_false, always_false, "a", [], ctx)
     assert units == []
 
 
@@ -951,8 +974,9 @@ def test_advance_pairing_chain_uses_the_exact_state_when_shared_overlap_is_empty
     units: list[tuple[str, str]] = []
     disjoint_shared = _IntervalSet.single(ord("q"))
     exact_state = _IntervalSet.single(ord("z"))
+    ctx = _build_stray_context("a*z", 0)
     shared, new_exact_state, should_stop = _advance_pairing_chain(
-        units, left, disjoint_shared, slot, exact_state
+        units, left, disjoint_shared, slot, exact_state, [], ctx
     )
     assert units == [("z", "\x00")]
     assert should_stop is False
@@ -968,12 +992,15 @@ def test_advance_pairing_chain_exact_fallback_skips_append_when_not_unbounded() 
         _IntervalSet.single(ord("z")), allows_zero=False, unbounded=False
     )
     units: list[tuple[str, str]] = []
+    ctx = _build_stray_context("a*z", 0)
     shared, exact_state, should_stop = _advance_pairing_chain(
         units,
         left,
         _IntervalSet.single(ord("q")),
         slot,
         _IntervalSet.single(ord("z")),
+        [],
+        ctx,
     )
     assert units == []
     assert should_stop is False
@@ -991,8 +1018,9 @@ def test_advance_pairing_chain_exact_fallback_keeps_state_when_slot_allows_zero(
     units: list[tuple[str, str]] = []
     disjoint_shared = _IntervalSet.single(ord("q"))
     exact_state_in = _IntervalSet.single(ord("z"))
+    ctx = _build_stray_context("a*z", 0)
     shared, exact_state, should_stop = _advance_pairing_chain(
-        units, left, disjoint_shared, slot, exact_state_in
+        units, left, disjoint_shared, slot, exact_state_in, [], ctx
     )
     assert units == [("z", "\x00")]
     assert should_stop is False
