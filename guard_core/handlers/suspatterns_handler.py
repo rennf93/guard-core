@@ -362,6 +362,7 @@ __all__ = [
     "_BRACE_EXPANSION_ITEM_RE",
     "_BRACE_EXPANSION_LETTER_RE",
     "_BRACE_EXPANSION_WORD_ITEM_RE",
+    "_BUILTIN_PATTERN_COMPILE_FLAGS",
     "_CANDIDATE_REJECTION_VALIDATORS",
     "_CMD_INJECTION_ASSIGNMENT_PREFIX_RE",
     "_CMD_INJECTION_ASSIGNMENT_TOKEN_RE",
@@ -643,6 +644,9 @@ def _collect_threat_categories(threats: list[dict[str, Any]]) -> list[str]:
     return categories
 
 
+_BUILTIN_PATTERN_COMPILE_FLAGS = re.IGNORECASE
+
+
 class SusPatternsManager(_SusPatternsViewsMixin):
     _instance = None
     _config = None
@@ -665,7 +669,11 @@ class SusPatternsManager(_SusPatternsViewsMixin):
             cls._instance = super().__new__(cls)
             cls._instance.custom_patterns = set()
             cls._instance.compiled_patterns = [
-                (re.compile(pattern, re.IGNORECASE), contexts, category)
+                (
+                    re.compile(pattern, _BUILTIN_PATTERN_COMPILE_FLAGS),
+                    contexts,
+                    category,
+                )
                 for pattern, contexts, category in cls._pattern_definitions
             ]
             cls._instance.compiled_custom_patterns = set()

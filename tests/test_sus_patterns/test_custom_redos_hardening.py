@@ -898,6 +898,14 @@ async def test_overlapping_alternation_pattern_rejected_at_registration() -> Non
     assert r"(b|b)*c" not in sus_patterns_handler.custom_patterns
 
 
+@pytest.mark.redos_timing
+async def test_full_byte_range_pattern_rejected_at_registration() -> None:
+    pattern = r"^[\x00-\xff]*[\x00-\xfe]+$"
+    ok = await SusPatternsManager.add_pattern(pattern, custom=True)
+    assert ok is False
+    assert pattern not in sus_patterns_handler.custom_patterns
+
+
 async def test_custom_pattern_routed_through_pool_path() -> None:
     await SusPatternsManager.add_pattern(_CUSTOM_PATTERN, custom=True)
 

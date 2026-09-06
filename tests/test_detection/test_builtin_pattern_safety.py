@@ -9,6 +9,7 @@ import pytest
 
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
+    _BUILTIN_PATTERN_COMPILE_FLAGS,
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
     _DEFAULT_MAX_SCAN_LENGTH,
     _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
@@ -915,7 +916,9 @@ def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validato
             or pat in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
         ):
             continue
-        ok, reason = pc.validate_pattern_safety(pat)
+        ok, reason = pc.validate_pattern_safety(
+            pat, flags=_BUILTIN_PATTERN_COMPILE_FLAGS
+        )
         if not ok:
             bad.append((cat, reason, pat))
     assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(

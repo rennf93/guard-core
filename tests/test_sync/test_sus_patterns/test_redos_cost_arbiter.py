@@ -12,18 +12,13 @@ import pytest
 from guard_core.sync.detection_engine._redos_ambiguous_tail import _atom_char_set
 from guard_core.sync.detection_engine._redos_class_intersection import (
     _ALPHABET,
-    _ATOMIC_GROUP,
-    _category_charset,
     _class_intersection_fills,
     _class_intersection_probe_units,
-    _class_item_charset,
     _group_crossing_result,
     _NonPairingSlot,
-    _pairing_charset,
     _pairing_units_from,
     _PairingAtom,
     _pattern_slots,
-    _regex_parser,
     _stray_for_pair,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
@@ -50,6 +45,15 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _time_reach_probes_ascending,
     _time_reach_probes_subprocess,
     _time_single_reach_probe_subprocess,
+)
+from guard_core.sync.detection_engine._redos_parse_slots import (
+    _ATOMIC_GROUP,
+    _atomic_group_body_and_flags,
+    _category_charset,
+    _class_item_charset,
+    _ignorecase_fold,
+    _pairing_charset,
+    _regex_parser,
 )
 from guard_core.sync.detection_engine._redos_probe_fill import (
     _fill_to_length,
@@ -159,6 +163,15 @@ def test_group_crossing_result_rejects_past_the_max_depth() -> None:
 def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -> None:
     slots: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
     assert _pairing_units_from(slots, 0) == []
+
+
+def test_ignorecase_fold_skips_a_multi_character_case_variant() -> None:
+    assert _ignorecase_fold(frozenset("ß"), re.IGNORECASE) == frozenset("ß")
+
+
+def test_atomic_group_body_and_flags_returns_the_body_and_flags_unchanged() -> None:
+    body: list[Any] = [(_regex_parser.LITERAL, ord("a"))]
+    assert _atomic_group_body_and_flags(body, re.IGNORECASE) == (body, re.IGNORECASE)
 
 
 @pytest.mark.skipif(
@@ -363,6 +376,52 @@ def test_pattern_compiler_rejects_latin1_only_overlap() -> None:
     )
 
 
+def test_stray_for_pair_reaches_past_the_full_byte_range_when_it_is_all_excluded() -> (
+    None
+):
+    left_charset = frozenset(chr(c) for c in range(0x100))
+    right_charset = frozenset(chr(c) for c in range(0xFF))
+    stray = _stray_for_pair(left_charset, right_charset)
+    assert ord(stray) >= 0x100
+    assert stray not in left_charset
+    assert stray not in right_charset
+
+
+def test_stray_for_pair_falls_back_to_nul_when_the_union_covers_the_full_alphabet() -> (
+    None
+):
+    assert _stray_for_pair(_ALPHABET, _ALPHABET) == "\x00"
+
+
+def test_class_intersection_probe_units_finds_a_fill_for_the_full_byte_range() -> None:
+    units = _class_intersection_probe_units(r"[\x00-\xff]*[\x00-\xfe]+", 0)
+    assert units
+    _fill, stray = units[0]
+    assert ord(stray) >= 0x100
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_full_byte_range_class_intersection() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"^[\x00-\xff]*[\x00-\xfe]+$")
+    assert is_safe is False, (
+        "expected the full-byte-range overlap to be caught once the stray probe "
+        f"byte reaches past code point 0xff, got safe={is_safe} ({reason})"
+    )
+    assert "cost" in reason.lower() or "timeout" in reason.lower(), (
+        f"expected a cost-arbiter rejection reason, got {reason!r}"
+    )
+
+
+def test_pattern_compiler_accepts_universal_class_pair_with_no_possible_stray() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"[\s\S]*[\s\S]+$")
+    assert is_safe is True, (
+        "a fully universal class pair anchored at the end cannot be forced to "
+        f"fail and must stay linear, got safe={is_safe} ({reason})"
+    )
+
+
 def _element_charset(element: str) -> frozenset[str]:
     return frozenset(ch for ch in _ALPHABET if re.fullmatch(element, ch))
 
@@ -390,8 +449,22 @@ def _charset_slot(element: str) -> tuple[Any, ...]:
     )
 
 
-_GRAMMAR_LEFT_ATOMS = [r"\s*", r"[a-z ]+", r"[^<>]*", r"\w*"]
-_GRAMMAR_RIGHT_ATOMS = [r"\s*", r"[ a-z]*", r"[^\"']+", r"\w+"]
+_GRAMMAR_LEFT_ATOMS = [
+    r"\s*",
+    r"[a-z ]+",
+    r"[^<>]*",
+    r"\w*",
+    r"[\x00-\xff]*",
+    r"[\s\S]*",
+]
+_GRAMMAR_RIGHT_ATOMS = [
+    r"\s*",
+    r"[ a-z]*",
+    r"[^\"']+",
+    r"\w+",
+    r"[\x00-\xfe]+",
+    r"[\s\S]+",
+]
 _GRAMMAR_ZERO_ADMITTING_MIDDLES = [
     "",
     r"[\);]*",
@@ -614,21 +687,59 @@ def _timing_ground_truth_candidates(left: str, mid: str, right: str) -> set[str]
     return chars
 
 
+_STRAY_ORACLE_STEP = 251
+_STRAY_ORACLE_REPRESENTATIVE_CODE_POINTS = (
+    0x100,
+    0x400,
+    0x4E00,
+    0xFFFD,
+    0x1F600,
+    0x10FFFF,
+)
+_STRAY_ORACLE_CODE_POINTS: tuple[int, ...] = tuple(
+    sorted(
+        set(range(256))
+        | set(range(256, 0x110000, _STRAY_ORACLE_STEP))
+        | set(_STRAY_ORACLE_REPRESENTATIVE_CODE_POINTS)
+    )
+)
+
+
+def _oracle_stray_for_pair(left: str, right: str, flags: int) -> str | None:
+    for code_point in _STRAY_ORACLE_CODE_POINTS:
+        candidate = chr(code_point)
+        if re.fullmatch(left, candidate, flags) or re.fullmatch(
+            right, candidate, flags
+        ):
+            continue
+        return candidate
+    return None
+
+
 @pytest.mark.redos_timing
 def test_class_intersection_probe_units_are_ground_truthed_against_real_timing() -> (
     None
 ):
     for left in _GRAMMAR_LEFT_ATOMS:
         for right in _GRAMMAR_RIGHT_ATOMS:
+            left_charset = _element_charset(left)
+            right_charset = _element_charset(right)
+            oracle_stray = _oracle_stray_for_pair(left, right, 0)
+            if oracle_stray is not None:
+                module_stray = _stray_for_pair(left_charset, right_charset)
+                assert re.fullmatch(left, module_stray) is None
+                assert re.fullmatch(right, module_stray) is None
             for mid in _GRAMMAR_TIMING_MIDDLES:
                 pattern = "'" + left + mid + right + "--"
                 units = _class_intersection_probe_units(pattern, 0)
                 found_fills = {fill for fill, _stray in units}
-                left_charset = _element_charset(left)
-                right_charset = _element_charset(right)
-                default_stray = _stray_for_pair(left_charset, right_charset)
                 for candidate in _timing_ground_truth_candidates(left, mid, right):
-                    stray = "\x00" if candidate == " " else default_stray
+                    if candidate == " ":
+                        stray = "\x00"
+                    elif oracle_stray is not None:
+                        stray = oracle_stray
+                    else:
+                        stray = candidate
                     ratio = _growth_ratio(pattern, candidate, stray)
                     if ratio >= 3.0:
                         assert units, (
