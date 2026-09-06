@@ -284,7 +284,7 @@ _SQLI_ORDER_BY_STRONG_RE = (
     r"|\bORDER\s+BY\s+\d+\s*(?:--|#|/\*)"
 )
 _SQLI_EXEC_STRONG_RE = r"(?i)(?:\A|[;'\"])\s*EXEC(?:UTE)?\s+(?:xp_\w+|sp_\w+)"
-_SQLI_COMMENT_TERMINATOR_RE = r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)"
+_SQLI_COMMENT_TERMINATOR_RE = r"'\s*(?:[\);]+\s*)?--|'[\);]*#(?:\n|\Z)"
 _SQLI_WAITFOR_RE = (
     r"(?i)\bWAITFOR\s+(?:DELAY|TIME)\s+'\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?'"
 )

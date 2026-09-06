@@ -238,7 +238,6 @@ def test_send_rate_limit_event_redacts_sensitive_endpoint_matrix_params() -> Non
 
 
 def test_handle_rate_limit_exceeded_uses_the_passed_configs_sensitive_sets() -> None:
-
     config_a = SecurityConfig(
         enable_rate_limiting=True,
         rate_limit=1,

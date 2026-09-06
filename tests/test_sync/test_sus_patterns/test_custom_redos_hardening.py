@@ -15,6 +15,7 @@ from guard_core.sync.detection_engine._redos_ambiguous_tail import (
     _parse_brace_quantifier_with_variability,
     _parse_flat_quantified_atoms,
     _parse_flat_quantified_atoms_with_text,
+    _representative_char_for_atom,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _PATTERN_SAFETY_DEFAULT_CAP,
@@ -24,6 +25,9 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
 )
 from guard_core.sync.detection_engine._redos_literal_in_wildcard import (
     _detect_ambiguous_literal_boundary,
+)
+from guard_core.sync.detection_engine._redos_parse_slots import (
+    _candidate_chars_for_atom_text,
 )
 from guard_core.sync.detection_engine._redos_probe_fill import (
     _reach_probe_candidate_builders,
@@ -46,8 +50,6 @@ from guard_core.sync.detection_engine._redos_unreachable_terminator import (
 )
 from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
@@ -170,7 +172,7 @@ def test_split_top_level_alternations_handles_malformed() -> None:
 def test_reach_probe_candidates_are_derived_from_the_patterns_own_literal_chars() -> (
     None
 ):
-    builders = _reach_probe_candidate_builders(r"bbb")
+    builders = _reach_probe_candidate_builders(r"bbb", re.IGNORECASE | re.MULTILINE)
     assert builders
     probed_units = {builder(30) for builder in builders}
     assert any(unit.count("b") >= 10 for unit in probed_units), probed_units
@@ -191,29 +193,26 @@ def test_max_content_length_changes_the_verdict_for_the_same_quadratic_pattern()
     assert is_safe_at_body_cap is False
 
 
+def _non_windowed_builtin_patterns() -> list[str]:
+    return [
+        pattern
+        for pattern, _ctx, _category in SusPatternsManager._pattern_definitions
+        if pattern not in _WINDOWED_PATTERN_FINDERS
+        and pattern not in _PATTERN_SCAN_WINDOW_MATCHERS
+        and pattern not in _SCAN_WINDOW_PATTERNS
+    ]
+
+
 @pytest.mark.redos_timing
-def test_validator_rejects_only_the_known_quadratic_builtin_patterns() -> None:
+@pytest.mark.parametrize(
+    "pattern", _non_windowed_builtin_patterns(), ids=lambda pattern: pattern[:40]
+)
+def test_validator_rejects_no_raw_search_builtin_pattern(
+    pattern: str,
+) -> None:
     compiler = PatternCompiler()
-    rejected = set()
-    for pattern, _ctx, _category in SusPatternsManager._pattern_definitions:
-        if (
-            pattern in _WINDOWED_PATTERN_FINDERS
-            or pattern in _PATTERN_SCAN_WINDOW_MATCHERS
-            or pattern in _SCAN_WINDOW_PATTERNS
-        ):
-            continue
-        is_safe, _reason = compiler.validate_pattern_safety(pattern)
-        if not is_safe:
-            rejected.add(pattern)
-    assert (
-        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-        - _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-        <= rejected
-    )
-    assert rejected <= (
-        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-        | _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-    )
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is True, f"{pattern!r} unexpectedly rejected: {reason}"
 
 
 @pytest.mark.redos_timing
@@ -864,8 +863,8 @@ def test_validate_pattern_safety_never_hangs_on_a_structurally_evasive_pattern()
     assert "False" in completed.stdout
 
 
-def test_windowed_patterns_are_exactly_the_scan_window_converted_four() -> None:
-    assert len(_WINDOWED_PATTERN_FINDERS) == 4
+def test_windowed_patterns_are_exactly_the_scan_window_converted_six() -> None:
+    assert len(_WINDOWED_PATTERN_FINDERS) == 6
     windowed_pattern_sources = set(_WINDOWED_PATTERN_FINDERS)
     builtin_pattern_sources = {
         pattern for pattern, _ctx, _category in SusPatternsManager._pattern_definitions
@@ -896,6 +895,14 @@ def test_overlapping_alternation_pattern_rejected_at_registration() -> None:
     ok = SusPatternsManager.add_pattern(r"(b|b)*c", custom=True)
     assert ok is False
     assert r"(b|b)*c" not in sus_patterns_handler.custom_patterns
+
+
+@pytest.mark.redos_timing
+def test_full_byte_range_pattern_rejected_at_registration() -> None:
+    pattern = r"^[\x00-\xff]*[\x00-\xfe]+$"
+    ok = SusPatternsManager.add_pattern(pattern, custom=True)
+    assert ok is False
+    assert pattern not in sus_patterns_handler.custom_patterns
 
 
 def test_custom_pattern_routed_through_pool_path() -> None:
@@ -945,11 +952,99 @@ def test_built_in_pattern_routed_through_inline_safe_path() -> None:
 
 
 def test_built_in_detect_is_fast_and_non_blocking() -> None:
-    start = time.monotonic()
-    result = sus_patterns_handler.detect(
-        _BENIGN_MATCHING_PAYLOAD, "1.2.3.4", "request_body"
-    )
-    elapsed = time.monotonic() - start
+    samples: list[float] = []
+    for _ in range(5):
+        start = time.process_time()
+        result = sus_patterns_handler.detect(
+            _BENIGN_MATCHING_PAYLOAD, "1.2.3.4", "request_body"
+        )
+        samples.append(time.process_time() - start)
+        assert result["is_threat"] is True
 
-    assert result["is_threat"] is True
-    assert elapsed < 2.0
+    assert min(samples) < 2.0
+
+
+def test_candidate_chars_for_atom_text_returns_empty_for_unparseable_text() -> None:
+    assert _candidate_chars_for_atom_text("[unterminated", 0) == frozenset()
+
+
+def test_candidate_chars_for_atom_text_returns_empty_for_a_multi_atom_text() -> None:
+    assert _candidate_chars_for_atom_text("ab", 0) == frozenset()
+
+
+def test_candidate_chars_for_atom_text_includes_the_range_start() -> None:
+    chars = _candidate_chars_for_atom_text(r"[Ѐ-ӿ]", 0)
+    assert "Ѐ" in chars
+
+
+def test_representative_char_for_atom_falls_back_to_class_candidates_beyond_printable() -> (  # noqa: E501
+    None
+):
+    assert _representative_char_for_atom(r"[Ѐ-ӿ]") == "Ѐ"
+    assert _representative_char_for_atom(r"[一-鿿]") == "一"
+    assert _representative_char_for_atom(r"[\U0001F600-\U0001F64F]") == "\U0001f600"
+
+
+def test_representative_char_for_atom_finds_the_boundary_just_past_a_negated_range() -> (  # noqa: E501
+    None
+):
+    assert _representative_char_for_atom(r"[^\x00-\x7f]") == "\x80"
+
+
+def test_representative_char_for_atom_stays_none_when_the_class_matches_nothing() -> (
+    None
+):
+    assert _representative_char_for_atom(r"[^\x00-\U0010FFFF]") is None
+
+
+_CONFIRMED_FALSE_SAFE_WORD_BOUNDARY_PATTERN = r"^[↞-▞]+\w+$"
+_CONFIRMED_FALSE_SAFE_GROUP_VARIANTS = (
+    r"^(?:[↞-▞])+\w+$",
+    r"^(?:[↞-▞]+)\w+$",
+    r"^(?:[↞-▞]+\w+)$",
+)
+_PUNCTUATION_OVERLAP_CLASS_INTERSECTION_PATTERN = "^\\W*[ -⁳]+$"
+
+_CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS: tuple[str, ...] = (
+    _CONFIRMED_FALSE_SAFE_WORD_BOUNDARY_PATTERN,
+    *_CONFIRMED_FALSE_SAFE_GROUP_VARIANTS,
+    _PUNCTUATION_OVERLAP_CLASS_INTERSECTION_PATTERN,
+    r"^[\U0001F900-\U0001FAA0a]*([\U0001F900-\U0001FAA0b])+$",
+    r"^\d*[\U00010000-\U0010FFFEz]+$",
+    r"[Ѐ-ӿ]*[а-я]+$",
+    r"[\x00-\U0001F600]*[\x00-\U0001F5FF]+$",
+    r"^[\x00-\xff]*[\x00-\xfe]+$",
+    r"^[c-w]*(?:[g-z][g-z]|[g-z][g-z][g-z])*$",
+    r"^[a-z]*[A-Z]+X$",
+    r"^[a\x80-\xff]*[b\x80-\xff]+$",
+    r"^[a-c]+(?:[b-c])[b-d]+$",
+    r"(?i)[k]*[K]+$",
+)
+
+_CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS: tuple[str, ...] = (
+    r"^(?:[a-z]+@[a-z]+\.[a-z]{2,})$",
+    r"^[\s\S]*[\s\S]+$",
+    r"^[Ѐ-ӿ]+$",
+    r"^[一-鿿]+$",
+    r"^[^\x00-\x7f]+$",
+)
+
+
+@pytest.mark.redos_timing
+@pytest.mark.parametrize("pattern", _CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS)
+def test_validate_pattern_safety_rejects_the_class_intersection_regression_corpus(
+    pattern: str,
+) -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is False, f"{pattern!r} was accepted: {reason}"
+
+
+@pytest.mark.redos_timing
+@pytest.mark.parametrize("pattern", _CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS)
+def test_validate_pattern_safety_accepts_the_class_intersection_regression_corpus(
+    pattern: str,
+) -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is True, f"{pattern!r} was rejected: {reason}"

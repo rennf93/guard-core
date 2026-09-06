@@ -8,6 +8,11 @@ ___
 Unreleased
 ----------
 
+### Fixed
+
+- **The ReDoS validator missed a quadratic shape.** The class-intersection probe only paired adjacent quantified classes, so two `\s*` runs separated by an empty-capable class such as `[\);]*` produced no probe and the pattern was certified safe. Quantified classes now pair across any run of atoms that can match empty, and the probe rejects the shape.
+- **The sqli comment-terminator builtin was quadratic on a quote followed by whitespace.** `'\s*[\);]*\s*--` is now `'\s*(?:[\);]+\s*)?--`, the same language, linear on that input; the quadratic cost was already bounded on the wire by the scan cap.
+
 ___
 
 v4.0.1 (2026-09-05)

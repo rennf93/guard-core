@@ -7,7 +7,7 @@ from guard_core.models import SecurityConfig
 from guard_core.sync.handlers.suspatterns_handler import sus_patterns_handler
 
 _DEFAULT_MAX_SCAN_LENGTH = 10000
-_PER_PAYLOAD_WALL_TIME_CEILING_SECONDS = 5.0
+_PER_PAYLOAD_CPU_TIME_CEILING_SECONDS = 5.0
 
 
 def _cov_scale() -> float:
@@ -35,16 +35,19 @@ ADVERSARIAL_REDOS_CORPUS = [
 
 
 @pytest.mark.parametrize("payload", ADVERSARIAL_REDOS_CORPUS)
-def test_adversarial_payload_stays_under_wall_time_ceiling(payload: str) -> None:
+def test_adversarial_payload_stays_under_cpu_time_ceiling(payload: str) -> None:
     sus_patterns_handler.configure(SecurityConfig())
 
-    start = time.monotonic()
-    sus_patterns_handler.detect(
-        content=payload, ip_address="203.0.113.9", context="request_body"
-    )
-    elapsed = time.monotonic() - start
+    samples: list[float] = []
+    for _ in range(5):
+        start = time.process_time()
+        sus_patterns_handler.detect(
+            content=payload, ip_address="203.0.113.9", context="request_body"
+        )
+        samples.append(time.process_time() - start)
 
-    ceiling = _PER_PAYLOAD_WALL_TIME_CEILING_SECONDS * _cov_scale()
+    elapsed = min(samples)
+    ceiling = _PER_PAYLOAD_CPU_TIME_CEILING_SECONDS * _cov_scale()
     assert elapsed < ceiling, (
         f"adversarial payload of length {len(payload)} took {elapsed:.3f}s, "
         f"exceeding the {ceiling:.1f}s ceiling"

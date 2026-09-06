@@ -69,6 +69,7 @@ from guard_core.handlers._suspatterns_matchers import (
     _CMD_INJECTION_DOLLAR_PAREN_TERMINATOR_RE,
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE,
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE,
     _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE,
     _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION,
     _FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS,
@@ -86,10 +87,18 @@ from guard_core.handlers._suspatterns_matchers import (
     _HTML_TAG_OPEN_RE,
     _LOAD_FILE_SCAN_PREFIX_RE,
     _LOAD_FILE_SCAN_TERMINATOR_RE,
+    _PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX,
+    _PICKLE_GLOBAL_IDENT_FULL_RE,
+    _PICKLE_GLOBAL_IDENT_MAX_LEN,
+    _PICKLE_GLOBAL_IDENT_START_RE,
+    _PICKLE_GLOBAL_NEWLINE_RE,
+    _PICKLE_GLOBAL_NON_MODULE_CHAR_RE,
     _QUOTE_SPLICE_QUOTE_RUN_RE,
     _QUOTE_SPLICE_WORD_CHAR_RE,
     _SQLI_LOAD_FILE_RE,
     _TEMPLATE_ASP_KEYWORD_RE,
+    _TEMPLATE_ASP_PREFIX_RE,
+    _TEMPLATE_ASP_TERMINATOR_RE,
     _TEMPLATE_CURLY_CALL_RE,
     _TEMPLATE_CURLY_KEYWORD_RE,
     _TEMPLATE_CURLY_PREFIX_RE,
@@ -98,6 +107,8 @@ from guard_core.handlers._suspatterns_matchers import (
     _TEMPLATE_DOLLAR_BRACE_PREFIX_RE,
     _TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE,
     _TEMPLATE_PERCENT_KEYWORD_RE,
+    _TEMPLATE_PERCENT_PREFIX_RE,
+    _TEMPLATE_PERCENT_TERMINATOR_RE,
     _brace_expansion_is_dangerous_command,
     _cmd_injection_dollar_scan_matches,
     _cmd_injection_shell_dash_c_finditer,
@@ -107,11 +118,17 @@ from guard_core.handlers._suspatterns_matchers import (
     _ldap_null_byte_attr_name_start,
     _ldap_null_byte_value_start,
     _load_file_scan_matches,
+    _pickle_global_chain_start,
+    _pickle_global_first_valid_marker,
+    _pickle_global_generic_finditer,
+    _pickle_global_run_start,
     _quote_splice_finditer,
     _quote_splice_word_start,
+    _template_asp_keyword_scan_matches,
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_percent_keyword_scan_matches,
 )
 from guard_core.handlers._suspatterns_pattern_table import _PATTERN_DEFINITIONS
 from guard_core.handlers._suspatterns_pickle import (
@@ -168,8 +185,6 @@ from guard_core.handlers._suspatterns_shell_sources import (
     _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE,
     _IMPLAUSIBLE_DOLLAR_PAREN_TOKEN_CHARS_RE,
     _IMPLAUSIBLE_SQL_IDENTIFIER_CHARS_RE,
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _PY_DANGEROUS_METHOD_RE,
     _PY_DANGEROUS_MODULE_RE,
@@ -322,6 +337,24 @@ from guard_core.handlers._suspatterns_state import (
     _DetectionState,
 )
 from guard_core.handlers._suspatterns_views import _SusPatternsViewsMixin
+from guard_core.handlers._suspatterns_xml_xxe import (
+    _XML_XXE_CLASS3_BOUNDARY_RE,
+    _XML_XXE_CLASS12_BOUNDARY_RE,
+    _XML_XXE_DOCTYPE_RE,
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE,
+    _XML_XXE_PUBLIC_RE,
+    _XML_XXE_QUOTE_CHARS,
+    _XML_XXE_SCHEME_RE,
+    _XML_XXE_W3_ORG_RE,
+    _xml_xxe_candidate_span,
+    _xml_xxe_first_at_or_after,
+    _xml_xxe_last_before,
+    _xml_xxe_precompute,
+    _xml_xxe_public_external_dtd_finditer,
+    _xml_xxe_public_run_bounds,
+    _xml_xxe_scheme_completion_end,
+    _xml_xxe_valid_quote_completions,
+)
 
 logger = logging.getLogger("guard_core.handlers.suspatterns")
 
@@ -362,6 +395,7 @@ __all__ = [
     "_BRACE_EXPANSION_ITEM_RE",
     "_BRACE_EXPANSION_LETTER_RE",
     "_BRACE_EXPANSION_WORD_ITEM_RE",
+    "_BUILTIN_PATTERN_COMPILE_FLAGS",
     "_CANDIDATE_REJECTION_VALIDATORS",
     "_CMD_INJECTION_ASSIGNMENT_PREFIX_RE",
     "_CMD_INJECTION_ASSIGNMENT_TOKEN_RE",
@@ -405,6 +439,7 @@ __all__ = [
     "_DESERIALIZATION_DOTNET_B64_RE",
     "_DESERIALIZATION_JAVA_B64_RE",
     "_DESERIALIZATION_PICKLE_B64_RE",
+    "_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE",
     "_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE",
     "_DESERIALIZATION_PICKLE_OS_GLOBAL_RE",
     "_DESERIALIZATION_RUBY_B64_RE",
@@ -452,7 +487,6 @@ __all__ = [
     "_JS_DYNAMIC_EVAL_CTOR_GADGET_RE",
     "_JS_DYNAMIC_EVAL_FUNCTION_CTOR_RE",
     "_JS_DYNAMIC_EVAL_TIMER_STRING_ARG_RE",
-    "_KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX",
     "_LDAP_ATTR_DESC_RE",
     "_LDAP_ATTR_EXTENSIBLE_MATCH_RE",
     "_LDAP_BREAKOUT_ATTACK_TOKEN_RE",
@@ -485,7 +519,6 @@ __all__ = [
     "_LOAD_FILE_SCAN_PREFIX_RE",
     "_LOAD_FILE_SCAN_TERMINATOR_RE",
     "_LOG4SHELL_JNDI_LOOKUP_RE",
-    "_MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS",
     "_MIN_BARE_DECIMAL_LEGACY_IPV4",
     "_PATH_ONLY_CHAR_RE",
     "_PATH_ONLY_PREFIX_RE",
@@ -496,6 +529,12 @@ __all__ = [
     "_PATH_TRAVERSAL_SEMICOLON_SEP_RE",
     "_PATTERN_SCAN_WINDOW_MATCHERS",
     "_PICKLE_DOTTED_MODULE_RE",
+    "_PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX",
+    "_PICKLE_GLOBAL_IDENT_FULL_RE",
+    "_PICKLE_GLOBAL_IDENT_MAX_LEN",
+    "_PICKLE_GLOBAL_IDENT_START_RE",
+    "_PICKLE_GLOBAL_NEWLINE_RE",
+    "_PICKLE_GLOBAL_NON_MODULE_CHAR_RE",
     "_PICKLE_IDENT_RE",
     "_PICKLE_OPCODE_WORK_BUDGET_BYTES",
     "_PICKLE_REDUCE_OR_BUILD_KEYS",
@@ -533,6 +572,8 @@ __all__ = [
     "_STRONG_SQL_KEYWORD_GLUED_PREFIX_RE",
     "_STRONG_SQL_KEYWORD_GLUED_SUFFIX_RE",
     "_TEMPLATE_ASP_KEYWORD_RE",
+    "_TEMPLATE_ASP_PREFIX_RE",
+    "_TEMPLATE_ASP_TERMINATOR_RE",
     "_TEMPLATE_CURLY_CALL_RE",
     "_TEMPLATE_CURLY_KEYWORD_RE",
     "_TEMPLATE_CURLY_PREFIX_RE",
@@ -541,11 +582,21 @@ __all__ = [
     "_TEMPLATE_DOLLAR_BRACE_PREFIX_RE",
     "_TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE",
     "_TEMPLATE_PERCENT_KEYWORD_RE",
+    "_TEMPLATE_PERCENT_PREFIX_RE",
+    "_TEMPLATE_PERCENT_TERMINATOR_RE",
     "_TERMINAL_PATH_SUFFIX_RE",
     "_TOP_LEVEL_PATH_PREFIX_RE",
     "_WHERE_CLAUSE_RE",
     "_WINDOWED_PATTERN_FINDERS",
+    "_XML_XXE_CLASS12_BOUNDARY_RE",
+    "_XML_XXE_CLASS3_BOUNDARY_RE",
+    "_XML_XXE_DOCTYPE_RE",
+    "_XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE",
     "_XML_XXE_PUBLIC_EXTERNAL_DTD_RE",
+    "_XML_XXE_PUBLIC_RE",
+    "_XML_XXE_QUOTE_CHARS",
+    "_XML_XXE_SCHEME_RE",
+    "_XML_XXE_W3_ORG_RE",
     "_XSS_JS_SCHEME_CTRL_CHAR_RE",
     "_backtick_pair_context_window",
     "_backtick_pair_glued",
@@ -592,7 +643,11 @@ __all__ = [
     "_pattern_excluded_from_view",
     "_pattern_should_be_skipped",
     "_pickle_global_candidate_is_injection",
+    "_pickle_global_chain_start",
+    "_pickle_global_first_valid_marker",
+    "_pickle_global_generic_finditer",
     "_pickle_global_prefix_is_opcode_stream",
+    "_pickle_global_run_start",
     "_pickle_global_suffix_reaches_reduce_or_build",
     "_pickle_opcode_scan_window",
     "_pickle_prefix_bounded_read",
@@ -610,9 +665,19 @@ __all__ = [
     "_sanitize_for_reporting",
     "_strong_sql_keyword_glued_to_pair",
     "_supports_enhanced_config",
+    "_template_asp_keyword_scan_matches",
     "_template_curly_call_scan_matches",
     "_template_curly_keyword_scan_matches",
     "_template_dollar_brace_scan_matches",
+    "_template_percent_keyword_scan_matches",
+    "_xml_xxe_candidate_span",
+    "_xml_xxe_first_at_or_after",
+    "_xml_xxe_last_before",
+    "_xml_xxe_precompute",
+    "_xml_xxe_public_external_dtd_finditer",
+    "_xml_xxe_public_run_bounds",
+    "_xml_xxe_scheme_completion_end",
+    "_xml_xxe_valid_quote_completions",
     "logger",
     "sus_patterns_handler",
 ]
@@ -643,6 +708,9 @@ def _collect_threat_categories(threats: list[dict[str, Any]]) -> list[str]:
     return categories
 
 
+_BUILTIN_PATTERN_COMPILE_FLAGS = re.IGNORECASE
+
+
 class SusPatternsManager(_SusPatternsViewsMixin):
     _instance = None
     _config = None
@@ -665,7 +733,11 @@ class SusPatternsManager(_SusPatternsViewsMixin):
             cls._instance = super().__new__(cls)
             cls._instance.custom_patterns = set()
             cls._instance.compiled_patterns = [
-                (re.compile(pattern, re.IGNORECASE), contexts, category)
+                (
+                    re.compile(pattern, _BUILTIN_PATTERN_COMPILE_FLAGS),
+                    contexts,
+                    category,
+                )
                 for pattern, contexts, category in cls._pattern_definitions
             ]
             cls._instance.compiled_custom_patterns = set()

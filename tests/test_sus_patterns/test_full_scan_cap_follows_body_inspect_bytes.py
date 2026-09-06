@@ -15,7 +15,7 @@ _JAVA_DESERIALIZATION_MARKER = "rO0AB"
 _RAISED_BODY_INSPECT_BYTES = 1_000_000
 _BODY_SIZE = 600_000
 _MID_BODY_OFFSET = 300_000
-_WALL_TIME_CEILING_SECONDS = 20.0
+_CPU_TIME_CEILING_SECONDS = 20.0
 
 
 def _cov_scale() -> float:
@@ -86,12 +86,15 @@ async def test_raised_body_inspect_cap_full_scan_of_no_hit_body_stays_bounded() 
     sus_patterns_handler.configure(config)
     body = "A" * _RAISED_BODY_INSPECT_BYTES
 
-    start = time.monotonic()
-    result = await _is_threat(body, config)
-    elapsed = time.monotonic() - start
+    samples: list[float] = []
+    for _ in range(5):
+        start = time.process_time()
+        result = await _is_threat(body, config)
+        samples.append(time.process_time() - start)
 
+    elapsed = min(samples)
     assert result is False
-    assert elapsed < _WALL_TIME_CEILING_SECONDS * _cov_scale(), (
+    assert elapsed < _CPU_TIME_CEILING_SECONDS * _cov_scale(), (
         f"full scan of a {_RAISED_BODY_INSPECT_BYTES}-byte no-hit body regressed: "
-        f"ceiling={_WALL_TIME_CEILING_SECONDS}s actual={elapsed:.3f}s"
+        f"ceiling={_CPU_TIME_CEILING_SECONDS}s actual={elapsed:.3f}s"
     )

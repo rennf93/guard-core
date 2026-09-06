@@ -15,13 +15,14 @@ from guard_core.handlers._suspatterns_matchers import (
     _cmd_injection_dollar_scan_matches,
     _file_upload_double_extension_scan_matches,
     _load_file_scan_matches,
+    _template_asp_keyword_scan_matches,
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_percent_keyword_scan_matches,
 )
 from guard_core.handlers._suspatterns_sources import (
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
-    _CMD_INJECTION_SHELL_DASH_FLAG_RE,
     _DESERIALIZATION_DOTNET_B64_RE,
     _DESERIALIZATION_JAVA_B64_RE,
     _DESERIALIZATION_PICKLE_B64_RE,
@@ -42,9 +43,7 @@ from guard_core.handlers._suspatterns_sources import (
     _SQLI_ORDER_BY_STRONG_RE,
     _SQLI_ORDER_BY_TERMINATOR_RE,
     _SSTI_HASH_BRACE_SHAPE_RE,
-    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
     _XSS_JS_SCHEME_CTRL_CHAR_RE,
-    _path_only_pattern,
 )
 
 _PATTERN_SCAN_WINDOW_MATCHERS: dict[
@@ -56,6 +55,8 @@ _PATTERN_SCAN_WINDOW_MATCHERS: dict[
     _TEMPLATE_CURLY_KEYWORD_RE: _template_curly_keyword_scan_matches,
     _TEMPLATE_DOLLAR_BRACE_CALL_RE: _template_dollar_brace_scan_matches,
     _TEMPLATE_CURLY_CALL_RE: _template_curly_call_scan_matches,
+    _TEMPLATE_PERCENT_KEYWORD_RE: _template_percent_keyword_scan_matches,
+    _TEMPLATE_ASP_KEYWORD_RE: _template_asp_keyword_scan_matches,
 }
 
 
@@ -91,24 +92,6 @@ DETECTION_URL_DECODED_VIEW_PATTERN_SOURCES: frozenset[str] = frozenset(
         _LDAP_NULL_BYTE_DECODED_ATTR_RE,
         _LDAP_NULL_BYTE_DECODED_BARE_RE,
         _SQLI_ORDER_BY_STRONG_RE,
-    }
-)
-
-_KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX: frozenset[str] = frozenset(
-    {
-        _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
-        _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
-        _TEMPLATE_PERCENT_KEYWORD_RE,
-        _TEMPLATE_ASP_KEYWORD_RE,
-    }
-)
-
-_MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS: frozenset[str] = frozenset(
-    {
-        _path_only_pattern(
-            r"(?:(?!config)[\w-])*config[\w-]*\.(?:env|yml|yaml|json|toml|ini|xml|conf)"
-        ),
-        _CMD_INJECTION_SHELL_DASH_FLAG_RE,
     }
 )
 

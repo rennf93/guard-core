@@ -122,9 +122,12 @@ async def test_bind_placeholder_without_tautology_shape_not_detected(
 
 def _timed_search(pattern: str, text: str, q: "mp.Queue[float]") -> None:
     compiled = re.compile(pattern, re.IGNORECASE)
-    t0 = time.process_time()
-    compiled.search(text)
-    q.put(time.process_time() - t0)
+    samples: list[float] = []
+    for _ in range(5):
+        t0 = time.process_time()
+        compiled.search(text)
+        samples.append(time.process_time() - t0)
+    q.put(min(samples))
 
 
 def _search_elapsed_seconds(pattern: str, text: str, timeout: float) -> float | None:

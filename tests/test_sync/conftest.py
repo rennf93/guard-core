@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import sys
@@ -120,6 +121,27 @@ def _restore_submodule_identity(module: Any) -> None:
     package = sys.modules.get(package_name)
     if package is not None:
         setattr(package, leaf, module)
+
+
+def _guard_core_logger_names() -> list[str]:
+    return [
+        name
+        for name, obj in logging.Logger.manager.loggerDict.items()
+        if isinstance(obj, logging.Logger)
+        and (name == "guard_core" or name.startswith("guard_core."))
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_guard_core_logger_levels() -> Any:
+    original_root_level = logging.getLogger().level
+    original_levels = {
+        name: logging.getLogger(name).level for name in _guard_core_logger_names()
+    }
+    yield
+    logging.getLogger().setLevel(original_root_level)
+    for name in _guard_core_logger_names():
+        logging.getLogger(name).setLevel(original_levels.get(name, logging.NOTSET))
 
 
 @pytest.fixture(autouse=True)
