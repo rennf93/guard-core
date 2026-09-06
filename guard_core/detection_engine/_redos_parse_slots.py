@@ -13,11 +13,41 @@ def _import_regex_parser_module() -> Any:
         return importlib.import_module("sre_parse")
 
 
-_regex_parser: Any = _import_regex_parser_module()
+def _import_regex_compiler_module() -> Any:
+    try:
+        return importlib.import_module("re._compiler")
+    except ImportError:
+        return importlib.import_module("sre_compile")
 
-_ALPHABET_EXTRA_CODE_POINTS: tuple[int, ...] = (0x100, 0x400, 0x4E00, 0xFFFD, 0x1F600)
+
+_regex_parser: Any = _import_regex_parser_module()
+_regex_compiler: Any = _import_regex_compiler_module()
+
+_ALPHABET_EXTRA_CODE_POINTS: tuple[int, ...] = (
+    0x100,
+    0x400,
+    0x4E00,
+    0xFFFD,
+    0x1F600,
+    0xE000,
+    0x10FFFF,
+    0x1F601,
+    0x131,
+    0x17F,
+    0x212A,
+    0x3D1,
+)
 _ALPHABET: frozenset[str] = frozenset(chr(c) for c in range(256)) | frozenset(
     chr(c) for c in _ALPHABET_EXTRA_CODE_POINTS
+)
+_REQUIRED_CANDIDATE_CODE_POINTS: tuple[int, ...] = (
+    0xE000,
+    0x10FFFF,
+    0x1F601,
+    0x131,
+    0x17F,
+    0x212A,
+    0x3D1,
 )
 
 
@@ -25,6 +55,20 @@ class _PairingAtom(NamedTuple):
     charset: frozenset[str]
     allows_zero: bool
     unbounded: bool
+    predicate: Callable[[int], bool] | None = None
+    candidates: frozenset[int] = frozenset()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _PairingAtom):
+            return NotImplemented
+        return (self.charset, self.allows_zero, self.unbounded) == (
+            other.charset,
+            other.allows_zero,
+            other.unbounded,
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.charset, self.allows_zero, self.unbounded))
 
 
 class _NonPairingSlot(NamedTuple):
@@ -79,68 +123,71 @@ def _parse_pattern(pattern: str, flags: int) -> Any:
     return _regex_parser.parse(pattern, flags)
 
 
-def _ignorecase_fold(charset: frozenset[str], flags: int) -> frozenset[str]:
-    if not flags & re.IGNORECASE:
-        return charset
-    folded: set[str] = set(charset)
-    for ch in charset:
-        for variant in (ch.lower(), ch.upper(), ch.casefold()):
-            if len(variant) == 1:
-                folded.add(variant)
-    return frozenset(ch for ch in folded if ch in _ALPHABET)
+def _compile_class_node(op: Any, av: Any, flags: int) -> Any:
+    state = _regex_parser.State()
+    state.flags = flags
+    subpattern = _regex_parser.SubPattern(state, [(op, av)])
+    return _regex_compiler.compile(subpattern, flags)
+
+
+def _category_predicate(category: Any, flags: int) -> Callable[[int], bool]:
+    escape = _CATEGORY_ESCAPES.get(category)
+    if escape is None:
+        return lambda code_point: True
+    compiled = re.compile(escape, flags)
+    return lambda code_point: compiled.fullmatch(chr(code_point)) is not None
 
 
 def _category_charset(category: Any, flags: int) -> frozenset[str]:
-    escape = _CATEGORY_ESCAPES.get(category)
-    if escape is None:
-        return _ALPHABET
-    compiled = re.compile(escape, flags)
-    return frozenset(ch for ch in _ALPHABET if compiled.fullmatch(ch))
+    predicate = _category_predicate(category, flags)
+    return frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
 
 
-def _range_charset(low: int, high: int) -> frozenset[str]:
-    return frozenset(ch for ch in _ALPHABET if low <= ord(ch) <= high)
-
-
-def _literal_charset(code: int) -> frozenset[str]:
-    return frozenset(ch for ch in _ALPHABET if ord(ch) == code)
-
-
-def _class_item_charset(op: Any, av: Any, flags: int) -> frozenset[str]:
-    if op is _regex_parser.LITERAL:
-        return _ignorecase_fold(_literal_charset(av), flags)
-    if op is _regex_parser.RANGE:
-        return _ignorecase_fold(_range_charset(av[0], av[1]), flags)
+def _class_node_predicate(op: Any, av: Any, flags: int) -> Callable[[int], bool]:
     if op is _regex_parser.CATEGORY:
-        return _category_charset(av, flags)
-    return _ALPHABET
-
-
-def _in_charset(items: list[tuple[Any, Any]], flags: int) -> frozenset[str]:
-    if items and items[0][0] is _regex_parser.NEGATE:
-        return _ALPHABET - _in_charset(items[1:], flags)
-    result: frozenset[str] = frozenset()
-    for op, av in items:
-        result |= _class_item_charset(op, av, flags)
-    return result
-
-
-def _any_charset(flags: int) -> frozenset[str]:
-    if flags & re.DOTALL:
-        return _ALPHABET
-    return _ALPHABET - {"\n"}
+        return _category_predicate(av, flags)
+    compiled = _compile_class_node(op, av, flags)
+    return lambda code_point: compiled.fullmatch(chr(code_point)) is not None
 
 
 def _pairing_charset(op: Any, av: Any, flags: int) -> frozenset[str]:
-    if op is _regex_parser.LITERAL:
-        return _ignorecase_fold(_literal_charset(av), flags)
-    if op is _regex_parser.NOT_LITERAL:
-        return _ALPHABET - _ignorecase_fold(_literal_charset(av), flags)
+    predicate = _class_node_predicate(op, av, flags)
+    return frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
+
+
+def _clip_code_point(code_point: int) -> int:
+    return max(0, min(0x10FFFF, code_point))
+
+
+def _endpoints_for_class_item(op: Any, av: Any) -> set[int]:
+    if op is _regex_parser.LITERAL or op is _regex_parser.NOT_LITERAL:
+        return {av - 1, av, av + 1}
+    if op is _regex_parser.RANGE:
+        low, high = av
+        return {low - 1, low, high, high + 1}
     if op is _regex_parser.IN:
-        return _in_charset(av, flags)
-    if op is _regex_parser.ANY:
-        return _any_charset(flags)
-    return _category_charset(av, flags)
+        points: set[int] = set()
+        for item_op, item_av in av:
+            if item_op is _regex_parser.NEGATE:
+                continue
+            points |= _endpoints_for_class_item(item_op, item_av)
+        return points
+    return set()
+
+
+def _candidate_code_points_for_node(op: Any, av: Any) -> frozenset[int]:
+    points = _endpoints_for_class_item(op, av)
+    points.update(_REQUIRED_CANDIDATE_CODE_POINTS)
+    return frozenset(_clip_code_point(point) for point in points)
+
+
+def _pairing_atom(
+    op: Any, av: Any, flags: int, allows_zero: bool, unbounded: bool
+) -> _PairingAtom:
+    predicate = _class_node_predicate(op, av, flags)
+    charset = frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
+    candidates = _candidate_code_points_for_node(op, av)
+    return _PairingAtom(charset, allows_zero, unbounded, predicate, candidates)
 
 
 def _nonpairing_slot(
@@ -166,7 +213,7 @@ def _nonpairing_slot(
 
 def _unrepeated_slot(op: Any, av: Any, flags: int) -> _Slot:
     if op in _PAIRING_OPS:
-        return _PairingAtom(_pairing_charset(op, av, flags), False, False)
+        return _pairing_atom(op, av, flags, False, False)
     return _nonpairing_slot(op, av, flags, False, False)
 
 
@@ -177,9 +224,7 @@ def _repeat_slot(av: tuple[int, int, list[Any]], flags: int) -> _Slot:
     if len(body) == 1:
         op, item_av = body[0]
         if op in _PAIRING_OPS:
-            return _PairingAtom(
-                _pairing_charset(op, item_av, flags), allows_zero, unbounded
-            )
+            return _pairing_atom(op, item_av, flags, allows_zero, unbounded)
         return _nonpairing_slot(op, item_av, flags, allows_zero, unbounded)
     return _NonPairingSlot(
         not allows_zero, _sequence_to_alternatives(body, flags), unbounded

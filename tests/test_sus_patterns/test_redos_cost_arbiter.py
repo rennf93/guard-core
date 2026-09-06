@@ -14,6 +14,7 @@ from guard_core.detection_engine._redos_class_intersection import (
     _ALPHABET,
     _class_intersection_fills,
     _class_intersection_probe_units,
+    _exact_overlap_fill,
     _group_crossing_result,
     _NonPairingSlot,
     _pairing_units_from,
@@ -50,8 +51,6 @@ from guard_core.detection_engine._redos_parse_slots import (
     _ATOMIC_GROUP,
     _atomic_group_body_and_flags,
     _category_charset,
-    _class_item_charset,
-    _ignorecase_fold,
     _pairing_charset,
     _regex_parser,
 )
@@ -141,12 +140,6 @@ def test_category_charset_falls_back_to_full_alphabet_for_unmapped_category() ->
     assert _category_charset(object(), 0) == _ALPHABET
 
 
-def test_class_item_charset_falls_back_to_the_full_alphabet_for_an_unknown_item() -> (
-    None
-):
-    assert _class_item_charset(object(), None, 0) == _ALPHABET
-
-
 def test_pairing_charset_falls_back_to_category_charset_for_a_bare_category_op() -> (
     None
 ):
@@ -165,8 +158,39 @@ def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -
     assert _pairing_units_from(slots, 0) == []
 
 
-def test_ignorecase_fold_skips_a_multi_character_case_variant() -> None:
-    assert _ignorecase_fold(frozenset("ß"), re.IGNORECASE) == frozenset("ß")
+def test_pairing_atom_eq_returns_notimplemented_for_a_non_pairing_atom() -> None:
+    atom = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    other = _NonPairingSlot(is_boundary=True, inner=None)
+    assert atom.__eq__(other) is NotImplemented
+    assert atom != other
+
+
+def test_exact_overlap_fill_returns_none_when_either_side_has_no_predicate() -> None:
+    with_predicate = _PairingAtom(
+        frozenset("a"),
+        allows_zero=False,
+        unbounded=False,
+        predicate=lambda code_point: True,
+    )
+    without_predicate = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    assert _exact_overlap_fill(None, frozenset(), with_predicate) is None
+    assert (
+        _exact_overlap_fill(lambda code_point: True, frozenset(), without_predicate)
+        is None
+    )
+
+
+def test_pairing_atom_hash_ignores_predicate_and_candidates() -> None:
+    charset = frozenset("a")
+    with_extras = _PairingAtom(
+        charset,
+        allows_zero=False,
+        unbounded=False,
+        predicate=lambda code_point: True,
+        candidates=frozenset({1}),
+    )
+    without_extras = _PairingAtom(charset, allows_zero=False, unbounded=False)
+    assert hash(with_extras) == hash(without_extras)
 
 
 def test_atomic_group_body_and_flags_returns_the_body_and_flags_unchanged() -> None:
@@ -306,13 +330,6 @@ def test_pattern_compiler_rejects_unbounded_multi_char_alternation_zero_admittin
     )
 
 
-def test_class_item_charset_folds_literal_case_under_ignorecase() -> None:
-    assert _class_item_charset(_regex_parser.LITERAL, ord("a"), 0) == frozenset("a")
-    assert _class_item_charset(
-        _regex_parser.LITERAL, ord("a"), re.IGNORECASE
-    ) == frozenset("aA")
-
-
 def test_pairing_charset_folds_not_literal_case_under_ignorecase() -> None:
     charset = _pairing_charset(_regex_parser.NOT_LITERAL, ord("a"), re.IGNORECASE)
     assert "a" not in charset
@@ -419,6 +436,133 @@ def test_pattern_compiler_accepts_universal_class_pair_with_no_possible_stray() 
     assert is_safe is True, (
         "a fully universal class pair anchored at the end cannot be forced to "
         f"fail and must stay linear, got safe={is_safe} ({reason})"
+    )
+
+
+def test_class_intersection_probe_units_astral_gap_stray_is_a_real_forcing_point() -> (
+    None
+):
+    pattern = r"[\x00-\U0001F600]*[\x00-\U0001F5FF]+"
+    units = _class_intersection_probe_units(pattern, 0)
+    assert units
+    _fill, stray = units[0]
+    slots = _pattern_slots(pattern, 0)
+    assert slots is not None
+    left, right = slots[0], slots[1]
+    assert isinstance(left, _PairingAtom)
+    assert isinstance(right, _PairingAtom)
+    assert left.predicate is not None
+    assert right.predicate is not None
+    assert left.predicate(ord(stray)) is False
+    assert right.predicate(ord(stray)) is False
+
+
+def test_class_intersection_probe_units_finds_an_astral_only_overlap_fill() -> None:
+    pattern = r"[\U0001F601-\U0001F700]*[\U0001F650-\U0001F800]+"
+    units = _class_intersection_probe_units(pattern, 0)
+    assert units
+    fill, _stray = units[0]
+    slots = _pattern_slots(pattern, 0)
+    assert slots is not None
+    left, right = slots[0], slots[1]
+    assert isinstance(left, _PairingAtom)
+    assert isinstance(right, _PairingAtom)
+    assert left.predicate is not None
+    assert right.predicate is not None
+    assert left.predicate(ord(fill)) is True
+    assert right.predicate(ord(fill)) is True
+
+
+def test_class_intersection_probe_units_keeps_exact_state_across_an_optional_atom() -> (
+    None
+):
+    pattern = r"[\U0001F601-\U0001F700]*\U0001F650?[\U0001F650-\U0001F800]+"
+    units = _class_intersection_probe_units(pattern, 0)
+    assert units
+    fill, _stray = units[0]
+    assert fill == "\U0001f650"
+
+
+def test_class_intersection_probe_units_finds_a_fill_for_the_kelvin_sign_pair() -> None:
+    pattern = r"[k]*[K]+"
+    units = _class_intersection_probe_units(pattern, re.IGNORECASE)
+    assert units
+    fill, _stray = units[0]
+    slots = _pattern_slots(pattern, re.IGNORECASE)
+    assert slots is not None
+    left, right = slots[0], slots[1]
+    assert isinstance(left, _PairingAtom)
+    assert isinstance(right, _PairingAtom)
+    assert left.predicate is not None
+    assert right.predicate is not None
+    assert left.predicate(ord(fill)) is True
+    assert right.predicate(ord(fill)) is True
+
+
+def test_stray_for_pair_finds_an_exact_predicate_stray_beyond_the_fixed_alphabet() -> (
+    None
+):
+    pattern = r"[^\U00050000][^\U00050000]"
+    slots = _pattern_slots(pattern, 0)
+    assert slots is not None
+    left, right = slots[0], slots[1]
+    assert isinstance(left, _PairingAtom)
+    assert isinstance(right, _PairingAtom)
+    stray = _stray_for_pair(
+        left.charset,
+        right.charset,
+        left.predicate,
+        right.predicate,
+        left.candidates | right.candidates,
+    )
+    assert ord(stray) == 0x50000
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_astral_gap_class_intersection() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        r"[\x00-\U0001F600]*[\x00-\U0001F5FF]+$"
+    )
+    assert is_safe is False, (
+        "expected the astral-range class intersection to be rejected once the "
+        f"stray probe reaches past the fixed alphabet, got safe={is_safe} ({reason})"
+    )
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_astral_only_class_overlap() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        r"[\U0001F601-\U0001F700]*[\U0001F650-\U0001F800]+$"
+    )
+    assert is_safe is False, (
+        "expected an overlap that exists only outside the fixed alphabet to be "
+        f"detected via endpoint-derived candidates, got safe={is_safe} ({reason})"
+    )
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_dotless_i_ignorecase_fold_overlap() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"(?i)[a-z]*\u0131+$")
+    assert is_safe is False, (
+        "expected the dotless-i literal to overlap [a-z] once the engine's real "
+        f"IGNORECASE fold is used instead of str.lower/upper/casefold, got "
+        f"safe={is_safe} ({reason})"
+    )
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_accepts_full_unicode_range_class_pair() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        r"[\x00-\U0010FFFF]*[\x00-\U0010FFFF]+$"
+    )
+    assert is_safe is True, (
+        "a class pair covering the entire Unicode range anchored at the end "
+        f"cannot be forced to fail and must stay linear, got safe={is_safe} "
+        f"({reason})"
     )
 
 
@@ -754,6 +898,36 @@ def test_class_intersection_probe_units_are_ground_truthed_against_real_timing()
                         f"the space/NUL probe measured super-linear growth "
                         f"(ratio={ratio:.2f}x); a quadratic escape without a unit"
                     )
+
+
+_GRAMMAR_ASTRAL_PAIRS: list[tuple[str, str, str, str]] = [
+    (
+        r"[\x00-\U0001F600]*",
+        r"[\x00-\U0001F5FF]+",
+        "\U0001f5ff",
+        "\U0001f601",
+    ),
+    (
+        r"[\U0001F601-\U0001F700]*",
+        r"[\U0001F650-\U0001F800]+",
+        "\U0001f650",
+        "\x00",
+    ),
+]
+
+
+@pytest.mark.redos_timing
+def test_class_intersection_probe_units_are_ground_truthed_for_astral_pairs() -> None:
+    for left, right, fill, stray in _GRAMMAR_ASTRAL_PAIRS:
+        pattern = "'" + left + right + "--"
+        units = _class_intersection_probe_units(pattern, 0)
+        ratio = _growth_ratio(pattern, fill, stray)
+        if ratio >= 3.0:
+            assert units, (
+                f"pattern={pattern!r} fill={fill!r} stray={stray!r} measured "
+                f"super-linear growth (ratio={ratio:.2f}x) but the module "
+                f"produced no unit at all"
+            )
 
 
 def test_repeat_probe_to_length_forces_non_alignment_on_exact_multiples() -> None:
