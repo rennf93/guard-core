@@ -5,6 +5,12 @@ import re
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
+from guard_core.detection_engine._redos_ignorecase_fold import expand_ignorecase
+from guard_core.detection_engine._redos_intervals import (
+    _IntervalSet,
+    cached_category_intervals,
+)
+
 
 def _import_regex_parser_module() -> Any:
     try:
@@ -23,52 +29,24 @@ def _import_regex_compiler_module() -> Any:
 _regex_parser: Any = _import_regex_parser_module()
 _regex_compiler: Any = _import_regex_compiler_module()
 
-_ALPHABET_EXTRA_CODE_POINTS: tuple[int, ...] = (
-    0x100,
-    0x400,
-    0x4E00,
-    0xFFFD,
-    0x1F600,
-    0xE000,
-    0x10FFFF,
-    0x1F601,
-    0x131,
-    0x17F,
-    0x212A,
-    0x3D1,
-)
-_ALPHABET: frozenset[str] = frozenset(chr(c) for c in range(256)) | frozenset(
-    chr(c) for c in _ALPHABET_EXTRA_CODE_POINTS
-)
-_REQUIRED_CANDIDATE_CODE_POINTS: tuple[int, ...] = (
-    0xE000,
-    0x10FFFF,
-    0x1F601,
-    0x131,
-    0x17F,
-    0x212A,
-    0x3D1,
-)
-
 
 class _PairingAtom(NamedTuple):
-    charset: frozenset[str]
+    intervals: _IntervalSet
     allows_zero: bool
     unbounded: bool
     predicate: Callable[[int], bool] | None = None
-    candidates: frozenset[int] = frozenset()
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _PairingAtom):
             return NotImplemented
-        return (self.charset, self.allows_zero, self.unbounded) == (
-            other.charset,
+        return (self.intervals, self.allows_zero, self.unbounded) == (
+            other.intervals,
             other.allows_zero,
             other.unbounded,
         )
 
     def __hash__(self) -> int:
-        return hash((self.charset, self.allows_zero, self.unbounded))
+        return hash((self.intervals, self.allows_zero, self.unbounded))
 
 
 class _NonPairingSlot(NamedTuple):
@@ -138,93 +116,82 @@ def _category_predicate(category: Any, flags: int) -> Callable[[int], bool]:
     return lambda code_point: compiled.fullmatch(chr(code_point)) is not None
 
 
-def _category_charset(category: Any, flags: int) -> frozenset[str]:
-    predicate = _category_predicate(category, flags)
-    return frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
+def _class_node_cache_key(op: Any, av: Any, flags: int) -> tuple[Any, Any, int]:
+    if op is _regex_parser.IN:
+        return (op, tuple(av), flags)
+    return (op, av, flags)
+
+
+def _compiled_node_predicate(compiled: Any) -> Callable[[int], bool]:
+    def predicate(code_point: int) -> bool:
+        return compiled.fullmatch(chr(code_point)) is not None
+
+    return predicate
+
+
+_CLASS_NODE_PREDICATE_CACHE: dict[tuple[Any, Any, int], Callable[[int], bool]] = {}
 
 
 def _class_node_predicate(op: Any, av: Any, flags: int) -> Callable[[int], bool]:
-    if op is _regex_parser.CATEGORY:
-        return _category_predicate(av, flags)
-    compiled = _compile_class_node(op, av, flags)
-    return lambda code_point: compiled.fullmatch(chr(code_point)) is not None
-
-
-def _pairing_charset(op: Any, av: Any, flags: int) -> frozenset[str]:
-    predicate = _class_node_predicate(op, av, flags)
-    return frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
-
-
-def _clip_code_point(code_point: int) -> int:
-    return max(0, min(0x10FFFF, code_point))
-
-
-_RANGE_DENSE_WIDTH_CEILING = 256
-_RANGE_SAMPLE_STRIDE = 64
-_RANGE_BLOCK_SIZE = 256
-_DENSE_CATEGORIES = frozenset(
-    {_regex_parser.CATEGORY_DIGIT, _regex_parser.CATEGORY_SPACE}
-)
-_CATEGORY_MEMBER_CACHE: dict[tuple[Any, int], frozenset[int]] = {}
-
-
-def _range_endpoints(low: int, high: int) -> set[int]:
-    points = {low - 1, low, high, high + 1}
-    width = high - low + 1
-    if width <= _RANGE_DENSE_WIDTH_CEILING:
-        points.update(range(low, high + 1))
-        return points
-    points.update(range(low, high + 1, _RANGE_SAMPLE_STRIDE))
-    first_block = (low // _RANGE_BLOCK_SIZE) * _RANGE_BLOCK_SIZE
-    points.update(
-        block_start
-        for block_start in range(first_block, high + 1, _RANGE_BLOCK_SIZE)
-        if low <= block_start
-    )
-    return points
-
-
-def _category_member_candidates(category: Any, flags: int) -> frozenset[int]:
-    cache_key = (category, flags & re.ASCII)
-    cached = _CATEGORY_MEMBER_CACHE.get(cache_key)
+    key = _class_node_cache_key(op, av, flags)
+    cached = _CLASS_NODE_PREDICATE_CACHE.get(key)
     if cached is not None:
         return cached
+    if op is _regex_parser.CATEGORY:
+        predicate = _category_predicate(av, flags)
+    else:
+        predicate = _compiled_node_predicate(_compile_class_node(op, av, flags))
+    _CLASS_NODE_PREDICATE_CACHE[key] = predicate
+    return predicate
+
+
+def _category_intervals(category: Any, flags: int) -> _IntervalSet:
     predicate = _category_predicate(category, flags)
-    members = frozenset(
-        code_point for code_point in range(0x110000) if predicate(code_point)
-    )
-    _CATEGORY_MEMBER_CACHE[cache_key] = members
-    return members
+    return cached_category_intervals((category, flags & re.ASCII), predicate)
 
 
-def _category_endpoints(category: Any, flags: int) -> set[int]:
-    if category in _DENSE_CATEGORIES:
-        return set(_category_member_candidates(category, flags))
-    return set()
+def _apply_ignorecase(intervals: _IntervalSet, flags: int) -> _IntervalSet:
+    if not flags & re.IGNORECASE:
+        return intervals
+    return expand_ignorecase(intervals, ascii_only=bool(flags & re.ASCII))
 
 
-def _endpoints_for_class_item(op: Any, av: Any, flags: int) -> set[int]:
-    if op is _regex_parser.LITERAL or op is _regex_parser.NOT_LITERAL:
-        return {av - 1, av, av + 1}
+def _member_intervals(op: Any, av: Any, flags: int) -> _IntervalSet:
+    if op is _regex_parser.CATEGORY:
+        return _category_intervals(av, flags)
     if op is _regex_parser.RANGE:
         low, high = av
-        return _range_endpoints(low, high)
-    if op is _regex_parser.CATEGORY:
-        return _category_endpoints(av, flags)
+        return _apply_ignorecase(_IntervalSet.from_range(low, high), flags)
+    if op is _regex_parser.LITERAL:
+        return _apply_ignorecase(_IntervalSet.single(av), flags)
+    return _IntervalSet.empty()
+
+
+def _in_intervals(av: Any, flags: int) -> _IntervalSet:
+    negate = False
+    member = _IntervalSet.empty()
+    for item_op, item_av in av:
+        if item_op is _regex_parser.NEGATE:
+            negate = True
+            continue
+        member = member.union(_member_intervals(item_op, item_av, flags))
+    return member.complement() if negate else member
+
+
+def _any_intervals(flags: int) -> _IntervalSet:
+    if flags & re.DOTALL:
+        return _IntervalSet.full()
+    return _IntervalSet.full().difference(_IntervalSet.single(ord("\n")))
+
+
+def _node_intervals(op: Any, av: Any, flags: int) -> _IntervalSet:
+    if op is _regex_parser.NOT_LITERAL:
+        return _apply_ignorecase(_IntervalSet.single(av), flags).complement()
     if op is _regex_parser.IN:
-        points: set[int] = set()
-        for item_op, item_av in av:
-            if item_op is _regex_parser.NEGATE:
-                continue
-            points |= _endpoints_for_class_item(item_op, item_av, flags)
-        return points
-    return set()
-
-
-def _candidate_code_points_for_node(op: Any, av: Any, flags: int) -> frozenset[int]:
-    points = _endpoints_for_class_item(op, av, flags)
-    points.update(_REQUIRED_CANDIDATE_CODE_POINTS)
-    return frozenset(_clip_code_point(point) for point in points)
+        return _in_intervals(av, flags)
+    if op is _regex_parser.ANY:
+        return _any_intervals(flags)
+    return _member_intervals(op, av, flags)
 
 
 def _candidate_chars_for_atom_text(atom_text: str, flags: int) -> frozenset[str]:
@@ -235,17 +202,16 @@ def _candidate_chars_for_atom_text(atom_text: str, flags: int) -> frozenset[str]
     if len(parsed.data) != 1:
         return frozenset()
     op, av = parsed.data[0]
-    candidates = _candidate_code_points_for_node(op, av, parsed.state.flags)
-    return frozenset(chr(code_point) for code_point in candidates)
+    intervals = _node_intervals(op, av, parsed.state.flags)
+    return frozenset(chr(cp) for cp in intervals.component_first_members())
 
 
 def _pairing_atom(
     op: Any, av: Any, flags: int, allows_zero: bool, unbounded: bool
 ) -> _PairingAtom:
+    intervals = _node_intervals(op, av, flags)
     predicate = _class_node_predicate(op, av, flags)
-    charset = frozenset(ch for ch in _ALPHABET if predicate(ord(ch)))
-    candidates = _candidate_code_points_for_node(op, av, flags)
-    return _PairingAtom(charset, allows_zero, unbounded, predicate, candidates)
+    return _PairingAtom(intervals, allows_zero, unbounded, predicate)
 
 
 def _nonpairing_slot(

@@ -11,16 +11,15 @@ import pytest
 
 from guard_core.sync.detection_engine._redos_ambiguous_tail import _atom_char_set
 from guard_core.sync.detection_engine._redos_class_intersection import (
-    _ALPHABET,
+    _advance_pairing_chain,
+    _append_pairing_unit,
     _class_intersection_fills,
     _class_intersection_probe_units,
     _cross_non_pairing_slot,
-    _exact_overlap_fill,
+    _fill_confirmed,
     _group_crossing_result,
-    _NonPairingSlot,
+    _left_confirms_fill,
     _pairing_units_from,
-    _PairingAtom,
-    _pattern_slots,
     _stray_for_pair,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
@@ -49,23 +48,21 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _time_single_reach_probe_subprocess,
 )
 from guard_core.sync.detection_engine._redos_exact_state import (
-    _always_true,
     _exact_overlap_fill_raw,
     _isolated_alternative_exact_state,
     _isolated_group_exact_state,
     _narrow_exact_state_raw,
-    _or_predicate,
 )
+from guard_core.sync.detection_engine._redos_intervals import _IntervalSet
 from guard_core.sync.detection_engine._redos_parse_slots import (
     _ATOMIC_GROUP,
-    _DENSE_CATEGORIES,
     _atomic_group_body_and_flags,
-    _candidate_code_points_for_node,
-    _category_charset,
-    _category_endpoints,
-    _category_member_candidates,
-    _pairing_charset,
-    _range_endpoints,
+    _category_intervals,
+    _class_node_predicate,
+    _node_intervals,
+    _NonPairingSlot,
+    _PairingAtom,
+    _pattern_slots,
     _regex_parser,
 )
 from guard_core.sync.detection_engine._redos_probe_fill import (
@@ -101,13 +98,27 @@ def _timing(
 
 def test_pattern_slots_marks_a_capturing_group_as_a_boundary_slot() -> None:
     slots = _pattern_slots(r"[^<>]*(x)[\s/]+", 0)
-    not_lt_gt = frozenset(ch for ch in _ALPHABET if ch not in "<>")
-    slash_or_space = frozenset(ch for ch in _ALPHABET if re.fullmatch(r"[\s/]", ch))
+    not_lt_gt = (
+        _IntervalSet.full()
+        .difference(_IntervalSet.single(ord("<")))
+        .difference(_IntervalSet.single(ord(">")))
+    )
+    slash_or_space = _category_intervals(_regex_parser.CATEGORY_SPACE, 0).union(
+        _IntervalSet.single(ord("/"))
+    )
     assert slots == [
         _PairingAtom(not_lt_gt, allows_zero=True, unbounded=True),
         _NonPairingSlot(
             is_boundary=True,
-            inner=[[_PairingAtom(frozenset("x"), allows_zero=False, unbounded=False)]],
+            inner=[
+                [
+                    _PairingAtom(
+                        _IntervalSet.single(ord("x")),
+                        allows_zero=False,
+                        unbounded=False,
+                    )
+                ]
+            ],
         ),
         _PairingAtom(slash_or_space, allows_zero=False, unbounded=True),
     ]
@@ -120,17 +131,22 @@ def test_pattern_slots_returns_none_when_the_pattern_fails_to_parse() -> None:
 
 def test_pattern_slots_treats_a_bare_negation_as_a_not_literal_pairing_atom() -> None:
     slots = _pattern_slots(r"[^a]", 0)
-    assert slots == [
-        _PairingAtom(_ALPHABET - frozenset("a"), allows_zero=False, unbounded=False)
-    ]
+    expected = _IntervalSet.full().difference(_IntervalSet.single(ord("a")))
+    assert slots == [_PairingAtom(expected, allows_zero=False, unbounded=False)]
 
 
 def test_pattern_slots_widens_any_to_the_full_alphabet_under_dotall() -> None:
     dotall_slots = _pattern_slots(r"(?s).", 0)
     plain_slots = _pattern_slots(r".", 0)
-    assert dotall_slots == [_PairingAtom(_ALPHABET, allows_zero=False, unbounded=False)]
+    assert dotall_slots == [
+        _PairingAtom(_IntervalSet.full(), allows_zero=False, unbounded=False)
+    ]
     assert plain_slots == [
-        _PairingAtom(_ALPHABET - frozenset("\n"), allows_zero=False, unbounded=False)
+        _PairingAtom(
+            _IntervalSet.full().difference(_IntervalSet.single(ord("\n"))),
+            allows_zero=False,
+            unbounded=False,
+        )
     ]
 
 
@@ -150,21 +166,35 @@ def test_class_intersection_fills_stops_crossing_at_a_nested_backreference() -> 
     assert fills == []
 
 
-def test_category_charset_falls_back_to_full_alphabet_for_unmapped_category() -> None:
-    assert _category_charset(object(), 0) == _ALPHABET
-
-
-def test_pairing_charset_falls_back_to_category_charset_for_a_bare_category_op() -> (
+def test_category_intervals_falls_back_to_the_full_range_for_an_unmapped_category() -> (
     None
 ):
-    charset = _pairing_charset(_regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0)
-    assert charset == frozenset(ch for ch in _ALPHABET if re.fullmatch(r"\d", ch))
+    assert _category_intervals(object(), 0) == _IntervalSet.full()
+
+
+def test_node_intervals_handles_a_bare_category_op_directly() -> None:
+    intervals = _node_intervals(_regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0)
+    assert intervals == _category_intervals(_regex_parser.CATEGORY_DIGIT, 0)
+    assert intervals.contains(ord("5")) is True
+    assert intervals.contains(ord("x")) is False
+
+
+def test_class_node_predicate_handles_a_bare_category_op_directly() -> None:
+    predicate = _class_node_predicate(
+        _regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0
+    )
+    assert predicate(ord("5")) is True
+    assert predicate(ord("x")) is False
 
 
 def test_group_crossing_result_rejects_past_the_max_depth() -> None:
-    atom = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    atom = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=False
+    )
     alternatives: list[list[Any]] = [[atom]]
-    assert _group_crossing_result(alternatives, frozenset("a"), 999) is None
+    assert (
+        _group_crossing_result(alternatives, _IntervalSet.single(ord("a")), 999) is None
+    )
 
 
 def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -> None:
@@ -173,38 +203,72 @@ def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -
 
 
 def test_pairing_atom_eq_returns_notimplemented_for_a_non_pairing_atom() -> None:
-    atom = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    atom = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=False
+    )
     other = _NonPairingSlot(is_boundary=True, inner=None)
     assert atom.__eq__(other) is NotImplemented
     assert atom != other
 
 
-def test_exact_overlap_fill_returns_none_when_either_side_has_no_predicate() -> None:
+def test_fill_confirmed_returns_true_when_either_predicate_is_missing() -> None:
     with_predicate = _PairingAtom(
-        frozenset("a"),
+        _IntervalSet.single(ord("a")),
         allows_zero=False,
         unbounded=False,
         predicate=lambda code_point: True,
     )
-    without_predicate = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
-    assert _exact_overlap_fill(None, frozenset(), with_predicate) is None
-    assert (
-        _exact_overlap_fill(lambda code_point: True, frozenset(), without_predicate)
-        is None
+    without_predicate = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=False
     )
+    assert _fill_confirmed(with_predicate, without_predicate, "a") is True
+    assert _fill_confirmed(without_predicate, with_predicate, "a") is True
 
 
-def test_pairing_atom_hash_ignores_predicate_and_candidates() -> None:
-    charset = frozenset("a")
-    with_extras = _PairingAtom(
-        charset,
+def test_fill_confirmed_rejects_a_predicate_disagreement() -> None:
+    always_false = _PairingAtom(
+        _IntervalSet.single(ord("a")),
+        allows_zero=False,
+        unbounded=False,
+        predicate=lambda code_point: False,
+    )
+    always_true = _PairingAtom(
+        _IntervalSet.single(ord("a")),
         allows_zero=False,
         unbounded=False,
         predicate=lambda code_point: True,
-        candidates=frozenset({1}),
     )
-    without_extras = _PairingAtom(charset, allows_zero=False, unbounded=False)
-    assert hash(with_extras) == hash(without_extras)
+    assert _fill_confirmed(always_false, always_true, "a") is False
+
+
+def test_left_confirms_fill_returns_true_when_predicate_is_missing() -> None:
+    atom = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=False
+    )
+    assert _left_confirms_fill(atom, "a") is True
+
+
+def test_left_confirms_fill_rejects_a_predicate_disagreement() -> None:
+    always_false = _PairingAtom(
+        _IntervalSet.single(ord("a")),
+        allows_zero=False,
+        unbounded=False,
+        predicate=lambda code_point: False,
+    )
+    assert _left_confirms_fill(always_false, "a") is False
+
+
+def test_pairing_atom_hash_ignores_the_predicate() -> None:
+    intervals = _IntervalSet.single(ord("a"))
+    with_predicate = _PairingAtom(
+        intervals,
+        allows_zero=False,
+        unbounded=False,
+        predicate=lambda code_point: True,
+    )
+    without_predicate = _PairingAtom(intervals, allows_zero=False, unbounded=False)
+    assert hash(with_predicate) == hash(without_predicate)
+    assert with_predicate == without_predicate
 
 
 def test_atomic_group_body_and_flags_returns_the_body_and_flags_unchanged() -> None:
@@ -221,7 +285,15 @@ def test_pattern_slots_treats_an_atomic_group_as_a_group_slot() -> None:
     assert slots == [
         _NonPairingSlot(
             is_boundary=True,
-            inner=[[_PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)]],
+            inner=[
+                [
+                    _PairingAtom(
+                        _IntervalSet.single(ord("a")),
+                        allows_zero=False,
+                        unbounded=False,
+                    )
+                ]
+            ],
             unbounded=True,
         )
     ]
@@ -344,10 +416,10 @@ def test_pattern_compiler_rejects_unbounded_multi_char_alternation_zero_admittin
     )
 
 
-def test_pairing_charset_folds_not_literal_case_under_ignorecase() -> None:
-    charset = _pairing_charset(_regex_parser.NOT_LITERAL, ord("a"), re.IGNORECASE)
-    assert "a" not in charset
-    assert "A" not in charset
+def test_node_intervals_folds_not_literal_case_under_ignorecase() -> None:
+    intervals = _node_intervals(_regex_parser.NOT_LITERAL, ord("a"), re.IGNORECASE)
+    assert intervals.contains(ord("a")) is False
+    assert intervals.contains(ord("A")) is False
 
 
 def test_class_intersection_probe_units_finds_no_fill_for_disjoint_case_sensitive_pair() -> (  # noqa: E501
@@ -410,18 +482,16 @@ def test_pattern_compiler_rejects_latin1_only_overlap() -> None:
 def test_stray_for_pair_reaches_past_the_full_byte_range_when_it_is_all_excluded() -> (
     None
 ):
-    left_charset = frozenset(chr(c) for c in range(0x100))
-    right_charset = frozenset(chr(c) for c in range(0xFF))
-    stray = _stray_for_pair(left_charset, right_charset)
+    left = _IntervalSet.from_range(0, 0xFF)
+    right = _IntervalSet.from_range(0, 0xFE)
+    stray = _stray_for_pair(left, right)
     assert ord(stray) >= 0x100
-    assert stray not in left_charset
-    assert stray not in right_charset
+    assert left.contains(ord(stray)) is False
+    assert right.contains(ord(stray)) is False
 
 
-def test_stray_for_pair_falls_back_to_nul_when_the_union_covers_the_full_alphabet() -> (
-    None
-):
-    assert _stray_for_pair(_ALPHABET, _ALPHABET) == "\x00"
+def test_stray_for_pair_falls_back_to_nul_when_the_union_is_the_full_range() -> None:
+    assert _stray_for_pair(_IntervalSet.full(), _IntervalSet.full()) == "\x00"
 
 
 def test_class_intersection_probe_units_finds_a_fill_for_the_full_byte_range() -> None:
@@ -513,22 +583,14 @@ def test_class_intersection_probe_units_finds_a_fill_for_the_kelvin_sign_pair() 
     assert right.predicate(ord(fill)) is True
 
 
-def test_stray_for_pair_finds_an_exact_predicate_stray_beyond_the_fixed_alphabet() -> (
-    None
-):
+def test_stray_for_pair_finds_an_exact_stray_beyond_the_fixed_alphabet() -> None:
     pattern = r"[^\U00050000][^\U00050000]"
     slots = _pattern_slots(pattern, 0)
     assert slots is not None
     left, right = slots[0], slots[1]
     assert isinstance(left, _PairingAtom)
     assert isinstance(right, _PairingAtom)
-    stray = _stray_for_pair(
-        left.charset,
-        right.charset,
-        left.predicate,
-        right.predicate,
-        left.candidates | right.candidates,
-    )
+    stray = _stray_for_pair(left.intervals, right.intervals)
     assert ord(stray) == 0x50000
 
 
@@ -664,11 +726,10 @@ def test_pattern_compiler_rejects_cyrillic_class_intersection() -> None:
 
 def test_isolated_alternative_exact_state_skips_a_zero_admitting_atom() -> None:
     zero_atom = _PairingAtom(
-        frozenset("a"), allows_zero=True, unbounded=False, predicate=_always_true
+        _IntervalSet.single(ord("a")), allows_zero=True, unbounded=False
     )
-    predicate, candidates = _isolated_alternative_exact_state([zero_atom], 0)
-    assert predicate is _always_true
-    assert candidates == frozenset()
+    state = _isolated_alternative_exact_state([zero_atom], 0)
+    assert state == _IntervalSet.full()
 
 
 def test_isolated_alternative_exact_state_narrows_through_a_mandatory_atom() -> None:
@@ -676,25 +737,24 @@ def test_isolated_alternative_exact_state_narrows_through_a_mandatory_atom() -> 
     assert slots is not None
     atom = slots[0]
     assert isinstance(atom, _PairingAtom)
-    predicate, candidates = _isolated_alternative_exact_state([atom], 0)
-    assert predicate is not None
-    assert predicate(ord("z")) is True
-    assert predicate(ord("y")) is False
-    assert candidates == atom.candidates
+    state = _isolated_alternative_exact_state([atom], 0)
+    assert state is not None
+    assert state.contains(ord("z")) is True
+    assert state.contains(ord("y")) is False
+    assert state == atom.intervals
 
 
 def test_isolated_alternative_exact_state_returns_none_for_a_hard_boundary_slot() -> (
     None
 ):
     hard_boundary = _NonPairingSlot(is_boundary=True, inner=None)
-    assert _isolated_alternative_exact_state([hard_boundary], 0) == (None, frozenset())
+    assert _isolated_alternative_exact_state([hard_boundary], 0) is None
 
 
 def test_isolated_alternative_exact_state_passes_through_a_transparent_slot() -> None:
     transparent = _NonPairingSlot(is_boundary=False, inner=None)
-    predicate, candidates = _isolated_alternative_exact_state([transparent], 0)
-    assert predicate is _always_true
-    assert candidates == frozenset()
+    state = _isolated_alternative_exact_state([transparent], 0)
+    assert state == _IntervalSet.full()
 
 
 def test_isolated_alternative_exact_state_recurses_into_a_nested_group() -> None:
@@ -702,16 +762,16 @@ def test_isolated_alternative_exact_state_recurses_into_a_nested_group() -> None
     assert slots is not None
     nested_group = slots[0]
     assert isinstance(nested_group, _NonPairingSlot)
-    predicate, candidates = _isolated_alternative_exact_state([nested_group], 0)
-    assert predicate is not None
-    assert predicate(ord("z")) is True
-    assert predicate(ord("y")) is False
-    assert candidates
+    state = _isolated_alternative_exact_state([nested_group], 0)
+    assert state is not None
+    assert state.contains(ord("z")) is True
+    assert state.contains(ord("y")) is False
 
 
-def test_isolated_alternative_exact_state_stops_when_narrowing_hits_none() -> None:
-    unpredicated = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
-    assert _isolated_alternative_exact_state([unpredicated], 0) == (None, frozenset())
+def test_isolated_alternative_exact_state_returns_none_for_a_none_group_state() -> None:
+    hard_boundary = _NonPairingSlot(is_boundary=True, inner=None)
+    inner_group = _NonPairingSlot(is_boundary=True, inner=[[hard_boundary]])
+    assert _isolated_alternative_exact_state([inner_group], 0) is None
 
 
 def test_isolated_group_exact_state_rejects_past_the_max_depth() -> None:
@@ -719,7 +779,7 @@ def test_isolated_group_exact_state_rejects_past_the_max_depth() -> None:
     assert slots is not None
     atom = slots[0]
     assert isinstance(atom, _PairingAtom)
-    assert _isolated_group_exact_state([[atom]], 999) == (None, frozenset())
+    assert _isolated_group_exact_state([[atom]], 999) is None
 
 
 def test_isolated_group_exact_state_skips_alternatives_that_cannot_narrow() -> None:
@@ -728,12 +788,10 @@ def test_isolated_group_exact_state_skips_alternatives_that_cannot_narrow() -> N
     live_atom = slots[0]
     assert isinstance(live_atom, _PairingAtom)
     hard_boundary_alt: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
-    predicate, candidates = _isolated_group_exact_state(
-        [hard_boundary_alt, [live_atom]], 0
-    )
-    assert predicate is not None
-    assert predicate(ord("z")) is True
-    assert candidates == live_atom.candidates
+    state = _isolated_group_exact_state([hard_boundary_alt, [live_atom]], 0)
+    assert state is not None
+    assert state.contains(ord("z")) is True
+    assert state == live_atom.intervals
 
 
 def test_isolated_group_exact_state_unions_two_alternatives() -> None:
@@ -744,83 +802,65 @@ def test_isolated_group_exact_state_unions_two_alternatives() -> None:
     atom_a, atom_b = slots_a[0], slots_b[0]
     assert isinstance(atom_a, _PairingAtom)
     assert isinstance(atom_b, _PairingAtom)
-    predicate, candidates = _isolated_group_exact_state([[atom_a], [atom_b]], 0)
-    assert predicate is not None
-    assert predicate(ord("a")) is True
-    assert predicate(ord("b")) is True
-    assert predicate(ord("c")) is False
-    assert candidates == atom_a.candidates | atom_b.candidates
+    state = _isolated_group_exact_state([[atom_a], [atom_b]], 0)
+    assert state is not None
+    assert state.contains(ord("a")) is True
+    assert state.contains(ord("b")) is True
+    assert state.contains(ord("c")) is False
+    assert state == atom_a.intervals.union(atom_b.intervals)
 
 
 def test_isolated_group_exact_state_returns_none_when_every_alternative_fails() -> None:
     hard: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
-    assert _isolated_group_exact_state([hard, hard], 0) == (None, frozenset())
+    assert _isolated_group_exact_state([hard, hard], 0) is None
 
 
-def test_exact_overlap_fill_raw_returns_none_when_either_predicate_is_missing() -> None:
-    assert _exact_overlap_fill_raw(None, frozenset(), _always_true, frozenset()) is None
-    assert _exact_overlap_fill_raw(_always_true, frozenset(), None, frozenset()) is None
+def test_exact_overlap_fill_raw_returns_none_when_either_state_is_missing() -> None:
+    assert _exact_overlap_fill_raw(None, _IntervalSet.full()) is None
+    assert _exact_overlap_fill_raw(_IntervalSet.full(), None) is None
 
 
-def test_exact_overlap_fill_raw_returns_none_when_the_pool_never_satisfies_both() -> (
-    None
-):
+def test_exact_overlap_fill_raw_returns_none_when_the_states_do_not_overlap() -> None:
     fill = _exact_overlap_fill_raw(
-        lambda cp: cp == ord("a"),
-        frozenset({ord("a")}),
-        lambda cp: cp == ord("b"),
-        frozenset({ord("b")}),
+        _IntervalSet.single(ord("a")), _IntervalSet.single(ord("b"))
     )
     assert fill is None
 
 
-def test_exact_overlap_fill_raw_finds_the_first_pool_hit() -> None:
+def test_exact_overlap_fill_raw_finds_the_overlap() -> None:
     fill = _exact_overlap_fill_raw(
-        lambda cp: cp == ord("z"),
-        frozenset({ord("z")}),
-        lambda cp: cp == ord("z"),
-        frozenset({ord("z")}),
+        _IntervalSet.single(ord("z")), _IntervalSet.single(ord("z"))
     )
     assert fill == "z"
 
 
-def test_narrow_exact_state_raw_returns_none_when_either_predicate_is_missing() -> None:
-    assert _narrow_exact_state_raw(None, frozenset(), _always_true, frozenset()) == (
-        None,
-        frozenset(),
+def test_narrow_exact_state_raw_returns_none_when_either_state_is_missing() -> None:
+    assert _narrow_exact_state_raw(None, _IntervalSet.full()) is None
+    assert _narrow_exact_state_raw(_IntervalSet.full(), None) is None
+
+
+def test_narrow_exact_state_raw_intersects_two_states() -> None:
+    narrowed = _narrow_exact_state_raw(
+        _IntervalSet.from_range(0, 10), _IntervalSet.from_range(5, 15)
     )
-    assert _narrow_exact_state_raw(_always_true, frozenset(), None, frozenset()) == (
-        None,
-        frozenset(),
-    )
-
-
-def test_or_predicate_is_true_when_either_side_is_true() -> None:
-    predicate = _or_predicate(lambda cp: cp == 1, lambda cp: cp == 2)
-    assert predicate(1) is True
-    assert predicate(2) is True
-    assert predicate(3) is False
-
-
-def test_always_true_accepts_every_code_point() -> None:
-    assert _always_true(0) is True
-    assert _always_true(0x10FFFF) is True
+    assert narrowed == _IntervalSet.from_range(5, 10)
 
 
 def test_cross_non_pairing_slot_hard_boundary_with_no_inner_returns_none() -> None:
     slot = _NonPairingSlot(is_boundary=True, inner=None)
-    assert _cross_non_pairing_slot(slot, frozenset("a"), None, frozenset()) is None
+    assert _cross_non_pairing_slot(slot, _IntervalSet.single(ord("a")), None) is None
 
 
 def test_cross_non_pairing_slot_transparent_with_no_inner_passes_shared_through() -> (
     None
 ):
     slot = _NonPairingSlot(is_boundary=False, inner=None)
-    result = _cross_non_pairing_slot(slot, frozenset("a"), None, frozenset())
-    assert result == (frozenset("a"), None, None, frozenset())
+    shared = _IntervalSet.single(ord("a"))
+    result = _cross_non_pairing_slot(slot, shared, None)
+    assert result == (shared, None, None)
 
 
-def test_cross_non_pairing_slot_boundary_falls_back_to_the_exact_state() -> None:
+def test_cross_non_pairing_slot_boundary_crosses_directly_via_exact_intervals() -> None:
     slots = _pattern_slots(_H1_ASTRAL_GROUP_CROSSING_PATTERN, 0)
     assert slots is not None
     left = next(slot for slot in slots if isinstance(slot, _PairingAtom))
@@ -829,15 +869,29 @@ def test_cross_non_pairing_slot_boundary_falls_back_to_the_exact_state() -> None
         for slot in slots
         if isinstance(slot, _NonPairingSlot) and slot.inner is not None
     )
-    result = _cross_non_pairing_slot(
-        group, left.charset, left.predicate, left.candidates
-    )
+    result = _cross_non_pairing_slot(group, left.intervals, left.intervals)
     assert result is not None
-    shared, fill, group_predicate, group_candidates = result
-    assert shared == frozenset()
+    shared, fill, group_state = result
+    assert shared.is_empty() is False
     assert fill is not None
-    assert group_predicate is not None
-    assert group_candidates
+    assert group_state is not None
+    assert group_state.is_empty() is False
+
+
+def test_cross_non_pairing_slot_boundary_uses_the_exact_state_when_crossing_fails() -> (
+    None
+):
+    slots = _pattern_slots(r"(z)+", 0)
+    assert slots is not None
+    group = next(slot for slot in slots if isinstance(slot, _NonPairingSlot))
+    disjoint_shared = _IntervalSet.single(ord("q"))
+    exact_state = _IntervalSet.single(ord("z"))
+    result = _cross_non_pairing_slot(group, disjoint_shared, exact_state)
+    assert result is not None
+    shared, fill, group_state = result
+    assert shared.is_empty() is True
+    assert fill == "z"
+    assert group_state == _IntervalSet.single(ord("z"))
 
 
 def test_cross_non_pairing_slot_boundary_returns_none_when_exact_fallback_fails() -> (
@@ -851,60 +905,128 @@ def test_cross_non_pairing_slot_boundary_returns_none_when_exact_fallback_fails(
         for slot in slots
         if isinstance(slot, _NonPairingSlot) and slot.inner is not None
     )
-    result = _cross_non_pairing_slot(
-        group, left.charset, left.predicate, left.candidates
-    )
+    result = _cross_non_pairing_slot(group, left.intervals, left.intervals)
     assert result is None
 
 
-def test_range_endpoints_enumerates_densely_within_the_256_ceiling() -> None:
-    points = _range_endpoints(0x400, 0x4FF)
-    assert points == set(range(0x400, 0x500)) | {0x3FF, 0x500}
-
-
-def test_range_endpoints_samples_a_wide_range_by_stride_and_block() -> None:
-    points = _range_endpoints(0x10000, 0x10FFFE)
-    assert {0xFFFF, 0x10000, 0x10FFFE, 0x10FFFF} <= points
-    assert len(points) < (0x10FFFE - 0x10000)
-
-
-def test_category_member_candidates_finds_every_digit_and_caches_the_result() -> None:
-    members = _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
-    assert ord("0") in members
-    assert 0x104A0 in members
-    assert members is _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
-
-
-def test_category_member_candidates_finds_unicode_whitespace() -> None:
-    members = _category_member_candidates(_regex_parser.CATEGORY_SPACE, 0)
-    assert ord(" ") in members
-    assert len(members) < 100
-
-
-def test_category_endpoints_returns_nothing_for_a_non_dense_category() -> None:
-    assert _category_endpoints(_regex_parser.CATEGORY_WORD, 0) == set()
-    assert _regex_parser.CATEGORY_WORD not in _DENSE_CATEGORIES
-
-
-def test_category_endpoints_returns_dense_members_for_digit() -> None:
-    assert _category_endpoints(_regex_parser.CATEGORY_DIGIT, 0) == set(
-        _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
+def test_pairing_units_from_suppresses_a_group_fill_the_predicate_rejects() -> None:
+    left = _PairingAtom(
+        _IntervalSet.single(ord("a")),
+        allows_zero=False,
+        unbounded=True,
+        predicate=lambda code_point: False,
     )
+    inner_atom = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=False
+    )
+    group = _NonPairingSlot(
+        is_boundary=True,
+        inner=[[inner_atom]],
+        unbounded=True,
+    )
+    assert _pairing_units_from([left, group], 0) == []
 
 
-def test_endpoints_for_class_item_recurses_past_a_negate_marker() -> None:
+def test_append_pairing_unit_skips_when_the_fill_is_not_confirmed() -> None:
+    units: list[tuple[str, str]] = []
+    always_false = _PairingAtom(
+        _IntervalSet.single(ord("a")),
+        allows_zero=False,
+        unbounded=True,
+        predicate=lambda code_point: False,
+    )
+    _append_pairing_unit(units, always_false, always_false, "a")
+    assert units == []
+
+
+def test_advance_pairing_chain_uses_the_exact_state_when_shared_overlap_is_empty() -> (
+    None
+):
+    left = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=True
+    )
+    slot = _PairingAtom(
+        _IntervalSet.single(ord("z")), allows_zero=False, unbounded=True
+    )
+    units: list[tuple[str, str]] = []
+    disjoint_shared = _IntervalSet.single(ord("q"))
+    exact_state = _IntervalSet.single(ord("z"))
+    shared, new_exact_state, should_stop = _advance_pairing_chain(
+        units, left, disjoint_shared, slot, exact_state
+    )
+    assert units == [("z", "\x00")]
+    assert should_stop is False
+    assert new_exact_state is None
+    assert shared.is_empty() is True
+
+
+def test_advance_pairing_chain_exact_fallback_skips_append_when_not_unbounded() -> None:
+    left = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=True
+    )
+    slot = _PairingAtom(
+        _IntervalSet.single(ord("z")), allows_zero=False, unbounded=False
+    )
+    units: list[tuple[str, str]] = []
+    shared, exact_state, should_stop = _advance_pairing_chain(
+        units,
+        left,
+        _IntervalSet.single(ord("q")),
+        slot,
+        _IntervalSet.single(ord("z")),
+    )
+    assert units == []
+    assert should_stop is False
+    assert exact_state is None
+    assert shared.is_empty() is True
+
+
+def test_advance_pairing_chain_exact_fallback_keeps_state_when_slot_allows_zero() -> (
+    None
+):
+    left = _PairingAtom(
+        _IntervalSet.single(ord("a")), allows_zero=False, unbounded=True
+    )
+    slot = _PairingAtom(_IntervalSet.single(ord("z")), allows_zero=True, unbounded=True)
+    units: list[tuple[str, str]] = []
+    disjoint_shared = _IntervalSet.single(ord("q"))
+    exact_state_in = _IntervalSet.single(ord("z"))
+    shared, exact_state, should_stop = _advance_pairing_chain(
+        units, left, disjoint_shared, slot, exact_state_in
+    )
+    assert units == [("z", "\x00")]
+    assert should_stop is False
+    assert exact_state is exact_state_in
+    assert shared is disjoint_shared
+
+
+def test_category_intervals_finds_every_digit_and_caches_the_result() -> None:
+    intervals = _category_intervals(_regex_parser.CATEGORY_DIGIT, 0)
+    assert intervals.contains(ord("0")) is True
+    assert intervals.contains(0x104A0) is True
+    assert intervals is _category_intervals(_regex_parser.CATEGORY_DIGIT, 0)
+
+
+def test_category_intervals_finds_unicode_whitespace() -> None:
+    intervals = _category_intervals(_regex_parser.CATEGORY_SPACE, 0)
+    assert intervals.contains(ord(" ")) is True
+    assert intervals.contains(ord("a")) is False
+
+
+def test_word_category_intervals_are_not_empty_and_include_far_members() -> None:
+    intervals = _category_intervals(_regex_parser.CATEGORY_WORD, 0)
+    assert intervals.contains(ord("a")) is True
+    assert intervals.contains(0x2460) is True
+    assert intervals.contains(0x2000) is False
+
+
+def test_pattern_slots_negated_digit_class_excludes_far_digit_members() -> None:
     slots = _pattern_slots(r"[^\d]", 0)
     assert slots is not None
     atom = slots[0]
     assert isinstance(atom, _PairingAtom)
-    assert 0x104A0 in atom.candidates
-
-
-def test_candidate_code_points_for_node_includes_dense_digit_members() -> None:
-    points = _candidate_code_points_for_node(
-        _regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0
-    )
-    assert 0x104A0 in points
+    assert atom.intervals.contains(0x104A0) is False
+    assert atom.intervals.contains(ord("a")) is True
 
 
 def test_word_category_versus_narrow_range_finds_overlap_when_one_exists() -> None:
@@ -917,8 +1039,38 @@ def test_word_category_versus_narrow_range_finds_overlap_when_one_exists() -> No
     assert re.fullmatch(right, fill)
 
 
+_TEST_ALPHABET_EXTRA_CODE_POINTS: tuple[int, ...] = (
+    0x100,
+    0x400,
+    0x4E00,
+    0xFFFD,
+    0x1F600,
+    0xE000,
+    0x10FFFF,
+    0x1F601,
+    0x131,
+    0x17F,
+    0x212A,
+    0x3D1,
+)
+_TEST_ALPHABET: frozenset[str] = frozenset(chr(c) for c in range(256)) | frozenset(
+    chr(c) for c in _TEST_ALPHABET_EXTRA_CODE_POINTS
+)
+
+
 def _element_charset(element: str) -> frozenset[str]:
-    return frozenset(ch for ch in _ALPHABET if re.fullmatch(element, ch))
+    return frozenset(ch for ch in _TEST_ALPHABET if re.fullmatch(element, ch))
+
+
+def _quantifier_free_atom_text(element: str) -> str:
+    return element[:-1] if element and element[-1] in "*+" else element
+
+
+def _interval_set_for_element(element: str) -> _IntervalSet:
+    atom_text = _quantifier_free_atom_text(element)
+    parsed = _regex_parser.parse(atom_text, 0)
+    op, av = parsed.data[0]
+    return _node_intervals(op, av, parsed.state.flags)
 
 
 def _element_allows_zero(element: str) -> bool:
@@ -1217,11 +1369,11 @@ def test_class_intersection_probe_units_are_ground_truthed_against_real_timing()
 ):
     for left in _GRAMMAR_LEFT_ATOMS:
         for right in _GRAMMAR_RIGHT_ATOMS:
-            left_charset = _element_charset(left)
-            right_charset = _element_charset(right)
             oracle_stray = _oracle_stray_for_pair(left, right, 0)
             if oracle_stray is not None:
-                module_stray = _stray_for_pair(left_charset, right_charset)
+                module_stray = _stray_for_pair(
+                    _interval_set_for_element(left), _interval_set_for_element(right)
+                )
                 assert re.fullmatch(left, module_stray) is None
                 assert re.fullmatch(right, module_stray) is None
             for mid in _GRAMMAR_TIMING_MIDDLES:

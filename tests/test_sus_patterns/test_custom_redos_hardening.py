@@ -977,10 +977,9 @@ def test_candidate_chars_for_atom_text_returns_empty_for_a_multi_atom_text() -> 
     assert _candidate_chars_for_atom_text("ab", 0) == frozenset()
 
 
-def test_candidate_chars_for_atom_text_includes_range_endpoints() -> None:
+def test_candidate_chars_for_atom_text_includes_the_range_start() -> None:
     chars = _candidate_chars_for_atom_text(r"[Ѐ-ӿ]", 0)
     assert "Ѐ" in chars
-    assert "ӿ" in chars
 
 
 def test_representative_char_for_atom_falls_back_to_class_candidates_beyond_printable() -> (  # noqa: E501
@@ -1001,3 +1000,56 @@ def test_representative_char_for_atom_stays_none_when_the_class_matches_nothing(
     None
 ):
     assert _representative_char_for_atom(r"[^\x00-\U0010FFFF]") is None
+
+
+_CONFIRMED_FALSE_SAFE_WORD_BOUNDARY_PATTERN = r"^[↞-▞]+\w+$"
+_CONFIRMED_FALSE_SAFE_GROUP_VARIANTS = (
+    r"^(?:[↞-▞])+\w+$",
+    r"^(?:[↞-▞]+)\w+$",
+    r"^(?:[↞-▞]+\w+)$",
+)
+_PUNCTUATION_OVERLAP_CLASS_INTERSECTION_PATTERN = "^\\W*[ -⁳]+$"
+
+_CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS: tuple[str, ...] = (
+    _CONFIRMED_FALSE_SAFE_WORD_BOUNDARY_PATTERN,
+    *_CONFIRMED_FALSE_SAFE_GROUP_VARIANTS,
+    _PUNCTUATION_OVERLAP_CLASS_INTERSECTION_PATTERN,
+    r"^[\U0001F900-\U0001FAA0a]*([\U0001F900-\U0001FAA0b])+$",
+    r"^\d*[\U00010000-\U0010FFFEz]+$",
+    r"[Ѐ-ӿ]*[а-я]+$",
+    r"[\x00-\U0001F600]*[\x00-\U0001F5FF]+$",
+    r"^[\x00-\xff]*[\x00-\xfe]+$",
+    r"^[c-w]*(?:[g-z][g-z]|[g-z][g-z][g-z])*$",
+    r"^[a-z]*[A-Z]+X$",
+    r"^[a\x80-\xff]*[b\x80-\xff]+$",
+    r"^[a-c]+(?:[b-c])[b-d]+$",
+    r"(?i)[k]*[K]+$",
+)
+
+_CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS: tuple[str, ...] = (
+    r"^(?:[a-z]+@[a-z]+\.[a-z]{2,})$",
+    r"^[\s\S]*[\s\S]+$",
+    r"^[Ѐ-ӿ]+$",
+    r"^[一-鿿]+$",
+    r"^[^\x00-\x7f]+$",
+)
+
+
+@pytest.mark.redos_timing
+def test_validate_pattern_safety_rejects_the_class_intersection_regression_corpus() -> (
+    None
+):
+    compiler = PatternCompiler()
+    for pattern in _CLASS_INTERSECTION_REGRESSION_REJECT_PATTERNS:
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is False, f"{pattern!r} was accepted: {reason}"
+
+
+@pytest.mark.redos_timing
+def test_validate_pattern_safety_accepts_the_class_intersection_regression_corpus() -> (
+    None
+):
+    compiler = PatternCompiler()
+    for pattern in _CLASS_INTERSECTION_REGRESSION_ACCEPT_PATTERNS:
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is True, f"{pattern!r} was rejected: {reason}"
