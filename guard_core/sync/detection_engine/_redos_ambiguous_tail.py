@@ -1,6 +1,10 @@
 import re
 import string
+from collections.abc import Iterable
 
+from guard_core.sync.detection_engine._redos_parse_slots import (
+    _candidate_chars_for_atom_text,
+)
 from guard_core.sync.detection_engine._redos_structure import (
     _NESTING_DEPTH_REJECTION_REASON,
     GroupNestingTooDeep,
@@ -83,14 +87,25 @@ def _atoms_overlap(text_a: str, text_b: str) -> bool:
     return not _atom_char_set(text_a).isdisjoint(_atom_char_set(text_b))
 
 
+def _first_accepted_char(
+    compiled: re.Pattern[str], candidates: Iterable[str]
+) -> str | None:
+    for ch in candidates:
+        if compiled.fullmatch(ch):
+            return ch
+    return None
+
+
 def _representative_char_for_atom(atom_text: str) -> str | None:
     compiled = _compile_atom(atom_text)
     if compiled is None:
         return None
-    for ch in _OVERLAP_PROBE_ALPHABET:
-        if compiled.fullmatch(ch):
-            return ch
-    return None
+    printable_match = _first_accepted_char(compiled, _OVERLAP_PROBE_ALPHABET)
+    if printable_match is not None:
+        return printable_match
+    return _first_accepted_char(
+        compiled, sorted(_candidate_chars_for_atom_text(atom_text, re.DOTALL))
+    )
 
 
 def _raw_atom_span(inner: str, i: int) -> int:

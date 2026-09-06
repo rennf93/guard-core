@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from guard_core.sync.detection_engine._redos_exact_state import (
+    _MAX_GROUP_CROSSING_DEPTH,
+    _exact_overlap_fill_raw,
+    _isolated_group_exact_state,
+    _narrow_exact_state_raw,
+)
 from guard_core.sync.detection_engine._redos_parse_slots import (
     _ALPHABET,
     _REQUIRED_CANDIDATE_CODE_POINTS,
@@ -11,7 +17,6 @@ from guard_core.sync.detection_engine._redos_parse_slots import (
     _Slot,
 )
 
-_MAX_GROUP_CROSSING_DEPTH = 16
 _ALPHABET_SORTED: tuple[str, ...] = tuple(sorted(_ALPHABET))
 _STRAY_CANDIDATES: tuple[str, ...] = (
     "\x00",
@@ -72,20 +77,36 @@ def _group_crossing_result(
 
 
 def _cross_non_pairing_slot(
-    slot: _NonPairingSlot, shared: frozenset[str]
-) -> tuple[frozenset[str], str | None] | None:
+    slot: _NonPairingSlot,
+    shared: frozenset[str],
+    exact_predicate: Callable[[int], bool] | None,
+    exact_candidates: frozenset[int],
+) -> (
+    tuple[frozenset[str], str | None, Callable[[int], bool] | None, frozenset[int]]
+    | None
+):
     if slot.inner is None:
-        return (shared, None) if not slot.is_boundary else None
-    crossing = _group_crossing_result(slot.inner, shared, 0)
-    if slot.is_boundary:
-        if crossing is None:
+        if slot.is_boundary:
             return None
-        fill = sorted(crossing)[0] if slot.unbounded else None
-        return crossing, fill
+        return shared, None, None, frozenset()
+    crossing = _group_crossing_result(slot.inner, shared, 0)
+    group_predicate, group_candidates = _isolated_group_exact_state(slot.inner, 0)
     if crossing is None:
-        return shared, None
+        fill = (
+            _exact_overlap_fill_raw(
+                exact_predicate, exact_candidates, group_predicate, group_candidates
+            )
+            if slot.unbounded
+            else None
+        )
+        if slot.is_boundary:
+            if fill is None:
+                return None
+            return frozenset(), fill, group_predicate, group_candidates
+        return shared, fill, group_predicate, group_candidates
     fill = sorted(crossing)[0] if slot.unbounded else None
-    return shared, fill
+    result_shared = crossing if slot.is_boundary else shared
+    return result_shared, fill, group_predicate, group_candidates
 
 
 def _stray_from_fixed_alphabet(excluded: frozenset[str]) -> str | None:
@@ -127,20 +148,14 @@ def _stray_for_pair(
     return "\x00"
 
 
-def _and_predicate(
-    first: Callable[[int], bool], second: Callable[[int], bool]
-) -> Callable[[int], bool]:
-    return lambda code_point: first(code_point) and second(code_point)
-
-
 def _narrow_exact_state(
     predicate: Callable[[int], bool] | None,
     candidates: frozenset[int],
     slot: _PairingAtom,
 ) -> tuple[Callable[[int], bool] | None, frozenset[int]]:
-    if predicate is None or slot.predicate is None:
-        return None, frozenset()
-    return _and_predicate(predicate, slot.predicate), candidates | slot.candidates
+    return _narrow_exact_state_raw(
+        predicate, candidates, slot.predicate, slot.candidates
+    )
 
 
 def _exact_overlap_fill(
@@ -148,13 +163,9 @@ def _exact_overlap_fill(
     candidates: frozenset[int],
     right: _PairingAtom,
 ) -> str | None:
-    if predicate is None or right.predicate is None:
-        return None
-    pool = sorted(set(_REQUIRED_CANDIDATE_CODE_POINTS) | candidates | right.candidates)
-    for code_point in pool:
-        if predicate(code_point) and right.predicate(code_point):
-            return chr(code_point)
-    return None
+    return _exact_overlap_fill_raw(
+        predicate, candidates, right.predicate, right.candidates
+    )
 
 
 def _append_pairing_unit(
@@ -215,13 +226,25 @@ def _pairing_units_from(slots: list[_Slot], start: int) -> list[tuple[str, str]]
     units: list[tuple[str, str]] = []
     for slot in slots[start + 1 :]:
         if isinstance(slot, _NonPairingSlot):
-            crossed = _cross_non_pairing_slot(slot, shared)
+            crossed = _cross_non_pairing_slot(
+                slot, shared, exact_predicate, exact_candidates
+            )
             if crossed is None:
                 break
-            shared, fill = crossed
-            exact_predicate, exact_candidates = None, frozenset()
+            shared, fill, group_predicate, group_candidates = crossed
+            if slot.is_boundary:
+                exact_predicate, exact_candidates = _narrow_exact_state_raw(
+                    exact_predicate, exact_candidates, group_predicate, group_candidates
+                )
             if fill is not None:
-                units.append((fill, _stray_for_pair(left_charset, shared)))
+                stray = _stray_for_pair(
+                    left_charset,
+                    shared,
+                    left.predicate,
+                    group_predicate,
+                    left.candidates | group_candidates,
+                )
+                units.append((fill, stray))
             continue
         shared, exact_predicate, exact_candidates, should_stop = _advance_pairing_chain(
             units,

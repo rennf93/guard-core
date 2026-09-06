@@ -14,6 +14,7 @@ from guard_core.sync.detection_engine._redos_class_intersection import (
     _ALPHABET,
     _class_intersection_fills,
     _class_intersection_probe_units,
+    _cross_non_pairing_slot,
     _exact_overlap_fill,
     _group_crossing_result,
     _NonPairingSlot,
@@ -47,11 +48,24 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _time_reach_probes_subprocess,
     _time_single_reach_probe_subprocess,
 )
+from guard_core.sync.detection_engine._redos_exact_state import (
+    _always_true,
+    _exact_overlap_fill_raw,
+    _isolated_alternative_exact_state,
+    _isolated_group_exact_state,
+    _narrow_exact_state_raw,
+    _or_predicate,
+)
 from guard_core.sync.detection_engine._redos_parse_slots import (
     _ATOMIC_GROUP,
+    _DENSE_CATEGORIES,
     _atomic_group_body_and_flags,
+    _candidate_code_points_for_node,
     _category_charset,
+    _category_endpoints,
+    _category_member_candidates,
     _pairing_charset,
+    _range_endpoints,
     _regex_parser,
 )
 from guard_core.sync.detection_engine._redos_probe_fill import (
@@ -566,6 +580,343 @@ def test_pattern_compiler_accepts_full_unicode_range_class_pair() -> None:
     )
 
 
+_H1_ASTRAL_GROUP_CROSSING_PATTERN = (
+    r"^[\U0001F900-\U0001FAA0a]*([\U0001F900-\U0001FAA0b])+$"
+)
+_H2_DIGIT_VERSUS_ASTRAL_RANGE_PATTERN = r"^\d*[\U00010000-\U0010FFFEz]+$"
+
+
+def test_class_intersection_probe_units_crosses_a_group_via_astral_exact_state() -> (
+    None
+):
+    units = _class_intersection_probe_units(_H1_ASTRAL_GROUP_CROSSING_PATTERN, 0)
+    assert units
+    fill, stray = units[0]
+    assert re.fullmatch(r"[\U0001F900-\U0001FAA0a]", fill)
+    assert re.fullmatch(r"[\U0001F900-\U0001FAA0b]", fill)
+    assert re.fullmatch(r"[\U0001F900-\U0001FAA0a]", stray) is None
+    assert re.fullmatch(r"[\U0001F900-\U0001FAA0b]", stray) is None
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_astral_group_crossing() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        _H1_ASTRAL_GROUP_CROSSING_PATTERN
+    )
+    assert is_safe is False, (
+        "expected the exact astral state to survive the group crossing and "
+        f"force a class-intersection unit, got safe={is_safe} ({reason})"
+    )
+
+
+def test_class_intersection_probe_units_finds_digit_versus_astral_range_overlap() -> (
+    None
+):
+    units = _class_intersection_probe_units(_H2_DIGIT_VERSUS_ASTRAL_RANGE_PATTERN, 0)
+    assert units
+    fill, _stray = units[0]
+    assert re.fullmatch(r"\d", fill)
+    assert re.fullmatch(r"[\U00010000-\U0010FFFEz]", fill)
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_digit_category_versus_astral_range() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        _H2_DIGIT_VERSUS_ASTRAL_RANGE_PATTERN
+    )
+    assert is_safe is False, (
+        "expected the bare \\d category to contribute its own dense candidate "
+        f"pool and catch the astral-range overlap, got safe={is_safe} ({reason})"
+    )
+
+
+_H3_ANCHORED_UNICODE_CLASS_PATTERNS = (
+    r"^[Ѐ-ӿ]+$",
+    r"^[一-鿿]+$",
+    r"^[\U0001F600-\U0001F64F]+$",
+    r"^[^\x00-\x7f]+$",
+)
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_accepts_anchored_non_ascii_class_patterns() -> None:
+    compiler = PatternCompiler()
+    for pattern in _H3_ANCHORED_UNICODE_CLASS_PATTERNS:
+        is_safe, reason = compiler.validate_pattern_safety(pattern)
+        assert is_safe is True, (
+            f"expected {pattern!r} to be certified linear once the reach-probe "
+            f"can represent a non-ASCII class, got safe={is_safe} ({reason})"
+        )
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_cyrillic_class_intersection() -> None:
+    compiler = PatternCompiler()
+    pattern = r"[Ѐ-ӿ]*[а-я]+$"
+    is_safe, reason = compiler.validate_pattern_safety(pattern)
+    assert is_safe is False, (
+        f"expected the Cyrillic class-intersection overlap to be caught now "
+        f"that the reach-probe can represent it, got safe={is_safe} ({reason})"
+    )
+
+
+def test_isolated_alternative_exact_state_skips_a_zero_admitting_atom() -> None:
+    zero_atom = _PairingAtom(
+        frozenset("a"), allows_zero=True, unbounded=False, predicate=_always_true
+    )
+    predicate, candidates = _isolated_alternative_exact_state([zero_atom], 0)
+    assert predicate is _always_true
+    assert candidates == frozenset()
+
+
+def test_isolated_alternative_exact_state_narrows_through_a_mandatory_atom() -> None:
+    slots = _pattern_slots(r"z", 0)
+    assert slots is not None
+    atom = slots[0]
+    assert isinstance(atom, _PairingAtom)
+    predicate, candidates = _isolated_alternative_exact_state([atom], 0)
+    assert predicate is not None
+    assert predicate(ord("z")) is True
+    assert predicate(ord("y")) is False
+    assert candidates == atom.candidates
+
+
+def test_isolated_alternative_exact_state_returns_none_for_a_hard_boundary_slot() -> (
+    None
+):
+    hard_boundary = _NonPairingSlot(is_boundary=True, inner=None)
+    assert _isolated_alternative_exact_state([hard_boundary], 0) == (None, frozenset())
+
+
+def test_isolated_alternative_exact_state_passes_through_a_transparent_slot() -> None:
+    transparent = _NonPairingSlot(is_boundary=False, inner=None)
+    predicate, candidates = _isolated_alternative_exact_state([transparent], 0)
+    assert predicate is _always_true
+    assert candidates == frozenset()
+
+
+def test_isolated_alternative_exact_state_recurses_into_a_nested_group() -> None:
+    slots = _pattern_slots(r"(z)", 0)
+    assert slots is not None
+    nested_group = slots[0]
+    assert isinstance(nested_group, _NonPairingSlot)
+    predicate, candidates = _isolated_alternative_exact_state([nested_group], 0)
+    assert predicate is not None
+    assert predicate(ord("z")) is True
+    assert predicate(ord("y")) is False
+    assert candidates
+
+
+def test_isolated_alternative_exact_state_stops_when_narrowing_hits_none() -> None:
+    unpredicated = _PairingAtom(frozenset("a"), allows_zero=False, unbounded=False)
+    assert _isolated_alternative_exact_state([unpredicated], 0) == (None, frozenset())
+
+
+def test_isolated_group_exact_state_rejects_past_the_max_depth() -> None:
+    slots = _pattern_slots(r"z", 0)
+    assert slots is not None
+    atom = slots[0]
+    assert isinstance(atom, _PairingAtom)
+    assert _isolated_group_exact_state([[atom]], 999) == (None, frozenset())
+
+
+def test_isolated_group_exact_state_skips_alternatives_that_cannot_narrow() -> None:
+    slots = _pattern_slots(r"z", 0)
+    assert slots is not None
+    live_atom = slots[0]
+    assert isinstance(live_atom, _PairingAtom)
+    hard_boundary_alt: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
+    predicate, candidates = _isolated_group_exact_state(
+        [hard_boundary_alt, [live_atom]], 0
+    )
+    assert predicate is not None
+    assert predicate(ord("z")) is True
+    assert candidates == live_atom.candidates
+
+
+def test_isolated_group_exact_state_unions_two_alternatives() -> None:
+    slots_a = _pattern_slots(r"a", 0)
+    slots_b = _pattern_slots(r"b", 0)
+    assert slots_a is not None
+    assert slots_b is not None
+    atom_a, atom_b = slots_a[0], slots_b[0]
+    assert isinstance(atom_a, _PairingAtom)
+    assert isinstance(atom_b, _PairingAtom)
+    predicate, candidates = _isolated_group_exact_state([[atom_a], [atom_b]], 0)
+    assert predicate is not None
+    assert predicate(ord("a")) is True
+    assert predicate(ord("b")) is True
+    assert predicate(ord("c")) is False
+    assert candidates == atom_a.candidates | atom_b.candidates
+
+
+def test_isolated_group_exact_state_returns_none_when_every_alternative_fails() -> None:
+    hard: list[Any] = [_NonPairingSlot(is_boundary=True, inner=None)]
+    assert _isolated_group_exact_state([hard, hard], 0) == (None, frozenset())
+
+
+def test_exact_overlap_fill_raw_returns_none_when_either_predicate_is_missing() -> None:
+    assert _exact_overlap_fill_raw(None, frozenset(), _always_true, frozenset()) is None
+    assert _exact_overlap_fill_raw(_always_true, frozenset(), None, frozenset()) is None
+
+
+def test_exact_overlap_fill_raw_returns_none_when_the_pool_never_satisfies_both() -> (
+    None
+):
+    fill = _exact_overlap_fill_raw(
+        lambda cp: cp == ord("a"),
+        frozenset({ord("a")}),
+        lambda cp: cp == ord("b"),
+        frozenset({ord("b")}),
+    )
+    assert fill is None
+
+
+def test_exact_overlap_fill_raw_finds_the_first_pool_hit() -> None:
+    fill = _exact_overlap_fill_raw(
+        lambda cp: cp == ord("z"),
+        frozenset({ord("z")}),
+        lambda cp: cp == ord("z"),
+        frozenset({ord("z")}),
+    )
+    assert fill == "z"
+
+
+def test_narrow_exact_state_raw_returns_none_when_either_predicate_is_missing() -> None:
+    assert _narrow_exact_state_raw(None, frozenset(), _always_true, frozenset()) == (
+        None,
+        frozenset(),
+    )
+    assert _narrow_exact_state_raw(_always_true, frozenset(), None, frozenset()) == (
+        None,
+        frozenset(),
+    )
+
+
+def test_or_predicate_is_true_when_either_side_is_true() -> None:
+    predicate = _or_predicate(lambda cp: cp == 1, lambda cp: cp == 2)
+    assert predicate(1) is True
+    assert predicate(2) is True
+    assert predicate(3) is False
+
+
+def test_always_true_accepts_every_code_point() -> None:
+    assert _always_true(0) is True
+    assert _always_true(0x10FFFF) is True
+
+
+def test_cross_non_pairing_slot_hard_boundary_with_no_inner_returns_none() -> None:
+    slot = _NonPairingSlot(is_boundary=True, inner=None)
+    assert _cross_non_pairing_slot(slot, frozenset("a"), None, frozenset()) is None
+
+
+def test_cross_non_pairing_slot_transparent_with_no_inner_passes_shared_through() -> (
+    None
+):
+    slot = _NonPairingSlot(is_boundary=False, inner=None)
+    result = _cross_non_pairing_slot(slot, frozenset("a"), None, frozenset())
+    assert result == (frozenset("a"), None, None, frozenset())
+
+
+def test_cross_non_pairing_slot_boundary_falls_back_to_the_exact_state() -> None:
+    slots = _pattern_slots(_H1_ASTRAL_GROUP_CROSSING_PATTERN, 0)
+    assert slots is not None
+    left = next(slot for slot in slots if isinstance(slot, _PairingAtom))
+    group = next(
+        slot
+        for slot in slots
+        if isinstance(slot, _NonPairingSlot) and slot.inner is not None
+    )
+    result = _cross_non_pairing_slot(
+        group, left.charset, left.predicate, left.candidates
+    )
+    assert result is not None
+    shared, fill, group_predicate, group_candidates = result
+    assert shared == frozenset()
+    assert fill is not None
+    assert group_predicate is not None
+    assert group_candidates
+
+
+def test_cross_non_pairing_slot_boundary_returns_none_when_exact_fallback_fails() -> (
+    None
+):
+    slots = _pattern_slots(r"'\s*(?:(\s)\1z)+\s*--", 0)
+    assert slots is not None
+    left = next(slot for slot in slots if isinstance(slot, _PairingAtom))
+    group = next(
+        slot
+        for slot in slots
+        if isinstance(slot, _NonPairingSlot) and slot.inner is not None
+    )
+    result = _cross_non_pairing_slot(
+        group, left.charset, left.predicate, left.candidates
+    )
+    assert result is None
+
+
+def test_range_endpoints_enumerates_densely_within_the_256_ceiling() -> None:
+    points = _range_endpoints(0x400, 0x4FF)
+    assert points == set(range(0x400, 0x500)) | {0x3FF, 0x500}
+
+
+def test_range_endpoints_samples_a_wide_range_by_stride_and_block() -> None:
+    points = _range_endpoints(0x10000, 0x10FFFE)
+    assert {0xFFFF, 0x10000, 0x10FFFE, 0x10FFFF} <= points
+    assert len(points) < (0x10FFFE - 0x10000)
+
+
+def test_category_member_candidates_finds_every_digit_and_caches_the_result() -> None:
+    members = _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
+    assert ord("0") in members
+    assert 0x104A0 in members
+    assert members is _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
+
+
+def test_category_member_candidates_finds_unicode_whitespace() -> None:
+    members = _category_member_candidates(_regex_parser.CATEGORY_SPACE, 0)
+    assert ord(" ") in members
+    assert len(members) < 100
+
+
+def test_category_endpoints_returns_nothing_for_a_non_dense_category() -> None:
+    assert _category_endpoints(_regex_parser.CATEGORY_WORD, 0) == set()
+    assert _regex_parser.CATEGORY_WORD not in _DENSE_CATEGORIES
+
+
+def test_category_endpoints_returns_dense_members_for_digit() -> None:
+    assert _category_endpoints(_regex_parser.CATEGORY_DIGIT, 0) == set(
+        _category_member_candidates(_regex_parser.CATEGORY_DIGIT, 0)
+    )
+
+
+def test_endpoints_for_class_item_recurses_past_a_negate_marker() -> None:
+    slots = _pattern_slots(r"[^\d]", 0)
+    assert slots is not None
+    atom = slots[0]
+    assert isinstance(atom, _PairingAtom)
+    assert 0x104A0 in atom.candidates
+
+
+def test_candidate_code_points_for_node_includes_dense_digit_members() -> None:
+    points = _candidate_code_points_for_node(
+        _regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0
+    )
+    assert 0x104A0 in points
+
+
+def test_word_category_versus_narrow_range_finds_overlap_when_one_exists() -> None:
+    right = "[ -⁯]"
+    assert any(re.fullmatch(r"\w", chr(cp)) for cp in range(0x20, 0x2070))
+    units = _class_intersection_probe_units(f"'\\w*{right}+--", 0)
+    assert units
+    fill, _stray = units[0]
+    assert re.fullmatch(r"\w", fill)
+    assert re.fullmatch(right, fill)
+
+
 def _element_charset(element: str) -> frozenset[str]:
     return frozenset(ch for ch in _ALPHABET if re.fullmatch(element, ch))
 
@@ -913,6 +1264,12 @@ _GRAMMAR_ASTRAL_PAIRS: list[tuple[str, str, str, str]] = [
         "\U0001f650",
         "\x00",
     ),
+    (
+        r"\d*",
+        r"[\U00010000-\U0010FFFEz]+",
+        "\U000104a0",
+        "\x00",
+    ),
 ]
 
 
@@ -928,6 +1285,26 @@ def test_class_intersection_probe_units_are_ground_truthed_for_astral_pairs() ->
                 f"super-linear growth (ratio={ratio:.2f}x) but the module "
                 f"produced no unit at all"
             )
+
+
+_GRAMMAR_ASTRAL_GROUP_PATTERN = (
+    "'" + r"[\U0001F900-\U0001FAA0a]*([\U0001F900-\U0001FAA0b])+" + "--"
+)
+
+
+@pytest.mark.redos_timing
+def test_class_intersection_probe_units_are_ground_truthed_for_an_astral_group() -> (
+    None
+):
+    fill, stray = "\U0001f900", "\x00"
+    units = _class_intersection_probe_units(_GRAMMAR_ASTRAL_GROUP_PATTERN, 0)
+    ratio = _growth_ratio(_GRAMMAR_ASTRAL_GROUP_PATTERN, fill, stray)
+    if ratio >= 3.0:
+        assert units, (
+            f"pattern={_GRAMMAR_ASTRAL_GROUP_PATTERN!r} fill={fill!r} "
+            f"stray={stray!r} measured super-linear growth (ratio={ratio:.2f}x) "
+            f"but the module produced no unit for the astral group crossing"
+        )
 
 
 def test_repeat_probe_to_length_forces_non_alignment_on_exact_multiples() -> None:

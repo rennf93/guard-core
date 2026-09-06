@@ -11,8 +11,8 @@ from guard_core.sync.detection_engine._redos_reach_probe import (
 
 
 def test_reach_probe_prefix_builders_empty_when_reaching_probe_is_falsy() -> None:
-    assert _synthesize_reaching_probe(r"[\x01-\x08]+") is None
-    assert _reach_probe_prefix_builders(r"[\x01-\x08]+") == []
+    assert _synthesize_reaching_probe(r"[^\x00-\U0010FFFF]+") is None
+    assert _reach_probe_prefix_builders(r"[^\x00-\U0010FFFF]+") == []
 
 
 def test_ambiguous_group_fill_unit_none_when_inner_has_alternation() -> None:

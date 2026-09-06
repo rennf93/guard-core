@@ -94,7 +94,7 @@ def test_synth_escape_atom_rejects_unrepresentable_escape() -> None:
 
 
 def test_synth_char_class_atom_rejects_unrepresentable_class() -> None:
-    assert _synth_char_class_atom(r"[^\x00-\xff]", 0, set(), [100]) is None
+    assert _synth_char_class_atom(r"[^\x00-\U0010FFFF]", 0, set(), [100]) is None
 
 
 def test_synth_group_atom_rejects_unterminated_group() -> None:

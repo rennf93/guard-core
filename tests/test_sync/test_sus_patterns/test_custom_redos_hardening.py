@@ -15,6 +15,7 @@ from guard_core.sync.detection_engine._redos_ambiguous_tail import (
     _parse_brace_quantifier_with_variability,
     _parse_flat_quantified_atoms,
     _parse_flat_quantified_atoms_with_text,
+    _representative_char_for_atom,
 )
 from guard_core.sync.detection_engine._redos_cost_arbiter import (
     _PATTERN_SAFETY_DEFAULT_CAP,
@@ -24,6 +25,9 @@ from guard_core.sync.detection_engine._redos_cost_arbiter import (
 )
 from guard_core.sync.detection_engine._redos_literal_in_wildcard import (
     _detect_ambiguous_literal_boundary,
+)
+from guard_core.sync.detection_engine._redos_parse_slots import (
+    _candidate_chars_for_atom_text,
 )
 from guard_core.sync.detection_engine._redos_probe_fill import (
     _reach_probe_candidate_builders,
@@ -963,3 +967,37 @@ def test_built_in_detect_is_fast_and_non_blocking() -> None:
         assert result["is_threat"] is True
 
     assert min(samples) < 2.0
+
+
+def test_candidate_chars_for_atom_text_returns_empty_for_unparseable_text() -> None:
+    assert _candidate_chars_for_atom_text("[unterminated", 0) == frozenset()
+
+
+def test_candidate_chars_for_atom_text_returns_empty_for_a_multi_atom_text() -> None:
+    assert _candidate_chars_for_atom_text("ab", 0) == frozenset()
+
+
+def test_candidate_chars_for_atom_text_includes_range_endpoints() -> None:
+    chars = _candidate_chars_for_atom_text(r"[Ѐ-ӿ]", 0)
+    assert "Ѐ" in chars
+    assert "ӿ" in chars
+
+
+def test_representative_char_for_atom_falls_back_to_class_candidates_beyond_printable() -> (  # noqa: E501
+    None
+):
+    assert _representative_char_for_atom(r"[Ѐ-ӿ]") == "Ѐ"
+    assert _representative_char_for_atom(r"[一-鿿]") == "一"
+    assert _representative_char_for_atom(r"[\U0001F600-\U0001F64F]") == "\U0001f600"
+
+
+def test_representative_char_for_atom_finds_the_boundary_just_past_a_negated_range() -> (  # noqa: E501
+    None
+):
+    assert _representative_char_for_atom(r"[^\x00-\x7f]") == "\x80"
+
+
+def test_representative_char_for_atom_stays_none_when_the_class_matches_nothing() -> (
+    None
+):
+    assert _representative_char_for_atom(r"[^\x00-\U0010FFFF]") is None
