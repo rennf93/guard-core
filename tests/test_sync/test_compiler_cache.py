@@ -103,7 +103,7 @@ def test_validate_pattern_safety_reports_timeout_for_a_genuinely_slow_match() ->
     )
 
     assert safe is False
-    assert "timed out" in msg
+    assert re.search(r"timed out|killable-subprocess timeout", msg)
 
 
 def test_validate_pattern_safety_reports_the_subprocess_timeout_boundary(
