@@ -49,8 +49,6 @@ from guard_core.detection_engine._redos_unreachable_terminator import (
 )
 from guard_core.detection_engine.compiler import PatternCompiler
 from guard_core.handlers.suspatterns_handler import (
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
@@ -205,33 +203,16 @@ def _non_windowed_builtin_patterns() -> list[str]:
     ]
 
 
-def test_known_quadratic_and_borderline_patterns_still_exist_in_the_table() -> None:
-    all_patterns = frozenset(_non_windowed_builtin_patterns())
-    assert _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX <= all_patterns
-    assert _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS <= all_patterns
-
-
 @pytest.mark.redos_timing
 @pytest.mark.parametrize(
     "pattern", _non_windowed_builtin_patterns(), ids=lambda pattern: pattern[:40]
 )
-def test_validator_rejects_only_the_known_quadratic_builtin_patterns(
+def test_validator_rejects_no_raw_search_builtin_pattern(
     pattern: str,
 ) -> None:
     compiler = PatternCompiler()
     is_safe, reason = compiler.validate_pattern_safety(pattern)
-    mandatory_reject = pattern in (
-        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-        - _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-    )
-    allowed_reject = pattern in (
-        _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-        | _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
-    )
-    if mandatory_reject:
-        assert is_safe is False, f"{pattern!r} expected to be rejected: {reason}"
-    elif not allowed_reject:
-        assert is_safe is True, f"{pattern!r} unexpectedly rejected: {reason}"
+    assert is_safe is True, f"{pattern!r} unexpectedly rejected: {reason}"
 
 
 @pytest.mark.redos_timing
@@ -882,8 +863,8 @@ def test_validate_pattern_safety_never_hangs_on_a_structurally_evasive_pattern()
     assert "False" in completed.stdout
 
 
-def test_windowed_patterns_are_exactly_the_scan_window_converted_four() -> None:
-    assert len(_WINDOWED_PATTERN_FINDERS) == 4
+def test_windowed_patterns_are_exactly_the_scan_window_converted_six() -> None:
+    assert len(_WINDOWED_PATTERN_FINDERS) == 6
     windowed_pattern_sources = set(_WINDOWED_PATTERN_FINDERS)
     builtin_pattern_sources = {
         pattern for pattern, _ctx, _category in SusPatternsManager._pattern_definitions

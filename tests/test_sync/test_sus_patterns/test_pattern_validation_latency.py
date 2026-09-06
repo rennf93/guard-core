@@ -2,8 +2,6 @@ import time
 
 from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
@@ -23,9 +21,7 @@ _CATASTROPHIC_PATTERNS = [
 
 
 def _first_accepted_builtin_patterns(count: int) -> list[str]:
-    excluded = set(_KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX)
-    excluded |= set(_MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS)
-    excluded |= set(_WINDOWED_PATTERN_FINDERS)
+    excluded = set(_WINDOWED_PATTERN_FINDERS)
     excluded |= set(_PATTERN_SCAN_WINDOW_MATCHERS)
     excluded |= set(_SCAN_WINDOW_PATTERNS)
     accepted = [

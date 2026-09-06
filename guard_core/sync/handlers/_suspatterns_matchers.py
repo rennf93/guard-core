@@ -1,9 +1,11 @@
+import bisect
 import re
 from collections.abc import Iterator
 
 from guard_core.sync.detection_engine.scan_window import bounded_finditer
 from guard_core.sync.handlers._suspatterns_sources import (
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
     _LDAP_NULL_BYTE_ATTR_CONTINUATION_CHAR_RE,
     _LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE,
     _LDAP_NULL_BYTE_VALUE_CHAR_RE,
@@ -349,10 +351,40 @@ def _template_curly_call_scan_matches(
 _TEMPLATE_PERCENT_KEYWORD_RE = (
     r"\{\%\s*[^\%]+(?:system|exec|popen|eval|require|include)\s*\%\}"
 )
+_TEMPLATE_PERCENT_PREFIX_RE = re.compile(r"\{\%\s*")
+_TEMPLATE_PERCENT_TERMINATOR_RE = re.compile(r"\%\}")
+
+
+def _template_percent_keyword_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content,
+            compiled,
+            _TEMPLATE_PERCENT_PREFIX_RE,
+            _TEMPLATE_PERCENT_TERMINATOR_RE,
+        )
+    )
+
+
 _TEMPLATE_ASP_KEYWORD_RE = (
     r"(?i)<%[=#]?[^%]*(?:system|exec|eval|`|Runtime|IO\.|File\.|Dir\."
     r"|\d+\s*[-+*/]\s*\d+)[^%]*%>"
 )
+_TEMPLATE_ASP_PREFIX_RE = re.compile(r"<%[=#]?")
+_TEMPLATE_ASP_TERMINATOR_RE = re.compile(r"%>")
+
+
+def _template_asp_keyword_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return list(
+        bounded_finditer(
+            content, compiled, _TEMPLATE_ASP_PREFIX_RE, _TEMPLATE_ASP_TERMINATOR_RE
+        )
+    )
+
 
 _BRACE_EXPANSION_WORD_ITEM_RE = re.compile(r"\A[A-Za-z0-9_./~-]+\Z")
 _BRACE_EXPANSION_LETTER_RE = re.compile(r"[A-Za-z]")
@@ -370,3 +402,77 @@ def _brace_expansion_is_dangerous_command(match: re.Match) -> bool:
         ) and _BRACE_EXPANSION_LETTER_RE.search(item):
             return True
     return False
+
+
+_DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE = re.compile(
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE, re.IGNORECASE
+)
+_PICKLE_GLOBAL_NEWLINE_RE = re.compile(r"\n")
+_PICKLE_GLOBAL_IDENT_FULL_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,100}\Z")
+_PICKLE_GLOBAL_NON_MODULE_CHAR_RE = re.compile(r"[^A-Za-z0-9_.]")
+_PICKLE_GLOBAL_IDENT_START_RE = re.compile(r"[A-Za-z_]")
+_PICKLE_GLOBAL_IDENT_MAX_LEN = 101
+_PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX = 20
+
+
+def _pickle_global_first_valid_marker(
+    text: str, lower: str, upper: str, floor: int, ceiling: int
+) -> int | None:
+    start = floor
+    while True:
+        pos_lower = text.find(lower, start, ceiling)
+        pos_upper = text.find(upper, start, ceiling) if upper != lower else -1
+        candidates = [pos for pos in (pos_lower, pos_upper) if pos != -1]
+        if not candidates:
+            return None
+        pos = min(candidates)
+        if _PICKLE_GLOBAL_IDENT_START_RE.match(text, pos + 1):
+            return pos
+        start = pos + 1
+
+
+def _pickle_global_chain_start(text: str, nl1: int, floor: int) -> int | None:
+    seg_end = nl1
+    for _ in range(_PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX + 1):
+        seg_floor = max(floor, seg_end - _PICKLE_GLOBAL_IDENT_MAX_LEN - 1)
+        c_pos = _pickle_global_first_valid_marker(text, "c", "C", seg_floor, seg_end)
+        if c_pos is not None:
+            return c_pos
+        dot_pos = _pickle_global_first_valid_marker(text, ".", ".", seg_floor, seg_end)
+        if dot_pos is None:
+            return None
+        seg_end = dot_pos
+    return None
+
+
+def _pickle_global_run_start(
+    non_module_positions: list[int], nl1: int, floor: int
+) -> int:
+    idx = bisect.bisect_left(non_module_positions, nl1)
+    return max(floor, non_module_positions[idx - 1] + 1) if idx > 0 else floor
+
+
+def _pickle_global_generic_finditer(
+    text: str, compiled: re.Pattern
+) -> Iterator[re.Match]:
+    newline_positions = [m.start() for m in _PICKLE_GLOBAL_NEWLINE_RE.finditer(text)]
+    if len(newline_positions) < 2:
+        return
+    non_module_positions = [
+        m.start() for m in _PICKLE_GLOBAL_NON_MODULE_CHAR_RE.finditer(text)
+    ]
+
+    last_end = 0
+    for nl1, nl2 in zip(newline_positions, newline_positions[1:], strict=False):
+        if nl1 < last_end:
+            continue
+        if not _PICKLE_GLOBAL_IDENT_FULL_RE.match(text[nl1 + 1 : nl2]):
+            continue
+        run_start = _pickle_global_run_start(non_module_positions, nl1, last_end)
+        start = _pickle_global_chain_start(text, nl1, run_start)
+        if start is None:
+            continue
+        match = compiled.match(text, start)
+        if match is not None:
+            yield match
+            last_end = match.end()

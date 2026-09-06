@@ -109,7 +109,6 @@ _PRE_SPLIT_MODULE_LEVEL_NAMES: frozenset[str] = frozenset(
         "_JS_DYNAMIC_EVAL_CTOR_GADGET_RE",
         "_JS_DYNAMIC_EVAL_FUNCTION_CTOR_RE",
         "_JS_DYNAMIC_EVAL_TIMER_STRING_ARG_RE",
-        "_KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX",
         "_LDAP_ATTR_DESC_RE",
         "_LDAP_ATTR_EXTENSIBLE_MATCH_RE",
         "_LDAP_BREAKOUT_ATTACK_TOKEN_RE",
@@ -142,7 +141,6 @@ _PRE_SPLIT_MODULE_LEVEL_NAMES: frozenset[str] = frozenset(
         "_LOAD_FILE_SCAN_PREFIX_RE",
         "_LOAD_FILE_SCAN_TERMINATOR_RE",
         "_LOG4SHELL_JNDI_LOOKUP_RE",
-        "_MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS",
         "_MIN_BARE_DECIMAL_LEGACY_IPV4",
         "_PATH_ONLY_CHAR_RE",
         "_PATH_ONLY_PREFIX_RE",
@@ -277,7 +275,7 @@ _PRE_SPLIT_MODULE_LEVEL_NAMES: frozenset[str] = frozenset(
 
 
 def test_every_pre_split_suspatterns_handler_name_stays_importable() -> None:
-    assert len(_PRE_SPLIT_MODULE_LEVEL_NAMES) == 270
+    assert len(_PRE_SPLIT_MODULE_LEVEL_NAMES) == 268
     async_module = importlib.import_module("guard_core.handlers.suspatterns_handler")
     sync_module = importlib.import_module(
         "guard_core.sync.handlers.suspatterns_handler"

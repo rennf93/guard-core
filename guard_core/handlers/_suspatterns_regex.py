@@ -21,10 +21,12 @@ from guard_core.handlers._suspatterns_ldap_ipv4 import (
 )
 from guard_core.handlers._suspatterns_matchers import (
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE,
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE,
     _brace_expansion_is_dangerous_command,
     _cmd_injection_shell_dash_c_finditer,
     _file_upload_scan_window,
     _ldap_null_byte_attr_finditer,
+    _pickle_global_generic_finditer,
     _quote_splice_finditer,
 )
 from guard_core.handlers._suspatterns_pickle import (
@@ -68,10 +70,15 @@ from guard_core.handlers._suspatterns_sources import (
     _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
     _SSTI_HASH_BRACE_SHAPE_RE,
     _WHERE_CLAUSE_RE,
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
     ALL_DETECTION_CATEGORIES,
     _source_extension_path_is_probe,
 )
 from guard_core.handlers._suspatterns_state import _DetectionState
+from guard_core.handlers._suspatterns_xml_xxe import (
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE,
+    _xml_xxe_public_external_dtd_finditer,
+)
 
 logger = logging.getLogger("guard_core.handlers.suspatterns")
 
@@ -196,6 +203,16 @@ _WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
     ),
     _QUOTE_SPLICE_CANDIDATE_RE: lambda text: _quote_splice_finditer(
         text, _QUOTE_SPLICE_CANDIDATE_COMPILED_RE
+    ),
+    _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE: lambda text: (
+        _pickle_global_generic_finditer(
+            text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
+        )
+    ),
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE: lambda text: (
+        _xml_xxe_public_external_dtd_finditer(
+            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
+        )
     ),
 }
 

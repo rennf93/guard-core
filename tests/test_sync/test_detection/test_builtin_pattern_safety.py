@@ -9,8 +9,6 @@ from guard_core.sync.detection_engine.compiler import PatternCompiler
 from guard_core.sync.handlers.suspatterns_handler import (
     _BUILTIN_PATTERN_COMPILE_FLAGS,
     _DEFAULT_MAX_SCAN_LENGTH,
-    _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX,
-    _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS,
     _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _WINDOWED_PATTERN_FINDERS,
@@ -31,8 +29,6 @@ _SAFETY_VALIDATED_PATTERNS_BY_CATEGORY: dict[str, str] = {
     if pat not in _WINDOWED_PATTERN_FINDERS
     and pat not in _PATTERN_SCAN_WINDOW_MATCHERS
     and pat not in _SCAN_WINDOW_PATTERNS
-    and pat not in _KNOWN_QUADRATIC_BUILTIN_PATTERNS_PENDING_B_XQ_FIX
-    and pat not in _MEASUREMENT_BORDERLINE_BUILTIN_PATTERNS
 }
 
 
@@ -40,7 +36,7 @@ _SAFETY_VALIDATED_PATTERNS_BY_CATEGORY: dict[str, str] = {
 @pytest.mark.parametrize(
     "pat", list(_SAFETY_VALIDATED_PATTERNS_BY_CATEGORY), ids=lambda pat: pat[:40]
 )
-def test_every_builtin_not_in_the_known_quadratic_set_passes_the_safety_validator(
+def test_every_raw_search_builtin_passes_the_safety_validator(
     pat: str,
 ) -> None:
     pc = PatternCompiler()

