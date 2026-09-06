@@ -15,7 +15,10 @@ def _import_regex_parser_module() -> Any:
 _regex_parser: Any = _import_regex_parser_module()
 
 _MAX_GROUP_CROSSING_DEPTH = 16
-_ALPHABET: frozenset[str] = frozenset(chr(c) for c in range(128))
+_ALPHABET_EXTRA_CODE_POINTS: tuple[int, ...] = (0x100, 0x400, 0x4E00, 0xFFFD, 0x1F600)
+_ALPHABET: frozenset[str] = frozenset(chr(c) for c in range(256)) | frozenset(
+    chr(c) for c in _ALPHABET_EXTRA_CODE_POINTS
+)
 _STRAY_CANDIDATES: tuple[str, ...] = (
     "\x00",
     "<",
@@ -70,15 +73,26 @@ _CATEGORY_ESCAPES: dict[Any, str] = {
 }
 
 
-def _parse_pattern(pattern: str) -> Any:
-    return _regex_parser.parse(pattern)
+def _parse_pattern(pattern: str, flags: int) -> Any:
+    return _regex_parser.parse(pattern, flags)
 
 
-def _category_charset(category: Any) -> frozenset[str]:
+def _ignorecase_fold(charset: frozenset[str], flags: int) -> frozenset[str]:
+    if not flags & re.IGNORECASE:
+        return charset
+    folded: set[str] = set(charset)
+    for ch in charset:
+        for variant in (ch.lower(), ch.upper(), ch.casefold()):
+            if len(variant) == 1:
+                folded.add(variant)
+    return frozenset(ch for ch in folded if ch in _ALPHABET)
+
+
+def _category_charset(category: Any, flags: int) -> frozenset[str]:
     escape = _CATEGORY_ESCAPES.get(category)
     if escape is None:
         return _ALPHABET
-    compiled = re.compile(escape)
+    compiled = re.compile(escape, flags)
     return frozenset(ch for ch in _ALPHABET if compiled.fullmatch(ch))
 
 
@@ -90,22 +104,22 @@ def _literal_charset(code: int) -> frozenset[str]:
     return frozenset(ch for ch in _ALPHABET if ord(ch) == code)
 
 
-def _class_item_charset(op: Any, av: Any) -> frozenset[str]:
+def _class_item_charset(op: Any, av: Any, flags: int) -> frozenset[str]:
     if op is _regex_parser.LITERAL:
-        return _literal_charset(av)
+        return _ignorecase_fold(_literal_charset(av), flags)
     if op is _regex_parser.RANGE:
-        return _range_charset(av[0], av[1])
+        return _ignorecase_fold(_range_charset(av[0], av[1]), flags)
     if op is _regex_parser.CATEGORY:
-        return _category_charset(av)
+        return _category_charset(av, flags)
     return _ALPHABET
 
 
-def _in_charset(items: list[tuple[Any, Any]]) -> frozenset[str]:
+def _in_charset(items: list[tuple[Any, Any]], flags: int) -> frozenset[str]:
     if items and items[0][0] is _regex_parser.NEGATE:
-        return _ALPHABET - _in_charset(items[1:])
+        return _ALPHABET - _in_charset(items[1:], flags)
     result: frozenset[str] = frozenset()
     for op, av in items:
-        result |= _class_item_charset(op, av)
+        result |= _class_item_charset(op, av, flags)
     return result
 
 
@@ -117,14 +131,14 @@ def _any_charset(flags: int) -> frozenset[str]:
 
 def _pairing_charset(op: Any, av: Any, flags: int) -> frozenset[str]:
     if op is _regex_parser.LITERAL:
-        return _literal_charset(av)
+        return _ignorecase_fold(_literal_charset(av), flags)
     if op is _regex_parser.NOT_LITERAL:
-        return _ALPHABET - _literal_charset(av)
+        return _ALPHABET - _ignorecase_fold(_literal_charset(av), flags)
     if op is _regex_parser.IN:
-        return _in_charset(av)
+        return _in_charset(av, flags)
     if op is _regex_parser.ANY:
         return _any_charset(flags)
-    return _category_charset(av)
+    return _category_charset(av, flags)
 
 
 def _nonpairing_slot(
@@ -192,9 +206,9 @@ def _sequence_to_alternatives(items: list[Any], flags: int) -> list[list[_Slot]]
     return [_walk_sequence(items, flags)]
 
 
-def _pattern_slots(pattern: str) -> list[_Slot] | None:
+def _pattern_slots(pattern: str, flags: int) -> list[_Slot] | None:
     try:
-        parsed = _parse_pattern(pattern)
+        parsed = _parse_pattern(pattern, flags)
     except re.error:
         return None
     return _walk_sequence(parsed.data, parsed.state.flags)
@@ -246,15 +260,18 @@ def _group_crossing_result(
 def _cross_non_pairing_slot(
     slot: _NonPairingSlot, shared: frozenset[str]
 ) -> tuple[frozenset[str], str | None] | None:
-    if not slot.is_boundary:
-        return shared, None
     if slot.inner is None:
-        return None
+        return (shared, None) if not slot.is_boundary else None
     crossing = _group_crossing_result(slot.inner, shared, 0)
+    if slot.is_boundary:
+        if crossing is None:
+            return None
+        fill = sorted(crossing)[0] if slot.unbounded else None
+        return crossing, fill
     if crossing is None:
-        return None
+        return shared, None
     fill = sorted(crossing)[0] if slot.unbounded else None
-    return crossing, fill
+    return shared, fill
 
 
 def _stray_for_pair(left_charset: frozenset[str], right_charset: frozenset[str]) -> str:
@@ -321,12 +338,12 @@ def _units_in_slots(slots: list[_Slot]) -> list[tuple[str, str]]:
     return units
 
 
-def _class_intersection_probe_units(pattern: str) -> list[tuple[str, str]]:
-    slots = _pattern_slots(pattern)
+def _class_intersection_probe_units(pattern: str, flags: int) -> list[tuple[str, str]]:
+    slots = _pattern_slots(pattern, flags)
     if slots is None:
         return []
     return _units_in_slots(slots)
 
 
-def _class_intersection_fills(pattern: str) -> list[str]:
-    return [fill for fill, _stray in _class_intersection_probe_units(pattern)]
+def _class_intersection_fills(pattern: str, flags: int) -> list[str]:
+    return [fill for fill, _stray in _class_intersection_probe_units(pattern, flags)]

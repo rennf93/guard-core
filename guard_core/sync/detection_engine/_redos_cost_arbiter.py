@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import re
 import subprocess
 import sys
 import time
@@ -19,14 +20,16 @@ from guard_core.sync.detection_engine._redos_structural_prefilters import (
 
 logger = logging.getLogger("guard_core.sync.detection_engine.compiler")
 
+_DEFAULT_PATTERN_FLAGS = re.IGNORECASE | re.MULTILINE
+
 _PATTERN_SAFETY_PROBE_TIMEOUT_SECONDS = 2.0
 _PATTERN_SAFETY_PROBE_PER_STRING_THRESHOLD_SECONDS = 0.05
 
 _PATTERN_SAFETY_PROBE_CHILD_SCRIPT = (
     "import json, re, sys, time\n"
-    "pattern, test_strings, threshold = json.loads(sys.stdin.read())\n"
+    "pattern, test_strings, threshold, flags = json.loads(sys.stdin.read())\n"
     "try:\n"
-    "    compiled = re.compile(pattern)\n"
+    "    compiled = re.compile(pattern, flags)\n"
     "except Exception as exc:\n"
     "    print(json.dumps({'safe': False, "
     "'reason': f'Pattern validation failed: {exc}'}))\n"
@@ -44,10 +47,15 @@ _PATTERN_SAFETY_PROBE_CHILD_SCRIPT = (
 
 
 def _run_pattern_safety_probe_subprocess(
-    pattern: str, test_strings: list[str]
+    pattern: str, test_strings: list[str], flags: int
 ) -> tuple[bool, str]:
     payload = json.dumps(
-        [pattern, test_strings, _PATTERN_SAFETY_PROBE_PER_STRING_THRESHOLD_SECONDS]
+        [
+            pattern,
+            test_strings,
+            _PATTERN_SAFETY_PROBE_PER_STRING_THRESHOLD_SECONDS,
+            flags,
+        ]
     )
     try:
         completed = subprocess.run(
@@ -96,11 +104,11 @@ _PATTERN_SAFETY_DEFAULT_CAP = 262144
 
 _REACH_PROBE_TIMING_CHILD_SCRIPT = (
     "import json, math, re, signal, sys, time\n"
-    "pattern, probes, samples, deadline = json.loads(sys.stdin.read())\n"
+    "pattern, probes, samples, deadline, flags = json.loads(sys.stdin.read())\n"
     "if hasattr(signal, 'alarm'):\n"
     "    signal.alarm(math.ceil(deadline))\n"
     "try:\n"
-    "    compiled = re.compile(pattern)\n"
+    "    compiled = re.compile(pattern, flags)\n"
     "except Exception as exc:\n"
     "    print(json.dumps({'error': str(exc)}))\n"
     "    raise SystemExit(0)\n"
@@ -170,9 +178,9 @@ def _clipped_timeout(default_timeout: float, deadline: float) -> float:
 
 
 def _run_reach_probe_child(
-    pattern: str, probes: list[str], timeout: float
+    pattern: str, probes: list[str], timeout: float, flags: int
 ) -> ReachProbeTiming | None:
-    payload = json.dumps([pattern, probes, _REACH_PROBE_SAMPLE_COUNT, timeout])
+    payload = json.dumps([pattern, probes, _REACH_PROBE_SAMPLE_COUNT, timeout, flags])
     try:
         completed = subprocess.run(
             [sys.executable, "-S", "-I", "-c", _REACH_PROBE_TIMING_CHILD_SCRIPT],
@@ -189,30 +197,39 @@ def _run_reach_probe_child(
 
 
 def _time_reach_probes_subprocess(
-    pattern: str, probes: list[str], deadline: float
+    pattern: str,
+    probes: list[str],
+    deadline: float,
+    flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> ReachProbeTiming | None:
     timeout = _clipped_timeout(_REACH_PROBE_COMBINED_TIMEOUT_SECONDS, deadline)
     if timeout <= 0:
         return None
-    return _run_reach_probe_child(pattern, probes, timeout)
+    return _run_reach_probe_child(pattern, probes, timeout, flags)
 
 
 def _time_single_reach_probe_subprocess(
-    pattern: str, probe: str, deadline: float
+    pattern: str,
+    probe: str,
+    deadline: float,
+    flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> ReachProbeTiming | None:
     timeout = _clipped_timeout(_REACH_PROBE_CHILD_TIMEOUT_SECONDS, deadline)
     if timeout <= 0:
         return None
-    return _run_reach_probe_child(pattern, [probe], timeout)
+    return _run_reach_probe_child(pattern, [probe], timeout, flags)
 
 
 def _time_reach_probes_ascending(
-    pattern: str, probes: list[str], deadline: float
+    pattern: str,
+    probes: list[str],
+    deadline: float,
+    flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> ReachProbeTiming | None:
     samples_by_size: list[list[float]] = []
     load_factor = _LOAD_FACTOR_CEILING
     for probe in probes:
-        timing = _time_single_reach_probe_subprocess(pattern, probe, deadline)
+        timing = _time_single_reach_probe_subprocess(pattern, probe, deadline, flags)
         if timing is None:
             return None
         samples_by_size.extend(timing.samples_by_size)
@@ -285,7 +302,7 @@ def _log_structural_disagreement(
 
 def _reach_probe_timing_strategy(
     structural_violation: str | None,
-) -> Callable[[str, list[str], float], ReachProbeTiming | None]:
+) -> Callable[[str, list[str], float, int], ReachProbeTiming | None]:
     if structural_violation is not None:
         return _time_reach_probes_ascending
     return _time_reach_probes_subprocess
@@ -305,6 +322,7 @@ def _first_over_budget_reason(
     cap: int,
     structural_violation: str | None,
     deadline: float,
+    flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> str | None:
     time_probes = _reach_probe_timing_strategy(structural_violation)
     probe_sizes = _reach_probe_sizes_for_strategy(structural_violation)
@@ -314,7 +332,7 @@ def _first_over_budget_reason(
         if probes in timed_probe_sets:
             continue
         timed_probe_sets.add(probes)
-        timing = time_probes(pattern, list(probes), deadline)
+        timing = time_probes(pattern, list(probes), deadline, flags)
         if timing is None:
             return (
                 structural_violation
@@ -327,7 +345,7 @@ def _first_over_budget_reason(
             )
         )
         if over and _remaining_budget(deadline) > 0:
-            retry = time_probes(pattern, list(probes), deadline)
+            retry = time_probes(pattern, list(probes), deadline, flags)
             if retry is not None:
                 timing = retry
                 over, extrapolated, ratio, min_32, median_32 = (
@@ -349,7 +367,9 @@ def _first_over_budget_reason(
 
 
 def _reach_probe_cost_verdict(
-    pattern: str, max_content_length: int | None
+    pattern: str,
+    max_content_length: int | None,
+    flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> tuple[bool, str]:
     deadline = time.monotonic() + _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
     cap = max_content_length if max_content_length else _PATTERN_SAFETY_DEFAULT_CAP
@@ -357,7 +377,7 @@ def _reach_probe_cost_verdict(
     if _synthesize_reaching_probe(pattern) is None:
         return False, _reach_probe_unreachable_reason(structural_violation)
 
-    builders = _reach_probe_candidate_builders(pattern)
+    builders = _reach_probe_candidate_builders(pattern, flags)
     if not builders:
         if structural_violation is not None:
             _log_structural_disagreement(
@@ -369,7 +389,7 @@ def _reach_probe_cost_verdict(
         return True, "Pattern appears safe"
 
     over_budget_reason = _first_over_budget_reason(
-        pattern, builders, cap, structural_violation, deadline
+        pattern, builders, cap, structural_violation, deadline, flags
     )
     if over_budget_reason is not None:
         return False, over_budget_reason

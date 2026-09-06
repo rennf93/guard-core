@@ -83,7 +83,7 @@ def _timing(
 
 
 def test_pattern_slots_marks_a_capturing_group_as_a_boundary_slot() -> None:
-    slots = _pattern_slots(r"[^<>]*(x)[\s/]+")
+    slots = _pattern_slots(r"[^<>]*(x)[\s/]+", 0)
     not_lt_gt = frozenset(ch for ch in _ALPHABET if ch not in "<>")
     slash_or_space = frozenset(ch for ch in _ALPHABET if re.fullmatch(r"[\s/]", ch))
     assert slots == [
@@ -97,20 +97,20 @@ def test_pattern_slots_marks_a_capturing_group_as_a_boundary_slot() -> None:
 
 
 def test_pattern_slots_returns_none_when_the_pattern_fails_to_parse() -> None:
-    assert _pattern_slots(r"[unterminated") is None
-    assert _class_intersection_probe_units(r"[unterminated") == []
+    assert _pattern_slots(r"[unterminated", 0) is None
+    assert _class_intersection_probe_units(r"[unterminated", 0) == []
 
 
 def test_pattern_slots_treats_a_bare_negation_as_a_not_literal_pairing_atom() -> None:
-    slots = _pattern_slots(r"[^a]")
+    slots = _pattern_slots(r"[^a]", 0)
     assert slots == [
         _PairingAtom(_ALPHABET - frozenset("a"), allows_zero=False, unbounded=False)
     ]
 
 
 def test_pattern_slots_widens_any_to_the_full_alphabet_under_dotall() -> None:
-    dotall_slots = _pattern_slots(r"(?s).")
-    plain_slots = _pattern_slots(r".")
+    dotall_slots = _pattern_slots(r"(?s).", 0)
+    plain_slots = _pattern_slots(r".", 0)
     assert dotall_slots == [_PairingAtom(_ALPHABET, allows_zero=False, unbounded=False)]
     assert plain_slots == [
         _PairingAtom(_ALPHABET - frozenset("\n"), allows_zero=False, unbounded=False)
@@ -118,36 +118,36 @@ def test_pattern_slots_widens_any_to_the_full_alphabet_under_dotall() -> None:
 
 
 def test_pattern_slots_treats_a_backreference_as_a_hard_boundary() -> None:
-    slots = _pattern_slots(r"(a)\1")
+    slots = _pattern_slots(r"(a)\1", 0)
     assert slots is not None
     assert slots[1] == _NonPairingSlot(is_boundary=True, inner=None)
 
 
 def test_class_intersection_fills_crosses_a_multi_slot_transparent_group() -> None:
-    fills = _class_intersection_fills(r"'\s*(?:\d*(?!y)(z))+\s*--")
+    fills = _class_intersection_fills(r"'\s*(?:\d*(?!y)(z))+\s*--", 0)
     assert fills == []
 
 
 def test_class_intersection_fills_stops_crossing_at_a_nested_backreference() -> None:
-    fills = _class_intersection_fills(r"'\s*(?:(\s)\1z)+\s*--")
+    fills = _class_intersection_fills(r"'\s*(?:(\s)\1z)+\s*--", 0)
     assert fills == []
 
 
 def test_category_charset_falls_back_to_full_alphabet_for_unmapped_category() -> None:
-    assert _category_charset(object()) == _ALPHABET
+    assert _category_charset(object(), 0) == _ALPHABET
 
 
 def test_class_item_charset_falls_back_to_the_full_alphabet_for_an_unknown_item() -> (
     None
 ):
-    assert _class_item_charset(object(), None) == _ALPHABET
+    assert _class_item_charset(object(), None, 0) == _ALPHABET
 
 
 def test_pairing_charset_falls_back_to_category_charset_for_a_bare_category_op() -> (
     None
 ):
     charset = _pairing_charset(_regex_parser.CATEGORY, _regex_parser.CATEGORY_DIGIT, 0)
-    assert charset == frozenset(ch for ch in _ALPHABET if ch.isdigit())
+    assert charset == frozenset(ch for ch in _ALPHABET if re.fullmatch(r"\d", ch))
 
 
 def test_group_crossing_result_rejects_past_the_max_depth() -> None:
@@ -166,7 +166,7 @@ def test_pairing_units_from_returns_empty_when_the_start_slot_is_not_pairing() -
     reason="atomic groups require re._parser (Python 3.11+)",
 )
 def test_pattern_slots_treats_an_atomic_group_as_a_group_slot() -> None:
-    slots = _pattern_slots(r"(?>a)+")
+    slots = _pattern_slots(r"(?>a)+", 0)
     assert slots == [
         _NonPairingSlot(
             is_boundary=True,
@@ -177,38 +177,38 @@ def test_pattern_slots_treats_an_atomic_group_as_a_group_slot() -> None:
 
 
 def test_class_intersection_fills_finds_space_or_slash_for_event_handler() -> None:
-    fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN)
+    fills = _class_intersection_fills(_EVENT_HANDLER_PATTERN, 0)
     assert fills
     assert all(c in " \t\n\r\x0b\x0c/" for c in fills)
 
 
 def test_class_intersection_fills_ignores_disjoint_adjacent_classes() -> None:
-    assert _class_intersection_fills(r"[a-c]+[x-z]+") == []
+    assert _class_intersection_fills(r"[a-c]+[x-z]+", 0) == []
 
 
 def test_class_intersection_fills_skips_pairs_across_alternation_boundary() -> None:
-    assert _class_intersection_fills(r"[a-z]+|[a-z]+") == []
+    assert _class_intersection_fills(r"[a-z]+|[a-z]+", 0) == []
 
 
 def test_class_intersection_fills_pairs_across_an_empty_capable_middle_atom() -> None:
-    fills = _class_intersection_fills(r"'\s*[\);]*\s*--")
+    fills = _class_intersection_fills(r"'\s*[\);]*\s*--", 0)
     assert fills == [sorted(_atom_char_set(r"\s"))[0]]
 
 
 def test_class_intersection_fills_does_not_pair_across_a_mandatory_middle_atom() -> (
     None
 ):
-    assert _class_intersection_fills(r"\s*[\);]+\s*") == []
+    assert _class_intersection_fills(r"\s*[\);]+\s*", 0) == []
 
 
 def test_class_intersection_fills_pairs_across_a_zero_admitting_group_middle() -> None:
-    assert _class_intersection_fills(r"'\s*(?:ab)*\s*--") == [
+    assert _class_intersection_fills(r"'\s*(?:ab)*\s*--", 0) == [
         sorted(_atom_char_set(r"\s"))[0]
     ]
 
 
 def test_class_intersection_fills_pairs_across_a_negative_lookahead_middle() -> None:
-    assert _class_intersection_fills(r"'\s*(?!x)\s*--") == [
+    assert _class_intersection_fills(r"'\s*(?!x)\s*--", 0) == [
         sorted(_atom_char_set(r"\s"))[0]
     ]
 
@@ -228,13 +228,13 @@ def test_pattern_compiler_rejects_zero_admitting_group_and_lookahead_middles() -
 def test_class_intersection_fills_crosses_a_mandatory_group_of_overlapping_atoms() -> (
     None
 ):
-    assert _class_intersection_fills(r"'\s*(\s+)\s*--") == [
+    assert _class_intersection_fills(r"'\s*(\s+)\s*--", 0) == [
         sorted(_atom_char_set(r"\s"))[0]
     ]
 
 
 def test_class_intersection_fills_crosses_group_with_one_crossable_alt() -> None:
-    assert _class_intersection_fills(r"'\s*(?:\s+|,)\s*--") == [
+    assert _class_intersection_fills(r"'\s*(?:\s+|,)\s*--", 0) == [
         sorted(_atom_char_set(r"\s"))[0]
     ]
 
@@ -242,11 +242,11 @@ def test_class_intersection_fills_crosses_group_with_one_crossable_alt() -> None
 def test_class_intersection_fills_emits_a_fill_for_an_unbounded_crossable_group() -> (
     None
 ):
-    assert _class_intersection_fills(r"'\s*(?:\s+|,)+\s*--")
+    assert _class_intersection_fills(r"'\s*(?:\s+|,)+\s*--", 0)
 
 
 def test_class_intersection_fills_skips_a_non_overlapping_mandatory_group() -> None:
-    assert _class_intersection_fills(r"'\s*(?:AND|OR)\s*--") == []
+    assert _class_intersection_fills(r"'\s*(?:AND|OR)\s*--", 0) == []
 
 
 @pytest.mark.redos_timing
@@ -258,6 +258,108 @@ def test_pattern_compiler_rejects_mandatory_group_crossed_by_overlapping_atoms()
     assert is_safe is False, (
         "expected the mandatory group '(?:\\s+)' to be crossed by the surrounding "
         f"\\s* pair, got safe={is_safe} ({reason})"
+    )
+
+
+def test_class_intersection_fills_emits_a_fill_for_a_multi_char_alternation_group() -> (
+    None
+):
+    fills = _class_intersection_fills(r"^[c-w]*(?:[g-z][g-z]|[g-z][g-z][g-z])*$", 0)
+    assert fills == ["g"]
+
+
+def test_class_intersection_fills_skips_a_non_crossable_multi_char_alternation() -> (
+    None
+):
+    assert (
+        _class_intersection_fills(r"^[a-f]*(?:[g-z][g-z]|[g-z][g-z][g-z])*$", 0) == []
+    )
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_unbounded_multi_char_alternation_zero_admitting_group() -> (  # noqa: E501
+    None
+):
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(
+        r"^[c-w]*(?:[g-z][g-z]|[g-z][g-z][g-z])*$"
+    )
+    assert is_safe is False, (
+        "expected the unbounded multi-character alternation group to be "
+        f"crossed by the surrounding [c-w]* atom, got safe={is_safe} ({reason})"
+    )
+    assert "cost" in reason.lower() or "timeout" in reason.lower(), (
+        f"expected a cost-arbiter rejection reason, got {reason!r}"
+    )
+
+
+def test_class_item_charset_folds_literal_case_under_ignorecase() -> None:
+    assert _class_item_charset(_regex_parser.LITERAL, ord("a"), 0) == frozenset("a")
+    assert _class_item_charset(
+        _regex_parser.LITERAL, ord("a"), re.IGNORECASE
+    ) == frozenset("aA")
+
+
+def test_pairing_charset_folds_not_literal_case_under_ignorecase() -> None:
+    charset = _pairing_charset(_regex_parser.NOT_LITERAL, ord("a"), re.IGNORECASE)
+    assert "a" not in charset
+    assert "A" not in charset
+
+
+def test_class_intersection_probe_units_finds_no_fill_for_disjoint_case_sensitive_pair() -> (  # noqa: E501
+    None
+):
+    assert _class_intersection_probe_units(r"[a-z]*[A-Z]+", 0) == []
+
+
+def test_class_intersection_probe_units_finds_a_fill_once_ignorecase_folds_the_pair() -> (  # noqa: E501
+    None
+):
+    units = _class_intersection_probe_units(r"[a-z]*[A-Z]+", re.IGNORECASE)
+    assert units
+    fill, _stray = units[0]
+    assert fill in "aA"
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_case_disjoint_pair_only_under_ignorecase() -> None:
+    compiler = PatternCompiler()
+    pattern = r"^[a-z]*[A-Z]+X$"
+    is_safe_no_fold, reason_no_fold = compiler.validate_pattern_safety(pattern, flags=0)
+    assert is_safe_no_fold is True, (
+        f"expected the case-disjoint pair to be safe without IGNORECASE, got "
+        f"safe={is_safe_no_fold} ({reason_no_fold})"
+    )
+    is_safe_folded, reason_folded = compiler.validate_pattern_safety(
+        pattern, flags=re.IGNORECASE | re.MULTILINE
+    )
+    assert is_safe_folded is False, (
+        "expected the pair to become crossable once IGNORECASE folds both "
+        f"classes to overlap, got safe={is_safe_folded} ({reason_folded})"
+    )
+    assert "cost" in reason_folded.lower() or "timeout" in reason_folded.lower(), (
+        f"expected a cost-arbiter rejection reason, got {reason_folded!r}"
+    )
+
+
+def test_class_intersection_probe_units_finds_a_latin1_fill() -> None:
+    units = _class_intersection_probe_units(r"[a\x80-\xff]*[b\x80-\xff]+", 0)
+    assert units
+    fill, _stray = units[0]
+    assert ord(fill) >= 0x80
+
+
+@pytest.mark.redos_timing
+def test_pattern_compiler_rejects_latin1_only_overlap() -> None:
+    compiler = PatternCompiler()
+    is_safe, reason = compiler.validate_pattern_safety(r"^[a\x80-\xff]*[b\x80-\xff]+$")
+    assert is_safe is False, (
+        "expected the Latin-1-only overlap between the two classes to be "
+        f"caught once the alphabet extends past code point 127, got "
+        f"safe={is_safe} ({reason})"
+    )
+    assert "cost" in reason.lower() or "timeout" in reason.lower(), (
+        f"expected a cost-arbiter rejection reason, got {reason!r}"
     )
 
 
@@ -296,6 +398,7 @@ _GRAMMAR_ZERO_ADMITTING_MIDDLES = [
     r"x?",
     r"[0-9]{0,3}",
     r"(?:ab)*",
+    r"(?:aa|bb)*",
     r"(?!x)",
     r"\d*?",
 ]
@@ -311,7 +414,7 @@ _GRAMMAR_MANDATORY_MIDDLES = [
     r"(?:AND|OR)",
 ]
 _GRAMMAR_HAND_SPECIFIED_MIDDLES = frozenset(
-    {r"(?:ab)*", r"(?!x)", r"(?:ab)+", r"(?:AND|OR)"}
+    {r"(?:ab)*", r"(?:aa|bb)*", r"(?!x)", r"(?:ab)+", r"(?:AND|OR)"}
 )
 
 _GRAMMAR_LEFT_META = {a: _charset_slot(a) for a in _GRAMMAR_LEFT_ATOMS}
@@ -327,6 +430,7 @@ _GRAMMAR_MIDDLE_META[r"(?:ab)+"] = (
     "boundary_group",
     [[(_element_charset("a"), False), (_element_charset("b"), False)]],
     True,
+    True,
 )
 _GRAMMAR_MIDDLE_META[r"(?:AND|OR)"] = (
     "boundary_group",
@@ -338,6 +442,16 @@ _GRAMMAR_MIDDLE_META[r"(?:AND|OR)"] = (
         ],
         [(_element_charset("O"), False), (_element_charset("R"), False)],
     ],
+    False,
+    True,
+)
+_GRAMMAR_MIDDLE_META[r"(?:aa|bb)*"] = (
+    "boundary_group",
+    [
+        [(_element_charset("a"), False), (_element_charset("a"), False)],
+        [(_element_charset("b"), False), (_element_charset("b"), False)],
+    ],
+    True,
     False,
 )
 
@@ -382,13 +496,16 @@ def _grammar_walk_hits_fill(
         if slot[0] == "transparent":
             continue
         if slot[0] == "boundary_group":
-            _, alternatives, group_unbounded = slot
+            _, alternatives, group_unbounded, group_mandatory = slot
             crossing = _oracle_group_crossing(alternatives, shared)
             if crossing is None:
-                return False
+                if group_mandatory:
+                    return False
+                continue
             if group_unbounded:
                 return True
-            shared = crossing
+            if group_mandatory:
+                shared = crossing
             continue
         _, slot_charset, slot_allows_zero, slot_unbounded = slot
         overlap = slot_charset & shared
@@ -427,7 +544,7 @@ def test_class_intersection_fills_matches_char_set_expectation_across_grammar() 
             _GRAMMAR_RIGHT_META[right],
         ]
         expected = _grammar_expects_nonempty_fills(slots)
-        fills = _class_intersection_fills(pattern)
+        fills = _class_intersection_fills(pattern, 0)
         assert bool(fills) == expected, (
             f"pattern={pattern!r} expected_nonempty={expected} fills={fills}"
         )
@@ -505,7 +622,7 @@ def test_class_intersection_probe_units_are_ground_truthed_against_real_timing()
         for right in _GRAMMAR_RIGHT_ATOMS:
             for mid in _GRAMMAR_TIMING_MIDDLES:
                 pattern = "'" + left + mid + right + "--"
-                units = _class_intersection_probe_units(pattern)
+                units = _class_intersection_probe_units(pattern, 0)
                 found_fills = {fill for fill, _stray in units}
                 left_charset = _element_charset(left)
                 right_charset = _element_charset(right)
@@ -571,7 +688,9 @@ def test_fill_to_length_does_not_force_a_stray_when_body_room_is_one_or_fewer() 
 
 
 def test_reach_probe_candidate_builders_combines_all_strategies() -> None:
-    builders = _reach_probe_candidate_builders(_EVENT_HANDLER_PATTERN)
+    builders = _reach_probe_candidate_builders(
+        _EVENT_HANDLER_PATTERN, re.IGNORECASE | re.MULTILINE
+    )
     assert len(builders) >= 1
     for builder in builders:
         probe = builder(4000)
@@ -728,7 +847,7 @@ def test_event_handler_rejects_under_intersection_fill_at_body_cap() -> None:
 
 
 def _assert_event_handler_intersection_fill_is_super_linear() -> None:
-    units = _class_intersection_probe_units(_EVENT_HANDLER_PATTERN)
+    units = _class_intersection_probe_units(_EVENT_HANDLER_PATTERN, re.IGNORECASE)
     fill_char, stray = units[0]
     prefix = _leading_literal_prefix(_EVENT_HANDLER_PATTERN)
     probes = [
@@ -784,7 +903,7 @@ def test_first_over_budget_reason_returns_structural_violation_when_over_budget(
     quadratic_samples = [[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5]
 
     def _fake_timing(
-        pattern: str, probes: list[str], deadline: float
+        pattern: str, probes: list[str], deadline: float, flags: int
     ) -> ReachProbeTiming:
         return _timing(quadratic_samples)
 
@@ -815,7 +934,7 @@ def test_first_over_budget_reason_rejects_when_timing_probe_times_out(
 ) -> None:
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
-        lambda _pattern, _probes, _deadline: None,
+        lambda _pattern, _probes, _deadline, _flags: None,
     )
 
     def _builder(size: int) -> str:
@@ -840,7 +959,7 @@ def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
     calls = iter([over_samples, under_samples])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
-        lambda _pattern, _probes, _deadline: next(calls),
+        lambda _pattern, _probes, _deadline, _flags: next(calls),
     )
 
     def _builder(size: int) -> str:
@@ -863,7 +982,7 @@ def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_ou
     calls = iter([over_samples, None])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
-        lambda _pattern, _probes, _deadline: next(calls),
+        lambda _pattern, _probes, _deadline, _flags: next(calls),
     )
 
     def _builder(size: int) -> str:
@@ -886,7 +1005,7 @@ def test_first_over_budget_reason_returns_none_when_under_budget(
     under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
-        lambda _pattern, _probes, _deadline: under_samples,
+        lambda _pattern, _probes, _deadline, _flags: under_samples,
     )
 
     def _builder(size: int) -> str:
@@ -910,7 +1029,7 @@ def test_first_over_budget_reason_retries_at_most_once_per_builder(
     calls: list[str] = []
 
     def _fake_timing(
-        _pattern: str, _probes: list[str], _deadline: float
+        _pattern: str, _probes: list[str], _deadline: float, _flags: int
     ) -> ReachProbeTiming:
         calls.append(_pattern)
         return over_samples if len(calls) % 2 else under_samples
@@ -935,7 +1054,7 @@ def test_first_over_budget_reason_skips_retry_when_budget_is_exhausted(
     timing_calls: list[int] = []
 
     def _fake_timing(
-        _pattern: str, _probes: list[str], _deadline: float
+        _pattern: str, _probes: list[str], _deadline: float, _flags: int
     ) -> ReachProbeTiming:
         timing_calls.append(1)
         time.sleep(0.05)
@@ -986,6 +1105,7 @@ def test_reach_probe_cost_verdict_bounds_the_whole_phase_to_one_shared_deadline(
         cap: int,
         structural_violation: str | None,
         deadline: float,
+        flags: int,
     ) -> str | None:
         seen_deadlines.append(deadline)
         return None
@@ -1124,7 +1244,7 @@ def test_time_reach_probes_ascending_stops_at_the_first_failing_size() -> None:
     calls: list[str] = []
 
     def _fake_single(
-        pattern: str, probe: str, deadline: float
+        pattern: str, probe: str, deadline: float, flags: int
     ) -> ReachProbeTiming | None:
         calls.append(probe)
         return None if probe == "second" else _timing([[0.0] * 5])
@@ -1145,7 +1265,9 @@ def test_time_reach_probes_ascending_stops_at_the_first_failing_size() -> None:
 def test_time_reach_probes_ascending_keeps_the_smallest_load_factor() -> None:
     factors = iter([3.0, 2.0, 2.5])
 
-    def _fake_single(pattern: str, probe: str, deadline: float) -> ReachProbeTiming:
+    def _fake_single(
+        pattern: str, probe: str, deadline: float, flags: int
+    ) -> ReachProbeTiming:
         return _timing([[0.0] * 5], next(factors))
 
     with patch(

@@ -109,13 +109,14 @@ class PatternCompiler:
         pattern: str,
         test_strings: list[str] | None = None,
         max_content_length: int | None = None,
+        flags: int = re.IGNORECASE | re.MULTILINE,
     ) -> tuple[bool, str]:
         dangerous_violation = _dangerous_construct_violation(pattern)
         if dangerous_violation is not None:
             return False, dangerous_violation
 
         try:
-            self.compile_pattern_sync(pattern)
+            self.compile_pattern_sync(pattern, flags)
         except Exception as e:
             return False, f"Pattern validation failed: {str(e)}"
 
@@ -123,9 +124,9 @@ class PatternCompiler:
             structural_violation = _first_structural_safety_violation(pattern)
             if structural_violation is not None:
                 return False, structural_violation
-            return _run_pattern_safety_probe_subprocess(pattern, test_strings)
+            return _run_pattern_safety_probe_subprocess(pattern, test_strings, flags)
 
-        return _reach_probe_cost_verdict(pattern, max_content_length)
+        return _reach_probe_cost_verdict(pattern, max_content_length, flags)
 
     def create_safe_matcher(
         self,

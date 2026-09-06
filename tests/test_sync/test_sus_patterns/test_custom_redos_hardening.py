@@ -170,7 +170,7 @@ def test_split_top_level_alternations_handles_malformed() -> None:
 def test_reach_probe_candidates_are_derived_from_the_patterns_own_literal_chars() -> (
     None
 ):
-    builders = _reach_probe_candidate_builders(r"bbb")
+    builders = _reach_probe_candidate_builders(r"bbb", re.IGNORECASE | re.MULTILINE)
     assert builders
     probed_units = {builder(30) for builder in builders}
     assert any(unit.count("b") >= 10 for unit in probed_units), probed_units

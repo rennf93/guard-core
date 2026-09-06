@@ -93,11 +93,13 @@ def _reach_probe_prefix_builders(pattern: str) -> list[Callable[[int], str]]:
     return builders
 
 
-def _class_intersection_builders(pattern: str) -> list[Callable[[int], str]]:
+def _class_intersection_builders(
+    pattern: str, flags: int
+) -> list[Callable[[int], str]]:
     prefix = _leading_literal_prefix(pattern)
     return [
         functools.partial(_fill_to_length, prefix, fill_char, stray)
-        for fill_char, stray in _class_intersection_probe_units(pattern)
+        for fill_char, stray in _class_intersection_probe_units(pattern, flags)
     ]
 
 
@@ -127,10 +129,12 @@ def _ambiguous_group_fill_builders(pattern: str) -> list[Callable[[int], str]]:
     return builders
 
 
-def _reach_probe_candidate_builders(pattern: str) -> list[Callable[[int], str]]:
+def _reach_probe_candidate_builders(
+    pattern: str, flags: int
+) -> list[Callable[[int], str]]:
     return (
         _literal_run_builders(pattern)
         + _reach_probe_prefix_builders(pattern)
-        + _class_intersection_builders(pattern)
+        + _class_intersection_builders(pattern, flags)
         + _ambiguous_group_fill_builders(pattern)
     )
