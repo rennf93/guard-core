@@ -4,10 +4,9 @@ from guard_core.sync.handlers._suspatterns_ldap_ipv4 import (
 )
 from guard_core.sync.handlers._suspatterns_matchers import (
     _ATTR_EQUALS_WHITESPACE_RE,
-    _FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
     _FILE_UPLOAD_DECODED_TRUNCATION_RE,
     _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
-    _FILE_UPLOAD_FILENAME_EQUALS_RE,
     _FILE_UPLOAD_TRUNCATION_RE,
     _HTML_TAG_OPEN_RE,
     _SQLI_LOAD_FILE_RE,
@@ -88,6 +87,7 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _PATH_TRAVERSAL_SEMICOLON_SEP_RE,
     _PROTO_POLLUTION_PROTOTYPE_ASSIGN_RE,
     _PROTO_POLLUTION_SET_PROTOTYPE_OF_RE,
+    _RECON_EXTENSION_PATH_RE,
     _SELECT_FROM_RE,
     _SELECT_STAR_RE,
     _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
@@ -154,8 +154,8 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     (_SQLI_TAUTOLOGY_RE, _CTX_SQLI, "sqli"),
     (r"(?i)UNION\s+(?:ALL\s+)?SELECT", _CTX_SQLI, "sqli"),
     (
-        r"(?i)('\s*(?:OR|AND)\s*[\(\s]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+)\s*"
-        r"(?:=|LIKE|<|>|<=|>=)\s*[\(\s]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+))",
+        r"(?i)('\s*(?:OR|AND)[\s(]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+)\s*"
+        r"(?:LIKE|[<>]=?|=)[\s(]*'?(?:[@:$][A-Za-z_]\w*|[\d\w]+))",
         _CTX_SQLI,
         "sqli",
     ),
@@ -235,8 +235,9 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     ),
     (
         r"\A\s*(?:[;&|]\s*)*`\s*(?:[A-Za-z0-9_./~]|\$[({])"
-        r"(?:[^`\\\n]|\\.)*\s*`"
-        r"(?:\s*[;&|]\s*`\s*(?:[A-Za-z0-9_./~]|\$[({])(?:[^`\\\n]|\\.)*\s*`)*"
+        r"(?:[^`\\\n]|\\.)*(?:\n\s*)?`"
+        r"(?:\s*[;&|]\s*`\s*(?:[A-Za-z0-9_./~]|\$[({])"
+        r"(?:[^`\\\n]|\\.)*(?:\n\s*)?`)*"
         r"\s*(?:[;&|]\s*)*\Z",
         _CTX_CMD_INJECTION,
         "cmd_injection",
@@ -359,7 +360,11 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         _CTX_FILE_INCLUSION,
         "file_inclusion",
     ),
-    (r"\(\s*[|&]\s*\(\s*[^)(]+=[*]", _CTX_LDAP, "ldap"),
+    (
+        r"\([\s]*[|&][\s]*\([^)(]+=[*]",
+        _CTX_LDAP,
+        "ldap",
+    ),
     (_LDAP_WILDCARD_EQUALS_RE, _CTX_LDAP, "ldap"),
     (_LDAP_PAREN_BREAKOUT_RE, _CTX_LDAP, "ldap"),
     (_LDAP_PAREN_CONJUNCTION_RE, _CTX_LDAP, "ldap"),
@@ -415,10 +420,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "nosql",
     ),
     (
-        _FILE_UPLOAD_FILENAME_EQUALS_RE
-        + r"[\"'][^\"']*\.(?:"
-        + _FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION
-        + r")[\"\']",
+        _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
         _CTX_FILE_UPLOAD,
         "file_upload",
     ),
@@ -557,10 +559,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "cms_probing",
     ),
     (
-        _path_only_pattern(
-            rf"{_PATH_ONLY_CHAR_RE}*\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do"
-            r"|action|lua|inc|woa|nsf|esp)"
-        ),
+        _RECON_EXTENSION_PATH_RE,
         _CTX_RECON,
         "recon",
     ),

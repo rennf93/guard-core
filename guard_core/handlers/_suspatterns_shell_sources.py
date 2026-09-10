@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from guard_core.handlers._suspatterns_matchers import (
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
     _FILE_UPLOAD_DECODED_TRUNCATION_RE,
     _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
     _FILE_UPLOAD_TRUNCATION_RE,
@@ -13,12 +14,13 @@ from guard_core.handlers._suspatterns_matchers import (
     _TEMPLATE_DOLLAR_BRACE_CALL_RE,
     _TEMPLATE_PERCENT_KEYWORD_RE,
     _cmd_injection_dollar_scan_matches,
-    _file_upload_double_extension_scan_matches,
+    _file_upload_scan_matches,
     _load_file_scan_matches,
     _template_asp_keyword_scan_matches,
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_hash_brace_scan_matches,
     _template_percent_keyword_scan_matches,
 )
 from guard_core.handlers._suspatterns_sources import (
@@ -51,12 +53,16 @@ _PATTERN_SCAN_WINDOW_MATCHERS: dict[
 ] = {
     _SQLI_LOAD_FILE_RE: _load_file_scan_matches,
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE: _cmd_injection_dollar_scan_matches,
-    _FILE_UPLOAD_DOUBLE_EXTENSION_RE: _file_upload_double_extension_scan_matches,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE: _file_upload_scan_matches,
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE: _file_upload_scan_matches,
+    _FILE_UPLOAD_TRUNCATION_RE: _file_upload_scan_matches,
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE: _file_upload_scan_matches,
     _TEMPLATE_CURLY_KEYWORD_RE: _template_curly_keyword_scan_matches,
     _TEMPLATE_DOLLAR_BRACE_CALL_RE: _template_dollar_brace_scan_matches,
     _TEMPLATE_CURLY_CALL_RE: _template_curly_call_scan_matches,
     _TEMPLATE_PERCENT_KEYWORD_RE: _template_percent_keyword_scan_matches,
     _TEMPLATE_ASP_KEYWORD_RE: _template_asp_keyword_scan_matches,
+    _SSTI_HASH_BRACE_SHAPE_RE: _template_hash_brace_scan_matches,
 }
 
 

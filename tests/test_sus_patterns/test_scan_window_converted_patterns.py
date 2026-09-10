@@ -4,6 +4,7 @@ import pytest
 
 from guard_core.detection_engine.scan_window import bounded_finditer
 from guard_core.handlers.suspatterns_handler import (
+    _PATTERN_SCAN_WINDOW_MATCHERS,
     _SCAN_WINDOW_PATTERNS,
     _SSTI_HASH_BRACE_SHAPE_RE,
     SusPatternsManager,
@@ -114,8 +115,10 @@ async def test_benign_content_not_flagged(case_id: str, payload: str) -> None:
     assert not result["is_threat"], case_id
 
 
-def test_scan_window_registry_covers_exactly_eleven_builtin_patterns() -> None:
-    assert len(_SCAN_WINDOW_PATTERNS) == 11
+def test_scan_registries_cover_ten_generic_patterns_and_the_hash_template() -> None:
+    assert len(_SCAN_WINDOW_PATTERNS) == 10
+    assert _SSTI_HASH_BRACE_SHAPE_RE in _PATTERN_SCAN_WINDOW_MATCHERS
+    assert _SSTI_HASH_BRACE_SHAPE_RE not in _SCAN_WINDOW_PATTERNS
     known_sources = {pat for pat, _c, _cat in SusPatternsManager._pattern_definitions}
     for source in _SCAN_WINDOW_PATTERNS:
         assert source in known_sources
@@ -201,14 +204,18 @@ def test_bounded_scan_matches_raw_scan_verdict(
     source: str, attack_text: str, benign_text: str
 ) -> None:
     compiled = re.compile(source, re.IGNORECASE)
-    bounds = _SCAN_WINDOW_PATTERNS[source]
-
     for text in (attack_text, benign_text):
         raw_verdict = compiled.search(text) is not None
-        bounded_verdict = any(
-            next(bounded_finditer(text, compiled, prefix, terminator), None) is not None
-            for prefix, terminator in bounds
-        )
+        if source in _PATTERN_SCAN_WINDOW_MATCHERS:
+            bounded_verdict = bool(
+                _PATTERN_SCAN_WINDOW_MATCHERS[source](text, compiled)
+            )
+        else:
+            bounded_verdict = any(
+                next(bounded_finditer(text, compiled, prefix, terminator), None)
+                is not None
+                for prefix, terminator in _SCAN_WINDOW_PATTERNS[source]
+            )
         assert bounded_verdict == raw_verdict, (source[:60], text)
 
 

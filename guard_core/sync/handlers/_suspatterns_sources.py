@@ -147,8 +147,20 @@ def _path_only_pattern(required: str, trailing: str = "") -> str:
     )
 
 
-_SENSITIVE_SOURCE_EXTENSION_PATH_RE = _path_only_pattern(
-    rf"{_PATH_ONLY_CHAR_RE}*\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+def _path_only_extension_pattern(required: str) -> str:
+    return (
+        rf"\A{_PATH_ONLY_SEP_RE}?"
+        rf"(?:{_PATH_ONLY_CHAR_RE}+{_PATH_ONLY_SEP_RE})*"
+        rf"{_PATH_ONLY_CHAR_RE}*{required}{_PATH_ONLY_SUFFIX_RE}"
+    )
+
+
+_SENSITIVE_SOURCE_EXTENSION_PATH_RE = _path_only_extension_pattern(
+    r"\.(?:ts|tsx|jsx|py|rb|java|go|rs|php|pl|sh|sql)"
+)
+
+_RECON_EXTENSION_PATH_RE = _path_only_extension_pattern(
+    r"\.(?:asp|aspx|jsp|jsa|jhtml|shtml|cfm|cgi|do|action|lua|inc|woa|nsf|esp)"
 )
 
 
@@ -172,9 +184,7 @@ _ATTACK_REPORT_LEXICON_RE = (
 
 
 def _embedded_prose_pattern(required: str, trailing_max: int = 3) -> str:
-    trailing = (
-        rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}{{1,64}}){{0,{trailing_max}}}"
-    )
+    trailing = rf"(?:{_PATH_ONLY_SEP_RE}{_PATH_ONLY_CHAR_RE}{{1,64}})?" * trailing_max
     return (
         rf"\A(?=(?:(?!\n).)*{_ATTACK_REPORT_LEXICON_RE})"
         rf"{_SINGLE_LINE_PREFIX_RE}{_PATH_ONLY_SEP_RE}"
@@ -299,7 +309,7 @@ _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE = (
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-c\b"
 )
 _CMD_INJECTION_SHELL_DASH_FLAG_RE = (
-    r"(?:\A|[;|&])\s*(?:/?(?:[\w.-]+/)*env\s+)?/?(?:[\w.-]+/)*"
+    r"(?:\A|[;|&])\s*/?(?:[\w.-]+/)*(?:env\s+/?(?:[\w.-]+/)*)?"
     r"(?:bash|sh|ksh|csh|tsch|zsh|ash)\s+-[a-zA-Z]+"
     r"(?:\s+(?:'[^']*'|\"[^\"]*\"|[^\s;|&]+))?"
     r"(?=\s*(?:[;|&]|\Z))"

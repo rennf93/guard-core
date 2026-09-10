@@ -68,6 +68,7 @@ def _measure_one(
 
 def _measure_all() -> dict[str, list[float]]:
     from guard_core.sync.handlers.suspatterns_handler import (
+        _PATTERN_SCAN_WINDOW_MATCHERS,
         _SCAN_WINDOW_PATTERNS,
         _SSTI_HASH_BRACE_SHAPE_RE,
     )
@@ -75,15 +76,18 @@ def _measure_all() -> dict[str, list[float]]:
         _iter_scan_window_matches as bounded_matches,
     )
 
-    units = dict(_REACH_PROBE_UNITS)
-    units[_SSTI_HASH_BRACE_SHAPE_RE] = "#{"
-
-    return {
+    timings = {
         source: _measure_one(
             source, unit, _SIZES, _SCAN_WINDOW_PATTERNS[source], bounded_matches
         )
-        for source, unit in units.items()
+        for source, unit in _REACH_PROBE_UNITS.items()
     }
+    compiled = re.compile(_SSTI_HASH_BRACE_SHAPE_RE, re.IGNORECASE)
+    scanner = _PATTERN_SCAN_WINDOW_MATCHERS[_SSTI_HASH_BRACE_SHAPE_RE]
+    timings[_SSTI_HASH_BRACE_SHAPE_RE] = [
+        _cpu_min(scanner, ("#{" * (size // 2), compiled), _REPS) for size in _SIZES
+    ]
+    return timings
 
 
 def _find_project_root(start: Path) -> Path:

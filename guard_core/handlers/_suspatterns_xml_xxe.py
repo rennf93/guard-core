@@ -16,18 +16,56 @@ _XML_XXE_SCHEME_RE = re.compile(r"https?://", re.IGNORECASE)
 _XML_XXE_W3_ORG_RE = re.compile(r"(?:www\.)?w3\.org/", re.IGNORECASE)
 _XML_XXE_CLASS12_BOUNDARY_RE = re.compile(r"[>\[]")
 _XML_XXE_CLASS3_BOUNDARY_RE = re.compile(r"[\"'>]")
+_XML_XXE_VALIDATED_SPAN_RE = re.compile(r".*", re.DOTALL)
+_XML_SYSTEM_PREFIX_RE = re.compile(r"<!(?:ENTITY|DOCTYPE)", re.IGNORECASE)
+_XML_SYSTEM_KEYWORD_RE = re.compile(r"SYSTEM", re.IGNORECASE)
+_XML_ENTITY_PREFIX_RE = re.compile(r"<!ENTITY", re.IGNORECASE)
+_XML_GT_RE = re.compile(r">")
+
+
+def _xml_validated_match(text: str, start: int, end: int) -> re.Match:
+    match = _XML_XXE_VALIDATED_SPAN_RE.match(text, start, end)
+    assert match is not None
+    return match
+
+
+def _xml_system_finditer(text: str) -> Iterator[re.Match]:
+    ends = [m.start() for m in _XML_GT_RE.finditer(text)]
+    last_end = 0
+    for prefix in _XML_SYSTEM_PREFIX_RE.finditer(text):
+        if prefix.start() < last_end:
+            continue
+        end = _xml_xxe_first_at_or_after(ends, prefix.end())
+        if end is None:
+            return
+        last_end = end + 1
+        if _XML_SYSTEM_KEYWORD_RE.search(text, prefix.end() + 1, end - 1):
+            yield _xml_validated_match(text, prefix.start(), last_end)
+
+
+def _xml_internal_entity_finditer(text: str) -> Iterator[re.Match]:
+    boundaries = [m.start() for m in _XML_XXE_CLASS12_BOUNDARY_RE.finditer(text)]
+    entities = [m.start() for m in _XML_ENTITY_PREFIX_RE.finditer(text)]
+    last_end = 0
+    for prefix in _XML_XXE_DOCTYPE_RE.finditer(text):
+        if prefix.start() < last_end:
+            continue
+        boundary = _xml_xxe_first_at_or_after(boundaries, prefix.end())
+        if boundary is None:
+            return
+        last_end = boundary + 1
+        if text[boundary] != "[":
+            continue
+        entity = _xml_xxe_first_at_or_after(entities, boundary + 1)
+        if entity is None:
+            return
+        last_end = entity + len("<!ENTITY")
+        yield _xml_validated_match(text, prefix.start(), last_end)
 
 
 def _xml_xxe_first_at_or_after(sorted_positions: list[int], floor: int) -> int | None:
     idx = bisect.bisect_left(sorted_positions, floor)
     return sorted_positions[idx] if idx < len(sorted_positions) else None
-
-
-def _xml_xxe_last_before(
-    sorted_positions: list[int], ceiling_exclusive: int
-) -> int | None:
-    idx = bisect.bisect_left(sorted_positions, ceiling_exclusive)
-    return sorted_positions[idx - 1] if idx > 0 else None
 
 
 def _xml_xxe_scheme_completion_end(
@@ -44,11 +82,22 @@ def _xml_xxe_scheme_completion_end(
     scheme_end = scheme_match.end()
     if _XML_XXE_W3_ORG_RE.match(text, scheme_end) is not None:
         return None
-    class3_stop_idx = bisect.bisect_left(class3_boundaries, scheme_end + 1)
+    return _xml_xxe_quoted_url_end(
+        text, scheme_end, class12_boundaries, class3_boundaries
+    )
+
+
+def _xml_xxe_quoted_url_end(
+    text: str,
+    scheme_end: int,
+    class12_boundaries: list[int],
+    class3_boundaries: list[int],
+) -> int | None:
+    class3_stop_idx = bisect.bisect_left(class3_boundaries, scheme_end)
     if class3_stop_idx >= len(class3_boundaries):
         return None
     quote2 = class3_boundaries[class3_stop_idx]
-    if text[quote2] == ">":
+    if quote2 == scheme_end or text[quote2] == ">":
         return None
     class4_stop_idx = bisect.bisect_left(class12_boundaries, quote2 + 1)
     if class4_stop_idx >= len(class12_boundaries):
@@ -95,10 +144,10 @@ def _xml_xxe_candidate_span(
     run_start, run_end = _xml_xxe_public_run_bounds(
         class12_boundaries, public_pos, text_len
     )
-    doctype_before = _xml_xxe_last_before(doctype_positions, public_pos - 9)
-    if doctype_before is None or doctype_before < run_start:
+    doctype_before = _xml_xxe_first_at_or_after(doctype_positions, run_start)
+    if doctype_before is None or doctype_before >= public_pos - 9:
         return None
-    quote1 = _xml_xxe_first_at_or_after(quote_positions, public_pos + 8)
+    quote1 = _xml_xxe_first_at_or_after(quote_positions, public_pos + 7)
     if quote1 is None or quote1 >= run_end:
         return None
     return doctype_before, quote_to_final_gt[quote1]
@@ -131,7 +180,7 @@ def _xml_xxe_precompute(text: str) -> _XmlXxePrecomputed | None:
 
 
 def _xml_xxe_public_external_dtd_finditer(
-    text: str, compiled: re.Pattern
+    text: str, _compiled: re.Pattern
 ) -> Iterator[re.Match]:
     precomputed = _xml_xxe_precompute(text)
     if precomputed is None:
@@ -159,7 +208,6 @@ def _xml_xxe_public_external_dtd_finditer(
         if span is None:
             continue
         doctype_before, final_gt = span
-        match = compiled.match(text, doctype_before, final_gt + 1)
-        if match is not None:
-            yield match
-            last_end = match.end()
+        match = _xml_validated_match(text, doctype_before, final_gt + 1)
+        yield match
+        last_end = match.end()

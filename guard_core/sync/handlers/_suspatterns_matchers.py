@@ -3,6 +3,39 @@ import re
 from collections.abc import Iterator
 
 from guard_core.sync.detection_engine.scan_window import bounded_finditer
+from guard_core.sync.handlers._suspatterns_file_upload import (
+    _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE,
+    _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION,
+    _FILE_UPLOAD_BENIGN_TERMINAL_EXTENSION_RE,
+    _FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS,
+    _FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_MARKER_RE,
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
+    _FILE_UPLOAD_DANGEROUS_EXTENSIONS,
+    _FILE_UPLOAD_DANGEROUS_TERMINAL_EXTENSION_RE,
+    _FILE_UPLOAD_DECODED_TRUNCATION_MARKER_RE,
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE,
+    _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION,
+    _FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS,
+    _FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE,
+    _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+    _FILE_UPLOAD_FILENAME_EQUALS_RE,
+    _FILE_UPLOAD_FILENAME_TOKEN_RE,
+    _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE,
+    _FILE_UPLOAD_QUOTE_RE,
+    _FILE_UPLOAD_TRUNCATION_MARKER_RE,
+    _FILE_UPLOAD_TRUNCATION_RE,
+    _FILE_UPLOAD_VALIDATED_SPAN_RE,
+    _file_upload_double_extension_scan_matches,
+    _file_upload_is_double_extension,
+    _file_upload_is_truncation,
+    _file_upload_kind_matches,
+    _file_upload_match_start,
+    _file_upload_quoted_candidate,
+    _file_upload_scan_matches,
+    _file_upload_scan_window,
+    _file_upload_skip_whitespace,
+)
 from guard_core.sync.handlers._suspatterns_sources import (
     _CMD_INJECTION_NEWLINE_SHELL_DASH_C_RE,
     _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE,
@@ -10,130 +43,13 @@ from guard_core.sync.handlers._suspatterns_sources import (
     _LDAP_NULL_BYTE_ATTR_LEAD_CHAR_RE,
     _LDAP_NULL_BYTE_VALUE_CHAR_RE,
 )
+from guard_core.sync.handlers._suspatterns_templates import (
+    template_expression_matches,
+    template_keyword_matches,
+)
 
-_FILE_UPLOAD_DANGEROUS_EXTENSIONS = frozenset(
-    {
-        "phar",
-        "phtml",
-        "pht",
-        "exe",
-        "jsp",
-        "jspx",
-        "aspx",
-        "asp",
-        "asa",
-        "asax",
-        "ascx",
-        "ashx",
-        "asmx",
-        "cer",
-        "phps",
-        "shtml",
-        "cfm",
-        "cfc",
-        "war",
-        "bash",
-        "sh",
-        "rb",
-        "py",
-        "pl",
-        "cgi",
-        "com",
-        "bat",
-        "cmd",
-        "vbs",
-        "vbe",
-        "js",
-        "ws",
-        "wsf",
-        "msi",
-        "hta",
-    }
-)
-_FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION = r"php\d*|" + "|".join(
-    re.escape(ext)
-    for ext in sorted(_FILE_UPLOAD_DANGEROUS_EXTENSIONS, key=lambda c: (-len(c), c))
-)
-_FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS = _FILE_UPLOAD_DANGEROUS_EXTENSIONS - frozenset(
-    {"com"}
-)
-_FILE_UPLOAD_DOUBLE_EXT_ALTERNATION = r"php\d*|" + "|".join(
-    re.escape(ext)
-    for ext in sorted(_FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS, key=lambda c: (-len(c), c))
-)
-_FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS = frozenset(
-    {
-        "jpg",
-        "jpeg",
-        "png",
-        "gif",
-        "bmp",
-        "webp",
-        "svg",
-        "ico",
-        "tif",
-        "tiff",
-        "pdf",
-        "doc",
-        "docx",
-        "xls",
-        "xlsx",
-        "ppt",
-        "pptx",
-        "odt",
-        "mp3",
-        "mp4",
-        "avi",
-        "mov",
-        "wav",
-        "webm",
-        "mkv",
-    }
-)
-_FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION = "|".join(
-    re.escape(ext)
-    for ext in sorted(
-        _FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS, key=lambda c: (-len(c), c)
-    )
-)
-_FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE = r"(?:%00|\\u0000|\\x00|\\0|\x00|;)"
 _ATTR_EQUALS_WHITESPACE_RE = r"\s{0,20}"
-_FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE = r"\s*"
 _HTML_TAG_OPEN_RE = r"<[A-Za-z/]"
-_FILE_UPLOAD_FILENAME_EQUALS_RE = (
-    r"(?:\A|[;,:\n])"
-    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
-    + r"filename"
-    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
-    + r"="
-    + _FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE
-)
-_FILE_UPLOAD_DOUBLE_EXTENSION_RE = (
-    _FILE_UPLOAD_FILENAME_EQUALS_RE
-    + r"[\"'][^\"']*\.(?:"
-    + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])(?:[^ \"'][^\"']*)?\.(?:"
-    + _FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION
-    + r")[\"']"
-)
-_FILE_UPLOAD_TRUNCATION_RE = (
-    _FILE_UPLOAD_FILENAME_EQUALS_RE
-    + r"[\"'][^\"']*\.(?:"
-    + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])(?:"
-    + _FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE
-    + r"[^\"']*|\.)[\"']"
-)
-_FILE_UPLOAD_DECODED_TRUNCATION_RE = (
-    _FILE_UPLOAD_FILENAME_EQUALS_RE
-    + r"[\"'][^\"']*\.(?:"
-    + _FILE_UPLOAD_DOUBLE_EXT_ALTERNATION
-    + r")(?![A-Za-z0-9])(?:(?:\x00|;)[^\"']*|\.)[\"']"
-)
-
-
-def _file_upload_scan_window(content: str) -> str:
-    return content[: max(content.rfind('"'), content.rfind("'")) + 1]
 
 
 _CMD_INJECTION_NEWLINE_SHELL_DASH_C_COMPILED_RE = re.compile(
@@ -237,20 +153,6 @@ def _quote_splice_finditer(text: str, compiled: re.Pattern) -> Iterator[re.Match
             last_end = quote_match.end()
 
 
-_FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE = re.compile(r"filename\s*=\s*[\"']", re.IGNORECASE)
-_FILE_UPLOAD_QUOTE_RE = re.compile(r"[\"']")
-
-
-def _file_upload_double_extension_scan_matches(
-    content: str, compiled: re.Pattern
-) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content, compiled, _FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE, _FILE_UPLOAD_QUOTE_RE
-        )
-    )
-
-
 _SQLI_LOAD_FILE_RE = r"(?i)(?:LOAD_FILE\s*\([^)]+\))"
 _LOAD_FILE_SCAN_PREFIX_RE = re.compile(r"LOAD_FILE\s*\(", re.IGNORECASE)
 _LOAD_FILE_SCAN_TERMINATOR_RE = re.compile(r"\)")
@@ -303,11 +205,7 @@ _TEMPLATE_CURLY_TERMINATOR_RE = re.compile(r"\}\}")
 def _template_curly_keyword_scan_matches(
     content: str, compiled: re.Pattern
 ) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content, compiled, _TEMPLATE_CURLY_PREFIX_RE, _TEMPLATE_CURLY_TERMINATOR_RE
-        )
-    )
+    return template_keyword_matches(content, compiled, "{{", "}}")
 
 
 _TEMPLATE_DOLLAR_BRACE_CALL_RE = (
@@ -320,14 +218,7 @@ _TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE = re.compile(r"\}")
 def _template_dollar_brace_scan_matches(
     content: str, compiled: re.Pattern
 ) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content,
-            compiled,
-            _TEMPLATE_DOLLAR_BRACE_PREFIX_RE,
-            _TEMPLATE_DOLLAR_BRACE_TERMINATOR_RE,
-        )
-    )
+    return template_expression_matches(content, compiled, "dollar")
 
 
 _TEMPLATE_CURLY_CALL_RE = (
@@ -341,11 +232,7 @@ _TEMPLATE_CURLY_CALL_RE = (
 def _template_curly_call_scan_matches(
     content: str, compiled: re.Pattern
 ) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content, compiled, _TEMPLATE_CURLY_PREFIX_RE, _TEMPLATE_CURLY_TERMINATOR_RE
-        )
-    )
+    return template_expression_matches(content, compiled, "curly")
 
 
 _TEMPLATE_PERCENT_KEYWORD_RE = (
@@ -358,14 +245,7 @@ _TEMPLATE_PERCENT_TERMINATOR_RE = re.compile(r"\%\}")
 def _template_percent_keyword_scan_matches(
     content: str, compiled: re.Pattern
 ) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content,
-            compiled,
-            _TEMPLATE_PERCENT_PREFIX_RE,
-            _TEMPLATE_PERCENT_TERMINATOR_RE,
-        )
-    )
+    return template_keyword_matches(content, compiled, "{%", "%}")
 
 
 _TEMPLATE_ASP_KEYWORD_RE = (
@@ -379,11 +259,13 @@ _TEMPLATE_ASP_TERMINATOR_RE = re.compile(r"%>")
 def _template_asp_keyword_scan_matches(
     content: str, compiled: re.Pattern
 ) -> list[re.Match]:
-    return list(
-        bounded_finditer(
-            content, compiled, _TEMPLATE_ASP_PREFIX_RE, _TEMPLATE_ASP_TERMINATOR_RE
-        )
-    )
+    return template_expression_matches(content, compiled, "asp")
+
+
+def _template_hash_brace_scan_matches(
+    content: str, compiled: re.Pattern
+) -> list[re.Match]:
+    return template_expression_matches(content, compiled, "hash")
 
 
 _BRACE_EXPANSION_WORD_ITEM_RE = re.compile(r"\A[A-Za-z0-9_./~-]+\Z")
@@ -408,9 +290,11 @@ _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE = re.compile(
     _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_RE, re.IGNORECASE
 )
 _PICKLE_GLOBAL_NEWLINE_RE = re.compile(r"\n")
-_PICKLE_GLOBAL_IDENT_FULL_RE = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,100}\Z")
-_PICKLE_GLOBAL_NON_MODULE_CHAR_RE = re.compile(r"[^A-Za-z0-9_.]")
-_PICKLE_GLOBAL_IDENT_START_RE = re.compile(r"[A-Za-z_]")
+_PICKLE_GLOBAL_IDENT_FULL_RE = re.compile(
+    r"\A[A-Za-z_][A-Za-z0-9_]{0,100}\Z", re.IGNORECASE
+)
+_PICKLE_GLOBAL_NON_MODULE_CHAR_RE = re.compile(r"[^A-Za-z0-9_.]", re.IGNORECASE)
+_PICKLE_GLOBAL_IDENT_START_RE = re.compile(r"[A-Za-z_]", re.IGNORECASE)
 _PICKLE_GLOBAL_IDENT_MAX_LEN = 101
 _PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX = 20
 
@@ -433,16 +317,20 @@ def _pickle_global_first_valid_marker(
 
 def _pickle_global_chain_start(text: str, nl1: int, floor: int) -> int | None:
     seg_end = nl1
+    earliest = None
     for _ in range(_PICKLE_GLOBAL_DOTTED_SEGMENTS_MAX + 1):
-        seg_floor = max(floor, seg_end - _PICKLE_GLOBAL_IDENT_MAX_LEN - 1)
+        dot_pos = text.rfind(".", floor, seg_end)
+        seg_start = dot_pos + 1 if dot_pos >= floor else floor
+        seg_floor = max(seg_start, seg_end - _PICKLE_GLOBAL_IDENT_MAX_LEN - 1)
         c_pos = _pickle_global_first_valid_marker(text, "c", "C", seg_floor, seg_end)
         if c_pos is not None:
-            return c_pos
-        dot_pos = _pickle_global_first_valid_marker(text, ".", ".", seg_floor, seg_end)
-        if dot_pos is None:
-            return None
+            earliest = c_pos
+        if dot_pos < floor or not _PICKLE_GLOBAL_IDENT_FULL_RE.fullmatch(
+            text[seg_start:seg_end]
+        ):
+            break
         seg_end = dot_pos
-    return None
+    return earliest
 
 
 def _pickle_global_run_start(
@@ -476,3 +364,38 @@ def _pickle_global_generic_finditer(
         if match is not None:
             yield match
             last_end = match.end()
+
+
+__all__ = [
+    "_FILE_UPLOAD_DANGEROUS_EXTENSIONS",
+    "_FILE_UPLOAD_DANGEROUS_EXT_ALTERNATION",
+    "_FILE_UPLOAD_DOUBLE_EXT_EXTENSIONS",
+    "_FILE_UPLOAD_DOUBLE_EXT_ALTERNATION",
+    "_FILE_UPLOAD_BENIGN_TERMINAL_EXTENSIONS",
+    "_FILE_UPLOAD_BENIGN_TERMINAL_ALTERNATION",
+    "_FILE_UPLOAD_NULL_OR_SEPARATOR_TRUNCATION_RE",
+    "_FILE_UPLOAD_ATTR_EQUALS_WHITESPACE_RE",
+    "_FILE_UPLOAD_FILENAME_EQUALS_RE",
+    "_FILE_UPLOAD_DOUBLE_EXTENSION_RE",
+    "_FILE_UPLOAD_TRUNCATION_RE",
+    "_FILE_UPLOAD_DECODED_TRUNCATION_RE",
+    "_FILE_UPLOAD_DANGEROUS_EXTENSION_RE",
+    "_file_upload_scan_window",
+    "_FILE_UPLOAD_DOUBLE_EXT_PREFIX_RE",
+    "_FILE_UPLOAD_QUOTE_RE",
+    "_FILE_UPLOAD_FILENAME_TOKEN_RE",
+    "_FILE_UPLOAD_DANGEROUS_EXTENSION_MARKER_RE",
+    "_FILE_UPLOAD_BENIGN_TERMINAL_EXTENSION_RE",
+    "_FILE_UPLOAD_DANGEROUS_TERMINAL_EXTENSION_RE",
+    "_FILE_UPLOAD_TRUNCATION_MARKER_RE",
+    "_FILE_UPLOAD_DECODED_TRUNCATION_MARKER_RE",
+    "_FILE_UPLOAD_VALIDATED_SPAN_RE",
+    "_file_upload_match_start",
+    "_file_upload_skip_whitespace",
+    "_file_upload_quoted_candidate",
+    "_file_upload_is_double_extension",
+    "_file_upload_is_truncation",
+    "_file_upload_kind_matches",
+    "_file_upload_scan_matches",
+    "_file_upload_double_extension_scan_matches",
+]

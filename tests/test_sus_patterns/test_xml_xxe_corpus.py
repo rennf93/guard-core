@@ -38,6 +38,7 @@ def _padded_public_dtd(gap1: int, gap2: int, gap3: int) -> str:
         + ">"
     )
 
+
 XXE_PAYLOADS_FLAGGED = [
     pytest.param(
         '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>',

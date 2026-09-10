@@ -4,10 +4,19 @@ import re
 import statistics
 import time
 from collections.abc import Callable
+from multiprocessing.process import BaseProcess
+from queue import Empty
+from typing import TypeVar
 
 import pytest
 
 from guard_core.detection_engine.compiler import PatternCompiler
+from guard_core.handlers._suspatterns_matchers import (
+    _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
+    _FILE_UPLOAD_DECODED_TRUNCATION_RE,
+    _FILE_UPLOAD_TRUNCATION_RE,
+    _file_upload_scan_matches,
+)
 from guard_core.handlers.suspatterns_handler import (
     _BUILTIN_PATTERN_COMPILE_FLAGS,
     _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
@@ -36,6 +45,7 @@ from guard_core.handlers.suspatterns_handler import (
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_hash_brace_scan_matches,
     _template_percent_keyword_scan_matches,
     _xml_xxe_candidate_span,
     _xml_xxe_public_external_dtd_finditer,
@@ -43,6 +53,38 @@ from guard_core.handlers.suspatterns_handler import (
 )
 
 IM = re.IGNORECASE | re.MULTILINE
+_TimingResult = TypeVar("_TimingResult")
+
+
+def _collect_child_result(
+    process: BaseProcess, queue: "mp.Queue[_TimingResult]", timeout: float
+) -> _TimingResult | None:
+    try:
+        process.start()
+        process.join(timeout)
+        if process.is_alive():
+            return None
+        if process.exitcode != 0:
+            raise RuntimeError(f"timing worker exited with code {process.exitcode}")
+        try:
+            return queue.get(timeout=0.25)
+        except Empty as exc:
+            raise RuntimeError(
+                "timing worker exited without reporting a result"
+            ) from exc
+    finally:
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+                process.join(1.0)
+            if process.is_alive():
+                process.kill()
+                process.join(1.0)
+            if process.is_alive():
+                raise RuntimeError("timing worker survived termination")
+            process.close()
+        queue.close()
+        queue.join_thread()
 
 
 def _child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
@@ -51,12 +93,12 @@ def _child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> None:
     matcher_fn = _SCAN_WINDOW_MATCHERS[matcher] if matcher is not None else None
     times = []
     for text in texts:
-        t0 = time.time()
+        t0 = time.process_time()
         if matcher_fn is not None:
             matcher_fn(text, compiled)
         else:
             compiled.search(text)
-        times.append(time.time() - t0)
+        times.append(time.process_time() - t0)
     q.put(times)
 
 
@@ -64,13 +106,7 @@ def _timed_batch(pat: str, texts: list[str], timeout: float) -> list[float] | No
     ctx = mp.get_context("forkserver")
     q: mp.Queue[list[float]] = ctx.Queue()
     p = ctx.Process(target=_child, args=(pat, texts, q))
-    p.start()
-    p.join(timeout)
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        return None
-    return q.get() if not q.empty() else [0.0] * len(texts)
+    return _collect_child_result(p, q, timeout)
 
 
 def _assert_after_one_retry(measure_and_check: Callable[[], None]) -> None:
@@ -86,8 +122,10 @@ _SCAN_WINDOW_MATCHERS = {
     "_file_upload_double_extension_scan_matches": (
         _file_upload_double_extension_scan_matches
     ),
+    "_file_upload_scan_matches": _file_upload_scan_matches,
     "_template_curly_keyword_scan_matches": _template_curly_keyword_scan_matches,
     "_template_dollar_brace_scan_matches": _template_dollar_brace_scan_matches,
+    "_template_hash_brace_scan_matches": _template_hash_brace_scan_matches,
     "_template_curly_call_scan_matches": _template_curly_call_scan_matches,
     "_template_percent_keyword_scan_matches": _template_percent_keyword_scan_matches,
     "_template_asp_keyword_scan_matches": _template_asp_keyword_scan_matches,
@@ -139,13 +177,7 @@ def _timed_scan_window_batch(
         target=_scan_window_child,
         args=(matcher_name, pattern_text, texts, _SCAN_WINDOW_TIMING_RUNS, q),
     )
-    p.start()
-    p.join(timeout)
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        return None
-    return q.get() if not q.empty() else None
+    return _collect_child_result(p, q, timeout)
 
 
 def linear_search_time(
@@ -205,9 +237,9 @@ def _windowed_child(pat: str, texts: list[str], q: "mp.Queue[list[float]]") -> N
     finder = _WINDOWED_PATTERN_FINDERS[pat]
     times = []
     for text in texts:
-        t0 = time.time()
+        t0 = time.process_time()
         list(finder(text))
-        times.append(time.time() - t0)
+        times.append(time.process_time() - t0)
     q.put(times)
 
 
@@ -217,13 +249,7 @@ def _timed_windowed_batch(
     ctx = mp.get_context("forkserver")
     q: mp.Queue[list[float]] = ctx.Queue()
     p = ctx.Process(target=_windowed_child, args=(pat, texts, q))
-    p.start()
-    p.join(timeout)
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        return None
-    return q.get() if not q.empty() else [0.0] * len(texts)
+    return _collect_child_result(p, q, timeout)
 
 
 @pytest.mark.parametrize("pat", sorted(_WINDOWED_PATTERN_FINDERS))
@@ -428,7 +454,8 @@ def _file_upload_patterns() -> list[str]:
     ]
 
 
-def test_file_upload_patterns_resist_unclosed_filename_padding() -> None:
+@pytest.mark.parametrize("pat", _file_upload_patterns())
+def test_file_upload_patterns_resist_unclosed_filename_padding(pat: str) -> None:
     assert len(_file_upload_patterns()) == 4
     sizes = [4000, 8000, 16000]
 
@@ -437,8 +464,34 @@ def test_file_upload_patterns_resist_unclosed_filename_padding() -> None:
         body = (unit * (n // len(unit) + 1))[: n - 1]
         return body + '"'
 
-    for pat in _file_upload_patterns():
-        _quadratic_resistant(pat, mk, sizes)
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_file_upload_scan_matches", pat, [mk(n) for n in sizes], timeout=4.0
+        ),
+        "file_upload unterminated filename",
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        _FILE_UPLOAD_DANGEROUS_EXTENSION_RE,
+        _FILE_UPLOAD_DOUBLE_EXTENSION_RE,
+        _FILE_UPLOAD_TRUNCATION_RE,
+        _FILE_UPLOAD_DECODED_TRUNCATION_RE,
+    ],
+)
+def test_file_upload_scanner_resists_newline_prefix_without_filename(
+    pattern: str,
+) -> None:
+    sizes = [65536, 131072, 262144]
+    texts = ["\n" * size + 'nope"' for size in sizes]
+    _assert_scan_window_linear_and_fast(
+        lambda: _timed_scan_window_batch(
+            "_file_upload_scan_matches", pattern, texts, timeout=4.0
+        ),
+        "file_upload newline-prefix",
+    )
 
 
 def test_file_upload_scan_window_bounds_to_last_quote() -> None:
@@ -1019,8 +1072,7 @@ def test_pickle_global_generic_finditer_detects_within_8192_char_opcode_line() -
             samples.append(time.process_time() - start)
         assert matches, "attack past 8192 chars of filler was not detected"
         assert min(samples) < 0.05, (
-            f"pickle GLOBAL finder exceeded 50ms on an 8192-char opcode line: "
-            f"{samples}"
+            f"pickle GLOBAL finder exceeded 50ms on an 8192-char opcode line: {samples}"
         )
 
     _assert_after_one_retry(_check)
@@ -1279,8 +1331,7 @@ def test_cms_probing_backup_still_matches_multidot_filenames(path: str) -> None:
 
 
 _SAFETY_VALIDATED_PATTERNS_BY_CATEGORY: dict[str, str] = {
-    pat: cat
-    for pat, _ctx, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS
+    pat: cat for pat, _ctx, cat in _RAW_SEARCH_SAFE_PATTERN_DEFINITIONS
 }
 
 

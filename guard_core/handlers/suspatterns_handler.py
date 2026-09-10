@@ -128,6 +128,7 @@ from guard_core.handlers._suspatterns_matchers import (
     _template_curly_call_scan_matches,
     _template_curly_keyword_scan_matches,
     _template_dollar_brace_scan_matches,
+    _template_hash_brace_scan_matches,
     _template_percent_keyword_scan_matches,
 )
 from guard_core.handlers._suspatterns_pattern_table import _PATTERN_DEFINITIONS
@@ -348,7 +349,6 @@ from guard_core.handlers._suspatterns_xml_xxe import (
     _XML_XXE_W3_ORG_RE,
     _xml_xxe_candidate_span,
     _xml_xxe_first_at_or_after,
-    _xml_xxe_last_before,
     _xml_xxe_precompute,
     _xml_xxe_public_external_dtd_finditer,
     _xml_xxe_public_run_bounds,
@@ -669,10 +669,10 @@ __all__ = [
     "_template_curly_call_scan_matches",
     "_template_curly_keyword_scan_matches",
     "_template_dollar_brace_scan_matches",
+    "_template_hash_brace_scan_matches",
     "_template_percent_keyword_scan_matches",
     "_xml_xxe_candidate_span",
     "_xml_xxe_first_at_or_after",
-    "_xml_xxe_last_before",
     "_xml_xxe_precompute",
     "_xml_xxe_public_external_dtd_finditer",
     "_xml_xxe_public_run_bounds",

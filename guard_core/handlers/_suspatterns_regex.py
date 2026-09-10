@@ -24,7 +24,6 @@ from guard_core.handlers._suspatterns_matchers import (
     _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE,
     _brace_expansion_is_dangerous_command,
     _cmd_injection_shell_dash_c_finditer,
-    _file_upload_scan_window,
     _ldap_null_byte_attr_finditer,
     _pickle_global_generic_finditer,
     _quote_splice_finditer,
@@ -68,7 +67,6 @@ from guard_core.handlers._suspatterns_sources import (
     _SELECT_FROM_RE,
     _SELECT_STAR_RE,
     _SENSITIVE_SOURCE_EXTENSION_PATH_RE,
-    _SSTI_HASH_BRACE_SHAPE_RE,
     _WHERE_CLAUSE_RE,
     _XML_XXE_PUBLIC_EXTERNAL_DTD_RE,
     ALL_DETECTION_CATEGORIES,
@@ -77,6 +75,8 @@ from guard_core.handlers._suspatterns_sources import (
 from guard_core.handlers._suspatterns_state import _DetectionState
 from guard_core.handlers._suspatterns_xml_xxe import (
     _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE,
+    _xml_internal_entity_finditer,
+    _xml_system_finditer,
     _xml_xxe_public_external_dtd_finditer,
 )
 
@@ -209,10 +209,8 @@ _WINDOWED_PATTERN_FINDERS: dict[str, Callable[[str], Iterator[re.Match]]] = {
             text, _DESERIALIZATION_PICKLE_GLOBAL_GENERIC_COMPILED_RE
         )
     ),
-    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE: lambda text: (
-        _xml_xxe_public_external_dtd_finditer(
-            text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
-        )
+    _XML_XXE_PUBLIC_EXTERNAL_DTD_RE: lambda text: _xml_xxe_public_external_dtd_finditer(
+        text, _XML_XXE_PUBLIC_EXTERNAL_DTD_COMPILED_RE
     ),
 }
 
@@ -238,7 +236,6 @@ _SCAN_WINDOW_BOUND_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
     r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>": ((r"<!(?:ENTITY|DOCTYPE)", r">"),),
     r"(?:<!\[CDATA\[.*?\]\]>)": ((r"<!\[CDATA\[", r"\]\]>"),),
     r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY": ((r"<!DOCTYPE", r"<!ENTITY"),),
-    _SSTI_HASH_BRACE_SHAPE_RE: ((r"#\{", r"\}"),),
 }
 
 _SCAN_WINDOW_PATTERNS: dict[str, tuple[tuple[re.Pattern, re.Pattern], ...]] = {
@@ -255,6 +252,12 @@ def _iter_scan_window_matches(
     pattern: re.Pattern,
     bounds: tuple[tuple[re.Pattern, re.Pattern], ...],
 ) -> Iterator[re.Match]:
+    if pattern.pattern == r"<!(?:ENTITY|DOCTYPE)[^>]+SYSTEM[^>]+>":
+        yield from _xml_system_finditer(content)
+        return
+    if pattern.pattern == r"<!DOCTYPE[^>\[]*\[[\s\S]*?<!ENTITY":
+        yield from _xml_internal_entity_finditer(content)
+        return
     for prefix, terminator in bounds:
         yield from bounded_finditer(content, pattern, prefix, terminator)
 
@@ -335,6 +338,14 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
 
         timeout_occurred = False
 
+        scan_window_matcher = _PATTERN_SCAN_WINDOW_MATCHERS.get(pattern.pattern)
+        if scan_window_matcher is not None:
+            matches = scan_window_matcher(content, pattern)
+            threat = _first_accepted_regex_threat(
+                iter(matches), pattern, category, pattern_start, context
+            )
+            return threat, timeout_occurred
+
         scan_window_bounds = _SCAN_WINDOW_PATTERNS.get(pattern.pattern)
         if scan_window_bounds is not None:
             scan_window_matches = _iter_scan_window_matches(
@@ -348,14 +359,10 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         compiler = state.compiler
 
         if compiler:
-            scan_window_matcher = _PATTERN_SCAN_WINDOW_MATCHERS.get(pattern.pattern)
-            if scan_window_matcher is not None:
-                matches = scan_window_matcher(content, pattern)
-            else:
-                safe_finder = compiler.create_async_safe_finditer_matcher(
-                    pattern, inline_safe=category != "custom"
-                )
-                matches = await safe_finder(content)
+            safe_finder = compiler.create_async_safe_finditer_matcher(
+                pattern, inline_safe=category != "custom"
+            )
+            matches = await safe_finder(content)
             timeout_threshold = 0.9 * compiler.default_timeout
             if not matches and time.monotonic() - pattern_start >= timeout_threshold:
                 timeout_occurred = True
@@ -532,11 +539,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
 
             pattern_start = time.monotonic()
 
-            scan_content = (
-                _file_upload_scan_window(content)
-                if category == "file_upload"
-                else content
-            )
+            scan_content = content
             threat, timeout_occurred = await self._check_regex_pattern(
                 pattern,
                 scan_content,
