@@ -258,6 +258,50 @@ async def test_statistical_anomaly_zero_std_dev() -> None:
 
 
 @pytest.mark.asyncio
+async def test_statistical_anomaly_zero_std_dev_above_average_metric() -> None:
+    pattern = "zero_std_above_average_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times = deque([0.01] * 30, maxlen=100)
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.02,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    result = detect_statistical_anomaly(
+        metric, stats, min_samples_for_anomaly=30, anomaly_threshold=2.0
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_statistical_anomaly_negative_threshold_keeps_lower_tail() -> None:
+    pattern = "negative_threshold_pattern"
+    stats = PatternStats(pattern=pattern)
+    stats.recent_times = deque([0.01, 0.02] * 15, maxlen=100)
+    metric = PerformanceMetric(
+        pattern=pattern,
+        execution_time=0.0125,
+        content_length=100,
+        timestamp=datetime.now(timezone.utc),
+        matched=False,
+        timeout=False,
+    )
+
+    result = detect_statistical_anomaly(
+        metric, stats, min_samples_for_anomaly=30, anomaly_threshold=-1.0
+    )
+
+    assert result is not None
+    assert result["type"] == "statistical_anomaly"
+    assert result["z_score"] > -1.0
+
+
+@pytest.mark.asyncio
 async def test_statistical_anomaly_single_data_point() -> None:
     monitor = PerformanceMonitor(anomaly_threshold=2.0)
 
