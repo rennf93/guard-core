@@ -1,4 +1,6 @@
 import re
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -140,6 +142,40 @@ def test_choose_repeat_unit_stray_falls_back_to_nul_when_unforceable() -> None:
     assert choose_repeat_unit_stray(ctx, "a") == _REACH_PROBE_STRAY_BYTE
 
 
+@pytest.mark.parametrize(
+    "side_effect,returncode,stdout",
+    [
+        (subprocess.TimeoutExpired(["python"], 0.5), None, None),
+        (OSError("no forkable subprocess slot"), None, None),
+        (None, 1, ""),
+        (None, 0, "not json"),
+        (None, 0, '"unrequested candidate"'),
+    ],
+)
+def test_choose_repeat_unit_stray_fails_closed_when_verification_is_unavailable(
+    side_effect: Exception | None, returncode: int | None, stdout: str | None
+) -> None:
+    ctx = _build_stray_context(r"^a+$", 0)
+    completed = MagicMock(returncode=returncode, stdout=stdout)
+    with patch(
+        "guard_core.detection_engine._redos_stray_chooser.subprocess.run",
+        side_effect=side_effect,
+        return_value=completed,
+    ):
+        with pytest.raises(TimeoutError, match="stray verification"):
+            choose_repeat_unit_stray(ctx, "a")
+
+
+def test_choose_repeat_unit_stray_accepts_verified_unforceable_result() -> None:
+    ctx = _build_stray_context(r"[\s\S]*", 0)
+    completed = MagicMock(returncode=0, stdout="null")
+    with patch(
+        "guard_core.detection_engine._redos_stray_chooser.subprocess.run",
+        return_value=completed,
+    ):
+        assert choose_repeat_unit_stray(ctx, "a") == _REACH_PROBE_STRAY_BYTE
+
+
 def test_pattern_class_union_collects_intervals_from_nested_groups_and_skips_boundaries() -> (  # noqa: E501
     None
 ):
@@ -172,12 +208,10 @@ _STRAY_CHOOSER_TIMING_REJECT_PATTERNS: tuple[str, ...] = (
     r"\s*[\s\S]+[\x00-\x08]",
     r"\s*[\s\S]+--",
     r"\s*[\s\S]+\t",
+    r"\s*[\s\S]+[^\x00-\x08]",
 )
 
-_STRAY_CHOOSER_TIMING_ACCEPT_PATTERNS: tuple[str, ...] = (
-    r"\s*[\s\S]+[^\x00-\x08]",
-    r"^\s*[\s\S]+$",
-)
+_STRAY_CHOOSER_TIMING_ACCEPT_PATTERNS: tuple[str, ...] = (r"^\s*[\s\S]+$",)
 
 
 @pytest.mark.redos_timing

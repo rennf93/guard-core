@@ -67,7 +67,7 @@ _SHIPPED_XSS_SCRIPT_TAG_PATTERN = r"<script[^>]*>[^<]*<\/script\s*>"
 _SQLI_TAUTOLOGY_REQUIRED_ACCEPT_PATTERN = (
     r"(?i)\b(?:OR|AND)\s*(\d+|'[^']*'|\"[^\"]*\")\s*=\s*\1\b"
 )
-_SEMVER_REQUIRED_ACCEPT_PATTERN = r"(?:v(?:\d+\.){1,}\d+){1,}$"
+_SEMVER_SCAN_PATTERN = r"(?:v(?:\d+\.){1,}\d+){1,}$"
 
 
 @pytest.fixture(autouse=True)
@@ -406,7 +406,7 @@ def test_detect_ambiguous_literal_boundary_ignores_tautology_and_semver() -> Non
         _detect_ambiguous_literal_boundary(_SQLI_TAUTOLOGY_REQUIRED_ACCEPT_PATTERN)
         is None
     )
-    assert _detect_ambiguous_literal_boundary(_SEMVER_REQUIRED_ACCEPT_PATTERN) is None
+    assert _detect_ambiguous_literal_boundary(_SEMVER_SCAN_PATTERN) is None
 
 
 def test_skip_quantifier_at_rejects_unterminated_brace() -> None:
@@ -431,7 +431,7 @@ def test_detect_unreachable_terminator_scan_ignores_tautology_and_semver() -> No
         _detect_unreachable_terminator_scan(_SQLI_TAUTOLOGY_REQUIRED_ACCEPT_PATTERN)
         is None
     )
-    assert _detect_unreachable_terminator_scan(_SEMVER_REQUIRED_ACCEPT_PATTERN) is None
+    assert _detect_unreachable_terminator_scan(_SEMVER_SCAN_PATTERN) is None
 
 
 @pytest.mark.redos_timing
@@ -694,7 +694,7 @@ def test_validate_pattern_safety_accepts_disjoint_and_fixed_length_corpus() -> N
         r"(?:[/\\][\w.\-~%]*)*",
         r"(?:[\w.\-~%]+[/\\])*",
         r"BadBot|EvilCrawler",
-        r"(?:\d{3}-)*\d{4}",
+        r"\A(?:\d{3}-)*\d{4}",
     ]
     for pattern in safe_patterns:
         is_safe, reason = compiler.validate_pattern_safety(pattern)
@@ -712,7 +712,7 @@ def test_validate_pattern_safety_rejects_quantifier_before_disjoint_literal() ->
 @pytest.mark.redos_timing
 def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
     compiler = PatternCompiler()
-    is_safe, reason = compiler.validate_pattern_safety(_SEMVER_REQUIRED_ACCEPT_PATTERN)
+    is_safe, reason = compiler.validate_pattern_safety(r"\A" + _SEMVER_SCAN_PATTERN)
     assert is_safe is True, reason
     is_safe, reason = compiler.validate_pattern_safety(
         _SQLI_TAUTOLOGY_REQUIRED_ACCEPT_PATTERN
@@ -721,18 +721,26 @@ def test_validate_pattern_safety_accepts_required_accept_canaries() -> None:
 
 
 @pytest.mark.redos_timing
-def test_semver_mandatory_dot_separator_stays_linear_under_non_aligned_fill() -> None:
+@pytest.mark.parametrize("pattern", (r"(?:\d{3}-)*\d{4}", _SEMVER_SCAN_PATTERN))
+def test_validate_pattern_safety_rejects_unanchored_repeated_scan(pattern: str) -> None:
+    is_safe, reason = PatternCompiler().validate_pattern_safety(pattern)
+    assert is_safe is False
+    assert "CPU cost" in reason or "timeout" in reason
+
+
+@pytest.mark.redos_timing
+def test_semver_dot_separated_sample_stays_under_budget() -> None:
     unit = "v1."
     probes = [_repeat_probe_to_length(unit, size) for size in _REACH_PROBE_SIZES]
     timing = _time_reach_probes_subprocess(
-        _SEMVER_REQUIRED_ACCEPT_PATTERN, probes, time.monotonic() + 30.0
+        _SEMVER_SCAN_PATTERN, probes, time.monotonic() + 30.0
     )
     assert timing is not None
     over, extrapolated, ratio, min_32, median_32 = _reach_probe_verdict_from_samples(
         timing.samples_by_size, _PATTERN_SAFETY_DEFAULT_CAP, timing.load_factor
     )
     measurement = (
-        f"{_SEMVER_REQUIRED_ACCEPT_PATTERN} unit={unit!r}: growth ratio "
+        f"{_SEMVER_SCAN_PATTERN} unit={unit!r}: growth ratio "
         f"{ratio:.2f}x per doubling, CPU time at 32000 chars min={min_32:.4f}s "
         f"median={median_32:.4f}s, extrapolated to body cap "
         f"({_PATTERN_SAFETY_DEFAULT_CAP} chars) = {extrapolated:.3f}s"

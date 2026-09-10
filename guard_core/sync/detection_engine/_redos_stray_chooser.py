@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterable, Sequence
 from typing import NamedTuple
 
@@ -148,20 +149,48 @@ def _pattern_class_union(pattern: str, flags: int) -> _IntervalSet:
     return union
 
 
+def _pattern_complement_chars(pattern: str, flags: int) -> list[str]:
+    slots = _pattern_slots(pattern, flags)
+    if slots is None:
+        return []
+    return list(
+        dict.fromkeys(
+            char
+            for intervals in _collect_pairing_intervals(slots)
+            if (char := _first_complement_char(intervals)) is not None
+        )
+    )
+
+
 class _StrayContext(NamedTuple):
     pattern: str
     flags: int
     prefix: str
     pattern_union: _IntervalSet
+    deadline: float | None = None
 
 
-def _build_stray_context(pattern: str, flags: int) -> _StrayContext:
+def _build_stray_context(
+    pattern: str, flags: int, deadline: float | None = None
+) -> _StrayContext:
     return _StrayContext(
         pattern,
         flags,
         _leading_literal_prefix(pattern),
         _pattern_class_union(pattern, flags),
+        deadline,
     )
+
+
+def _stray_verification_timeout(ctx: _StrayContext) -> float:
+    if ctx.deadline is None:
+        return _STRAY_VERIFY_TIMEOUT_SECONDS
+    remaining = ctx.deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError(
+            "Pattern validation probe construction exceeded its deadline"
+        )
+    return min(_STRAY_VERIFY_TIMEOUT_SECONDS, remaining)
 
 
 def _choose_stray(
@@ -177,6 +206,7 @@ def _first_bounded_forcing_candidate(
     ctx: _StrayContext, candidates: list[str], probes: list[list[str]]
 ) -> str | None:
     """Verify candidates in a killable child, never against untrusted regex inline."""
+    timeout = _stray_verification_timeout(ctx)
     try:
         completed = subprocess.run(
             [sys.executable, "-S", "-I", "-c", _STRAY_VERIFY_CHILD_SCRIPT],
@@ -185,17 +215,37 @@ def _first_bounded_forcing_candidate(
             ),
             capture_output=True,
             text=True,
-            timeout=_STRAY_VERIFY_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(
+            "Pattern validation stray verification exceeded its "
+            "killable-subprocess timeout"
+        ) from exc
+    except OSError as exc:
+        raise TimeoutError(
+            "Pattern validation stray verification killable-subprocess failed to run"
+        ) from exc
     if completed.returncode != 0:
-        return None
+        raise TimeoutError(
+            "Pattern validation stray verification "
+            "killable-subprocess exited unexpectedly"
+        )
     try:
         result = json.loads(completed.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        raise TimeoutError(
+            "Pattern validation stray verification "
+            "killable-subprocess returned malformed output"
+        ) from exc
+    if result is None:
         return None
-    return result if isinstance(result, str) and result in candidates else None
+    if isinstance(result, str) and result in candidates:
+        return result
+    raise TimeoutError(
+        "Pattern validation stray verification "
+        "killable-subprocess returned malformed output"
+    )
 
 
 def _class_intersection_stray_candidates(
@@ -243,9 +293,8 @@ def choose_class_intersection_stray(
         ]
         for candidate in candidates
     ]
-    return (
-        _first_bounded_forcing_candidate(ctx, candidates, probes)
-        or _stray_for_pair(left, right)
+    return _first_bounded_forcing_candidate(ctx, candidates, probes) or _stray_for_pair(
+        left, right
     )
 
 
@@ -253,16 +302,6 @@ def _repeat_unit_stray_candidates(pattern_union: _IntervalSet) -> list[str]:
     ordered: list[str | None] = [_first_complement_char(pattern_union)]
     ordered.extend(_STRAY_FALLBACK_CANDIDATES)
     return _dedup_capped_candidates(ordered)
-
-
-def _repeat_unit_probe_forces_failure(
-    ctx: _StrayContext, unit: str, candidate: str
-) -> bool:
-    probes = [
-        _repeat_probe_to_length(unit, len(unit) * count, candidate)
-        for count in _STRAY_VERIFY_FILL_COUNTS
-    ]
-    return _first_bounded_forcing_candidate(ctx, [candidate], [probes]) == candidate
 
 
 def choose_repeat_unit_stray(ctx: _StrayContext, unit: str) -> str:

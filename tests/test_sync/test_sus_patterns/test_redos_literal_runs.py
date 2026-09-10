@@ -25,3 +25,7 @@ def test_brace_quantifier_span_allows_zero_branches(
 
 def test_adversarial_literal_runs_keeps_escaped_non_alnum_char() -> None:
     assert _adversarial_literal_runs(r"\.") == ["."]
+
+
+def test_literal_runs_separate_words_around_a_required_character_class() -> None:
+    assert _adversarial_literal_runs(r"prefix\dsuffix") == ["prefix", "suffix"]

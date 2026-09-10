@@ -3,6 +3,8 @@ import random
 import re
 from typing import cast
 
+import pytest
+
 from guard_core.detection_engine._redos_ignorecase_fold import (
     _EXPAND_IGNORECASE_MEMBER_SCAN_CEILING,
     _expand_ignorecase_by_group_scan,
@@ -18,7 +20,9 @@ from guard_core.detection_engine._redos_intervals import (
     cached_category_intervals,
 )
 from guard_core.detection_engine._redos_parse_slots import (
+    _cached_class_node_predicate,
     _category_intervals,
+    _class_node_predicate,
     _node_intervals,
     _regex_parser,
 )
@@ -180,6 +184,32 @@ def test_expand_ignorecase_ascii_only_excludes_dotless_i() -> None:
     expanded = expand_ignorecase(_IntervalSet.single(ord("i")), ascii_only=True)
     assert expanded.contains(ord("I")) is True
     assert expanded.contains(0x131) is False
+
+
+@pytest.mark.parametrize("char", ["K", "ſ", "ı", "İ", "é"])
+def test_ascii_fold_of_non_ascii_literal_matches_engine(char: str) -> None:
+    original = _IntervalSet.single(ord(char))
+    expanded = expand_ignorecase(original, ascii_only=True)
+    assert expanded == original
+    assert _expand_ignorecase_by_group_scan(original, ascii_only=True) == expanded
+    compiled = re.compile(re.escape(char), re.ASCII | re.IGNORECASE)
+    for candidate in (*map(chr, range(128)), char):
+        assert expanded.contains(ord(candidate)) is (
+            compiled.fullmatch(candidate) is not None
+        )
+
+
+def test_class_predicate_cache_evicts_old_patterns() -> None:
+    _cached_class_node_predicate.cache_clear()
+    first = _class_node_predicate(_regex_parser.LITERAL, 0, 0)
+    assert _class_node_predicate(_regex_parser.LITERAL, 0, 0) is first
+    for code_point in range(1, 1100):
+        predicate = _class_node_predicate(_regex_parser.LITERAL, code_point, 0)
+        assert predicate(code_point)
+        assert not predicate(code_point + 1)
+    assert _cached_class_node_predicate.cache_info().currsize == 1024
+    assert _class_node_predicate(_regex_parser.LITERAL, 0, 0) is not first
+    assert first(0)
 
 
 def test_expand_ignorecase_is_a_no_op_for_a_class_with_no_case_partners() -> None:

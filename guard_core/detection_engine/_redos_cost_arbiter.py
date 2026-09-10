@@ -5,13 +5,23 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 
+from guard_core.detection_engine._redos_probe_batches import (
+    _REACH_PROBE_BATCH_SIZE,
+    _batched_reach_probe_timings,
+    _decode_reach_timing,
+    _probe_set_digest,
+    _valid_timing_rows,
+)
 from guard_core.detection_engine._redos_probe_fill import (
     _reach_probe_candidate_builders,
 )
 from guard_core.detection_engine._redos_reach_probe import _synthesize_reaching_probe
+from guard_core.detection_engine._redos_repeat_alphabet import (
+    _has_large_bounded_repeat,
+)
 from guard_core.detection_engine._redos_structural_prefilters import (
     _first_structural_safety_violation,
 )
@@ -144,16 +154,11 @@ def _load_factor(reference_seconds: float) -> float:
 
 
 def _parse_reach_probe_child_output(stdout: str) -> ReachProbeTiming | None:
-    try:
-        result = json.loads(stdout.strip())
-    except json.JSONDecodeError:
+    decoded = _decode_reach_timing(stdout)
+    if decoded is None:
         return None
-    if "error" in result or "results" not in result or "reference" not in result:
-        return None
-    return ReachProbeTiming(
-        [sorted(float(t) for t in row) for row in result["results"]],
-        _load_factor(float(result["reference"])),
-    )
+    rows, reference = decoded
+    return ReachProbeTiming(rows, _load_factor(reference))
 
 
 _REACH_PROBE_CHILD_START_ALLOWANCE_SECONDS = 0.5
@@ -299,19 +304,97 @@ def _log_structural_disagreement(
 
 
 def _reach_probe_timing_strategy(
-    structural_violation: str | None,
+    structural_violation: str | None, bounded_repeat_risk: bool = False
 ) -> Callable[[str, list[str], float, int], ReachProbeTiming | None]:
-    if structural_violation is not None:
+    if structural_violation is not None or bounded_repeat_risk:
         return _time_reach_probes_ascending
     return _time_reach_probes_subprocess
 
 
 def _reach_probe_sizes_for_strategy(
-    structural_violation: str | None,
+    structural_violation: str | None, bounded_repeat_risk: bool = False
 ) -> tuple[int, ...]:
-    if structural_violation is not None:
+    if structural_violation is not None or bounded_repeat_risk:
         return _REACH_PROBE_SIZES
     return _REACH_VERDICT_PROBE_SIZES
+
+
+def _unique_probe_sets(
+    builders: list[Callable[[int], str]], probe_sizes: tuple[int, ...]
+) -> Iterator[tuple[str, ...]]:
+    seen: set[bytes] = set()
+    for builder in builders:
+        probes = tuple(builder(size) for size in probe_sizes)
+        digest = _probe_set_digest(probes)
+        if digest in seen:
+            continue
+        seen.add(digest)
+        yield probes
+
+
+def _direct_reach_probe_timings(
+    pattern: str,
+    probe_sets: Iterable[tuple[str, ...]],
+    deadline: float,
+    flags: int,
+    time_probes: Callable[..., ReachProbeTiming | None],
+) -> Iterator[tuple[tuple[str, ...], list[list[float]] | None, float]]:
+    for probes in probe_sets:
+        timing = time_probes(pattern, list(probes), deadline, flags)
+        validated = _valid_timing_rows(timing, len(probes))
+        if validated is None:
+            yield probes, None, 1.0
+        else:
+            yield probes, *validated
+
+
+def _timed_probe_results(
+    pattern: str,
+    builders: list[Callable[[int], str]],
+    deadline: float,
+    flags: int,
+    structural_violation: str | None,
+    bounded_repeat_risk: bool,
+) -> Iterator[tuple[tuple[str, ...], list[list[float]] | None, float]]:
+    time_probes = _reach_probe_timing_strategy(
+        structural_violation, bounded_repeat_risk
+    )
+    probe_sizes = _reach_probe_sizes_for_strategy(
+        structural_violation, bounded_repeat_risk
+    )
+    unique_probe_sets = _unique_probe_sets(builders, probe_sizes)
+    if (
+        structural_violation is None
+        and not bounded_repeat_risk
+        and len(builders) >= _REACH_PROBE_BATCH_SIZE
+    ):
+        return _batched_reach_probe_timings(
+            pattern,
+            unique_probe_sets,
+            deadline,
+            flags,
+            time_probes,
+        )
+    return _direct_reach_probe_timings(
+        pattern,
+        unique_probe_sets,
+        deadline,
+        flags,
+        time_probes,
+    )
+
+
+def _retry_reach_probe_timing(
+    pattern: str,
+    probes: tuple[str, ...],
+    deadline: float,
+    flags: int,
+    time_probes: Callable[..., ReachProbeTiming | None],
+) -> ReachProbeTiming | None:
+    validated = _valid_timing_rows(
+        time_probes(pattern, list(probes), deadline, flags), len(probes)
+    )
+    return None if validated is None else ReachProbeTiming(*validated)
 
 
 def _first_over_budget_reason(
@@ -321,16 +404,18 @@ def _first_over_budget_reason(
     structural_violation: str | None,
     deadline: float,
     flags: int = _DEFAULT_PATTERN_FLAGS,
+    bounded_repeat_risk: bool = False,
 ) -> str | None:
-    time_probes = _reach_probe_timing_strategy(structural_violation)
-    probe_sizes = _reach_probe_sizes_for_strategy(structural_violation)
-    timed_probe_sets: set[tuple[str, ...]] = set()
-    for builder in builders:
-        probes = tuple(builder(size) for size in probe_sizes)
-        if probes in timed_probe_sets:
-            continue
-        timed_probe_sets.add(probes)
-        timing = time_probes(pattern, list(probes), deadline, flags)
+    time_probes = _reach_probe_timing_strategy(
+        structural_violation, bounded_repeat_risk
+    )
+    timed_probe_results = _timed_probe_results(
+        pattern, builders, deadline, flags, structural_violation, bounded_repeat_risk
+    )
+    for probes, sample_rows, load_factor in timed_probe_results:
+        timing = (
+            None if sample_rows is None else ReachProbeTiming(sample_rows, load_factor)
+        )
         if timing is None:
             return (
                 structural_violation
@@ -343,7 +428,9 @@ def _first_over_budget_reason(
             )
         )
         if over and _remaining_budget(deadline) > 0:
-            retry = time_probes(pattern, list(probes), deadline, flags)
+            retry = _retry_reach_probe_timing(
+                pattern, probes, deadline, flags, time_probes
+            )
             if retry is not None:
                 timing = retry
                 over, extrapolated, ratio, min_32, median_32 = (
@@ -372,10 +459,16 @@ def _reach_probe_cost_verdict(
     deadline = time.monotonic() + _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
     cap = max_content_length if max_content_length else _PATTERN_SAFETY_DEFAULT_CAP
     structural_violation = _first_structural_safety_violation(pattern)
+    bounded_repeat_risk = _has_large_bounded_repeat(pattern, flags)
     if _synthesize_reaching_probe(pattern) is None:
         return False, _reach_probe_unreachable_reason(structural_violation)
 
-    builders = _reach_probe_candidate_builders(pattern, flags)
+    try:
+        builders = _reach_probe_candidate_builders(pattern, flags, deadline)
+    except TimeoutError as exc:
+        return False, structural_violation or str(exc)
+    if _remaining_budget(deadline) <= 0:
+        return False, "Pattern validation probe construction exceeded its deadline"
     if not builders:
         if structural_violation is not None:
             _log_structural_disagreement(
@@ -387,7 +480,13 @@ def _reach_probe_cost_verdict(
         return True, "Pattern appears safe"
 
     over_budget_reason = _first_over_budget_reason(
-        pattern, builders, cap, structural_violation, deadline, flags
+        pattern,
+        builders,
+        cap,
+        structural_violation,
+        deadline,
+        flags,
+        bounded_repeat_risk,
     )
     if over_budget_reason is not None:
         return False, over_budget_reason

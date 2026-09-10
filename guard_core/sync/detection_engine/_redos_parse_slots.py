@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import importlib
 import re
 from collections.abc import Callable
@@ -35,6 +36,8 @@ class _PairingAtom(NamedTuple):
     allows_zero: bool
     unbounded: bool
     predicate: Callable[[int], bool] | None = None
+    max_repeat: int | None = None
+    variable_bounded: bool = False
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _PairingAtom):
@@ -53,6 +56,8 @@ class _NonPairingSlot(NamedTuple):
     is_boundary: bool
     inner: list[list[_Slot]] | None
     unbounded: bool = False
+    max_repeat: int | None = None
+    variable_bounded: bool = False
 
 
 _Slot = _PairingAtom | _NonPairingSlot
@@ -129,19 +134,17 @@ def _compiled_node_predicate(compiled: Any) -> Callable[[int], bool]:
     return predicate
 
 
-_CLASS_NODE_PREDICATE_CACHE: dict[tuple[Any, Any, int], Callable[[int], bool]] = {}
-
-
 def _class_node_predicate(op: Any, av: Any, flags: int) -> Callable[[int], bool]:
     key = _class_node_cache_key(op, av, flags)
-    cached = _CLASS_NODE_PREDICATE_CACHE.get(key)
-    if cached is not None:
-        return cached
+    return _cached_class_node_predicate(*key)
+
+
+@functools.lru_cache(maxsize=1024)
+def _cached_class_node_predicate(op: Any, av: Any, flags: int) -> Callable[[int], bool]:
     if op is _regex_parser.CATEGORY:
         predicate = _category_predicate(av, flags)
     else:
         predicate = _compiled_node_predicate(_compile_class_node(op, av, flags))
-    _CLASS_NODE_PREDICATE_CACHE[key] = predicate
     return predicate
 
 
@@ -207,25 +210,45 @@ def _candidate_chars_for_atom_text(atom_text: str, flags: int) -> frozenset[str]
 
 
 def _pairing_atom(
-    op: Any, av: Any, flags: int, allows_zero: bool, unbounded: bool
+    op: Any,
+    av: Any,
+    flags: int,
+    allows_zero: bool,
+    unbounded: bool,
+    max_repeat: int | None = None,
+    variable_bounded: bool = False,
 ) -> _PairingAtom:
     intervals = _node_intervals(op, av, flags)
     predicate = _class_node_predicate(op, av, flags)
-    return _PairingAtom(intervals, allows_zero, unbounded, predicate)
+    return _PairingAtom(
+        intervals, allows_zero, unbounded, predicate, max_repeat, variable_bounded
+    )
 
 
 def _nonpairing_slot(
-    op: Any, av: Any, flags: int, allows_zero: bool, unbounded: bool
+    op: Any,
+    av: Any,
+    flags: int,
+    allows_zero: bool,
+    unbounded: bool,
+    max_repeat: int | None = None,
+    variable_bounded: bool = False,
 ) -> _NonPairingSlot:
     if op is _regex_parser.BRANCH:
         _ref, branches = av
         inner = [_walk_sequence(alt, flags) for alt in branches]
-        return _NonPairingSlot(not allows_zero, inner, unbounded)
+        return _NonPairingSlot(
+            not allows_zero, inner, unbounded, max_repeat, variable_bounded
+        )
     extractor = _GROUP_LIKE_BODY_EXTRACTORS.get(op)
     if extractor is not None:
         body, child_flags = extractor(av, flags)
         return _NonPairingSlot(
-            not allows_zero, _sequence_to_alternatives(body, child_flags), unbounded
+            not allows_zero,
+            _sequence_to_alternatives(body, child_flags),
+            unbounded,
+            max_repeat,
+            variable_bounded,
         )
     if op in _ASSERT_OPS:
         _direction, body = av
@@ -245,13 +268,35 @@ def _repeat_slot(av: tuple[int, int, list[Any]], flags: int) -> _Slot:
     low, high, body = av
     allows_zero = low == 0
     unbounded = high == _regex_parser.MAXREPEAT
+    variable_bounded = not unbounded and low < high
+    max_repeat = high if not unbounded else None
     if len(body) == 1:
         op, item_av = body[0]
         if op in _PAIRING_OPS:
-            return _pairing_atom(op, item_av, flags, allows_zero, unbounded)
-        return _nonpairing_slot(op, item_av, flags, allows_zero, unbounded)
+            return _pairing_atom(
+                op,
+                item_av,
+                flags,
+                allows_zero,
+                unbounded,
+                max_repeat,
+                variable_bounded,
+            )
+        return _nonpairing_slot(
+            op,
+            item_av,
+            flags,
+            allows_zero,
+            unbounded,
+            max_repeat,
+            variable_bounded,
+        )
     return _NonPairingSlot(
-        not allows_zero, _sequence_to_alternatives(body, flags), unbounded
+        not allows_zero,
+        _sequence_to_alternatives(body, flags),
+        unbounded,
+        max_repeat,
+        variable_bounded,
     )
 
 

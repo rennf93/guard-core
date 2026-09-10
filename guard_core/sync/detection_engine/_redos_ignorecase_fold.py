@@ -106,6 +106,8 @@ def _expand_ignorecase_by_member_scan(
     seen_groups: set[frozenset[int]] = set()
     for low, high in interval_set._intervals:
         for code_point in range(low, high + 1):
+            if ascii_only and code_point >= 128:
+                continue
             group = fold_map.get(code_point)
             if group is None or group in seen_groups:
                 continue

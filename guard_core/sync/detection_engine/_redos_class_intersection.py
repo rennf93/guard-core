@@ -215,11 +215,34 @@ def _units_in_slots(slots: list[_Slot], ctx: _StrayContext) -> list[tuple[str, s
     return units
 
 
-def _class_intersection_probe_units(pattern: str, flags: int) -> list[tuple[str, str]]:
+def _include_bounded_repeats(slots: list[_Slot]) -> list[_Slot]:
+    result: list[_Slot] = []
+    for slot in slots:
+        repeating = slot.unbounded or (
+            slot.max_repeat is not None and slot.max_repeat > 1
+        )
+        if isinstance(slot, _NonPairingSlot) and slot.inner is not None:
+            slot = slot._replace(
+                inner=[_include_bounded_repeats(alt) for alt in slot.inner]
+            )
+        result.append(slot._replace(unbounded=repeating))
+    return result
+
+
+def _class_intersection_probe_units(
+    pattern: str,
+    flags: int,
+    ctx: _StrayContext | None = None,
+    *,
+    include_bounded: bool = False,
+) -> list[tuple[str, str]]:
     slots = _pattern_slots(pattern, flags)
     if slots is None:
         return []
-    ctx = _build_stray_context(pattern, flags)
+    if ctx is None:
+        ctx = _build_stray_context(pattern, flags)
+    if include_bounded:
+        slots = _include_bounded_repeats(slots)
     return _units_in_slots(slots, ctx)
 
 

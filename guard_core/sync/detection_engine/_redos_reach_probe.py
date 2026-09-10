@@ -14,6 +14,7 @@ from guard_core.sync.detection_engine._redos_structure import (
 _PROBE_REACH_STRESS_LEN = 4000
 _PROBE_REACH_BOUNDED_CAP = 4000
 _PROBE_REACH_TOTAL_BUDGET = 12000
+_PROBE_REACH_MAX_LENGTH = 2 * _PROBE_REACH_TOTAL_BUDGET
 _PROBE_REACH_GROUP_REPEAT_CAP = 3
 _PROBE_REACH_BREAK_CHAR_CANDIDATES = "\x01\x02\x03\x04\x05\x06\x07\x08"
 _PROBE_REACH_ZERO_WIDTH_ESCAPES = frozenset("AZbB")
@@ -25,6 +26,8 @@ def _reach_budget_clamped_count(
 ) -> int:
     if unit_len <= 0:
         return high
+    if low > _PROBE_REACH_MAX_LENGTH // unit_len:
+        raise OverflowError("Mandatory repeat exceeds the probe construction budget")
     affordable = max(0, budget[0]) // unit_len
     return max(low, min(high, affordable))
 
@@ -240,18 +243,25 @@ def _synthesize_reaching_probe_segment(
     if depth > _MAX_GROUP_NESTING_DEPTH:
         return "", False
     out: list[str] = []
+    length = 0
     i = 0
     n = len(text)
     while i < n:
         if text[i] in "^$":
             i += 1
             continue
-        result = _synth_next_atom(
-            text, i, chars_seen, budget, depth, group_texts, group_counter
-        )
+        try:
+            result = _synth_next_atom(
+                text, i, chars_seen, budget, depth, group_texts, group_counter
+            )
+        except OverflowError:
+            return "", False
         if result is None:
             return "", False
         piece, i = result
+        length += len(piece)
+        if length > _PROBE_REACH_MAX_LENGTH:
+            return "", False
         out.append(piece)
     return "".join(out), True
 

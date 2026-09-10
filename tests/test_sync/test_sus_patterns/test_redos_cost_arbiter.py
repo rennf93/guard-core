@@ -1276,14 +1276,16 @@ def _grammar_expects_nonempty_fills(slots: list[tuple[Any, ...]]) -> bool:
     )
 
 
-def test_class_intersection_fills_matches_char_set_expectation_across_grammar() -> None:
+@pytest.mark.parametrize("left", _GRAMMAR_LEFT_ATOMS)
+@pytest.mark.parametrize("right", _GRAMMAR_RIGHT_ATOMS)
+def test_class_intersection_fills_matches_char_set_expectation_across_grammar(
+    left: str, right: str
+) -> None:
     combos = itertools.product(
-        _GRAMMAR_LEFT_ATOMS,
-        _GRAMMAR_RIGHT_ATOMS,
         _GRAMMAR_ZERO_ADMITTING_MIDDLES + _GRAMMAR_MANDATORY_MIDDLES,
         _GRAMMAR_ZERO_ADMITTING_MIDDLES + _GRAMMAR_MANDATORY_MIDDLES,
     )
-    for left, right, mid1, mid2 in combos:
+    for mid1, mid2 in combos:
         pattern = left + mid1 + mid2 + right
         slots = [
             _GRAMMAR_LEFT_META[left],
@@ -1392,43 +1394,43 @@ def _oracle_stray_for_pair(left: str, right: str, flags: int) -> str | None:
 
 
 @pytest.mark.redos_timing
-def test_class_intersection_probe_units_are_ground_truthed_against_real_timing() -> (
-    None
-):
-    for left in _GRAMMAR_LEFT_ATOMS:
-        for right in _GRAMMAR_RIGHT_ATOMS:
-            oracle_stray = _oracle_stray_for_pair(left, right, 0)
-            if oracle_stray is not None:
-                module_stray = _stray_for_pair(
-                    _interval_set_for_element(left), _interval_set_for_element(right)
+@pytest.mark.parametrize("left", _GRAMMAR_LEFT_ATOMS)
+@pytest.mark.parametrize("right", _GRAMMAR_RIGHT_ATOMS)
+def test_class_intersection_probe_units_are_ground_truthed_against_real_timing(
+    left: str, right: str
+) -> None:
+    oracle_stray = _oracle_stray_for_pair(left, right, 0)
+    if oracle_stray is not None:
+        module_stray = _stray_for_pair(
+            _interval_set_for_element(left), _interval_set_for_element(right)
+        )
+        assert re.fullmatch(left, module_stray) is None
+        assert re.fullmatch(right, module_stray) is None
+    for mid in _GRAMMAR_TIMING_MIDDLES:
+        pattern = "'" + left + mid + right + "--"
+        units = _class_intersection_probe_units(pattern, 0)
+        found_fills = {fill for fill, _stray in units}
+        for candidate in _timing_ground_truth_candidates(left, mid, right):
+            if candidate == " ":
+                stray = "\x00"
+            elif oracle_stray is not None:
+                stray = oracle_stray
+            else:
+                stray = candidate
+            ratio = _growth_ratio(pattern, candidate, stray)
+            if ratio >= 3.0:
+                assert units, (
+                    f"pattern={pattern!r} fill={candidate!r} stray={stray!r} "
+                    f"measured super-linear growth (ratio={ratio:.2f}x) but "
+                    f"the module produced no unit at all: {found_fills}"
                 )
-                assert re.fullmatch(left, module_stray) is None
-                assert re.fullmatch(right, module_stray) is None
-            for mid in _GRAMMAR_TIMING_MIDDLES:
-                pattern = "'" + left + mid + right + "--"
-                units = _class_intersection_probe_units(pattern, 0)
-                found_fills = {fill for fill, _stray in units}
-                for candidate in _timing_ground_truth_candidates(left, mid, right):
-                    if candidate == " ":
-                        stray = "\x00"
-                    elif oracle_stray is not None:
-                        stray = oracle_stray
-                    else:
-                        stray = candidate
-                    ratio = _growth_ratio(pattern, candidate, stray)
-                    if ratio >= 3.0:
-                        assert units, (
-                            f"pattern={pattern!r} fill={candidate!r} stray={stray!r} "
-                            f"measured super-linear growth (ratio={ratio:.2f}x) but "
-                            f"the module produced no unit at all: {found_fills}"
-                        )
-                if not units:
-                    ratio = _growth_ratio(pattern, " ", "\x00")
-                    assert ratio < 3.0, (
-                        f"pattern={pattern!r} produced no class-intersection unit but "
-                        f"the space/NUL probe measured super-linear growth "
-                        f"(ratio={ratio:.2f}x); a quadratic escape without a unit"
-                    )
+        if not units:
+            ratio = _growth_ratio(pattern, " ", "\x00")
+            assert ratio < 3.0, (
+                f"pattern={pattern!r} produced no class-intersection unit but "
+                f"the space/NUL probe measured super-linear growth "
+                f"(ratio={ratio:.2f}x); a quadratic escape without a unit"
+            )
 
 
 _GRAMMAR_ASTRAL_PAIRS: list[tuple[str, str, str, str]] = [
@@ -1725,9 +1727,13 @@ def test_reach_probe_unreachable_reason_echoes_structural_violation() -> None:
 
 
 def test_probe_cost_verdict_logs_disagreement_without_candidate_builders(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pattern = r"(\b|\W+)*"
+    monkeypatch.setattr(
+        "guard_core.sync.detection_engine._redos_cost_arbiter._reach_probe_candidate_builders",
+        lambda _pattern, _flags, _deadline: [],
+    )
     with caplog.at_level(
         logging.WARNING,
         logger="guard_core.sync.detection_engine.compiler",
@@ -1796,8 +1802,8 @@ def test_first_over_budget_reason_rejects_when_timing_probe_times_out(
 def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
-    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
+    over_samples = _timing([[0.016] * 5, [0.064] * 5])
+    under_samples = _timing([[0.0004] * 5, [0.0008] * 5])
     calls = iter([over_samples, under_samples])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
@@ -1820,7 +1826,7 @@ def test_first_over_budget_reason_recovers_when_over_budget_does_not_repeat(
 def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
+    over_samples = _timing([[0.016] * 5, [0.064] * 5])
     calls = iter([over_samples, None])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
@@ -1844,7 +1850,7 @@ def test_first_over_budget_reason_rejects_when_over_budget_confirmation_times_ou
 def test_first_over_budget_reason_returns_none_when_under_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
+    under_samples = _timing([[0.0004] * 5, [0.0008] * 5])
     monkeypatch.setattr(
         "guard_core.sync.detection_engine._redos_cost_arbiter._time_reach_probes_subprocess",
         lambda _pattern, _probes, _deadline, _flags: under_samples,
@@ -1866,8 +1872,8 @@ def test_first_over_budget_reason_returns_none_when_under_budget(
 def test_first_over_budget_reason_retries_at_most_once_per_builder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
-    under_samples = _timing([[0.0001] * 5, [0.0002] * 5, [0.0004] * 5, [0.0008] * 5])
+    over_samples = _timing([[0.016] * 5, [0.064] * 5])
+    under_samples = _timing([[0.0004] * 5, [0.0008] * 5])
     calls: list[str] = []
 
     def _fake_timing(
@@ -1892,7 +1898,7 @@ def test_first_over_budget_reason_retries_at_most_once_per_builder(
 def test_first_over_budget_reason_skips_retry_when_budget_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    over_samples = _timing([[0.001] * 5, [0.004] * 5, [0.016] * 5, [0.064] * 5])
+    over_samples = _timing([[0.016] * 5, [0.064] * 5])
     timing_calls: list[int] = []
 
     def _fake_timing(
@@ -1948,7 +1954,9 @@ def test_reach_probe_cost_verdict_bounds_the_whole_phase_to_one_shared_deadline(
         structural_violation: str | None,
         deadline: float,
         flags: int,
+        bounded_repeat_risk: bool,
     ) -> str | None:
+        assert bounded_repeat_risk is False
         seen_deadlines.append(deadline)
         return None
 

@@ -1,4 +1,5 @@
 import functools
+import itertools
 from collections.abc import Callable
 
 from guard_core.detection_engine._redos_ambiguous_tail import (
@@ -10,11 +11,20 @@ from guard_core.detection_engine._redos_class_intersection import (
     _class_intersection_probe_units,
 )
 from guard_core.detection_engine._redos_literal_runs import _adversarial_literal_runs
+from guard_core.detection_engine._redos_prefixed_probe import (
+    _group_unit_builders,
+    _prefixed_repeat_probe,
+    _prefixed_unit_builders,
+)
 from guard_core.detection_engine._redos_reach_probe import _synthesize_reaching_probe
+from guard_core.detection_engine._redos_repeat_alphabet import _repeat_alphabet_fills
+from guard_core.detection_engine._redos_repeat_prefix import _repeat_reaching_prefixes
+from guard_core.detection_engine._redos_repeat_units import _repeat_group_units
 from guard_core.detection_engine._redos_stray_chooser import (
     _build_stray_context,
     _fill_to_length,
     _leading_literal_prefix,
+    _pattern_complement_chars,
     _repeat_probe_to_length,
     _StrayContext,
     choose_repeat_unit_stray,
@@ -56,12 +66,12 @@ def _reach_probe_prefix_builders(
 
 
 def _class_intersection_builders(
-    pattern: str, flags: int
+    pattern: str, flags: int, ctx: _StrayContext | None = None
 ) -> list[Callable[[int], str]]:
     prefix = _leading_literal_prefix(pattern)
     return [
         functools.partial(_fill_to_length, prefix, fill_char, stray)
-        for fill_char, stray in _class_intersection_probe_units(pattern, flags)
+        for fill_char, stray in _class_intersection_probe_units(pattern, flags, ctx)
     ]
 
 
@@ -94,12 +104,41 @@ def _ambiguous_group_fill_builders(
 
 
 def _reach_probe_candidate_builders(
-    pattern: str, flags: int
+    pattern: str, flags: int, deadline: float | None = None
 ) -> list[Callable[[int], str]]:
-    ctx = _build_stray_context(pattern, flags)
+    ctx = _build_stray_context(pattern, flags, deadline)
+    repeat_fills = _repeat_alphabet_fills(pattern, flags, deadline)
+    class_units = _class_intersection_probe_units(
+        pattern, flags, ctx, include_bounded=True
+    )
+    group_pairs = _repeat_group_units(pattern, flags, deadline)
+    group_strays = _pattern_complement_chars(pattern, flags)
+    prefixed_builders = _group_unit_builders(
+        group_pairs, group_strays, functools.partial(choose_repeat_unit_stray, ctx)
+    )
+    class_prefix_units = itertools.chain(
+        class_units,
+        ((fill, stray) for fill, _stray in class_units for stray in group_strays),
+    )
+    class_prefixes = (
+        [""]
+        + _repeat_reaching_prefixes(pattern, flags, deadline, require_reachable=True)
+        if class_units
+        else []
+    )
     return (
-        _literal_run_builders(pattern, ctx)
+        [
+            functools.partial(_fill_to_length, ctx.prefix, fill, fill)
+            for fill in repeat_fills
+        ]
+        + _class_intersection_builders(pattern, flags, ctx)
+        + _prefixed_unit_builders(class_prefixes, class_prefix_units)
+        + prefixed_builders
+        + _literal_run_builders(pattern, ctx)
         + _reach_probe_prefix_builders(pattern, ctx)
-        + _class_intersection_builders(pattern, flags)
+        + [
+            functools.partial(_prefixed_repeat_probe, ctx.prefix, fill, stray, False)
+            for fill, stray in class_units
+        ]
         + _ambiguous_group_fill_builders(pattern, ctx)
     )

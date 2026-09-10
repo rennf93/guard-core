@@ -1,4 +1,7 @@
+import pytest
+
 from guard_core.sync.detection_engine._redos_reach_probe import (
+    _PROBE_REACH_MAX_LENGTH,
     _PROBE_REACH_STRESS_LEN,
     _reach_brace_quantifier_high,
     _reach_brace_quantifier_range,
@@ -11,6 +14,20 @@ from guard_core.sync.detection_engine._redos_reach_probe import (
     _synthesize_reaching_probe_segment,
 )
 from guard_core.sync.detection_engine._redos_structure import _MAX_GROUP_NESTING_DEPTH
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [r"a{1000000000}", r"(?:ab){1000000000}", r"(a{12000})\1\1", r"a{12000}b{12001}"],
+)
+def test_mandatory_repeats_cannot_exceed_probe_allocation_limit(pattern: str) -> None:
+    assert _synthesize_reaching_probe(pattern) is None
+
+
+def test_probe_allocation_limit_preserves_a_reachable_boundary() -> None:
+    probe = _synthesize_reaching_probe(f"a{{{_PROBE_REACH_MAX_LENGTH}}}")
+    assert probe is not None
+    assert len(probe) == _PROBE_REACH_MAX_LENGTH + 1
 
 
 def test_reach_brace_quantifier_high_fixed_count() -> None:
