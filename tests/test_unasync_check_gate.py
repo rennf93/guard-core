@@ -39,6 +39,18 @@ def _git_status_short(root: Path) -> str:
     return result.stdout
 
 
+@pytest.mark.parametrize("failure_at", [1, 2, 3])
+def test_generation_fails_when_a_formatter_fails(failure_at: int) -> None:
+    module = _load_unasync_module()
+    results: list[object] = [subprocess.CompletedProcess([], 0)] * (failure_at - 1)
+    results.append(subprocess.CalledProcessError(1, ["ruff"]))
+    with patch("subprocess.run", side_effect=results) as run:
+        with pytest.raises(subprocess.CalledProcessError):
+            module.format_generated()
+    assert run.call_count == failure_at
+    assert all(call.kwargs["check"] for call in run.call_args_list)
+
+
 def test_check_flags_a_missing_sync_mirror_instead_of_hiding_it() -> None:
     root = _repo_root()
     probe = root / "tests" / "test_unasync_check_gate_probe.py"

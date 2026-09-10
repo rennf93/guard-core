@@ -657,18 +657,26 @@ def format_generated(
             "run",
             "ruff",
             "check",
-            "--fix",
+            "--fix-only",
             "--quiet",
             str(sync_dir),
             str(test_sync_dir),
         ],
         cwd=ROOT,
         capture_output=True,
+        check=True,
     )
     subprocess.run(
         ["uv", "run", "ruff", "format", "--quiet", str(sync_dir), str(test_sync_dir)],
         cwd=ROOT,
         capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["uv", "run", "ruff", "check", "--quiet", str(sync_dir), str(test_sync_dir)],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
     )
 
 
