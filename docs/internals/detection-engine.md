@@ -78,20 +78,16 @@ Thread-safe compilation with LRU eviction. Cache key is `f"{pattern}:{flags}"`.
 
 Synchronous compilation without caching. Used internally by validators and safe matchers.
 
-**`validate_pattern_safety(pattern, test_strings=None, max_content_length=None, flags=...) -> tuple[bool, str]`**
+**`validate_pattern_safety(pattern, test_strings) -> tuple[bool, str]`**
 
-Screens a pattern for ReDoS risk using structural checks and bounded execution:
+Validates a pattern against ReDoS vulnerability:
 
-1. Rejects prohibited constructs and invalid syntax.
-2. With explicit `test_strings`, runs those strings in a killable child process and rejects structural violations or searches exceeding 50ms of CPU time.
-3. Otherwise, derives probes from repeat alphabets, overlapping repeats, repeated groups, reaching prefixes, and failure tails. Both finite and unbounded repeats contribute candidates. Searches run in killable child processes; timing uses child CPU time and a reference scan to account for host speed.
-4. Estimates cost at `max_content_length` (262144 characters by default), rejecting estimates above 50ms. Construction and timing share a 40-second deadline. Construction limits, unresolved reaching prefixes, child failures, and timeouts reject the pattern.
+1. Checks for known dangerous constructs: `(.*)+`, `(.+)+`, nested quantifiers.
+2. Runs the pattern against test strings (default: varying lengths of `'a'`, `'x'+'y'`, `'<'+'>'`) on a dedicated single-worker `validation_regex_executor()`, isolated from the shared `shared_regex_executor()` scan pool used for live request matching, so a busy scan pool can no longer starve or falsely fail a validation probe.
+3. Elapsed time is measured *inside* the submitted callable, i.e. execution time only, not time spent queued behind other probes. The outer `future.result(timeout=1.0)` call bounds total wait to 1.0s, but the pattern is flagged unsafe as soon as a probe's own execution exceeds the stricter 50ms threshold.
+4. Any timeout (queue-bound or per-probe), exception, or a probe over 50ms rejects the pattern, validation is fail-closed.
 
-Prefix construction preserves the connection between a repeated group and the prefixes that reach that group. It visits both omitted and included optional paths when captures, assertions, boundaries, flags, or other context-sensitive operations can distinguish them. When neither the body nor the remaining enclosing suffix can observe an optional segment, it retains the omitted path as the representative for later repeats, while still visiting the included body to collect its internal repeat sites. Assertion witnesses retain both paths. Unknown parser operations are treated conservatively.
-
-Passing these probes is empirical evidence, not a proof of linear complexity for every possible input. Built-in changes also require direct adversarial scaling tests, detection-corpus checks, and the full Detection Gate. A validator pass alone does not close a security review.
-
-`SusPatternsManager.add_pattern` runs validation via `asyncio.to_thread`. The sync API calls `validate_pattern_safety` directly on the calling thread.
+`SusPatternsManager.add_pattern` (the async API used by Redis custom-pattern restore and dynamic-rule pattern pushes) runs this validation via `asyncio.to_thread`, so up to ~1s of ReDoS probing never blocks the event loop. The sync API's `add_pattern` calls `validate_pattern_safety` directly on the calling thread.
 
 **`create_safe_matcher(pattern, timeout) -> Callable[[str], Match | None]`**
 
