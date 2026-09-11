@@ -201,10 +201,18 @@ class Stack:
     def _wait_healthy(self, expected_nonce: str, timeout: float = 60.0) -> None:
         deadline = time.monotonic() + timeout
         last_stderr = ""
+        # Scenario configs set rate_limit as low as one request per window,
+        # so the wait itself can be rate limited; a 429 still proves the
+        # middleware stack is serving. The nonce file pins the config
+        # generation independently of the response status.
         check_cmd = (
-            "import pathlib, urllib.request; "
-            "urllib.request.urlopen('http://localhost:8000/health'); "
-            "nonce = pathlib.Path('/tmp/smoke_nonce.txt').read_text(); "
+            "import pathlib, urllib.error, urllib.request\n"
+            "try:\n"
+            "    urllib.request.urlopen('http://localhost:8000/health')\n"
+            "except urllib.error.HTTPError as error:\n"
+            "    if error.code != 429:\n"
+            "        raise\n"
+            "nonce = pathlib.Path('/tmp/smoke_nonce.txt').read_text()\n"
             f"assert nonce == {expected_nonce!r}, nonce"
         )
         while time.monotonic() < deadline:
