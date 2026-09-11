@@ -210,6 +210,7 @@ __marimo__/
 manual_testing/
 ZZZ/
 .claude/
+AGENTS.md
 CLAUDE.md
 tests/attack_simulation/out/
 .unasync_check_tmp_*/
@@ -222,3 +223,5 @@ tests/live_smoke/live-smoke-report/
 # redaction harness outputs written into the tree by tests/redaction_gate
 tests/redaction_gate/genprobe_results.json
 tests/redaction_gate/scenario_tmp/
+
+scratchpad/
