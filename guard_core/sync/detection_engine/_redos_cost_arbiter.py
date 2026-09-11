@@ -110,11 +110,22 @@ _LOAD_FACTOR_CEILING = 8.0
 _REACH_PROBE_NOISE_FLOOR_SECONDS = 0.001
 _REACH_PROBE_SAMPLE_COUNT = 5
 _REACH_PROBE_LARGE_SAMPLE_SECONDS = 0.2
+# The verdict forces the growth ratio to 1.0 while the 16000-char minimum
+# sample stays under the noise floor, so one sample decides such probes and
+# they cannot read over budget; at or above the trigger the full sample
+# count is taken, which is also where host noise matters most.
+_REACH_PROBE_FULL_SAMPLE_TRIGGER_SECONDS = _REACH_PROBE_NOISE_FLOOR_SECONDS
 _PATTERN_SAFETY_DEFAULT_CAP = 262144
+# Probe families multiply (pair sites x strays x prefixes x flood variants),
+# and timing every set is wall-clock the verdict deadline cannot cover. A
+# stride sample keeps every family and site represented while bounding the
+# timed work; the cap only engages when the enumeration explodes.
+_MAX_TIMED_PROBE_SETS = 512
 
 _REACH_PROBE_TIMING_CHILD_SCRIPT = (
     "import json, math, re, signal, sys, time\n"
-    "pattern, probes, samples, deadline, flags = json.loads(sys.stdin.read())\n"
+    "pattern, probes, samples, deadline, flags, trigger = json.loads(\n"
+    "    sys.stdin.read())\n"
     "if hasattr(signal, 'alarm'):\n"
     "    signal.alarm(math.ceil(deadline))\n"
     "try:\n"
@@ -131,13 +142,16 @@ _REACH_PROBE_TIMING_CHILD_SCRIPT = (
     "    reference_times.append(time.process_time() - start)\n"
     "results = []\n"
     "for probe in probes:\n"
-    "    probe_times = []\n"
-    "    for _ in range(samples):\n"
-    "        start = time.process_time()\n"
-    "        compiled.search(probe)\n"
-    "        probe_times.append(time.process_time() - start)\n"
-    f"        if probe_times[-1] > {_REACH_PROBE_LARGE_SAMPLE_SECONDS}:\n"
-    "            break\n"
+    "    start = time.process_time()\n"
+    "    compiled.search(probe)\n"
+    "    probe_times = [time.process_time() - start]\n"
+    "    if probe_times[0] >= trigger:\n"
+    "        for _ in range(samples - 1):\n"
+    "            start = time.process_time()\n"
+    "            compiled.search(probe)\n"
+    "            probe_times.append(time.process_time() - start)\n"
+    f"            if probe_times[-1] > {_REACH_PROBE_LARGE_SAMPLE_SECONDS}:\n"
+    "                break\n"
     "    probe_times.sort()\n"
     "    results.append(probe_times)\n"
     "print(json.dumps({'results': results, 'reference': min(reference_times)}))\n"
@@ -185,7 +199,16 @@ def _clipped_timeout(default_timeout: float, deadline: float) -> float:
 def _run_reach_probe_child(
     pattern: str, probes: list[str], timeout: float, flags: int
 ) -> ReachProbeTiming | None:
-    payload = json.dumps([pattern, probes, _REACH_PROBE_SAMPLE_COUNT, timeout, flags])
+    payload = json.dumps(
+        [
+            pattern,
+            probes,
+            _REACH_PROBE_SAMPLE_COUNT,
+            timeout,
+            flags,
+            _REACH_PROBE_FULL_SAMPLE_TRIGGER_SECONDS,
+        ]
+    )
     try:
         completed = subprocess.run(
             [sys.executable, "-S", "-I", "-c", _REACH_PROBE_TIMING_CHILD_SCRIPT],
@@ -334,6 +357,24 @@ def _unique_probe_sets(
         yield probes
 
 
+def _stride_sampled_probe_sets(
+    probe_sets: list[tuple[str, ...]], cap: int
+) -> list[tuple[str, ...]]:
+    total = len(probe_sets)
+    if total <= cap:
+        return probe_sets
+    stride = math.ceil(total / cap)
+    sampled = probe_sets[::stride]
+    logger.debug(
+        "guard_core pattern safety: timing %d of %d unique probe sets "
+        "(stride %d) to fit the validation deadline",
+        len(sampled),
+        total,
+        stride,
+    )
+    return sampled
+
+
 def _direct_reach_probe_timings(
     pattern: str,
     probe_sets: Iterable[tuple[str, ...]],
@@ -364,7 +405,9 @@ def _timed_probe_results(
     probe_sizes = _reach_probe_sizes_for_strategy(
         structural_violation, bounded_repeat_risk
     )
-    unique_probe_sets = _unique_probe_sets(builders, probe_sizes)
+    probe_sets = _stride_sampled_probe_sets(
+        list(_unique_probe_sets(builders, probe_sizes)), _MAX_TIMED_PROBE_SETS
+    )
     if (
         structural_violation is None
         and not bounded_repeat_risk
@@ -372,14 +415,14 @@ def _timed_probe_results(
     ):
         return _batched_reach_probe_timings(
             pattern,
-            unique_probe_sets,
+            iter(probe_sets),
             deadline,
             flags,
             time_probes,
         )
     return _direct_reach_probe_timings(
         pattern,
-        unique_probe_sets,
+        iter(probe_sets),
         deadline,
         flags,
         time_probes,

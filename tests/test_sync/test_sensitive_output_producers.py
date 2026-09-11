@@ -605,6 +605,10 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
         "time (an admin-authored pattern) plus internal analysis labels, "
         "never a scanned request value"
     ),
+    "detection_engine/_redos_cost_arbiter.py:_stride_sampled_probe_sets": (
+        "line 366: logs only the sampled and total probe-set counts and "
+        "the stride length; no pattern text or scanned value is involved"
+    ),
     "detection_engine/compiler.py:report_scan_timeout": (
         "line 63: takes no arguments beyond a module-global consecutive-"
         "timeout counter; no pattern or scanned value is even accessible "

@@ -157,6 +157,7 @@ def test_validate_pattern_safety_safe_pattern(compiler: PatternCompiler) -> None
         assert reason == "Pattern appears safe"
 
 
+@pytest.mark.redos_timing
 def test_validate_pattern_safety_rejects_unanchored_broad_scan_with_no_prefix() -> None:
     compiler = PatternCompiler()
     is_safe, reason = compiler.validate_pattern_safety(r"[^>]*x")

@@ -43,6 +43,7 @@ from guard_core.detection_engine._redos_cost_arbiter import (
     _reach_probe_unreachable_reason,
     _reach_probe_verdict_from_samples,
     _remaining_budget,
+    _stride_sampled_probe_sets,
     _time_reach_probes_ascending,
     _time_reach_probes_subprocess,
     _time_single_reach_probe_subprocess,
@@ -1276,6 +1277,7 @@ def _grammar_expects_nonempty_fills(slots: list[tuple[Any, ...]]) -> bool:
     )
 
 
+@pytest.mark.redos_timing
 @pytest.mark.parametrize("left", _GRAMMAR_LEFT_ATOMS)
 @pytest.mark.parametrize("right", _GRAMMAR_RIGHT_ATOMS)
 def test_class_intersection_fills_matches_char_set_expectation_across_grammar(
@@ -1541,6 +1543,13 @@ def test_reach_probe_candidate_builders_combines_all_strategies() -> None:
         assert len(probe) == 4000
 
 
+def test_stride_sampling_bounds_timed_probe_sets_and_keeps_every_stride_step() -> None:
+    probe_sets = [(f"p{index}", f"p{index}!") for index in range(1200)]
+    assert _stride_sampled_probe_sets(probe_sets, 512) == probe_sets[::3]
+    assert _stride_sampled_probe_sets(probe_sets[:512], 512) == probe_sets[:512]
+    assert _stride_sampled_probe_sets(probe_sets[:513], 512) == probe_sets[:513][::2]
+
+
 def test_median_of_five_presorted_samples_is_the_middle_value() -> None:
     assert _median([0.1, 0.2, 0.3, 0.4, 0.5]) == 0.3
     assert _median([0.01, 0.01, 0.3, 9.0, 9.0]) == 0.3
@@ -1667,7 +1676,7 @@ def test_time_reach_probes_subprocess_returns_sorted_samples_per_probe() -> None
     assert result is not None
     assert len(result.samples_by_size) == 2
     for samples in result.samples_by_size:
-        assert len(samples) == 5
+        assert 1 <= len(samples) <= _REACH_PROBE_SAMPLE_COUNT
         assert samples == sorted(samples)
     assert _LOAD_FACTOR_FLOOR <= result.load_factor <= _LOAD_FACTOR_CEILING
 
@@ -2077,7 +2086,7 @@ def test_time_single_reach_probe_subprocess_returns_sorted_samples() -> None:
     result = _time_single_reach_probe_subprocess("abc", "abcabc", _far_deadline())
     assert result is not None
     (samples,) = result.samples_by_size
-    assert len(samples) == 5
+    assert 1 <= len(samples) <= _REACH_PROBE_SAMPLE_COUNT
     assert samples == sorted(samples)
 
 
@@ -2086,7 +2095,7 @@ def test_time_reach_probes_ascending_returns_sorted_samples_per_probe() -> None:
     assert result is not None
     assert len(result.samples_by_size) == 2
     for samples in result.samples_by_size:
-        assert len(samples) == 5
+        assert 1 <= len(samples) <= _REACH_PROBE_SAMPLE_COUNT
         assert samples == sorted(samples)
 
 
@@ -2182,7 +2191,20 @@ def test_cost_reason_echoes_a_structural_violation_over_the_measurement() -> Non
     assert reason == "nested quantifier"
 
 
-def test_probe_child_keeps_every_sample_for_a_cheap_probe() -> None:
+def test_probe_child_takes_a_single_sample_below_the_full_sample_trigger() -> None:
+    timing = _time_reach_probes_subprocess("abc", ["abcabc"], _far_deadline())
+    assert timing is not None
+    assert [len(row) for row in timing.samples_by_size] == [1]
+
+
+def test_probe_child_takes_five_samples_when_every_probe_meets_the_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "guard_core.detection_engine._redos_cost_arbiter."
+        "_REACH_PROBE_FULL_SAMPLE_TRIGGER_SECONDS",
+        0.0,
+    )
     timing = _time_reach_probes_subprocess("abc", ["abcabc"], _far_deadline())
     assert timing is not None
     assert [len(row) for row in timing.samples_by_size] == [_REACH_PROBE_SAMPLE_COUNT]
