@@ -27,6 +27,7 @@ from guard_core.detection_engine._redos_cost_arbiter import (
     _LOAD_FACTOR_FLOOR,
     _PATTERN_SAFETY_DEFAULT_CAP,
     _REACH_PROBE_COMBINED_TIMEOUT_SECONDS,
+    _REACH_PROBE_DEADLINE_SCALE_CEILING_SECONDS,
     _REACH_PROBE_LARGE_SAMPLE_SECONDS,
     _REACH_PROBE_SAMPLE_COUNT,
     _REACH_PROBE_SIZES,
@@ -35,6 +36,7 @@ from guard_core.detection_engine._redos_cost_arbiter import (
     _clipped_timeout,
     _first_over_budget_reason,
     _load_factor,
+    _measure_host_load_factor,
     _median,
     _parse_reach_probe_child_output,
     _reach_probe_cost_reason,
@@ -43,6 +45,7 @@ from guard_core.detection_engine._redos_cost_arbiter import (
     _reach_probe_unreachable_reason,
     _reach_probe_verdict_from_samples,
     _remaining_budget,
+    _scaled_probe_deadline_seconds,
     _stride_sampled_probe_sets,
     _time_reach_probes_ascending,
     _time_reach_probes_subprocess,
@@ -1971,9 +1974,15 @@ def test_reach_probe_cost_verdict_bounds_the_whole_phase_to_one_shared_deadline(
         seen_deadlines.append(deadline)
         return None
 
-    with patch(
-        "guard_core.detection_engine._redos_cost_arbiter._first_over_budget_reason",
-        _fake_over_budget_reason,
+    with (
+        patch(
+            "guard_core.detection_engine._redos_cost_arbiter._first_over_budget_reason",
+            _fake_over_budget_reason,
+        ),
+        patch(
+            "guard_core.detection_engine._redos_cost_arbiter._measure_host_load_factor",
+            lambda: 1.0,
+        ),
     ):
         before = time.monotonic()
         is_safe, reason = _reach_probe_cost_verdict(r"[a-z]+[a-z]+$", None)
@@ -1985,6 +1994,51 @@ def test_reach_probe_cost_verdict_bounds_the_whole_phase_to_one_shared_deadline(
     deadline = seen_deadlines[0]
     assert before + _REACH_PROBE_COMBINED_TIMEOUT_SECONDS <= deadline
     assert deadline <= after + _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
+
+
+def test_scaled_probe_deadline_scales_with_load_and_respects_the_ceiling() -> None:
+    assert (
+        _scaled_probe_deadline_seconds(_LOAD_FACTOR_FLOOR)
+        == _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
+    )
+    assert _scaled_probe_deadline_seconds(1.0) == _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
+    assert (
+        _scaled_probe_deadline_seconds(2.0) == 2 * _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
+    )
+    assert (
+        _scaled_probe_deadline_seconds(_LOAD_FACTOR_CEILING)
+        == _REACH_PROBE_DEADLINE_SCALE_CEILING_SECONDS
+    )
+
+
+def test_measure_host_load_factor_fails_open_to_an_unscaled_deadline() -> None:
+    class _Completed:
+        returncode = 0
+        stdout = '{"reference": 0.00458}'
+        stderr = ""
+
+    def _raise_spawn_error(*args: object, **kwargs: object) -> object:
+        raise OSError("stop before actually spawning")
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        lambda *args, **kwargs: _Completed(),
+    ):
+        assert _measure_host_load_factor() == 2.0
+
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        _raise_spawn_error,
+    ):
+        assert _measure_host_load_factor() == 1.0
+
+    broken = _Completed()
+    broken.stdout = "not json"
+    with patch(
+        "guard_core.detection_engine._redos_cost_arbiter.subprocess.run",
+        lambda *args, **kwargs: broken,
+    ):
+        assert _measure_host_load_factor() == 1.0
 
 
 @pytest.mark.redos_timing

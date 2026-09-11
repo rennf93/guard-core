@@ -121,6 +121,27 @@ _PATTERN_SAFETY_DEFAULT_CAP = 262144
 # stride sample keeps every family and site represented while bounding the
 # timed work; the cap only engages when the enumeration explodes.
 _MAX_TIMED_PROBE_SETS = 512
+# Sample times are normalized by a host load factor, but the wall-clock
+# deadline is not: measuring a genuinely quadratic pattern costs seconds of
+# CPU per probe set, and under a loaded runner the same CPU work needs a
+# proportionally larger wall budget. The verdict deadline scales by the
+# measured load factor, floored at the idle-host behavior and ceiled to
+# stay inside the per-test wall budget.
+_REACH_PROBE_DEADLINE_SCALE_CEILING_SECONDS = 240.0
+_REFERENCE_LOAD_PROBE_TIMEOUT_SECONDS = 5.0
+
+_REFERENCE_LOAD_CHILD_SCRIPT = (
+    "import json, re, sys, time\n"
+    "json.loads(sys.stdin.read())\n"
+    f"reference_compiled = re.compile({_REFERENCE_SCAN_PATTERN!r})\n"
+    f"reference_probe = '/' + '0' * {_REFERENCE_SCAN_PROBE_LENGTH}\n"
+    "reference_times = []\n"
+    f"for _ in range({_REACH_PROBE_SAMPLE_COUNT}):\n"
+    "    start = time.process_time()\n"
+    "    reference_compiled.search(reference_probe)\n"
+    "    reference_times.append(time.process_time() - start)\n"
+    "print(json.dumps({'reference': min(reference_times)}))\n"
+)
 
 _REACH_PROBE_TIMING_CHILD_SCRIPT = (
     "import json, math, re, signal, sys, time\n"
@@ -167,6 +188,31 @@ class ReachProbeTiming:
 def _load_factor(reference_seconds: float) -> float:
     raw = reference_seconds / _REFERENCE_SCAN_SECONDS
     return min(max(raw, _LOAD_FACTOR_FLOOR), _LOAD_FACTOR_CEILING)
+
+
+def _measure_host_load_factor() -> float:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-S", "-I", "-c", _REFERENCE_LOAD_CHILD_SCRIPT],
+            input=json.dumps([]),
+            capture_output=True,
+            text=True,
+            timeout=_REFERENCE_LOAD_PROBE_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return 1.0
+    try:
+        result = json.loads(completed.stdout.strip())
+        return _load_factor(float(result["reference"]))
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return 1.0
+
+
+def _scaled_probe_deadline_seconds(load_factor: float) -> float:
+    return min(
+        _REACH_PROBE_COMBINED_TIMEOUT_SECONDS * max(load_factor, 1.0),
+        _REACH_PROBE_DEADLINE_SCALE_CEILING_SECONDS,
+    )
 
 
 def _parse_reach_probe_child_output(stdout: str) -> ReachProbeTiming | None:
@@ -501,7 +547,9 @@ def _reach_probe_cost_verdict(
     max_content_length: int | None,
     flags: int = _DEFAULT_PATTERN_FLAGS,
 ) -> tuple[bool, str]:
-    deadline = time.monotonic() + _REACH_PROBE_COMBINED_TIMEOUT_SECONDS
+    deadline = time.monotonic() + _scaled_probe_deadline_seconds(
+        _measure_host_load_factor()
+    )
     cap = max_content_length if max_content_length else _PATTERN_SAFETY_DEFAULT_CAP
     structural_violation = _first_structural_safety_violation(pattern)
     bounded_repeat_risk = _has_large_bounded_repeat(pattern, flags)
