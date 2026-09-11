@@ -1544,7 +1544,9 @@ def test_reach_probe_candidate_builders_combines_all_strategies() -> None:
 
 
 def test_stride_sampling_bounds_timed_probe_sets_and_keeps_every_stride_step() -> None:
-    probe_sets = [(f"p{index}", f"p{index}!") for index in range(1200)]
+    probe_sets: list[tuple[str, ...]] = [
+        (f"p{index}", f"p{index}!") for index in range(1200)
+    ]
     assert _stride_sampled_probe_sets(probe_sets, 512) == probe_sets[::3]
     assert _stride_sampled_probe_sets(probe_sets[:512], 512) == probe_sets[:512]
     assert _stride_sampled_probe_sets(probe_sets[:513], 512) == probe_sets[:513][::2]
