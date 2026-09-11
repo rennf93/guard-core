@@ -170,4 +170,8 @@ printf '%-68s %6s\n' "Failing on base and candidate (baseline already broken)" "
 printf '%-68s %6s\n' "Base-only failures (fixed by the PR wheel)" "$base_only_count"
 echo "::endgroup::"
 
+if [ "$job_status" -eq 0 ] && { [ "$both_count" -gt 0 ] || [ "$candidate_status" -ne 0 ]; }; then
+  echo "::warning::JOB PASSED OVER PRE-EXISTING ${repo}@${ref} FAILURES: ${both_count} test(s) fail identically with and without the PR wheel, so this PR introduces no regression there; the breakage belongs to ${repo}@${ref} itself. Inspect the pytest-output-base / pytest-output-candidate artifacts for the failing tests."
+fi
+
 exit "$job_status"

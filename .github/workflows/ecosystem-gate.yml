@@ -136,7 +136,7 @@ jobs:
             "${{ github.event.inputs.consumer_ref }}"
 
       - name: Upload pytest output
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}-pytest-output
@@ -228,7 +228,7 @@ jobs:
             "latest-release"
 
       - name: Upload pytest output
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}-latest-release-pytest-output
