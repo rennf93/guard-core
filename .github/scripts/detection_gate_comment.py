@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 CATEGORY_LINE = re.compile(r"^\s{2}(\w+)\s+(\d+)/(\d+)\s+\(([\d.]+)%\)\s*$")
+MARKER = "<!-- detection-gate-report -->"
 SUMMARY_LINE = re.compile(r"^=+ .*?(\d+) passed.*=+$")
 FAILED_LINE = re.compile(r"^(?:FAILED|ERROR) (\S+)")
 ASSERTION_LINE = re.compile(
@@ -105,7 +106,7 @@ def build(report_text: str, job_url: str) -> str:
     reasons = [m.group(1) for m in map(ASSERTION_LINE.match, lines) if m]
     failed = [m.group(1) for m in map(FAILED_LINE.match, lines) if m]
     out = [
-        "<!-- detection-gate-report -->",
+        MARKER,
         "## Detection gate report",
         "",
         _verdict_line(lines),

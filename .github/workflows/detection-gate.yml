@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  detection-gate:
+  detection-gate-shards:
     runs-on: ubuntu-latest
 
     services:
@@ -38,8 +38,31 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    permissions:
-      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: builtin-safety
+            pytest_args: >-
+              tests/test_detection/test_builtin_pattern_safety.py
+              tests/test_sync/test_detection/test_builtin_pattern_safety.py
+          - name: hardening-canaries
+            pytest_args: >-
+              tests/test_sus_patterns/test_custom_redos_hardening.py
+              tests/test_sync/test_sus_patterns/test_custom_redos_hardening.py
+          - name: arbiter-grammar
+            pytest_args: >-
+              tests/test_sus_patterns/test_redos_cost_arbiter.py
+              tests/test_sync/test_sus_patterns/test_redos_cost_arbiter.py
+          - name: benchmarks-and-rest
+            pytest_args: >-
+              tests
+              --ignore=tests/test_detection/test_builtin_pattern_safety.py
+              --ignore=tests/test_sync/test_detection/test_builtin_pattern_safety.py
+              --ignore=tests/test_sus_patterns/test_custom_redos_hardening.py
+              --ignore=tests/test_sync/test_sus_patterns/test_custom_redos_hardening.py
+              --ignore=tests/test_sus_patterns/test_redos_cost_arbiter.py
+              --ignore=tests/test_sync/test_sus_patterns/test_redos_cost_arbiter.py
 
     steps:
       - name: Checkout code
@@ -62,22 +85,49 @@ jobs:
         run: |
           uv run python scripts/unasync.py --check
 
-      - name: Run the detection gate suite
+      - name: Run the detection gate suite (shard)
         shell: bash
         run: |
           REDIS_URL='redis://localhost:6379' \
           GUARD_TESTS_MAX_TEST_SECONDS=300 \
-          uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report.txt
+          uv run pytest -m 'redos_timing' -s -v --no-cov ${{ matrix.shard.pytest_args }} 2>&1 | tee "detection-report-${{ matrix.shard.name }}.txt"
 
-      - name: Build the PR comment body
+      - name: Upload the shard report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: detection-report-${{ matrix.shard.name }}
+          path: "detection-report-${{ matrix.shard.name }}.txt"
+          if-no-files-found: ignore
+
+  detection-gate:
+    name: detection-gate
+    needs: detection-gate-shards
+    if: always()
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download the shard reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: detection-report-*
+          path: reports
+
+      - name: Build the PR comment body from the shard reports
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
         shell: bash
         env:
           JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHARD_RESULT: ${{ needs.detection-gate-shards.result }}
         run: |
-          touch detection-report.txt
-          uv run python .github/scripts/detection_gate_comment.py detection-report.txt "$JOB_URL" detection-comment.md
+          uv run python .github/scripts/assemble_detection_gate_comment.py reports detection-comment.md
 
       - name: Post the report on the PR
         if: always() && github.event_name == 'pull_request'
@@ -96,7 +146,16 @@ jobs:
           done
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file detection-comment.md
 
-  detection-gate-cpu-load:
+      - name: Fail when any shard failed
+        if: always()
+        run: |
+          if [ "${{ needs.detection-gate-shards.result }}" != "success" ]; then
+            echo "::error::detection-gate-shards result: ${{ needs.detection-gate-shards.result }}"
+            exit 1
+          fi
+          echo "all detection gate shards passed"
+
+  detection-gate-cpu-load-shards:
     name: detection-gate-cpu-load
     runs-on: ubuntu-latest
 
@@ -110,6 +169,32 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: builtin-safety
+            pytest_args: >-
+              tests/test_detection/test_builtin_pattern_safety.py
+              tests/test_sync/test_detection/test_builtin_pattern_safety.py
+          - name: hardening-canaries
+            pytest_args: >-
+              tests/test_sus_patterns/test_custom_redos_hardening.py
+              tests/test_sync/test_sus_patterns/test_custom_redos_hardening.py
+          - name: arbiter-grammar
+            pytest_args: >-
+              tests/test_sus_patterns/test_redos_cost_arbiter.py
+              tests/test_sync/test_sus_patterns/test_redos_cost_arbiter.py
+          - name: benchmarks-and-rest
+            pytest_args: >-
+              tests
+              --ignore=tests/test_detection/test_builtin_pattern_safety.py
+              --ignore=tests/test_sync/test_detection/test_builtin_pattern_safety.py
+              --ignore=tests/test_sus_patterns/test_custom_redos_hardening.py
+              --ignore=tests/test_sync/test_sus_patterns/test_custom_redos_hardening.py
+              --ignore=tests/test_sus_patterns/test_redos_cost_arbiter.py
+              --ignore=tests/test_sync/test_sus_patterns/test_redos_cost_arbiter.py
 
     steps:
       - name: Checkout code
@@ -136,12 +221,12 @@ jobs:
             echo $! >> burner_pids.txt
           done
 
-      - name: Run the detection gate suite under CPU load
+      - name: Run the detection gate suite under CPU load (shard)
         shell: bash
         run: |
           REDIS_URL='redis://localhost:6379' \
           GUARD_TESTS_MAX_TEST_SECONDS=300 \
-          uv run pytest -m 'redos_timing' -s -v --no-cov 2>&1 | tee detection-report-cpu-load.txt
+          uv run pytest -m 'redos_timing' -s -v --no-cov ${{ matrix.shard.pytest_args }} 2>&1 | tee "detection-report-cpu-load-${{ matrix.shard.name }}.txt"
 
       - name: Stop the CPU burner
         if: always()
@@ -150,13 +235,28 @@ jobs:
             kill "$pid" 2>/dev/null || true
           done < burner_pids.txt
 
-      - name: Upload the CPU-load detection gate report
+      - name: Upload the CPU-load shard report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: detection-report-cpu-load
-          path: detection-report-cpu-load.txt
+          name: detection-report-cpu-load-${{ matrix.shard.name }}
+          path: "detection-report-cpu-load-${{ matrix.shard.name }}.txt"
           if-no-files-found: ignore
+
+  detection-gate-cpu-load:
+    name: detection-gate-cpu-load
+    needs: detection-gate-cpu-load-shards
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail when any shard failed
+        run: |
+          if [ "${{ needs.detection-gate-cpu-load-shards.result }}" != "success" ]; then
+            echo "::error::detection-gate-cpu-load-shards result: ${{ needs.detection-gate-cpu-load-shards.result }}"
+            exit 1
+          fi
+          echo "all CPU-load detection gate shards passed"
 
   detection-corpus:
     runs-on: ubuntu-latest
