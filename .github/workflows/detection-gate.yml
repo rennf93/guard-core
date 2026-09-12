@@ -127,7 +127,7 @@ jobs:
           JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHARD_RESULT: ${{ needs.detection-gate-shards.result }}
         run: |
-          uv run python .github/scripts/assemble_detection_gate_comment.py reports detection-comment.md
+          python3 .github/scripts/assemble_detection_gate_comment.py reports detection-comment.md
 
       - name: Post the report on the PR
         if: always() && github.event_name == 'pull_request'
@@ -137,6 +137,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
+          if [ ! -f detection-comment.md ]; then
+            echo "::warning::detection-comment.md was not built; skipping the PR comment"
+            exit 0
+          fi
           marker='<!-- detection-gate-report -->'
           cat > minimize.graphql <<'GRAPHQL'
           mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) { minimizedComment { isMinimized } } }
