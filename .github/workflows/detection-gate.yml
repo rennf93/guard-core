@@ -224,8 +224,13 @@ jobs:
       - name: Run the detection gate suite under CPU load (shard)
         shell: bash
         run: |
+          # Measuring a genuinely quadratic pattern under burners is real
+          # work: with the load-scaled verdict deadline the cap-aware
+          # canaries legitimately take ~380s per test on a 4-core runner,
+          # so this job's per-test ceiling sits above the plain gate's.
+          # The ceiling guards hung tests, not load-scaled verdicts.
           REDIS_URL='redis://localhost:6379' \
-          GUARD_TESTS_MAX_TEST_SECONDS=300 \
+          GUARD_TESTS_MAX_TEST_SECONDS=600 \
           uv run pytest -m 'redos_timing' -s -v --no-cov ${{ matrix.shard.pytest_args }} 2>&1 | tee "detection-report-cpu-load-${{ matrix.shard.name }}.txt"
 
       - name: Stop the CPU burner
