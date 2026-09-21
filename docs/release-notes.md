@@ -10,6 +10,18 @@ Release Notes
 
 ___
 
+v4.0.3 (2026-09-21)
+-------------------
+
+Binary upload false positives: the sus-pattern engine no longer blocks text-decoded binary bodies (v4.0.3)
+-----------------------------------------------------------------------------------------------------------
+
+### Fixed
+
+- **Every binary file upload was blocked and its client IP auto-banned.** A multipart file or zip upload decodes to text full of artifact bytes, produced 3 to 7 spurious pattern matches on random data from a small family of low-specificity shell-source heuristics (backtick pairs, dollar substitutions, quote splice, glob wildcards, template fragments), crossed the anomaly threshold, and banned a real user for uploading zips. Matches from those noise-prone patterns, and only those, are now discarded when the window of 64 characters on each side of the match holds 4 or more binary artifact characters (control characters other than tab, newline and carriage return, DEL, Latin-1/Latin-Ext-A artifact bytes outside a small text allowlist, surrogateescape bytes, and the Unicode replacement character). The check is an O(1) prefix-sum difference built once per scanned string in both the async and the sync tree, applied after the existing candidate rejection validators, with a frozen registry and a noise-corpus honesty test keeping the set minimal. Signature patterns are never gated, so real attacks hidden in binary padding (padded webshells, pickle opcode streams, base64-fragmented multipart parts) are still caught, while pure text, accented European text and all non-Latin scripts keep unchanged behavior.
+
+___
+
 v4.0.2 (2026-09-12)
 -------------------
 

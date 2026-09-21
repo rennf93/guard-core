@@ -8,8 +8,13 @@ ___
 Unreleased
 ----------
 
-Binary upload false positives: the sus-pattern engine no longer blocks text-decoded binary bodies
---------------------------------------------------------------------------------------------------
+___
+
+v4.0.3 (2026-09-21)
+-------------------
+
+Binary upload false positives: the sus-pattern engine no longer blocks text-decoded binary bodies (v4.0.3)
+-----------------------------------------------------------------------------------------------------------
 
 ### Fixed
 
