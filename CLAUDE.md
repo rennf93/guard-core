@@ -324,6 +324,7 @@ Each module is independently testable:
 ```python
 from guard_core.core.checks.implementations import IpSecurityCheck
 
+
 async def test_ip_security():
     middleware = create_test_middleware()
     check = IpSecurityCheck(middleware)
@@ -463,6 +464,7 @@ make upgrade
 
 ```python
 from guard_core.core.checks.base import SecurityCheck
+
 
 class MyCustomCheck(SecurityCheck):
     check_name = "my_custom_check"
