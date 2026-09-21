@@ -384,6 +384,7 @@ def test_fallback_pattern_check_recursion_log_redacts_secret_shaped_pattern(
         pattern_start: float,
         category: str,
         context: str = "unknown",
+        binary_prefix: list[int] | None = None,
     ) -> tuple[None, bool]:
         raise RecursionError("simulated regex recursion")
 

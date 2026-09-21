@@ -211,6 +211,11 @@ status = await sus_patterns_handler.get_component_status()
 
 Use these diagnostics to identify patterns that need optimization or replacement.
 
+Binary uploads and the artifact density gate
+--------------------------------------------
+
+Text-decoded binary bodies (multipart file uploads, zip archives) used to produce spurious pattern matches on artifact bytes, so binary uploads were blocked and their client IPs auto-banned. The sus-pattern engine now discards a regex match that is about to become a threat when the match comes from a registered noise-prone heuristic pattern (the shell-source family: glued backtick pairs, dollar substitutions, the shell keyword chain, quote splice, glob wildcard atoms, template fragments, LDAP paren conjunctions; the registry is `NOISE_PRONE_PATTERN_SOURCES` in the pattern table) and the scanned string is dense in binary artifact characters: control characters (except tab, newline, carriage return, plus DEL), Latin-1/Latin-Ext-A artifact bytes outside a small text allowlist, surrogateescape bytes and the Unicode replacement character, with at least 4 such characters inside the 64-character margin around the match. Signature patterns are deliberately never gated, so padded-payload recall (webshells, pickle opcodes, base64-fragmented parts) is unchanged. The check is an O(1) prefix-sum difference per match, built once per scanned string, and is invisible on pure text: a string with zero artifacts passes every match through unchanged, so accented European text, Cyrillic, CJK and every other non-Latin script keep full detection coverage. See `specs/06-suspatterns.md` ("Binary artifact density gate") for the exact definition; derived threats without a match position (timeouts, decode-budget exhaustion, semantic and JSON structural threats) are not filtered by this gate.
+
 ___
 
 Known Limitations

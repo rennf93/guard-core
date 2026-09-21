@@ -6,6 +6,10 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from guard_core._utils.detection_scan import _redact_pattern_source
+from guard_core.detection_engine.binary_prefix import (
+    build_binary_prefix,
+    match_is_binary_dense,
+)
 from guard_core.detection_engine.compiler import (
     report_scan_success,
     report_scan_timeout,
@@ -27,6 +31,9 @@ from guard_core.handlers._suspatterns_matchers import (
     _ldap_null_byte_attr_finditer,
     _pickle_global_generic_finditer,
     _quote_splice_finditer,
+)
+from guard_core.handlers._suspatterns_pattern_table import (
+    NOISE_PRONE_PATTERN_SOURCES,
 )
 from guard_core.handlers._suspatterns_pickle import (
     _pickle_global_candidate_is_injection,
@@ -274,10 +281,15 @@ def _build_regex_threat(
     category: str,
     pattern_start: float,
     context: str = "unknown",
+    binary_prefix: list[int] | None = None,
 ) -> dict[str, Any] | None:
     for candidate, is_valid_threat in _CANDIDATE_REJECTION_VALIDATORS:
         if pattern.pattern == candidate and not is_valid_threat(match, context):
             return None
+    if pattern.pattern in NOISE_PRONE_PATTERN_SOURCES and match_is_binary_dense(
+        binary_prefix, match
+    ):
+        return None
     return {
         "type": "regex",
         "pattern": pattern.pattern,
@@ -309,9 +321,12 @@ def _first_accepted_regex_threat(
     category: str,
     pattern_start: float,
     context: str = "unknown",
+    binary_prefix: list[int] | None = None,
 ) -> dict[str, Any] | None:
     for match in matches:
-        threat = _build_regex_threat(pattern, match, category, pattern_start, context)
+        threat = _build_regex_threat(
+            pattern, match, category, pattern_start, context, binary_prefix
+        )
         if threat:
             return threat
     return None
@@ -328,12 +343,19 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         *,
         state: _DetectionState | None = None,
         context: str = "unknown",
+        binary_prefix: list[int] | None = None,
     ) -> tuple[dict | None, bool]:
         state = self._resolve_state(state)
         windowed_finder = _WINDOWED_PATTERN_FINDERS.get(pattern.pattern)
         if windowed_finder is not None:
             return await self._check_windowed_pattern(
-                pattern, windowed_finder, content, pattern_start, category, context
+                pattern,
+                windowed_finder,
+                content,
+                pattern_start,
+                category,
+                context,
+                binary_prefix,
             )
 
         timeout_occurred = False
@@ -342,7 +364,12 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         if scan_window_matcher is not None:
             matches = scan_window_matcher(content, pattern)
             threat = _first_accepted_regex_threat(
-                iter(matches), pattern, category, pattern_start, context
+                iter(matches),
+                pattern,
+                category,
+                pattern_start,
+                context,
+                binary_prefix,
             )
             return threat, timeout_occurred
 
@@ -352,7 +379,12 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
                 content, pattern, scan_window_bounds
             )
             threat = _first_accepted_regex_threat(
-                scan_window_matches, pattern, category, pattern_start, context
+                scan_window_matches,
+                pattern,
+                category,
+                pattern_start,
+                context,
+                binary_prefix,
             )
             return threat, timeout_occurred
 
@@ -372,13 +404,24 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
                 )
 
             threat = _first_accepted_regex_threat(
-                iter(matches), pattern, category, pattern_start, context
+                iter(matches),
+                pattern,
+                category,
+                pattern_start,
+                context,
+                binary_prefix,
             )
             if threat:
                 return threat, timeout_occurred
         else:
             threat, timeout_occurred = await self._check_regex_pattern_with_retry(
-                pattern, content, ip_address, pattern_start, category, context
+                pattern,
+                content,
+                ip_address,
+                pattern_start,
+                category,
+                context,
+                binary_prefix,
             )
             if threat:
                 return threat, timeout_occurred
@@ -393,6 +436,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         pattern_start: float,
         category: str,
         context: str,
+        binary_prefix: list[int] | None = None,
     ) -> tuple[dict | None, bool]:
         timeout = getattr(
             self._config, "detection_compiler_timeout", _DEFAULT_COMPILER_TIMEOUT
@@ -416,7 +460,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
             return None, False
 
         threat = _first_accepted_regex_threat(
-            iter(matches), pattern, category, pattern_start, context
+            iter(matches), pattern, category, pattern_start, context, binary_prefix
         )
         return threat, False
 
@@ -428,6 +472,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         pattern_start: float,
         category: str,
         context: str = "unknown",
+        binary_prefix: list[int] | None = None,
     ) -> tuple[dict | None, bool]:
         search_from = 0
         timeout_occurred = False
@@ -441,7 +486,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
                 break
 
             threat = _build_regex_threat(
-                pattern, match, category, pattern_start, context
+                pattern, match, category, pattern_start, context, binary_prefix
             )
             if threat:
                 return threat, timeout_occurred
@@ -523,6 +568,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
         )
         skip_filter = normalized in ("unknown", "request_body")
         performance_monitor = state.performance_monitor
+        binary_prefix = build_binary_prefix(content)
 
         for pattern, contexts, category in all_patterns:
             if _pattern_should_be_skipped(
@@ -548,6 +594,7 @@ class _SusPatternsRegexMixin(_SusPatternsRegistryMixin, _SusPatternsEnhancedMixi
                 category,
                 state=state,
                 context=validator_context,
+                binary_prefix=binary_prefix,
             )
 
             if timeout_occurred:

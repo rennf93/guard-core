@@ -371,6 +371,7 @@ def test_pattern_timeout_preserves_existing_regex_threat(
         *,
         state: object = None,
         context: str = "unknown",
+        binary_prefix: list[int] | None = None,
     ) -> tuple[dict | None, bool]:
         if pattern.pattern == custom_pattern:
             return dict(existing_threat), True

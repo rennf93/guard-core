@@ -200,10 +200,12 @@ async def _user_agent_matches_blocked_pattern(
 async def _fallback_pattern_check(
     value: str, client_ip: str, context: str
 ) -> tuple[bool, str]:
+    from guard_core.detection_engine.binary_prefix import build_binary_prefix
     from guard_core.handlers.suspatterns_handler import sus_patterns_handler
 
     normalized_context = sus_patterns_handler._normalize_context(context)
     all_compiled = await sus_patterns_handler.get_all_compiled_patterns()
+    binary_prefix = build_binary_prefix(value)
     for pattern, _contexts, category in all_compiled:
         pattern_start = time.monotonic()
         try:
@@ -214,6 +216,7 @@ async def _fallback_pattern_check(
                 pattern_start,
                 category,
                 context=normalized_context,
+                binary_prefix=binary_prefix,
             )
         except RecursionError:
             logger.warning(

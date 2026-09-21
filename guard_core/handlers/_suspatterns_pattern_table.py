@@ -112,6 +112,25 @@ from guard_core.handlers._suspatterns_state import (
     _HTML_EVENT_HANDLER_ALTERNATION,
 )
 
+_SHELL_KEYWORD_COMMAND_RE = (
+    r"[;|&]\s*(?:ls|cat|rm|id|whoami|uname|wget|curl|nc|netcat|socat|bash|sh|"
+    r"python|perl)\b"
+)
+
+NOISE_PRONE_PATTERN_SOURCES: frozenset[str] = frozenset(
+    {
+        _GLUED_BACKTICK_CANDIDATE_RE,
+        _GLUED_DOLLAR_SUBSTITUTION_CANDIDATE_RE,
+        _CMD_INJECTION_DOLLAR_SUBSTITUTION_RE,
+        _SHELL_KEYWORD_COMMAND_RE,
+        _QUOTE_SPLICE_CANDIDATE_RE,
+        _GLOB_WILDCARD_ATOM_RE,
+        _TEMPLATE_DOLLAR_BRACE_CALL_RE,
+        _SSTI_HASH_BRACE_SHAPE_RE,
+        _LDAP_PAREN_CONJUNCTION_RE,
+    }
+)
+
 _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
     (r"<script[^>]*>[^<]*<\/script\s*>", _CTX_XSS, "xss"),
     (r"javascript:\s*[^\s]+", _CTX_XSS, "xss"),
@@ -314,7 +333,7 @@ _PATTERN_DEFINITIONS: list[tuple[str, frozenset[str], str]] = [
         "cmd_injection",
     ),
     (
-        r"[;|&]\s*(?:ls|cat|rm|id|whoami|uname|wget|curl|nc|netcat|socat|bash|sh|python|perl)\b",
+        _SHELL_KEYWORD_COMMAND_RE,
         _CTX_CMD_INJECTION,
         "cmd_injection",
     ),
