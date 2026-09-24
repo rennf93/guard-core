@@ -59,16 +59,25 @@ def _scan_form_body(
     return False, "", []
 
 
-def _part_payload_entry(
+def _island_payload_entries(
+    exclusion_key: str | None, label: str, payload: str
+) -> list[tuple[str | None, str, str]]:
+    return [
+        (exclusion_key, label, island)
+        for island in extract_binary_islands(payload, _binary_island_min_run_length())
+    ]
+
+
+def _part_payload_entries(
     exclusion_key: str | None, label: str, filename: str | None, payload: Any
-) -> tuple[str | None, str, str] | None:
+) -> list[tuple[str | None, str, str]]:
     if not isinstance(payload, str):
-        return None
+        return []
     if filename is not None and value_is_binary_like(payload):
-        payload = extract_binary_islands(payload, _binary_island_min_run_length())
+        return _island_payload_entries(exclusion_key, label, payload)
     if not payload:
-        return None
-    return (exclusion_key, label, payload)
+        return []
+    return [(exclusion_key, label, payload)]
 
 
 def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
@@ -82,11 +91,11 @@ def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
         entries.append((exclusion_key, label, f'filename="{sanitized_filename}"'))
     for header_name, header_value in part.items():
         entries.append((exclusion_key, label, f"{header_name}: {header_value}"))
-    payload_entry = _part_payload_entry(
-        exclusion_key, label, filename, getattr(part, "_payload", None)
+    entries.extend(
+        _part_payload_entries(
+            exclusion_key, label, filename, getattr(part, "_payload", None)
+        )
     )
-    if payload_entry is not None:
-        entries.append(payload_entry)
     return entries
 
 

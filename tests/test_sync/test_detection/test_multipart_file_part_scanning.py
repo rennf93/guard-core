@@ -505,16 +505,19 @@ def test_multipart_text_parts_reduces_binary_content_to_printable_islands() -> N
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
     ascii_run = "".join(chr(c) for c in range(0x20, 0x7F))
     latin_run = "".join(chr(c) for c in range(0xA1, 0x100))
-    assert parts == [
-        ("file", "file", 'filename="photo.jpg"'),
-        (
-            "file",
-            "file",
-            'Content-Disposition: form-data; name="file"; filename="photo.jpg"',
-        ),
-        ("file", "file", "Content-Type: application/octet-stream"),
-        ("file", "file", "\n".join((ascii_run, latin_run) * 100)),
-    ]
+    assert (
+        parts
+        == [
+            ("file", "file", 'filename="photo.jpg"'),
+            (
+                "file",
+                "file",
+                'Content-Disposition: form-data; name="file"; filename="photo.jpg"',
+            ),
+            ("file", "file", "Content-Type: application/octet-stream"),
+        ]
+        + [("file", "file", ascii_run), ("file", "file", latin_run)] * 100
+    )
 
 
 def _png_bytes(n: int = 4000) -> bytes:

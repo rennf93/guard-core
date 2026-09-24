@@ -72,7 +72,7 @@ def _file_part_body(filename: str, content: bytes) -> bytes:
     )
 
 
-def _extract_islands(content: bytes, min_run_length: int = 16) -> str:
+def _extract_islands(content: bytes, min_run_length: int = 16) -> list[str]:
     return extract_binary_islands(
         content.decode("utf-8", errors="surrogateescape"), min_run_length
     )
@@ -81,31 +81,31 @@ def _extract_islands(content: bytes, min_run_length: int = 16) -> str:
 def test_extract_keeps_runs_at_or_above_min_length() -> None:
     islands = _extract_islands(b"\x00abc\x00" + b"x" * 16 + b"\x00def\x00")
 
-    assert islands == "x" * 16
+    assert islands == ["x" * 16]
 
 
-def test_extract_joins_runs_with_newlines() -> None:
+def test_extract_returns_runs_separately() -> None:
     islands = _extract_islands(b"\x00" + b"a" * 16 + b"\x00" + b"b" * 16 + b"\x00")
 
-    assert islands == f"{'a' * 16}\n{'b' * 16}"
+    assert islands == ["a" * 16, "b" * 16]
 
 
 def test_extract_preserves_non_ascii_text_runs() -> None:
-    text = "Café résumé naïve décor sélection".encode()
+    text = "Café résumé naïve décor sélection"
 
-    assert extract_binary_islands(text.decode(), 16) == text.decode()
+    assert extract_binary_islands(text, 16) == [text]
 
 
 def test_extract_below_min_run_length_returns_content() -> None:
     content = "anything\x00at all"
 
-    assert extract_binary_islands(content, 1) == content
+    assert extract_binary_islands(content, 1) == [content]
 
 
 def test_extract_keeps_tab_newline_carriage_return_inside_runs() -> None:
     islands = _extract_islands(b"\x00select 1\nfrom t\r\nwhere x=1\x00")
 
-    assert islands == "select 1\nfrom t\r\nwhere x=1"
+    assert islands == ["select 1\nfrom t\r\nwhere x=1"]
 
 
 def test_binary_like_rejects_text_and_accepts_noise() -> None:
@@ -116,6 +116,17 @@ def test_binary_like_rejects_text_and_accepts_noise() -> None:
         value_is_binary_like(_noise_bytes(7).decode("utf-8", errors="surrogateescape"))
         is True
     )
+
+
+async def test_patterns_cannot_span_separate_islands() -> None:
+    run_one = b"choose one: SELECT"
+    run_two = b"* FROM x" + b"Y" * 10
+    payload = _compressed_bytes(17) + b"\x00" + run_one + b"\x00" + run_two + b"\x00"
+    request = _multipart_request(_file_part_body("dump.bin", payload))
+
+    result = await detect_penetration_attempt(request, SecurityConfig())
+
+    assert result.is_threat is False
 
 
 async def test_compressed_file_part_with_short_fragment_not_detected() -> None:
