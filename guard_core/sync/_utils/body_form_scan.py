@@ -1,6 +1,13 @@
 from typing import Any
 
-from guard_core.sync._utils.detection_scan import _scan_component_name
+from guard_core.sync._utils.detection_scan import (
+    _binary_island_min_run_length,
+    _scan_component_name,
+)
+from guard_core.sync.detection_engine.binary_islands import (
+    extract_binary_islands,
+    value_is_binary_like,
+)
 
 _FORM_FIELD_CONTEXT = "request_body:form_field"
 _MULTIPART_FIELD_CONTEXT = "request_body:multipart_field"
@@ -65,7 +72,10 @@ def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
         entries.append((exclusion_key, label, f"{header_name}: {header_value}"))
     payload = getattr(part, "_payload", None)
     if isinstance(payload, str):
-        entries.append((exclusion_key, label, payload))
+        if filename is not None and value_is_binary_like(payload):
+            payload = extract_binary_islands(payload, _binary_island_min_run_length())
+        if payload:
+            entries.append((exclusion_key, label, payload))
     return entries
 
 

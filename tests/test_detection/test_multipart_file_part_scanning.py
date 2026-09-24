@@ -501,10 +501,12 @@ async def test_malicious_filename_still_detected_with_binary_content() -> None:
     assert result.threat_categories == ["file_upload"]
 
 
-def test_multipart_text_parts_includes_binary_content_alongside_filename() -> None:
+def test_multipart_text_parts_reduces_binary_content_to_printable_islands() -> None:
     binary_blob = (bytes(range(256)) * 100).decode("latin-1")
     raw_body = _file_part_body("photo.jpg", binary_blob).decode()
     parts = _multipart_text_parts(raw_body, _CONTENT_TYPE)
+    ascii_run = "".join(chr(c) for c in range(0x20, 0x7F))
+    latin_run = "".join(chr(c) for c in range(0xA1, 0x100))
     assert parts == [
         ("file", "file", 'filename="photo.jpg"'),
         (
@@ -513,7 +515,7 @@ def test_multipart_text_parts_includes_binary_content_alongside_filename() -> No
             'Content-Disposition: form-data; name="file"; filename="photo.jpg"',
         ),
         ("file", "file", "Content-Type: application/octet-stream"),
-        ("file", "file", binary_blob),
+        ("file", "file", "\n".join((ascii_run, latin_run) * 100)),
     ]
 
 

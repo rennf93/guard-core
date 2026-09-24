@@ -221,3 +221,14 @@ def _resolve_max_json_depth(config: "SecurityConfig | None") -> int:
         if config is not None
         else _DEFAULT_MAX_JSON_DEPTH
     )
+
+
+_DEFAULT_BINARY_MIN_RUN_LENGTH = 16
+
+
+def _resolve_binary_min_run_length(config: "SecurityConfig | None") -> int:
+    return (
+        config.detection_binary_min_run_length
+        if config is not None
+        else _DEFAULT_BINARY_MIN_RUN_LENGTH
+    )

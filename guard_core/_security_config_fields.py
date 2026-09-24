@@ -840,6 +840,34 @@ class _SecurityConfigFields(BaseModel):
         le=1000,
     )
 
+    detection_binary_min_run_length: int = Field(
+        default=16,
+        description=(
+            "Minimum length a consecutive printable-character run inside a "
+            "binary-dense multipart file-part payload must reach before that "
+            "run is handed to the pattern scan. A part payload is binary-"
+            "dense when binary artifact characters make up at least a fifth "
+            "of it; text uploads and short or mostly-text payloads never "
+            "reach that ratio and keep their full scan, and whole-body "
+            "fallback scans are never island-reduced because raw-body "
+            "signature coverage (pickle opcodes, wide-encoding payloads, "
+            "null-byte shapes) must stay intact. Compressed or encrypted "
+            "bytes decode into text views where attack-shaped printable "
+            "fragments are statistical noise whose rate grows with file "
+            "size, so runs below this length are skipped instead of "
+            "matched. Text genuinely embedded in an upload (a script "
+            "inside a PDF, a stored path inside an archive, a whole "
+            "text-file upload) forms runs past the threshold and is still "
+            "scanned in full. File names, multipart field names, and part "
+            "headers are always scanned regardless. The tradeoff is that "
+            "an attack pattern whose printable characters are shorter than "
+            "this run, or split by embedded binary bytes, inside a binary-"
+            "dense upload payload is not detected."
+        ),
+        ge=4,
+        le=1024,
+    )
+
     detection_preserve_attack_patterns: bool = Field(
         default=True,
         description="Preserve attack patterns during content truncation",

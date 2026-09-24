@@ -10,6 +10,18 @@ Release Notes
 
 ___
 
+v4.0.5 (2026-09-24)
+-------------------
+
+Printable-run islands: binary-dense multipart file parts stop feeding compressed bytes to the pattern scan (v4.0.5)
+---------------------------------------------------------------------------------------------------------------------------
+
+### Fixed
+
+- **Large binary file uploads still produced pattern matches that grew with file size.** The 4.0.3 density gate discards noise-prone heuristic matches in binary-dense regions, but non-gated patterns could still fire: in hundreds of megabytes of deflate output the probability of a short attack-shaped printable fragment (for example the LDAP paren-breakout ``)`` followed by ``(`` and ``!``) reaches certainty, and a fragment landing in a locally clean 64-character window is not gated, so every new large archive was a fresh roll of the dice (observed with a 373 MB zip containing an Acrobat installer matching the LDAP paren-breakout source). A multipart file-part payload whose binary artifact characters make up at least a fifth of it is now reduced to its printable runs before scanning: runs of tab, newline, carriage return, ASCII 0x20-0x7E and decoded non-ASCII printable characters, keeping only runs whose length reaches the new ``detection_binary_min_run_length`` field (default 16) and joining them with newlines so nothing matches across a run boundary. Compressed data produces almost no 16-character printable runs, so a large archive yields no scannable content and the false-positive rate stops growing with file size. Text uploads, short and mostly-text payloads stay below the ratio and keep their full scan; text parts without a filename are never reduced; whole-body fallback scans are never reduced, so raw-body signature coverage (pickle opcodes at scan-window boundaries, UTF-16/32 payloads routed through the wide-encoding preprocessor, null-byte LDAP shapes) stays intact; file names, multipart field names and part headers are scanned regardless; and text genuinely embedded in a binary-dense upload (padded webshell code runs, scripts inside PDFs, stored paths in archives) forms runs past the threshold and is still detected. The tradeoff, deliberate and documented in the detection tuning guide, is that attack patterns whose printable characters are shorter than the run length, or split by embedded binary bytes, inside a binary-dense upload payload are not detected.
+
+___
+
 v4.0.4 (2026-09-23)
 -------------------
 

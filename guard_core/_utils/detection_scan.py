@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from guard_core._utils.detection_config import (
+    _DEFAULT_BINARY_MIN_RUN_LENGTH,
     _DEFAULT_MAX_JSON_DEPTH,
     _DEFAULT_MAX_SCAN_CHARS,
     _DEFAULT_MAX_SCAN_VALUES,
@@ -36,6 +37,9 @@ _json_depth_cap: contextvars.ContextVar[int] = contextvars.ContextVar(
 _json_depth_warned: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "guard_core_detection_json_depth_warned", default=False
 )
+_binary_min_run: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "guard_core_detection_binary_min_run", default=_DEFAULT_BINARY_MIN_RUN_LENGTH
+)
 
 
 @contextmanager
@@ -43,6 +47,7 @@ def _scan_value_budget(
     max_values: int,
     max_json_depth: int = _DEFAULT_MAX_JSON_DEPTH,
     max_scan_chars: int = _DEFAULT_MAX_SCAN_CHARS,
+    binary_min_run_length: int = _DEFAULT_BINARY_MIN_RUN_LENGTH,
 ) -> Iterator[None]:
     count_token = _scanned_value_count.set(0)
     cap_token = _scan_value_cap.set(max_values)
@@ -51,6 +56,7 @@ def _scan_value_budget(
     char_warned_token = _scan_char_cap_warned.set(False)
     depth_cap_token = _json_depth_cap.set(max_json_depth)
     depth_warned_token = _json_depth_warned.set(False)
+    binary_run_token = _binary_min_run.set(binary_min_run_length)
     try:
         yield
     finally:
@@ -61,6 +67,11 @@ def _scan_value_budget(
         _scan_char_cap_warned.reset(char_warned_token)
         _json_depth_cap.reset(depth_cap_token)
         _json_depth_warned.reset(depth_warned_token)
+        _binary_min_run.reset(binary_run_token)
+
+
+def _binary_island_min_run_length() -> int:
+    return _binary_min_run.get()
 
 
 def _scan_value_budget_exhausted(client_ip: str) -> bool:

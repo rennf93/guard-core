@@ -7,6 +7,7 @@ from guard_core.sync._utils.body_content_scan import (
 )
 from guard_core.sync._utils.body_reader import _read_capped_body
 from guard_core.sync._utils.detection_config import (
+    _resolve_binary_min_run_length,
     _resolve_enabled_categories,
     _resolve_excluded_body_fields,
     _resolve_excluded_headers,
@@ -188,8 +189,11 @@ def detect_penetration_attempt(
     max_scan_values = _resolve_max_scan_values(config)
     max_json_depth = _resolve_max_json_depth(config)
     max_scan_chars = _resolve_max_scan_chars(config)
+    binary_min_run = _resolve_binary_min_run_length(config)
 
-    with _scan_value_budget(max_scan_values, max_json_depth, max_scan_chars):
+    with _scan_value_budget(
+        max_scan_values, max_json_depth, max_scan_chars, binary_min_run
+    ):
         surface_hit = _scan_request_surface(
             request,
             excluded_params,

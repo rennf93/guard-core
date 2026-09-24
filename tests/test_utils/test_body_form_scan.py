@@ -22,7 +22,7 @@ def _multipart_request(body: bytes) -> MockGuardRequest:
     )
 
 
-def _file_part_body(filename: str, content: str = "binary-content") -> bytes:
+def _file_part_body(filename: str, content: str = "binary-file-payload") -> bytes:
     return (
         f'--B0\r\nContent-Disposition: form-data; name="upload"; '
         f'filename="{filename}"\r\n\r\n{content}\r\n--B0--\r\n'
@@ -107,7 +107,7 @@ def test_multipart_part_entries_adds_raw_content_disposition_with_filename() -> 
         value.startswith("Content-Disposition:") and "report.pdf" in value
         for value in values
     )
-    assert "binary-content" in values
+    assert "binary-file-payload" in values
 
 
 def test_multipart_part_entries_scans_content_disposition_without_filename() -> None:
@@ -130,7 +130,7 @@ class _FakePart:
         self._name = name
         self._filename = filename
         self._headers = headers or []
-        self._payload = "payload-text"
+        self._payload = "payload-text-sample"
 
     def get_param(self, key: str, header: str) -> str | None:
         assert key == "name"
@@ -151,7 +151,7 @@ def test_multipart_part_entries_skips_raw_lines_when_part_has_no_headers() -> No
 
     assert entries == [
         ("upload", "upload", 'filename="report.pdf"'),
-        ("upload", "upload", "payload-text"),
+        ("upload", "upload", "payload-text-sample"),
     ]
 
 
@@ -183,5 +183,5 @@ def test_multipart_part_entries_includes_every_part_header() -> None:
             'Content-Disposition: form-data; name="upload"; filename="report.pdf"',
         ),
         ("upload", "upload", "Custom-Secret-Field: ' OR 1=1--"),
-        ("upload", "upload", "payload-text"),
+        ("upload", "upload", "payload-text-sample"),
     ]
