@@ -619,3 +619,16 @@ async def test_padded_webshell_detected_with_majority_binary_padding() -> None:
     request = _body_request(_file_part_body("shell.jpg", content), _CONTENT_TYPE)
     result = await detect_penetration_attempt(request, _CONFIG)
     assert result.is_threat is True
+
+
+def test_empty_payload_file_part_yields_no_payload_entries() -> None:
+    from guard_core._utils.body_form_scan import _part_payload_entries
+
+    assert _part_payload_entries("file", "file", "empty.bin", "") == []
+    assert _part_payload_entries(None, "file", None, "") == []
+
+
+async def test_empty_file_part_content_not_detected() -> None:
+    request = _body_request(_file_part_body("empty.bin", ""), _CONTENT_TYPE)
+    result = await detect_penetration_attempt(request, _CONFIG)
+    assert result.is_threat is False
