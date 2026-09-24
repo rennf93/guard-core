@@ -59,6 +59,18 @@ def _scan_form_body(
     return False, "", []
 
 
+def _part_payload_entry(
+    exclusion_key: str | None, label: str, filename: str | None, payload: Any
+) -> tuple[str | None, str, str] | None:
+    if not isinstance(payload, str):
+        return None
+    if filename is not None and value_is_binary_like(payload):
+        payload = extract_binary_islands(payload, _binary_island_min_run_length())
+    if not payload:
+        return None
+    return (exclusion_key, label, payload)
+
+
 def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
     entries: list[tuple[str | None, str, str]] = []
     name = part.get_param("name", header="content-disposition")
@@ -70,12 +82,11 @@ def _multipart_part_entries(part: Any) -> list[tuple[str | None, str, str]]:
         entries.append((exclusion_key, label, f'filename="{sanitized_filename}"'))
     for header_name, header_value in part.items():
         entries.append((exclusion_key, label, f"{header_name}: {header_value}"))
-    payload = getattr(part, "_payload", None)
-    if isinstance(payload, str):
-        if filename is not None and value_is_binary_like(payload):
-            payload = extract_binary_islands(payload, _binary_island_min_run_length())
-        if payload:
-            entries.append((exclusion_key, label, payload))
+    payload_entry = _part_payload_entry(
+        exclusion_key, label, filename, getattr(part, "_payload", None)
+    )
+    if payload_entry is not None:
+        entries.append(payload_entry)
     return entries
 
 
