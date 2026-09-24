@@ -417,7 +417,7 @@ def _compressed_fragment_upload(client: httpx.Client) -> httpx.Response:
     junk = zlib.compress(bytes(rng.getrandbits(8) for _ in range(16384)), 9)
     payload = junk + b"\x001 OR 1=1\x00"
     return client.post(
-        "/basic/echo",
+        "/test/sql-injection?query=hello",
         files={"file": ("data.bin", payload, "application/octet-stream")},
     )
 
@@ -430,7 +430,7 @@ def detection_binary_min_run_length_default_skips_compressed_fragment(
     ctx: ScenarioContext,
 ) -> None:
     response = _compressed_fragment_upload(ctx.client)
-    assert response.status_code == 422, (
+    assert response.status_code == 200, (
         "detection_binary_min_run_length=16 still pattern-matched a short "
         f"fragment inside a binary-dense upload: {response.status_code}"
     )
