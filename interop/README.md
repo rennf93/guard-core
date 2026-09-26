@@ -61,6 +61,47 @@ Bucket ledger: A = 3(py) + 1(go obs) + 1(go crossing) + 1(php) + 1(py obs)
 1(py obs) = 3. Every observation is itself a hit and is asserted against
 this exact arithmetic inside the observing participant.
 
+## Exempt-IPs phase group
+
+Phases 5-8 prove the `exempt_ips` feature (spec 07 / guard-core #118, go
+#18, php #21) behaves identically across all three families. Unlike phases
+1-4 (which drive the rate-limit primitives), these phases drive each
+family's REAL full pipeline with one shared config: `exempt_ips =
+[192.0.2.30, 192.0.2.32]`, `blacklist = [192.0.2.32]`,
+`rate_limit = 2`, over the same shared Redis and prefix.
+
+1. `py_exempt_write`: Python builds its real check pipeline
+   (`build_default_pipeline` over a minimal middleware stub carrying the
+   real `SecurityConfig` and the real Redis-backed `RateLimitManager`) and
+   computes the live expectations: the exempt client `192.0.2.30` takes
+   limit+1 pipeline drives with only normal responses, its shared bucket
+   stays EMPTY (exempt traffic never reaches the limiter), the non-exempt
+   client `192.0.2.31` writes exactly 2 hits, and the blacklisted exempt IP
+   `192.0.2.32` is denied 403 with no exempt flag and no bucket. Artifacts
+   carry the observed counts forward.
+2. `go_exempt_read_then_write`: the Go engine runs `NewEngine` over the
+   same config: the exempt client passes limit+1 pipeline drives (flag set,
+   nothing written), the shared non-exempt bucket is observed on an allowed
+   `CheckRateLimit` hit (2 -> 3) and the pipeline drive blocks 429 at the
+   crossing (pins 4), the blacklisted exempt IP is denied 403
+   (`Forbidden`, no flag), and no exempt/blacklisted bucket key exists.
+3. `php_exempt_read_then_write`: the PHP engine runs `GuardEngine` over
+   the same config: same exempt passthrough, the shared non-exempt bucket
+   is pinned on a blocked `checkRateLimit` hit (4 -> 5), the blacklisted
+   exempt IP is denied 403 with no flag, and `zCard` confirms both
+   exempt-owned buckets stayed empty across all three families.
+4. `py_exempt_verify`: Python re-reads the shared bucket (exactly the
+   php-pinned count), blocks the non-exempt client 429 at a crossing driven
+   AT the pinned count (pins count+1), and re-proves the exempt passthrough
+   (flag set, bucket still empty) and the blacklist-beats-exemption denial
+   after every family has written.
+
+Exempt ledger: non-exempt bucket = 2(py) + 1(go obs) + 1(go crossing) +
+1(php pinned crossing) = 5 at verify, +1(py crossing) = 6 final; exempt and
+blacklisted-exempt buckets = 0 at every point in every phase. Every count
+assertion reads the live state or the flowed artifacts, never hardcoded
+guesses.
+
 The float-string rule (spec 08) is exercised everywhere: every ban expiry
 written by any implementation is read back byte-exactly and float-parsed by
 the others, and all values carry non-integer fractions (microseconds).
