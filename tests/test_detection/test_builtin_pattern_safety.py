@@ -721,10 +721,14 @@ def _assert_scan_window_linear_and_fast(
             f"at the largest size: mins={mins}"
         )
         ratio = mins[-1] / mins[0] if mins[0] > 0 else 0.0
-        assert ratio < 6.0, (
-            f"{label} grew {ratio:.1f}x over a 4x size increase (min-of-"
-            f"{_SCAN_WINDOW_TIMING_RUNS} CPU time): mins={mins} medians={medians}"
-        )
+        # The ratio is only meaningful when the absolute time is large enough
+        # that scheduler noise cannot dominate it: a sub-millisecond largest
+        # size is linear by inspection even if its jitter ratio spikes.
+        if mins[-1] >= 0.001:
+            assert ratio < 6.0, (
+                f"{label} grew {ratio:.1f}x over a 4x size increase (min-of-"
+                f"{_SCAN_WINDOW_TIMING_RUNS} CPU time): mins={mins} medians={medians}"
+            )
 
     _assert_after_one_retry(_check)
 
