@@ -1,3 +1,4 @@
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any
 
 from guard_core.protocols.response_protocol import GuardResponse
@@ -14,7 +15,12 @@ from guard_core.sync.core.events.event_types import (
 )
 from guard_core.sync.decorators.base import RouteConfig
 from guard_core.sync.protocols.request_protocol import SyncGuardRequest
-from guard_core.sync.utils import IpAccessResult, check_ip_access, log_activity
+from guard_core.sync.utils import (
+    IpAccessResult,
+    _ip_in_list,
+    check_ip_access,
+    log_activity,
+)
 
 if TYPE_CHECKING:
     from guard_core.sync.protocols.middleware_protocol import (
@@ -42,6 +48,18 @@ def _resolve_is_whitelisted(
     skip_ip_lists: bool,
 ) -> bool:
     return is_allowed and bool(config.whitelist) and not skip_ip_lists
+
+
+def _resolve_is_exempt(
+    client_ip: str, config: Any, is_allowed: bool, skip_ip_lists: bool
+) -> bool:
+    if not is_allowed or skip_ip_lists or not config.exempt_ips:
+        return False
+    try:
+        client_ip_addr = ip_address(client_ip)
+    except ValueError:
+        return False
+    return _ip_in_list(client_ip_addr, client_ip, config.exempt_ips)
 
 
 def _classify_route_ip_denial(
@@ -187,7 +205,7 @@ class IpSecurityCheck(SecurityCheck):
         self,
         client_ip: str,
         route_config: RouteConfig | None,
-    ) -> tuple[IpAccessResult, bool]:
+    ) -> tuple[IpAccessResult, bool, bool]:
         skip_ip_lists = _route_overrides_ip_lists(route_config)
         skip_countries = _route_country_whitelist_matched(
             client_ip, route_config, self.middleware.geo_ip_handler
@@ -204,7 +222,10 @@ class IpSecurityCheck(SecurityCheck):
         is_whitelisted = _resolve_is_whitelisted(
             client_ip, route_config, self.config, access_result.allowed, skip_ip_lists
         )
-        return access_result, is_whitelisted
+        is_exempt = _resolve_is_exempt(
+            client_ip, self.config, access_result.allowed, skip_ip_lists
+        )
+        return access_result, is_whitelisted, is_exempt
 
     def _check_global_ip_restrictions(
         self,
@@ -213,12 +234,13 @@ class IpSecurityCheck(SecurityCheck):
         route_config: RouteConfig | None = None,
         *,
         escalate: bool = True,
-        precomputed: tuple[IpAccessResult, bool] | None = None,
+        precomputed: tuple[IpAccessResult, bool, bool] | None = None,
     ) -> GuardResponse | None:
-        access_result, is_whitelisted = precomputed or self._resolve_global_ip_access(
-            client_ip, route_config
+        access_result, is_whitelisted, is_exempt = (
+            precomputed or self._resolve_global_ip_access(client_ip, route_config)
         )
         request.state.is_whitelisted = is_whitelisted
+        request.state.is_exempt = is_exempt
 
         if access_result.allowed:
             return None

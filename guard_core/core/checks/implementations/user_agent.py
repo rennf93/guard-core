@@ -51,7 +51,10 @@ class UserAgentCheck(SecurityCheck):
         )
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
-        if getattr(request.state, "is_whitelisted", False):
+        if (
+            getattr(request.state, "is_whitelisted", False)
+            or getattr(request.state, "is_exempt", False) is True
+        ):
             return None
 
         route_config = getattr(request.state, "route_config", None)

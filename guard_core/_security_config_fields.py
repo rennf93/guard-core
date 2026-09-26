@@ -126,6 +126,16 @@ class _SecurityConfigFields(BaseModel):
         ),
     )
 
+    exempt_ips: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description=(
+            "IP addresses or CIDR ranges that skip rate limiting and the "
+            "user-agent and cloud-provider checks. Not restrictive: every other "
+            "IP is checked as usual. The blacklist, dynamic IP bans, per-route IP "
+            "rules and penetration detection still apply to listed IPs."
+        ),
+    )
+
     whitelist_countries: frozenset[str] = Field(
         default_factory=frozenset,
         description=(

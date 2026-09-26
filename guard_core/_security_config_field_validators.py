@@ -210,6 +210,16 @@ def _warn_whitelist_prefix_zero() -> None:
     )
 
 
+def _warn_exempt_ips_prefix_zero(entries: tuple[str, ...]) -> None:
+    if not any(_is_prefix_zero_network_entry(entry) for entry in entries):
+        return
+    logger.warning(
+        "exempt_ips contains a /0 network (0.0.0.0/0 or ::/0): every "
+        "address skips rate limiting and the user-agent and cloud-provider "
+        "checks. Remove the /0 entry or list the specific networks you trust."
+    )
+
+
 def _warn_empty_enabled_detection_categories() -> None:
     logger.warning(
         "enabled_detection_categories is empty while "
@@ -354,6 +364,9 @@ _GLOBAL_BEHAVIOR_RULES_ADAPTER: TypeAdapter[tuple[BehaviorRuleConfig, ...]] = (
 _FIELD_REVALIDATORS: dict[str, Callable[[Any], Any]] = {
     "whitelist": _validate_whitelist_value,
     "blacklist": _validate_blacklist_value,
+    "exempt_ips": partial(
+        _validate_ip_or_cidr_list, invalid_message="Invalid IP or CIDR range"
+    ),
     "trusted_proxies": _validate_trusted_proxies_value,
     "threat_ban_config": _validate_threat_ban_config_value,
     "enabled_detection_categories": _validate_enabled_detection_categories_value,

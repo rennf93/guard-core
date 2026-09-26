@@ -8,6 +8,7 @@ from guard_core.models import SecurityConfig, ThreatBanConfig
 IP_CIDR_FIELDS = [
     ("whitelist", ["10.0.0.0/24"], "not-an-ip", "Invalid IP or CIDR range"),
     ("blacklist", ["192.168.1.1"], "not-an-ip", "Invalid IP or CIDR range"),
+    ("exempt_ips", ["198.51.100.0/28"], "not-an-ip", "Invalid IP or CIDR range"),
     ("trusted_proxies", ["127.0.0.1"], "not-an-ip", "Invalid proxy IP or CIDR range"),
 ]
 

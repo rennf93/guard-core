@@ -162,6 +162,24 @@ def global_blacklist_blocks_the_client_ip(ctx: ScenarioContext) -> None:
     assert response.status_code == 403
 
 
+EXEMPT_IPS_CONFIG = {
+    "exempt_ips": [CLIENT_IP, "127.0.0.1"],
+    "rate_limit": 3,
+    "rate_limit_window": 60,
+    "enable_rate_limiting": True,
+    "excluded_detection_headers": EXCLUDED_HEADERS,
+}
+
+
+@scenario(covers={"exempt_ips"}, config=EXEMPT_IPS_CONFIG)
+def exempt_ips_skip_the_rate_limit_but_are_still_scanned(ctx: ScenarioContext) -> None:
+    client = ctx.client
+    statuses = [client.get("/basic/health").status_code for _ in range(5)]
+    assert statuses == [200] * 5, statuses
+    attack = client.get("/basic/ip", params={"q": "<script>alert(1)</script>"})
+    assert attack.status_code == 400
+
+
 ACCESS_DECORATORS_CONFIG = {
     "blocked_user_agents": ["smoke-blocked-agent"],
     "excluded_detection_headers": EXCLUDED_HEADERS,

@@ -38,6 +38,7 @@ from guard_core._security_config_validators import (
     _validate_threat_ban_config_value,
     _warn_country_allowlist_shadows_blocklist,
     _warn_empty_enabled_detection_categories,
+    _warn_exempt_ips_prefix_zero,
     _warn_trusted_proxies_prefix_zero,
     _warn_whitelist_prefix_zero,
 )
@@ -150,7 +151,7 @@ class SecurityConfig(_SecurityConfigFields):
             )
         return data
 
-    @field_validator("whitelist", "blacklist", mode="before")
+    @field_validator("whitelist", "blacklist", "exempt_ips", mode="before")
     def validate_ip_lists(cls, v: Any) -> Any:
         return _validate_ip_or_cidr_list(v, invalid_message="Invalid IP or CIDR range")
 
@@ -260,6 +261,11 @@ class SecurityConfig(_SecurityConfigFields):
     def warn_whitelist_prefix_zero(self) -> Self:
         if any(_is_prefix_zero_network_entry(entry) for entry in self.whitelist or ()):
             _warn_whitelist_prefix_zero()
+        return self
+
+    @model_validator(mode="after")
+    def warn_exempt_ips_prefix_zero(self) -> Self:
+        _warn_exempt_ips_prefix_zero(self.exempt_ips)
         return self
 
     @model_validator(mode="after")

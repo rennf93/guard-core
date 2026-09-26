@@ -65,6 +65,7 @@ class GuardRequest(Protocol):
 - `state.route_config` -- `RouteConfig | None`
 - `state.client_ip` -- `str`
 - `state.is_whitelisted` -- `bool`
+- `state.is_exempt` -- `bool`
 
 The adapter's `state` object must support dynamic attribute assignment (e.g., a simple namespace or the framework's built-in state).
 

@@ -371,6 +371,10 @@ NON_REQUEST_PRODUCERS: dict[str, str] = {
         "line 202: SecurityConfig field-validator warning about a configured "
         "CIDR prefix, not request data"
     ),
+    "_security_config_field_validators.py:_warn_exempt_ips_prefix_zero": (
+        "line 216: SecurityConfig field-validator warning about a configured "
+        "CIDR prefix, not request data"
+    ),
     "_utils/access_control.py:_log_country_check_result": (
         "lines 40,45,53,63,70: interpolates only the resolved client_ip and a "
         "2-letter country code from the geolocation lookup, never header/"

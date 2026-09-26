@@ -53,7 +53,10 @@ class UserAgentCheck(SecurityCheck):
         )
 
     def check(self, request: SyncGuardRequest) -> GuardResponse | None:
-        if getattr(request.state, "is_whitelisted", False):
+        if (
+            getattr(request.state, "is_whitelisted", False)
+            or getattr(request.state, "is_exempt", False) is True
+        ):
             return None
 
         route_config = getattr(request.state, "route_config", None)

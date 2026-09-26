@@ -42,7 +42,10 @@ class CloudProviderCheck(SecurityCheck):
         )
 
     async def check(self, request: GuardRequest) -> GuardResponse | None:
-        if getattr(request.state, "is_whitelisted", False):
+        if (
+            getattr(request.state, "is_whitelisted", False)
+            or getattr(request.state, "is_exempt", False) is True
+        ):
             return None
 
         client_ip = getattr(request.state, "client_ip", None)
