@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from guard_core.core.checks.factory import build_default_pipeline
+from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.handlers.cloud_handler import CloudManager
 from guard_core.handlers.cloud_ip_stores import RedisCloudIpStore
 from guard_core.handlers.ipban_handler import IPBanManager, ip_ban_manager
@@ -220,11 +221,25 @@ async def phase_py_write(rep: Reporter, redis: RedisManager, redis_host: str) ->
     rep.artifacts["aws_payload_raw"] = aws_raw or ""
 
 
-class _StubResponse:
+class _StubResponse(GuardResponse):
+    """Explicit ``GuardResponse`` implementation over in-memory state."""
+
     def __init__(self, status_code: int, default_message: str = "") -> None:
-        self.status_code = status_code
-        self.body = default_message
+        self._status_code = status_code
+        self._body = default_message.encode()
         self.headers: dict[str, str] = {}
+
+    @property
+    def status_code(self) -> int:
+        return self._status_code
+
+    @property
+    def body(self) -> bytes | None:
+        return self._body
+
+    @body.setter
+    def body(self, value: bytes | None) -> None:
+        self._body = value if value is not None else b""
 
 
 class _StubRouteResolver:
