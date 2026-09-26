@@ -25,6 +25,7 @@ RATE_WINDOW = 120
 PY_HITS_A = 3
 GO_HITS_B = 2
 PHP_HITS_C = 2
+EXEMPT_LIMIT = 2
 
 EXPECTED_A_FIRST = PY_HITS_A + 1
 EXPECTED_A_CROSSING = EXPECTED_A_FIRST + 1
@@ -36,12 +37,25 @@ EXPECTED_B_PHP = EXPECTED_B_GO + 1
 EXPECTED_B_VERIFY = EXPECTED_B_PHP + 1
 EXPECTED_C_VERIFY = PHP_HITS_C + 1
 
-PHASES = ["py_write", "go_read_then_write", "php_read_then_write", "py_verify"]
+PHASES = [
+    "py_write",
+    "go_read_then_write",
+    "php_read_then_write",
+    "py_verify",
+    "py_exempt_write",
+    "go_exempt_read_then_write",
+    "php_exempt_read_then_write",
+    "py_exempt_verify",
+]
 PHASE_PARTICIPANT = {
     "py_write": "python",
     "go_read_then_write": "go",
     "php_read_then_write": "php",
     "py_verify": "python",
+    "py_exempt_write": "python",
+    "go_exempt_read_then_write": "go",
+    "php_exempt_read_then_write": "php",
+    "py_exempt_verify": "python",
 }
 
 
@@ -199,6 +213,7 @@ EXPECTED = {
     "a_obs": EXPECTED_A_VERIFY,
     "b_obs": EXPECTED_B_VERIFY,
     "c_obs": EXPECTED_C_VERIFY,
+    "expected_exempt_limit": EXEMPT_LIMIT,
 }
 
 
@@ -210,19 +225,15 @@ def build_incoming(artifacts: dict[str, str]) -> dict[str, Any]:
 
 def verify_ledger(phase: str, report: dict[str, Any]) -> None:
     artifacts = report.get("artifacts", {})
-    missing = [
-        key
-        for key in (
-            ["py_ban_expiry_raw", "legacy_value_raw", "aws_payload_raw"]
-            if phase == "py_write"
-            else ["go_ban_expiry_raw", "gcp_payload_raw"]
-            if phase == "go_read_then_write"
-            else ["php_ban_expiry_raw", "azure_payload_raw"]
-            if phase == "php_read_then_write"
-            else []
-        )
-        if key not in artifacts or artifacts[key] == ""
-    ]
+    required = {
+        "py_write": ["py_ban_expiry_raw", "legacy_value_raw", "aws_payload_raw"],
+        "go_read_then_write": ["go_ban_expiry_raw", "gcp_payload_raw"],
+        "php_read_then_write": ["php_ban_expiry_raw", "azure_payload_raw"],
+        "py_exempt_write": ["exempt_n_after_py", "exempt_limit"],
+        "go_exempt_read_then_write": ["exempt_n_after_go"],
+        "php_exempt_read_then_write": ["exempt_n_after_php"],
+    }.get(phase, [])
+    missing = [key for key in required if key not in artifacts or artifacts[key] == ""]
     if missing:
         raise SystemExit(f"phase {phase} artifacts missing: {missing}")
 

@@ -6,10 +6,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from guard_core.core.checks.factory import build_default_pipeline
 from guard_core.handlers.cloud_handler import CloudManager
 from guard_core.handlers.cloud_ip_stores import RedisCloudIpStore
-from guard_core.handlers.ipban_handler import IPBanManager
+from guard_core.handlers.ipban_handler import IPBanManager, ip_ban_manager
 from guard_core.handlers.ratelimit_handler import (
+    RateLimitManager,
     _redis_request_count,
     check_rate_limit_by_ip,
 )
@@ -34,6 +36,10 @@ PHP_BAN_IP = "192.0.2.77"
 BUCKET_A_IP = "192.0.2.10"
 BUCKET_B_IP = "192.0.2.11"
 BUCKET_C_IP = "192.0.2.12"
+EXEMPT_IP = "192.0.2.30"
+EXEMPT_NORMAL_IP = "192.0.2.31"
+EXEMPT_BLACK_IP = "192.0.2.32"
+EXEMPT_LIMIT = 2
 AWS_ENTRIES = {"203.0.113.0/25|us-east-1", "203.0.113.128/25"}
 AWS_BLOCKED_PROBE = "203.0.113.200"
 AWS_CARVE_PROBE = "203.0.113.5"
@@ -212,6 +218,254 @@ async def phase_py_write(rep: Reporter, redis: RedisManager, redis_host: str) ->
         f"raw={aws_raw!r}",
     )
     rep.artifacts["aws_payload_raw"] = aws_raw or ""
+
+
+class _StubResponse:
+    def __init__(self, status_code: int, default_message: str = "") -> None:
+        self.status_code = status_code
+        self.body = default_message
+        self.headers: dict[str, str] = {}
+
+
+class _StubRouteResolver:
+    def get_route_config(self, request: Any) -> None:
+        return None
+
+    def should_bypass_check(self, *args: Any) -> bool:
+        return False
+
+    def get_cloud_providers_to_check(self, route_config: Any) -> None:
+        return None
+
+
+class _StubDecorator:
+    """No per-route decorators configured, like a bare deployment."""
+
+    def __init__(self) -> None:
+        self._route_configs: dict[str, Any] = {}
+        self.route_config_revision = 0
+
+
+class _StubEventBus:
+    async def send_middleware_event(self, **kwargs: Any) -> None:
+        return None
+
+
+class _ExemptMiddleware:
+    """Minimal GuardMiddlewareProtocol surface for the real check pipeline.
+
+    Carries the real SecurityConfig (exempt_ips, blacklist, tight rate limit)
+    and the real Redis-backed RateLimitManager, so build_default_pipeline
+    assembles the engine's actual check list and every drive below runs the
+    same code the HTTP pipeline runs.
+    """
+
+    def __init__(
+        self, config: SecurityConfig, rate_limit_handler: RateLimitManager
+    ) -> None:
+        self.config = config
+        self.logger = logging.getLogger("interop.py.exempt")
+        self.rate_limit_handler = rate_limit_handler
+        self.suspicious_request_counts: dict[str, dict[str, int]] = {}
+        self.agent_handler = None
+        self.geo_ip_handler = None
+        self.event_bus = _StubEventBus()
+        self.route_resolver = _StubRouteResolver()
+        self.guard_decorator = _StubDecorator()
+
+    async def create_error_response(
+        self, status_code: int, default_message: str
+    ) -> _StubResponse:
+        return _StubResponse(status_code, default_message)
+
+
+class _PipelineRequest:
+    def __init__(self, client_ip: str) -> None:
+        self.query_params: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
+        self.url_path = "/api"
+        self.url_full = "http://example.com/api"
+        self.url_scheme = "http"
+        self.method = "GET"
+        self.client_host = client_ip
+        self.state = type("State", (), {})()
+        self.state.client_ip = client_ip
+
+    async def body(self) -> bytes:
+        return b""
+
+
+def make_exempt_config(redis_host: str, rate_limit: int) -> SecurityConfig:
+    return SecurityConfig(
+        redis_url=f"redis://{redis_host}:6379",
+        redis_prefix=PREFIX,
+        enable_redis=True,
+        enable_rate_limiting=True,
+        rate_limit=rate_limit,
+        rate_limit_window=RATE_WINDOW,
+        redis_fail_open=False,
+        enable_rate_limit_auto_ban=False,
+        auto_ban_threshold=1000,
+        blacklist=(EXEMPT_BLACK_IP,),
+        exempt_ips=(EXEMPT_IP, EXEMPT_BLACK_IP),
+    )
+
+
+async def build_exempt_pipeline(
+    redis: RedisManager, redis_host: str, rate_limit: int
+) -> Any:
+    config = make_exempt_config(redis_host, rate_limit)
+    rate_limit_handler = RateLimitManager(config)
+    await rate_limit_handler.initialize_redis(redis)
+    middleware = _ExemptMiddleware(config, rate_limit_handler)
+    return build_default_pipeline(middleware)
+
+
+async def bucket_count(redis: RedisManager, client_ip: str) -> int:
+    async with redis.get_connection() as conn:
+        return int(await conn.zcard(f"{PREFIX}rate_limit:rate:{client_ip}"))
+
+
+async def phase_py_exempt_write(
+    rep: Reporter, redis: RedisManager, redis_host: str, incoming: dict[str, Any]
+) -> None:
+    del incoming
+    await ip_ban_manager.initialize_redis(redis)
+    pipeline = await build_exempt_pipeline(redis, redis_host, EXEMPT_LIMIT)
+
+    for _ in range(EXEMPT_LIMIT + 1):
+        response = await pipeline.execute(_PipelineRequest(EXEMPT_IP))
+    rep.check(
+        "exempt_allowed",
+        "py:py",
+        f"exempt client exceeds the limit "
+        f"({EXEMPT_LIMIT + 1} drives) with only normal responses",
+        response is None,
+        f"last_status={getattr(response, 'status_code', None)}",
+    )
+
+    exempt_count = await bucket_count(redis, EXEMPT_IP)
+    rep.check(
+        "exempt_no_state",
+        "py:py",
+        "exempt traffic leaves the shared rate bucket empty",
+        exempt_count == 0,
+        f"zcard={exempt_count}",
+    )
+
+    black_request = _PipelineRequest(EXEMPT_BLACK_IP)
+    response = await pipeline.execute(black_request)
+    rep.check(
+        "blacklist_precedence",
+        "py:py",
+        "blacklisted exempt IP is denied 403 and carries no exempt flag",
+        response is not None
+        and response.status_code == 403
+        and getattr(black_request.state, "is_exempt", None) is False,
+        f"status={getattr(response, 'status_code', None)}",
+    )
+    black_count = await bucket_count(redis, EXEMPT_BLACK_IP)
+    rep.check(
+        "blacklist_no_state",
+        "py:py",
+        "the blacklisted exempt IP never reaches the rate limiter",
+        black_count == 0,
+        f"zcard={black_count}",
+    )
+
+    for _ in range(EXEMPT_LIMIT):
+        response = await pipeline.execute(_PipelineRequest(EXEMPT_NORMAL_IP))
+    rep.check(
+        "non_exempt_write",
+        "py:py",
+        f"non-exempt client passes exactly {EXEMPT_LIMIT} drives under the limit",
+        response is None,
+        f"last_status={getattr(response, 'status_code', None)}",
+    )
+    normal_count = await bucket_count(redis, EXEMPT_NORMAL_IP)
+    rep.check(
+        "non_exempt_write_count",
+        "py:py",
+        f"non-exempt shared bucket holds exactly {EXEMPT_LIMIT} hits",
+        normal_count == EXEMPT_LIMIT,
+        f"zcard={normal_count}",
+    )
+    rep.artifacts["exempt_n_after_py"] = str(normal_count)
+    rep.artifacts["exempt_limit"] = str(EXEMPT_LIMIT)
+
+
+async def phase_py_exempt_verify(
+    rep: Reporter, redis: RedisManager, redis_host: str, incoming: dict[str, Any]
+) -> None:
+    await ip_ban_manager.initialize_redis(redis)
+
+    normal_count = await bucket_count(redis, EXEMPT_NORMAL_IP)
+    expected = int(incoming.get("exempt_n_after_php", "-1"))
+    rep.check(
+        "rate_continuity",
+        "py+go+php:py",
+        "non-exempt shared bucket holds the php-pinned count",
+        normal_count == expected,
+        f"zcard={normal_count} expected={expected}",
+    )
+
+    pipeline = await build_exempt_pipeline(redis, redis_host, normal_count)
+    response = await pipeline.execute(_PipelineRequest(EXEMPT_NORMAL_IP))
+    rep.check(
+        "rate_blocked_crossing",
+        "py+go+php:py",
+        f"non-exempt client is blocked 429 at the shared crossing "
+        f"(limit {normal_count})",
+        response is not None and response.status_code == 429,
+        f"status={getattr(response, 'status_code', None)}",
+    )
+    crossed = await bucket_count(redis, EXEMPT_NORMAL_IP)
+    rep.check(
+        "rate_blocked_crossing",
+        "py+go+php:py",
+        "the blocked crossing hit pins the shared count exactly",
+        crossed == normal_count + 1,
+        f"zcard={crossed}",
+    )
+
+    exempt_pipeline = await build_exempt_pipeline(redis, redis_host, EXEMPT_LIMIT)
+    exempt_request = _PipelineRequest(EXEMPT_IP)
+    response = await exempt_pipeline.execute(exempt_request)
+    rep.check(
+        "exempt_allowed",
+        "py+go+php:py",
+        "exempt client still receives a normal response after all writers",
+        response is None and getattr(exempt_request.state, "is_exempt", None) is True,
+        f"status={getattr(response, 'status_code', None)}",
+    )
+    exempt_count = await bucket_count(redis, EXEMPT_IP)
+    rep.check(
+        "exempt_no_state",
+        "py+go+php:py",
+        "no participant ever wrote the exempt bucket",
+        exempt_count == 0,
+        f"zcard={exempt_count}",
+    )
+
+    black_request = _PipelineRequest(EXEMPT_BLACK_IP)
+    response = await exempt_pipeline.execute(black_request)
+    rep.check(
+        "blacklist_precedence",
+        "py+go+php:py",
+        "blacklist still beats exemption after all writers",
+        response is not None
+        and response.status_code == 403
+        and getattr(black_request.state, "is_exempt", None) is False,
+        f"status={getattr(response, 'status_code', None)}",
+    )
+    black_count = await bucket_count(redis, EXEMPT_BLACK_IP)
+    rep.check(
+        "blacklist_no_state",
+        "py+go+php:py",
+        "the blacklisted exempt bucket stays empty across all participants",
+        black_count == 0,
+        f"zcard={black_count}",
+    )
 
 
 async def phase_py_verify(
@@ -431,6 +685,10 @@ async def run() -> int:
         await phase_py_write(rep, redis, redis_host)
     elif phase == "py_verify":
         await phase_py_verify(rep, redis, redis_host, incoming)
+    elif phase == "py_exempt_write":
+        await phase_py_exempt_write(rep, redis, redis_host, incoming)
+    elif phase == "py_exempt_verify":
+        await phase_py_exempt_verify(rep, redis, redis_host, incoming)
     else:
         raise SystemExit(f"py_participant does not serve phase {phase!r}")
     write_report(rep)
