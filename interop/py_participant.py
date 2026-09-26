@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from guard_core.core.checks.factory import build_default_pipeline
-from guard_core.protocols.response_protocol import GuardResponse
 from guard_core.handlers.cloud_handler import CloudManager
 from guard_core.handlers.cloud_ip_stores import RedisCloudIpStore
 from guard_core.handlers.ipban_handler import IPBanManager, ip_ban_manager
@@ -18,6 +17,7 @@ from guard_core.handlers.ratelimit_handler import (
 )
 from guard_core.handlers.redis_handler import RedisManager
 from guard_core.models import SecurityConfig
+from guard_core.protocols.response_protocol import GuardResponse
 
 PREFIX = "guard_core_interop:"
 RATE_WINDOW = 120
