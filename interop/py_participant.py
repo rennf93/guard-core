@@ -267,16 +267,28 @@ class _ExemptMiddleware:
         self.logger = logging.getLogger("interop.py.exempt")
         self.rate_limit_handler = rate_limit_handler
         self.suspicious_request_counts: dict[str, dict[str, int]] = {}
+        self.last_cloud_ip_refresh = 0
         self.agent_handler = None
         self.geo_ip_handler = None
         self.event_bus = _StubEventBus()
         self.route_resolver = _StubRouteResolver()
         self.guard_decorator = _StubDecorator()
 
+    @property
+    def response_factory(self) -> None:
+        return None
+
+    @property
+    def guard_response_factory(self) -> None:
+        return None
+
     async def create_error_response(
         self, status_code: int, default_message: str
     ) -> _StubResponse:
         return _StubResponse(status_code, default_message)
+
+    async def refresh_cloud_ip_ranges(self) -> None:
+        return None
 
 
 class _PipelineRequest:
